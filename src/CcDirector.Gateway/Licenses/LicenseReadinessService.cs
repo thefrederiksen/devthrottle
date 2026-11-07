@@ -32,12 +32,13 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 ///    <see cref="LicenseSignInReasons.AutomaticSpare"/> or <see cref="LicenseSignInReasons.AutomaticRenewal"/>, so the
 ///    Licenses log says it was automatic. That service refuses a second sign-in while one is open for the same machine
 ///    and account, and this check relies on it;
-/// 3. raises the 80% warning (<see cref="LicenseCannotSwitchAlarm"/>): a machine on an account at or above 80% of either
-///    window that is ready for no account with room, while one has room; and closes the retired kinds. Each kind is
-///    reconciled independently so a failure cannot stop the other kinds from closing;
+/// 3. raises the cannot-switch warning (<see cref="LicenseCannotSwitchAlarm"/>): a machine on an account at or above 80% of
+///    either window, or forecast to reach the threshold within 12 hours, that is ready for no account with room, while one
+///    has room - told again every hour until it is fixed; and closes the retired kinds. Each kind is reconciled
+///    independently so a failure cannot stop the other kinds from closing;
 /// 4. raises the stranded-machine alarm (<see cref="LicenseStrandedAlarm"/>): the same fault on a tired account, that
-///    this check is not already repairing. The 80% warning stands down for every machine whose stranded alarm is open,
-///    so one machine has one alert at a time.
+///    this check is not already repairing - red, and told again every hour until it is fixed. The 80% warning stands down
+///    for every machine whose stranded alarm is open, so one machine has one alert at a time.
 ///
 /// The Licenses page reads <see cref="Judge"/>, the same function on the same facts.
 ///
@@ -91,15 +92,25 @@ public sealed class LicenseReadinessService
     // stranded alarm, so a Director's answer landing between two reads cannot make the two disagree.
     private IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture,
         IReadOnlyList<Data.Entities.LicenseSwitchLogEntity> openSignIns, DateTime nowUtc)
+        => Judge(tenant, picture, openSignIns, RunsOut(tenant, picture, nowUtc), nowUtc);
+
+    private IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture,
+        IReadOnlyList<Data.Entities.LicenseSwitchLogEntity> openSignIns, Func<string, DateTime?> runsOut, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        // A stale forecast says nothing about when the account runs out, so it gives no time.
+        return LicenseReadinessFold.Judge(picture, openSignIns, _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
+            account => _approverWhyNot(tenant, account), directorId => _isConnected(tenant, directorId), runsOut, nowUtc);
+    }
+
+    // For an account in use: when the forecast expects it to reach the threshold, or null. A stale forecast says nothing
+    // about when the account runs out, so it gives no time. Read once per check: the readiness judgement and the
+    // cannot-switch warning's forecast trigger read the same answer.
+    private Func<string, DateTime?> RunsOut(TenantId tenant, LicensePicture picture, DateTime nowUtc)
+    {
         var runsOut = LicenseForecaster.Forecast(picture.Snapshot, _history.Read(tenant, nowUtc)).Accounts
             .Where(a => !a.IsStale && a.ExpectedTiredAtUtc is not null)
             .ToDictionary(a => LicenseStore.NormalizeEmail(a.AccountEmail), a => a.ExpectedTiredAtUtc, StringComparer.Ordinal);
-        return LicenseReadinessFold.Judge(picture, openSignIns, _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
-            account => _approverWhyNot(tenant, account), directorId => _isConnected(tenant, directorId),
-            account => runsOut.TryGetValue(LicenseStore.NormalizeEmail(account), out var at) ? at : null, nowUtc);
+        return account => runsOut.TryGetValue(LicenseStore.NormalizeEmail(account), out var at) ? at : null;
     }
 
     /// <summary>
@@ -115,12 +126,13 @@ public sealed class LicenseReadinessService
         var now = _nowUtc();
         var picture = _snapshots.ReadPicture(tenant, now, NoExhaustions);
         var openSignIns = _log.ListOpen(tenant);
-        var judged = Judge(tenant, picture, openSignIns, now);
+        var runsOut = RunsOut(tenant, picture, now);
+        var judged = Judge(tenant, picture, openSignIns, runsOut, now);
         var open = _alarms.ListOpen(tenant);
         var told = open.Where(a => a.Kind == LicenseStrandedAlarm.Kind.Key || a.Kind == LicenseCannotSwitchAlarm.Kind.Key)
             .Select(a => a.MachineId)
             .Concat(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open)
-                .Concat(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open))
+                .Concat(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open, runsOut))
                 .Select(c => c.MachineId ?? Guid.Empty))
             .Where(id => id != Guid.Empty)
             .ToHashSet();
@@ -187,7 +199,8 @@ public sealed class LicenseReadinessService
             var now = _nowUtc();
             var picture = _snapshots.ReadPicture(tenant, now, NoExhaustions);
             var openSignIns = _log.ListOpen(tenant);
-            var judged = Judge(tenant, picture, openSignIns, now);
+            var runsOut = RunsOut(tenant, picture, now);
+            var judged = Judge(tenant, picture, openSignIns, runsOut, now);
 
             var started = new List<LicenseSignInStart>();
             foreach (var gap in judged.Where(j => j.Fix == LicenseReadinessFixes.StartNow))
@@ -214,7 +227,7 @@ public sealed class LicenseReadinessService
             // A machine whose stranded alarm is open is that alarm's alone: the 80% warning stands down for it.
             var strandedNow = LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
                 openSignIns, open);
-            var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open);
+            var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open, runsOut);
             var alarms = await RaiseKindAsync(tenant, LicenseCannotSwitchAlarm.Kind,
                 LicenseStrandedAlarm.StandDown(warnings, strandedNow), failures, ct).ConfigureAwait(false);
             // No room is status on the Licenses page. Emptying the retired kind closes its stored rows.

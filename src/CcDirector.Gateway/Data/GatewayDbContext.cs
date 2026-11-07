@@ -1851,6 +1851,8 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Problem).HasMaxLength(400);
             b.Property(e => e.Action).HasMaxLength(400);
             b.Property(e => e.EmailState).HasMaxLength(32);
+            b.Property(e => e.Subject).HasMaxLength(200);
+            b.Property(e => e.Tone).HasMaxLength(16).HasDefaultValue("warning");
             b.HasIndex(e => new { e.TenantId, e.ClosedAtUtc });
         });
 

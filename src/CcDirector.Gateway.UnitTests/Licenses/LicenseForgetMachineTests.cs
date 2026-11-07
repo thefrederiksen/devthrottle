@@ -302,7 +302,7 @@ public sealed class LicenseForgetMachineTests : IDisposable
         var alarms = new LicenseAlarmService(_db,
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
             (_, _, _) => Task.CompletedTask,
-            () => _now);
+            () => _now, NeverNight);
         return (new LicenseMachineHealthAlarm(_store, new LicenseReadModel(_store), alarms, () => _now), alarms);
     }
 

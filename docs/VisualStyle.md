@@ -79,6 +79,8 @@ Design reference for CC Director's dark-theme UI, inspired by VS Code. Use this 
 | Mission outline text (`MissionOutlineText`) | `#A5B4FC` | The Mission button's text in the outline look (a Mission with no document yet) |
 | No-mission yellow (`MissionWarningBrush`) | `#EAB308` | The Mission button's "No mission" warning. Deliberately yellow, not the warning amber above: the owner asked for yellow |
 | No-mission text (`MissionWarningText`) | `#1E1E1E` | Dark text on the no-mission yellow |
+| License warning yellow | `#EAB308` | The license banner across the top of the Director window while the Gateway's tone is `warning`, with `#1E1E1E` text. The owner: "a warning should be yellow, not red" |
+| License critical red | `#B91C1C` | The same banner when the Gateway's tone is `critical` (a machine stuck above the switching threshold), with `#FFFFFF` text |
 
 ### Text Hierarchy
 

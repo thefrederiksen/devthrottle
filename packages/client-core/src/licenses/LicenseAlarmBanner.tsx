@@ -3,9 +3,14 @@ import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import { getLicenseAlarms, type LicenseAlarms } from "./licensesClient";
 
-// THE LICENSE ALARM BANNER (License Switching phase 6): one red banner, mounted once in each shell - the Cockpit's frame
-// and the phone app's - so it is on every page while a license alarm is open, and gone the moment none is. A problem
-// with licenses is meant to be LOUD and to STAY until it is fixed; a banner on one page only would be a window to catch.
+// THE LICENSE ALARM BANNER (License Switching phase 6): one banner, mounted once in each shell - the Cockpit's frame and
+// the phone app's - so it is on every page while a license alarm is open, and gone the moment none is. A problem with
+// licenses is meant to be LOUD and to STAY until it is fixed; a banner on one page only would be a window to catch.
+//
+// ITS COLOUR IS THE GATEWAY'S (mission "Licenses - Always Ready, Loud When Not", step 2). The owner, 6 November 2026: "a
+// warning should be yellow, not red. It doesn't go red until it goes above 97%." The answer's `tone` - "warning" or
+// "critical" - is set on the banner as `data-tone` and a class; each shell's sheet colours it. Nothing here compares a
+// number with a threshold.
 //
 // THE CLIENT IS DUMB (CLAUDE.md rule 7). Every word is the Gateway's (GET /gateway/licenses/alarms, folded by
 // LicenseAlarmFold): one summary line and the link's words. Full sentences belong on the Licenses page. This decides
@@ -49,7 +54,7 @@ export interface LicenseAlarmBannerProps {
   onOpen?: () => void;
 }
 
-/** The red banner, in the Gateway's words, or nothing when no alarm is open. */
+/** The banner, in the Gateway's words and tone, or nothing when no alarm is open. */
 export function LicenseAlarmBanner({ enabled, href, onOpen }: LicenseAlarmBannerProps) {
   const alarms = useLicenseAlarms(enabled);
   return <LicenseAlarmBannerView alarms={alarms} href={href} onOpen={onOpen} />;
@@ -72,7 +77,12 @@ export function LicenseAlarmBannerView({
     onOpen();
   };
   return (
-    <div className="license-alarm-banner" role="alert" data-testid="license-alarm-banner">
+    <div
+      className={alarms.tone === null ? "license-alarm-banner" : `license-alarm-banner license-alarm-banner--${alarms.tone}`}
+      role="alert"
+      data-testid="license-alarm-banner"
+      data-tone={alarms.tone ?? undefined}
+    >
       {/* error-report-exempt: shows the Gateway's own open license alarms and the words it folded (rule 7) - a problem with the owner's licenses, not a failure in this client */}
       <span className="license-alarm-banner-summary" data-testid="license-alarm-summary">
         {alarms.summary}

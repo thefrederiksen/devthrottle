@@ -36,7 +36,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
     public LicenseAlarmServiceTests()
     {
         _db = _harness.Open();
-        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now, NeverNight);
     }
 
     public void Dispose() => _harness.Dispose();
@@ -462,7 +462,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
     {
         await OpenThenClose(TimeSpan.FromMinutes(15));
         _now += TimeSpan.FromMinutes(20);
-        var restarted = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        var restarted = new LicenseAlarmService(_db, Mail, Push, () => _now, NeverNight);
 
         var raised = await restarted.RaiseAsync(One, NotReady, new[] { OnMachineA() }, CancellationToken.None);
 
@@ -500,7 +500,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
         _now += TimeSpan.FromMinutes(20);
         await Raise(One, NotReady, OnMachineA());
 
-        var restarted = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        var restarted = new LicenseAlarmService(_db, Mail, Push, () => _now, NeverNight);
         var open = restarted.ListOpen(One);
         Assert.Equal(3, restarted.TimesInARow(One, open)[Assert.Single(open).Id]);
 

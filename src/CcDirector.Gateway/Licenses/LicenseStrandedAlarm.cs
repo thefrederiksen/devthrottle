@@ -8,8 +8,9 @@ namespace CcDirector.Gateway.Licenses;
 /// an account with room and left the other two where they were, with a row in the log and nothing else, because some
 /// account had room and so it was not the no-room event. This is the alarm for that case: one for each machine
 /// <see cref="LicenseDecisionEngine.StrandedMachines"/> names, raised through <see cref="LicenseAlarmService"/> by the
-/// readiness check, so it opens with one email, one push and one banner line, stays open quietly, and closes by itself.
-/// The alarm row is its state, so a Gateway that restarts finds it open and sends nothing again.
+/// readiness check, so it opens with one email, one push and one red banner line, is told again every hour while it
+/// stays open (the owner, 6 November 2026: "repeat until fixed"), and closes by itself. The alarm row is its state,
+/// including when the owner was last told, so a Gateway that restarts finds it open and does not tell the owner early.
 ///
 /// THE NAME. The kind is "stranded-on-full-account", never "cannot-switch": that word is already taken by
 /// <see cref="LicenseLogKinds.CannotSwitch"/> (contract section 12.1), where a Director reports that it cannot RUN a
@@ -39,9 +40,9 @@ namespace CcDirector.Gateway.Licenses;
 /// ONE MACHINE, ONE FAULT, ONE LINE (the same ruling, and its second form). From the threshold up this alarm owns the
 /// machine once it is OPEN: the 80% warning (<see cref="LicenseCannotSwitchAlarm"/>, the same rule at 80%) stands down
 /// for every machine whose stranded alarm is open (<see cref="StandDown"/>), and for no other. A warning already open
-/// while the stranded alarm is held back for a repair keeps its line. So at 80% of either window the owner hears once,
-/// and at 97% the warning's line closes as this one opens - the "again" of the owner's decision D1 - never two lines
-/// at once. Neither opens while the Gateway's own repair runs, and a repair is bounded, so a stuck machine is loud.
+/// while the stranded alarm is held back for a repair keeps its line. So from 80% of either window the owner hears the
+/// yellow warning every hour, and at 97% the warning's line closes as this one opens, red, and is told every hour in its
+/// turn - never two lines at once. Neither opens while the Gateway's own repair runs, and a repair is bounded, so a stuck machine is loud.
 ///
 /// Only the stranded machine is loud. An account near or at its limit with every machine on it ready raises nothing
 /// (the ruling of 17 October 2026, issue #4249).
@@ -49,7 +50,8 @@ namespace CcDirector.Gateway.Licenses;
 public static class LicenseStrandedAlarm
 {
     /// <summary>The kind every stranded machine's alarm is raised under.</summary>
-    public static readonly LicenseAlarmKind Kind = new("stranded-on-full-account", "Stuck on a full account");
+    public static readonly LicenseAlarmKind Kind = new("stranded-on-full-account", "Stuck on a full account",
+        repeatsHourly: true, tone: LicenseAlarmTones.Critical);
 
     /// <summary>
     /// True when the Gateway is repairing the machine itself now, so the alarm holds back: a sign-in starts on this check,
@@ -94,19 +96,28 @@ public static class LicenseStrandedAlarm
     public static IReadOnlyList<LicenseAlarmCondition> Conditions(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
         IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
         IReadOnlyList<LicenseAlarmEntity> openAlarms)
-        => ConditionsAt(snapshot, machines, judged, openSignIns, openAlarms, Kind, LicenseDecisionEngine.ThresholdPercent, Problem);
+        => ConditionsAt(snapshot, machines, judged, openSignIns, openAlarms, Kind, LicenseDecisionEngine.ThresholdPercent,
+            NoForecast, TimeSpan.Zero, (label, stranded, _) => Problem(label, stranded));
+
+    private static DateTime? NoForecast(string account) => null;
 
     /// <summary>
-    /// The rule of <see cref="Conditions"/> at any use level, shared with the 80% warning
+    /// The rule of <see cref="Conditions"/> at any use level, shared with the cannot-switch warning
     /// (<see cref="LicenseCannotSwitchAlarm"/>) so the two cannot drift: the machines
     /// <see cref="LicenseDecisionEngine.MachinesThatCannotSwitch"/> names at <paramref name="atPercent"/>, each with the
     /// readiness check's own action, and each open alarm of <paramref name="kind"/> that cannot be judged now. A machine
     /// the Gateway is repairing (<see cref="IsRepairing"/>) opens nothing at either level; an alarm already open stays.
+    /// The conditions of a cannot-switch kind: every machine <see cref="LicenseDecisionEngine.MachinesThatCannotSwitch"/>
+    /// names at <paramref name="atPercent"/>, and - when <paramref name="forecastWithin"/> is more than zero - every machine
+    /// that cannot switch off an account the forecast expects to reach the threshold within it
+    /// (<paramref name="expectedAtLimit"/>), whatever its use now. Each condition carries its email subject - the machine
+    /// and the hours left (<see cref="Subject"/>) - and whether it is pushed at night (<see cref="PastNightPercent"/>).
     /// </summary>
     internal static IReadOnlyList<LicenseAlarmCondition> ConditionsAt(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
         IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
         IReadOnlyList<LicenseAlarmEntity> openAlarms, LicenseAlarmKind kind, double atPercent,
-        Func<string, LicenseStrandedMachine, string> problem)
+        Func<string, DateTime?> expectedAtLimit, TimeSpan forecastWithin,
+        Func<string, LicenseStrandedMachine, DateTime?, string> problem)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(machines);
@@ -114,9 +125,10 @@ public static class LicenseStrandedAlarm
         ArgumentNullException.ThrowIfNull(openSignIns);
         ArgumentNullException.ThrowIfNull(openAlarms);
         ArgumentNullException.ThrowIfNull(kind);
+        ArgumentNullException.ThrowIfNull(expectedAtLimit);
         ArgumentNullException.ThrowIfNull(problem);
         var conditions = new List<LicenseAlarmCondition>();
-        foreach (var stranded in LicenseDecisionEngine.MachinesThatCannotSwitch(snapshot, atPercent))
+        foreach (var stranded in CannotSwitch(snapshot, atPercent, expectedAtLimit, forecastWithin))
         {
             var machine = machines.Single(m => SameMachine(m, stranded.MachineName, stranded.OsUser));
             // Covered later by a spare it holds (back before its account is forecast to run out): not stranded, nothing to
@@ -140,7 +152,9 @@ public static class LicenseStrandedAlarm
                 ? Unanswered(label, Running(judgement, openSignIns)
                                     ?? throw new InvalidOperationException("A machine that is signing in has no open sign-in row."))
                 : judgement.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
-            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, problem(label, stranded), action));
+            var atLimit = expectedAtLimit(stranded.AccountEmail);
+            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, problem(label, stranded, atLimit), action,
+                Subject(label, snapshot, stranded.AccountEmail, atLimit), PastNightPercent(snapshot, stranded.AccountEmail)));
         }
 
         foreach (var open in openAlarms.Where(a => a.Kind == kind.Key && a.ClosedAtUtc is null))
@@ -149,15 +163,80 @@ public static class LicenseStrandedAlarm
                 continue;
             if (machines.FirstOrDefault(m => m.MachineId == open.MachineId) is not { } machine)
                 continue; // the machine is gone from the picture: forgotten, so nothing is stranded on it
-            if (StaysOpenUnjudged(snapshot, machine, open.AccountEmail, atPercent))
-                conditions.Add(new LicenseAlarmCondition(open.MachineId, open.MachineName, open.AccountEmail, open.Problem, open.Action));
+            if (StaysOpenUnjudged(snapshot, machine, open.AccountEmail, atPercent, expectedAtLimit, forecastWithin))
+                conditions.Add(new LicenseAlarmCondition(open.MachineId, open.MachineName, open.AccountEmail, open.Problem, open.Action,
+                    Subject(open.MachineName, snapshot, open.AccountEmail, expectedAtLimit(open.AccountEmail)),
+                    PastNightPercent(snapshot, open.AccountEmail)));
         }
         return conditions;
     }
 
-    // An open alarm whose machine is still on the account, on an account still at the level as far as is known, that
-    // cannot be judged afresh now. Anything else is a fact that ends it.
-    private static bool StaysOpenUnjudged(LicenseSnapshot snapshot, LicenseMachineView machine, string account, double atPercent)
+    // The machines that cannot switch at the level, then those the forecast adds, each machine and account once.
+    private static IReadOnlyList<LicenseStrandedMachine> CannotSwitch(LicenseSnapshot snapshot, double atPercent,
+        Func<string, DateTime?> expectedAtLimit, TimeSpan forecastWithin)
+    {
+        var atLevel = LicenseDecisionEngine.MachinesThatCannotSwitch(snapshot, atPercent).ToList();
+        if (forecastWithin <= TimeSpan.Zero)
+            return atLevel;
+        var soon = LicenseDecisionEngine.MachinesThatCannotSwitch(snapshot, 0)
+            .Where(m => ExpectedWithin(snapshot, m.AccountEmail, expectedAtLimit, forecastWithin))
+            .Where(m => !atLevel.Any(a => a.AccountEmail == m.AccountEmail && SameMachine(a, m)))
+            .ToList();
+        return atLevel.Concat(soon).ToList();
+    }
+
+    private static bool SameMachine(LicenseStrandedMachine a, LicenseStrandedMachine b)
+        => string.Equals(a.MachineName.Trim(), b.MachineName.Trim(), StringComparison.OrdinalIgnoreCase)
+           && string.Equals(a.OsUser.Trim(), b.OsUser.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    // The forecast expects the account to reach the threshold within the window (and has not passed it yet).
+    private static bool ExpectedWithin(LicenseSnapshot snapshot, string account, Func<string, DateTime?> expectedAtLimit, TimeSpan within)
+        => within > TimeSpan.Zero && expectedAtLimit(account) is { } at && at > snapshot.NowUtc && at - snapshot.NowUtc < within;
+
+    /// <summary>The use above which a cannot-switch alarm is pushed during the owner's night: 90% (the owner, 6 November
+    /// 2026: "also at night once the account is past 90%").</summary>
+    public const double LoudAtNightAbovePercent = 90.0;
+
+    /// <summary>True when either window of <paramref name="account"/>'s reading is past <see cref="LoudAtNightAbovePercent"/>.</summary>
+    internal static bool PastNightPercent(LicenseSnapshot snapshot, string account)
+    {
+        var reading = snapshot.Accounts.FirstOrDefault(r => LicenseStore.NormalizeEmail(r.AccountEmail) == LicenseStore.NormalizeEmail(account));
+        return reading is not null && new[] { reading.FiveHour, reading.SevenDay }
+            .Any(w => w is not null && w.Utilization > LoudAtNightAbovePercent);
+    }
+
+    /// <summary>
+    /// The owner email's subject for a machine that cannot switch, naming the machine and the hours left (the owner,
+    /// 6 November 2026: "an email whose SUBJECT names the machine and the hours left"): "machine-a cannot switch - at its
+    /// limit" when a window is at the threshold, "machine-a cannot switch - about 9 hours to its limit" from the forecast,
+    /// and "machine-a cannot switch - at 85%" (the fuller window) when there is no fresh forecast, as after a restart
+    /// before the forecaster has history. Only an account with no reading at all gives "machine-a cannot switch".
+    /// </summary>
+    internal static string Subject(string label, LicenseSnapshot snapshot, string account, DateTime? expectedAtLimit)
+    {
+        var reading = snapshot.Accounts.FirstOrDefault(r => LicenseStore.NormalizeEmail(r.AccountEmail) == LicenseStore.NormalizeEmail(account));
+        var atLimit = reading is not null && new[] { reading.FiveHour, reading.SevenDay }
+            .Any(w => w is not null && LicenseDecisionEngine.IsTired(w, snapshot.NowUtc));
+        if (atLimit)
+            return $"{label} cannot switch - at its limit";
+        if (expectedAtLimit is { } at && at > snapshot.NowUtc)
+        {
+            var hours = Math.Max(1, (int)Math.Round((at - snapshot.NowUtc).TotalHours, MidpointRounding.AwayFromZero));
+            return $"{label} cannot switch - about {hours} hour{(hours == 1 ? "" : "s")} to its limit";
+        }
+        var fullest = reading is null
+            ? null
+            : new[] { reading.FiveHour, reading.SevenDay }.Where(w => w is not null).Select(w => (double?)w!.Utilization).Max();
+        return fullest is { } used
+            ? $"{label} cannot switch - at {LicenseDecisionEngine.Percent(used)}"
+            : $"{label} cannot switch";
+    }
+
+    // An open alarm whose machine is still on the account, on an account still at the level (or still forecast to reach
+    // the threshold within the window) as far as is known, that cannot be judged afresh now. Anything else is a fact that
+    // ends it.
+    private static bool StaysOpenUnjudged(LicenseSnapshot snapshot, LicenseMachineView machine, string account, double atPercent,
+        Func<string, DateTime?> expectedAtLimit, TimeSpan forecastWithin)
     {
         var now = snapshot.NowUtc;
         var state = snapshot.Machines.FirstOrDefault(m => SameMachine(machine, m.MachineName, m.OsUser));
@@ -167,7 +246,8 @@ public static class LicenseStrandedAlarm
         if (reading is null)
             return false;
         var stillTired = new[] { reading.FiveHour, reading.SevenDay }
-            .Any(w => w is not null && LicenseDecisionEngine.IsAtOrAbove(w, now, atPercent));
+                             .Any(w => w is not null && LicenseDecisionEngine.IsAtOrAbove(w, now, atPercent))
+                         || ExpectedWithin(snapshot, account, expectedAtLimit, forecastWithin);
         if (!stillTired)
             return false; // the account reset, or a fresh reading shows it under the threshold
         if (LicenseDecisionEngine.IsReadingStale(reading, now))

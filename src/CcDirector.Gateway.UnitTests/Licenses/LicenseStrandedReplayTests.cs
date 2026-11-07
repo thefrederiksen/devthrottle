@@ -117,7 +117,7 @@ public sealed class LicenseStrandedReplayTests : IDisposable
         _signIns = new LicenseSignInService(_signInLog, _reads, _directors.IsConnected, _directors.SendAsync, _directors.EnterScope,
             () => _now, CancellationToken.None);
         _approvers = new LicenseApproverStore(new TenantSettingsStore(_db));
-        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now, LicenseTestData.NeverNight);
     }
 
     public void Dispose()

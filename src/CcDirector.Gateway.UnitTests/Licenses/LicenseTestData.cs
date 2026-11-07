@@ -11,6 +11,9 @@ internal static class LicenseTestData
 
     public static readonly DateTime T0 = new(2026, 10, 11, 3, 12, 0, DateTimeKind.Utc);
 
+    /// <summary>The owner's night never falls, for an alarm service whose test is not about the night.</summary>
+    public static bool NeverNight(CcDirector.Core.Tenancy.TenantId tenant, DateTime utc) => false;
+
     public static LicenseHolding Holding(string email, bool active, double fiveHour = 10, double sevenDay = 20, DateTime? readAt = null,
         string? readError = null)
         => new()

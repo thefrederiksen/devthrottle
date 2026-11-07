@@ -119,6 +119,19 @@ public sealed class CockpitAuthServingTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
     }
 
+    // The Director's license banner asks for the Licenses page (mission "Licenses - Always Ready, Loud When Not", step 2).
+    // Only that one page is named; anything else, or a page with a session, is refused rather than answered with the
+    // front door.
+    [Theory]
+    [InlineData("/cockpit?page=licenses", HttpStatusCode.OK)]
+    [InlineData("/cockpit?page=settings", HttpStatusCode.BadRequest)]
+    [InlineData("/cockpit?page=licenses&sessionId=2d0955fe-ed31-40c1-a519-72676b4499c5", HttpStatusCode.BadRequest)]
+    public async Task Cockpit_json_api_page_names_only_the_licenses_page(string path, HttpStatusCode expected)
+    {
+        using var res = await _http.GetAsync(path);
+        Assert.Equal(expected, res.StatusCode);
+    }
+
     [Fact]
     public async Task Cockpit_browser_navigation_with_the_cookie_passes_the_gate()
     {

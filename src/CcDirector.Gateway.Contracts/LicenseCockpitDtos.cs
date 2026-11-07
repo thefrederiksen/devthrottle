@@ -1078,6 +1078,11 @@ public sealed class LicenseAlarmsResponse
     /// <summary>The words of the banner's link to the Licenses page; null when no alarm is open.</summary>
     public string? LinkText { get; set; }
 
+    /// <summary>The banner's colour, the Gateway's verdict: <c>warning</c> (yellow) while every open alarm is a warning,
+    /// <c>critical</c> (red) when one is critical - a machine stuck above the switching threshold. Null when no alarm is
+    /// open. Every screen draws the banner in this tone and decides nothing.</summary>
+    public string? Tone { get; set; }
+
     /// <summary>The open alarms, oldest first.</summary>
     public List<LicenseAlarmDto> Alarms { get; set; } = new();
 }
@@ -1101,4 +1106,7 @@ public sealed class LicenseAlarmDto
     public string Text { get; set; } = "";
 
     public DateTime OpenedAtUtc { get; set; }
+
+    /// <summary><c>warning</c> (yellow) or <c>critical</c> (red), the tone of its kind.</summary>
+    public string Tone { get; set; } = "";
 }

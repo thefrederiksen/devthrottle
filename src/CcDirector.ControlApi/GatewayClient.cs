@@ -28,7 +28,7 @@ namespace CcDirector.ControlApi;
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
 /// </summary>
-public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, Triggers.IFactoryCheckSource, CcDirector.Core.Rules.ISessionRuleGateway, IDisposable
+public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourLegend, IGatewayLinkRequests, IGatewayLicenseAlarms, Triggers.ITriggerGateway, Triggers.IFactoryCheckSource, CcDirector.Core.Rules.ISessionRuleGateway, IDisposable
 {
     /// <summary>How often the heartbeat fires.</summary>
     public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
@@ -1463,6 +1463,25 @@ public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourL
 
         FileLog.Write($"[GatewayClient] GetSessionColourLegendAsync: {legend.Entries.Count} colour(s)");
         return legend;
+    }
+
+    /// <summary>
+    /// Read the license alarms open now (<c>GET /gateway/licenses/alarms</c>, mission "Licenses - Always Ready, Loud When
+    /// Not", step 2): the banner's finished words and tone, the same answer the Cockpit and the phone draw. Null when no
+    /// Gateway is configured; throws when the read fails, so the desktop's cache keeps its last answer and says why.
+    /// </summary>
+    public async Task<LicenseAlarmsResponse?> GetLicenseAlarmsAsync(CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled) return null;
+
+        using var resp = await _http.GetAsync(LicenseRoutes.Alarms.TrimStart('/'), ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, "the license alarms", ct);
+
+        var answer = await resp.Content.ReadFromJsonAsync<LicenseAlarmsResponse>(ct)
+                     ?? throw new InvalidOperationException("The Gateway returned no license alarms answer.");
+        FileLog.Write($"[GatewayClient] GetLicenseAlarmsAsync: {answer.Count} open, tone={answer.Tone ?? "none"}");
+        return answer;
     }
 
     /// <summary>

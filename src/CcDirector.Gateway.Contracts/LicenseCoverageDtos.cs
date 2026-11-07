@@ -24,8 +24,12 @@ public static class LicenseCoverageCellStates
 /// <summary>The numbers the coverage grid is judged by.</summary>
 public static class LicenseCoverageRules
 {
-    /// <summary>A sign-in that ends within this of now is a gap: it is held, and it is ending.</summary>
-    public static readonly TimeSpan EndingWithin = TimeSpan.FromDays(7);
+    /// <summary>
+    /// A sign-in that ends within this of now is a gap: it is held, and it is ending. Shorter than the 7 days ahead at
+    /// which renewal starts (the Delivery Lead's ruling, 7 November 2026), so a sign-in that renewal is still working on
+    /// is not shown yellow; at 5 days, a gap means two daily renewals have already failed.
+    /// </summary>
+    public static readonly TimeSpan EndingWithin = TimeSpan.FromDays(5);
 }
 
 /// <summary>

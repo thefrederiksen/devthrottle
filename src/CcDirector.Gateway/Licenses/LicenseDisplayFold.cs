@@ -563,7 +563,7 @@ public static partial class LicenseDisplayFold
     }
 
     // The open refusals of machines that have no machine row: none of their reports was ever accepted.
-    private static List<LicenseSwitchLogEntity> RefusedWithNoMachine(LicensePicture picture)
+    internal static List<LicenseSwitchLogEntity> RefusedWithNoMachine(LicensePicture picture)
         => picture.MachineHealth
             .Where(r => r.Kind == LicenseLogKinds.ReportRefused
                         && !picture.Overview.Machines.Any(m => LicenseStore.IsRefusalOf(r, m.MachineName, m.OsUser, m.DirectorId)))
@@ -1019,6 +1019,7 @@ public static partial class LicenseDisplayFold
             LicenseRenewalFailureLog.Kind => "Renewal failing",
             LicenseLogKinds.AlarmOpened => "Alarm opened",
             LicenseLogKinds.AlarmClosed => "Alarm closed",
+            LicenseLogKinds.AlarmRepeated => "Alarm repeated",
             LicenseLogKinds.ReportRefused => ReportRefusedText,
             LicenseLogKinds.ReportAccepted => "Reports accepted",
             LicenseLogKinds.MachineSilent => "Not reporting",

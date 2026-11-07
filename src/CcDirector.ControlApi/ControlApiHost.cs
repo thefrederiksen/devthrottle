@@ -152,6 +152,18 @@ public sealed class ControlApiHost : IAsyncDisposable
     public LinkRequestsCache LinkRequests { get; }
 
     /// <summary>
+    /// The seam the desktop reads the license alarms open now through (mission "Licenses - Always Ready, Loud When Not",
+    /// step 2). Backed by the live <see cref="GatewayClient"/>; null while no Gateway is configured.
+    /// </summary>
+    public IGatewayLicenseAlarms? GatewayLicenseAlarms => _gatewayClient;
+
+    /// <summary>
+    /// The desktop's last-known license banner: the Gateway's words and tone, which the bar across the top of the window
+    /// draws. Read on connect and every 30 seconds while connected, the Cockpit banner's cadence.
+    /// </summary>
+    public LicenseAlarmsCache LicenseAlarms { get; }
+
+    /// <summary>
     /// End a session through the Gateway's one stop route (mission "Stop a session", Ruling 5). The
     /// Director window's Stop control calls this; so do the command line, the Cockpit and the phone, by
     /// their own routes to the same place. The Gateway records the reason, has the owning Director end
@@ -431,6 +443,9 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         LinkRequests = new LinkRequestsCache(() => GatewayLinkRequests);
         LinkRequests.AttachTo(GatewayMonitor);
+
+        LicenseAlarms = new LicenseAlarmsCache(() => GatewayLicenseAlarms);
+        LicenseAlarms.AttachTo(GatewayMonitor);
 
         // The injected text is Gateway-owned too (Cockpit -> Injected text): download it when the
         // Gateway connection goes green so a session launched later injects the user's current choice
@@ -2266,6 +2281,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         LinkRequests.Dispose();
+        LicenseAlarms.Dispose();
         await StopAsync();
     }
 }

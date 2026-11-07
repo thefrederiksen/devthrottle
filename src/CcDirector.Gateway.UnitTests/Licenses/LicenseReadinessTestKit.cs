@@ -23,7 +23,7 @@ internal static class LicenseReadinessTestKit
         var approvers = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(db)), reads, isConnected, nowUtc);
         var alarms = new LicenseAlarmService(db,
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
-            (_, _, _) => Task.CompletedTask, nowUtc);
+            (_, _, _) => Task.CompletedTask, nowUtc, LicenseTestData.NeverNight);
         return new LicenseReadinessService(store, new LicenseSnapshotSource(store, reads), log, signIns, approvers.WhyNotReady,
             isConnected, alarms, new LicenseUsageHistory(), nowUtc);
     }

@@ -3057,6 +3057,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("LastToldAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("MachineId")
                         .HasColumnType("TEXT");
 
@@ -3073,10 +3076,21 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Subject")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("tenant_id");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("warning");
 
                     b.HasKey("Id");
 

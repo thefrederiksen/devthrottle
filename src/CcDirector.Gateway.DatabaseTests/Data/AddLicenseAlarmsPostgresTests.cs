@@ -112,7 +112,7 @@ public sealed class AddLicenseAlarmsPostgresTests
                     pushes += opened.Count;
                     return Task.CompletedTask;
                 },
-                () => now);
+                () => now, (_, _) => false);
             // A kind the service still raises. This test first used "not-ready-at-80", which pull request 4528 retired:
             // a retired kind raises nothing, so the list of open alarms came back empty.
             var kind = LicenseCannotSwitchAlarm.Kind;

@@ -3162,6 +3162,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(64)")
                         .UseCollation("C");
 
+                    b.Property<DateTime?>("LastToldAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("MachineId")
                         .HasColumnType("uuid");
 
@@ -3178,10 +3181,21 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<string>("Subject")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("tenant_id");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("warning");
 
                     b.HasKey("Id");
 

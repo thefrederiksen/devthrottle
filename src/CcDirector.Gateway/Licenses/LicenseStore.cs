@@ -36,6 +36,10 @@ public static class LicenseLogKinds
     /// written.</summary>
     public const string AlarmClosed = "alarm-closed";
 
+    /// <summary>An open alarm of a kind that repeats told the owner again, an hour after the last time
+    /// (<see cref="LicenseAlarmService.RepeatEvery"/>).</summary>
+    public const string AlarmRepeated = "alarm-repeated";
+
     /// <summary>A machine whose reports the Gateway refuses for what they say (<see cref="LicenseReportRefusal"/>). One
     /// row for each run of the same refusal, open while it lasts: written by the first refused report, kept by every
     /// one after it (<c>SendCount</c> and <c>LastSentAtUtc</c>), ended by a report with another refusal - which opens

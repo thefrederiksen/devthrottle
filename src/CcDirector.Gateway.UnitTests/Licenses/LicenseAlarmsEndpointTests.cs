@@ -29,7 +29,7 @@ public sealed class LicenseAlarmsEndpointTests : IDisposable
     {
         _alarms = new LicenseAlarmService(_harness.Open(),
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
-            (_, _, _) => Task.CompletedTask, () => _now);
+            (_, _, _) => Task.CompletedTask, () => _now, NeverNight);
     }
 
     public void Dispose() => _harness.Dispose();

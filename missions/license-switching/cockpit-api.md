@@ -200,7 +200,7 @@ that decides "gap"; the page draws every `text` in its `tone` and decides nothin
 | `gapCount` | How many cells are gaps. |
 | `accounts` | The columns, in account email order: `accountEmail`, `planText`. |
 | `rows` | One per machine, in the overview's machine order: `machine` (a machine reference), `activeAccountEmail`, `text`, `tone`, `gapCount`, and `cells` - one per column, in the same order. |
-| a cell | `accountEmail`, `state`, `text`, `tone`, `isGap`. `state` is `in-use` ("In use"), `held` ("Held"), `ending` ("Ends in 2 days 5 hours", or "Sign-in has ended" - within 7 days), `not-held` ("Not held") or `refused` ("Sign-in refused"). Every state but `in-use` and `held` is a gap. |
+| a cell | `accountEmail`, `state`, `text`, `tone`, `isGap`. `state` is `in-use` ("In use"), `held` ("Held"), `ending` ("Ends in 2 days 5 hours", or "Sign-in has ended" - within 5 days, inside the 7 at which renewal starts), `not-held` ("Not held") or `refused` ("Sign-in refused"). Every state but `in-use` and `held` is a gap. |
 
 **Colour** (the owner, verbatim): "I think a warning should be yellow, not red. It doesn't go red until it goes above
 97%." A gap is `warning`. A cell is `bad` only when its machine is on an account at or above the switching threshold,
@@ -3037,15 +3037,18 @@ its own pull request.
 
 ## 8. `GET /gateway/licenses/alarms` - the license alarms open now (phase 6)
 
-The red banner on every Cockpit page and on the phone. The shell shows `summary` when it is not null, then every
-alarm's `text` in order, then `linkText` as the link to the Licenses page - and nothing at all when `count` is 0. Every
-word is the Gateway's (`LicenseAlarmFold`); the client decides nothing. A read only: a session key may read it, and no
+The banner on every Cockpit page, on the phone and across the top of the Director window. The shell shows `summary`
+when it is not null, then every alarm's `text` in order, then `linkText` as the link to the Licenses page - and nothing
+at all when `count` is 0. It is drawn in `tone`: `warning` (yellow) while every open alarm is a warning, `critical` (red)
+when one is - a machine stuck above the switching threshold - and null when none is open; each alarm carries its own
+`tone` too (mission "Licenses - Always Ready, Loud When Not", step 2). Every word and the tone are the Gateway's
+(`LicenseAlarmFold`); the client decides nothing. A read only: a session key may read it, and no
 route raises or clears an alarm (contract section 9).
 
 No alarm open:
 
 ```
-{ "asOfUtc": "2026-10-17T08:00:00Z", "count": 0, "summary": null, "linkText": null, "alarms": [] }
+{ "asOfUtc": "2026-10-17T08:00:00Z", "count": 0, "summary": null, "linkText": null, "tone": null, "alarms": [] }
 ```
 
 Two open:
@@ -3056,6 +3059,7 @@ Two open:
   "count": 2,
   "summary": "2 license problems need you.",
   "linkText": "Open Licenses",
+  "tone": "warning",
   "alarms": [
     {
       "alarmId": "0123456789abcdef0123456789abcdef",
@@ -3063,7 +3067,8 @@ Two open:
       "machineName": "machine-a",
       "accountEmail": "alice@example.com",
       "text": "machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.",
-      "openedAtUtc": "2026-10-17T07:58:00Z"
+      "openedAtUtc": "2026-10-17T07:58:00Z",
+      "tone": "warning"
     },
     {
       "alarmId": "fedcba9876543210fedcba9876543210",
@@ -3071,7 +3076,8 @@ Two open:
       "machineName": "machine-b",
       "accountEmail": null,
       "text": "machine-b has not reported for 20 minutes. Check that the Director on machine-b is running.",
-      "openedAtUtc": "2026-10-17T07:59:00Z"
+      "openedAtUtc": "2026-10-17T07:59:00Z",
+      "tone": "warning"
     }
   ]
 }

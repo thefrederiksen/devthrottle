@@ -15,6 +15,9 @@ namespace CcDirector.Gateway.Licenses;
 public sealed record LicenseCoverageCell(string AccountEmail, string State, DateTime? SignInExpiresAtUtc, bool IsGap, bool IsCritical);
 
 /// <summary>One machine's row of the coverage grid (<see cref="LicenseCoverageFold.Judge"/>).</summary>
+/// <param name="MachineId">The identifier of its row on the Licenses page (<see cref="LicenseMachineDto.MachineId"/>): its
+/// database identifier, or for a Director whose reports were only ever refused, <see cref="LicenseDisplayFold.RefusedMachineId"/>.</param>
+/// <param name="LastReportAtUtc">When its last report was accepted; null when none ever was.</param>
 /// <param name="Label">What the machine is called (<see cref="LicenseSignInFold.Label"/>).</param>
 /// <param name="ActiveAccountEmail">The account it is on, lower-cased; null when on none.</param>
 /// <param name="IsStale">Its last report is older than <see cref="LicenseContract.MachineStaleAfter"/>.</param>
@@ -23,7 +26,7 @@ public sealed record LicenseCoverageCell(string AccountEmail, string State, Date
 /// ready for none of them: the engine's own verdict (<see cref="LicenseDecisionEngine.StrandedMachines"/>); else null.</param>
 /// <param name="Cells">One per paid account, in <see cref="LicenseCoverage.Accounts"/> order.</param>
 public sealed record LicenseCoverageRow(
-    Guid MachineId,
+    string MachineId,
     string MachineName,
     string OsUser,
     string DirectorId,
@@ -31,7 +34,7 @@ public sealed record LicenseCoverageRow(
     string? ActiveAccountEmail,
     bool IsStale,
     bool ReportsRefused,
-    DateTime LastReportAtUtc,
+    DateTime? LastReportAtUtc,
     LicenseStrandedMachine? Stranded,
     IReadOnlyList<LicenseCoverageCell> Cells)
 {
@@ -104,9 +107,19 @@ public static class LicenseCoverageFold
                 ? new HashSet<string>(StringComparer.Ordinal)
                 : LicenseDecisionEngine.TargetsWithRoom(snapshot, stuck.AccountEmail).ToHashSet(StringComparer.Ordinal);
             var cells = paid.Select(p => Cell(state, active, p.AccountEmail, withRoom, now)).ToList();
-            rows.Add(new LicenseCoverageRow(machine.MachineId, machine.MachineName, machine.OsUser, machine.DirectorId,
+            rows.Add(new LicenseCoverageRow(machine.MachineId.ToString("N"), machine.MachineName, machine.OsUser, machine.DirectorId,
                 LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser), active,
                 LicenseDecisionEngine.IsMachineStale(state, now), state.ReportsRefused, Utc(machine.LastReportAtUtc), stuck, cells));
+        }
+        // A Director whose reports were only ever refused has no machine row, and the Licenses page shows it from its
+        // refusal. It is a row here too: what it holds is not known, so nothing can be switched to on it - a gap in every
+        // column, whatever the machine.
+        foreach (var refusal in LicenseDisplayFold.RefusedWithNoMachine(picture))
+        {
+            var shown = LicenseDisplayFold.RefusedMachine(refusal, now);
+            rows.Add(new LicenseCoverageRow(shown.MachineId, shown.MachineName, shown.OsUser, refusal.DirectorId ?? "", shown.Label,
+                null, IsStale: true, ReportsRefused: true, LastReportAtUtc: null, Stranded: null,
+                paid.Select(p => new LicenseCoverageCell(p.AccountEmail, LicenseCoverageCellStates.NotHeld, null, true, false)).ToList()));
         }
         return new LicenseCoverage(now, paid, rows);
     }
@@ -128,6 +141,40 @@ public static class LicenseCoverageFold
         var gap = cellState != LicenseCoverageCellStates.Held;
         return new LicenseCoverageCell(account, cellState, readiness.SignInExpiresAtUtc, gap, gap && withRoom.Contains(account));
     }
+
+    // ----- the quiet daily line -----
+
+    /// <summary>
+    /// The quiet daily line of the gaps (mission step 2, the owner: "As soon as any machine is missing a sign-in it would
+    /// need, at any usage level, as a quiet daily line."): the heading and one sentence per machine with a gap, or null when
+    /// the grid has none. The loud warning is <see cref="LicenseCannotSwitchAlarm"/>; this is only a line.
+    /// </summary>
+    public static LicenseCoverageGapsAttentionDto? DailyLine(LicenseCoverage coverage)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        var gappy = coverage.Rows.Where(r => r.HasGap).ToList();
+        if (gappy.Count == 0)
+            return null;
+        var now = coverage.NowUtc;
+        var machines = gappy.Select(r => r.ReportsRefused
+            ? $"{r.Label}: its reports are being refused, so what it holds is not known"
+            : $"{r.Label}: {string.Join("; ", r.Gaps.Select(c => GapWords(c, now)))}");
+        return new LicenseCoverageGapsAttentionDto
+        {
+            Title = $"{Count(coverage.GapCount, "missing sign-in")} on {Count(gappy.Count, "machine")}",
+            Text = string.Join(". ", machines) + ". Sign them in from the Licenses page before a machine needs to switch.",
+        };
+    }
+
+    private static string GapWords(LicenseCoverageCell cell, DateTime now) => cell.State switch
+    {
+        LicenseCoverageCellStates.NotHeld => $"no sign-in for {cell.AccountEmail}",
+        LicenseCoverageCellStates.Refused => $"the sign-in for {cell.AccountEmail} was refused",
+        LicenseCoverageCellStates.Ending => cell.SignInExpiresAtUtc is { } ends && ends > now
+            ? $"the sign-in for {cell.AccountEmail} ends in {LicenseDisplayFold.Span(ends - now)}"
+            : $"the sign-in for {cell.AccountEmail} has ended",
+        _ => throw new InvalidOperationException($"A coverage cell that is not a gap was worded as one: {cell.State}"),
+    };
 
     // ----- the words -----
 
@@ -185,7 +232,7 @@ public static class LicenseCoverageFold
         {
             Machine = new LicenseMachineRefDto
             {
-                MachineId = row.MachineId.ToString("N"),
+                MachineId = row.MachineId,
                 MachineName = row.MachineName,
                 OsUser = row.OsUser,
                 Label = row.Label,
@@ -205,9 +252,9 @@ public static class LicenseCoverageFold
             sentences.Add($"Cannot switch: {stuck.AccountEmail} is at {stuck.Tired}, and it holds no fresh sign-in for an account with room.");
         if (row.ReportsRefused)
             sentences.Add($"Its reports are being refused, so what it holds now is not known and it cannot be switched.");
-        else if (row.IsStale)
-            sentences.Add($"Not reporting since {Clock(row.LastReportAtUtc)}, so it cannot be switched until it reports again; the cells show its last report.");
-        if (row.Stranded is null && row.HasGap)
+        else if (row.IsStale && row.LastReportAtUtc is { } last)
+            sentences.Add($"Not reporting since {Clock(last)}, so it cannot be switched until it reports again; the cells show its last report.");
+        if (row.Stranded is null && row.HasGap && !row.ReportsRefused)
             sentences.Add($"Missing a fresh sign-in for {Count(row.Gaps.Count, "paid account")}.");
         if (sentences.Count == 0)
             return (row.Cells.Count == 0 ? NoPaidAccountsText : "Could switch to any paid account now.", row.Cells.Count == 0 ? LicenseTones.Neutral : LicenseTones.Good);

@@ -116,15 +116,16 @@ vi.mock("@devthrottle/client-core/maildesk/mailDeskClient", () => ({
   }),
 }));
 
-// The license alarms open now (License Switching phase 6): the shell's red banner shows the Gateway's answer verbatim.
+// The license alarms open now (License Switching phase 6): the shell's banner shows the Gateway's answer verbatim.
 // Unstaged, no alarm is open, so a test about something else sees the shell it always saw.
 const alarmRead = vi.hoisted(() => ({
-  answer: { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [] } as {
+  answer: { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [], tone: null } as {
     asOfUtc: string;
     count: number;
     summary: string | null;
     linkText: string | null;
-    alarms: { alarmId: string; kind: string; machineName: string | null; accountEmail: string | null; text: string; openedAtUtc: string }[];
+    tone: "warning" | "critical" | null;
+    alarms: { alarmId: string; kind: string; machineName: string | null; accountEmail: string | null; text: string; openedAtUtc: string; tone: "warning" | "critical" }[];
   },
 }));
 vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
@@ -890,7 +891,7 @@ describe("Cockpit demo mode", () => {
 // THE LICENSE ALARM BANNER (License Switching phase 6) is in the frame, so it is on every page of the whole app. Its
 // words are the Gateway's, shown exactly as sent; with no alarm open there is no banner at all.
 describe("Cockpit license alarm banner", () => {
-  const NONE = { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [] };
+  const NONE: typeof alarmRead.answer = { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [], tone: null };
   const alarm = (alarmId: string, text: string) => ({
     alarmId,
     kind: "not-ready-at-80",
@@ -898,6 +899,7 @@ describe("Cockpit license alarm banner", () => {
     accountEmail: "alice@example.com",
     text,
     openedAtUtc: "2026-10-17T07:58:00Z",
+    tone: "warning" as const,
   });
 
   beforeEach(() => {
@@ -922,7 +924,7 @@ describe("Cockpit license alarm banner", () => {
 
   it("shows only the summary and link in the Gateway's own words", async () => {
     const line = "machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.";
-    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)] };
+    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)], tone: "warning" };
     render(
       <MemoryRouter initialEntries={["/history"]}>
         <AppShell />
@@ -960,7 +962,7 @@ describe("Cockpit license alarm banner", () => {
     myTeams.answer = { kind: "teams", teams: [collaboratorTeam], start: { where: "own-account" } };
     window.localStorage.setItem(currentTeamStorageKey(), collaboratorTeam.id);
     const line = "machine-a is not ready. Add a spare to machine-a.";
-    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)] };
+    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)], tone: "warning" };
     render(
       <MemoryRouter initialEntries={["/questions"]}>
         <AppShell />
@@ -973,6 +975,20 @@ describe("Cockpit license alarm banner", () => {
     expect(within(banner).queryByText(line)).toBeNull();
   });
 
+  // The colour is the Gateway's verdict: yellow for a warning, red only for a machine stuck above the threshold.
+  it.each([["warning"], ["critical"]] as const)("draws the banner in the Gateway's tone: %s", async (tone) => {
+    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", "A problem. Do this.")], tone };
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const banner = await screen.findByTestId("license-alarm-banner");
+    expect(banner.getAttribute("data-tone")).toBe(tone);
+    expect(banner.classList.contains(`license-alarm-banner--${tone}`)).toBe(true);
+  });
+
   it("keeps several alarms to one summary line and leaves details off the frame", async () => {
     alarmRead.answer = {
       ...NONE,
@@ -980,6 +996,7 @@ describe("Cockpit license alarm banner", () => {
       summary: "2 license problems",
       linkText: "Open Licenses",
       alarms: [alarm("a1", "First problem. First thing to do."), alarm("a2", "Second problem. Second thing to do.")],
+      tone: "warning",
     };
     render(
       <MemoryRouter initialEntries={["/directors"]}>

@@ -237,6 +237,28 @@ public class GatewayPublicUrlTests
         });
     }
 
+    // ---- the Cockpit's Licenses page (the Director's license banner opens it) ----------------------
+
+    [Fact]
+    public void ResolveCockpitLicenses_Hosted_IsTheBasePlusLicenses()
+    {
+        WithPublicBase(PublicBase, () =>
+            Assert.Equal(PublicBase + "/licenses", GatewayPublicUrl.ResolveCockpitLicenses(hosted: true)));
+    }
+
+    [Fact]
+    public void ResolveCockpitLicenses_SelfHostWithFrontDoor_IsTheFrontDoorPlusLicenses()
+    {
+        WithPublicBase(null, () => Assert.Equal("https://machine-a.tail0123.ts.net/licenses",
+            GatewayPublicUrl.ResolveCockpitLicenses(hosted: false, () => "https://machine-a.tail0123.ts.net")));
+    }
+
+    [Fact]
+    public void ResolveCockpitLicenses_SelfHostTailscaleDown_IsNull()
+    {
+        WithPublicBase(null, () => Assert.Null(GatewayPublicUrl.ResolveCockpitLicenses(hosted: false, () => null)));
+    }
+
     [Fact]
     public void ResolveCockpitSession_IdNeedingEncoding_IsEncodedIntoTheSegment()
     {

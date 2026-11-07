@@ -48,6 +48,15 @@ public static class GatewayPublicUrl
     public const string SessionPathPrefix = "/session";
 
     /// <summary>
+    /// The Cockpit's Licenses page, under the base. A sibling of <see cref="CockpitPath"/> for the same reason as the
+    /// session screen: the Cockpit is served at the site root.
+    /// </summary>
+    public const string LicensesPath = "/licenses";
+
+    /// <summary>The one value of <c>GET /cockpit?page=</c> that asks for <see cref="LicensesPath"/>.</summary>
+    public const string LicensesPage = "licenses";
+
+    /// <summary>
     /// Resolve the full public URL for the Cockpit surface (<c>{base}/cockpit</c>) against the live
     /// environment: the configured public base in hosted mode, the tailnet front door otherwise.
     /// </summary>
@@ -83,6 +92,19 @@ public static class GatewayPublicUrl
     /// it did not ask for.</exception>
     public static string? ResolveCockpitSession(bool hosted, string sessionId)
         => ResolveCockpitSession(hosted, sessionId, TailscaleIdentity.TryGetFrontDoorBaseUrl);
+
+    /// <summary>
+    /// Resolve the full public URL of the Cockpit's Licenses page (<c>{base}/licenses</c>) against the live environment
+    /// (mission "Licenses - Always Ready, Loud When Not", step 2): the Director's license banner opens it verbatim, so the
+    /// desktop composes no address. Same base rule as <see cref="ResolveCockpit(bool)"/>; null when self-hosted with
+    /// Tailscale down.
+    /// </summary>
+    public static string? ResolveCockpitLicenses(bool hosted)
+        => ResolveCockpitLicenses(hosted, TailscaleIdentity.TryGetFrontDoorBaseUrl);
+
+    /// <summary>Licenses page resolver with the self-host front-door source injected, for tests.</summary>
+    internal static string? ResolveCockpitLicenses(bool hosted, Func<string?> frontDoorProvider)
+        => Resolve(hosted, LicensesPath, frontDoorProvider);
 
     /// <summary>
     /// Session-screen resolver with the self-host front-door source injected, so the self-host branch can

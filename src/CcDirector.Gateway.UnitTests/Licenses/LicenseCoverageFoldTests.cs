@@ -101,6 +101,37 @@ public sealed class LicenseCoverageFoldTests : IDisposable
         }
     }
 
+    // The review of pull request 4707, finding b: on a stranded machine only the gap for an account WITH room is red - the
+    // one sign-in that would let it switch. A gap for an account at its own limit stays yellow.
+    [Fact]
+    public void Judge_StrandedMachine_AGapForAnAccountWithNoRoom_StaysYellow()
+    {
+        Apply(Report("m1", Holding(A, true, fiveHour: 98)));
+        Apply(Report("m2", Holding(B, true, fiveHour: 5, sevenDay: 5), Holding(C, false, fiveHour: 99)));
+
+        var grid = Grid(T0);
+
+        Assert.Equal(LicenseTones.Bad, Cell(grid, "m1", B).Tone);
+        Assert.Equal((LicenseCoverageCellStates.NotHeld, LicenseTones.Warning), (Cell(grid, "m1", C).State, Cell(grid, "m1", C).Tone));
+    }
+
+    // Finding b: a STALE machine on an account at 97% is not stranded - what it holds now is not known, and it cannot be
+    // sent a switch - so its gaps stay yellow and its row says it is not reporting.
+    [Fact]
+    public void Judge_AStaleMachineAt97_StaysYellow()
+    {
+        Apply(Report("m1", Holding(A, true, fiveHour: 97)), at: T0);
+        Apply(Report("m2", T0.AddMinutes(20), Holding(B, true, fiveHour: 5, sevenDay: 5, readAt: T0.AddMinutes(20))), at: T0.AddMinutes(20));
+
+        var grid = Grid(T0.AddMinutes(21));
+
+        var row = grid.Rows.Single(r => r.Machine.MachineName == "m1");
+        Assert.Equal(LicenseTones.Warning, row.Tone);
+        Assert.StartsWith("Not reporting since", row.Text);
+        Assert.Equal(LicenseTones.Warning, Cell(grid, "m1", B).Tone);
+        Assert.NotEqual(LicenseTones.Bad, grid.Tone);
+    }
+
     [Fact]
     public void Judge_AnAccountWithNoPaidPlan_IsNotAColumn_SoNotHoldingItIsNoGap()
     {
@@ -129,10 +160,13 @@ public sealed class LicenseCoverageFoldTests : IDisposable
         Assert.Equal(("m1 is not reporting, so it cannot be switched.", LicenseTones.Warning), (grid.Text, grid.Tone));
     }
 
+    // Five days, inside the seven at which renewal starts: a sign-in renewal is still working on is held, not a gap.
     [Theory]
     [InlineData(3, LicenseCoverageCellStates.Ending, "Ends in 3 days")]
+    [InlineData(4, LicenseCoverageCellStates.Ending, "Ends in 4 days")]
+    [InlineData(6, LicenseCoverageCellStates.Held, "Held")]
     [InlineData(8, LicenseCoverageCellStates.Held, "Held")]
-    public void Judge_ASignInEndingWithinSevenDays_IsAGap(int days, string state, string text)
+    public void Judge_ASignInEndingWithinFiveDays_IsAGap(int days, string state, string text)
     {
         Apply(Report("m1", Holding(A, true), Ending(Holding(B, false), T0.AddDays(days))));
         Apply(Report("m2", Holding(B, true), Holding(A, false)));

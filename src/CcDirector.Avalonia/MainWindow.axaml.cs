@@ -927,6 +927,11 @@ public partial class MainWindow : Window
         // header. The list is read off this thread every 20 seconds; this window stamps every row when it changes.
         host.LinkRequests.Changed += () => Dispatcher.UIThread.Post(ApplyLinkRequests);
 
+        // The license banner (mission "Licenses - Always Ready, Loud When Not", step 2): read off this thread every 30
+        // seconds; this window draws the Gateway's words and tone when they change.
+        host.LicenseAlarms.Changed += () => Dispatcher.UIThread.Post(ApplyLicenseAlarms);
+        ApplyLicenseAlarms();
+
         host.ColourLegend.Changed += () => Dispatcher.UIThread.Post(() =>
         {
             try
@@ -3565,9 +3570,14 @@ public partial class MainWindow : Window
     /// twenty times against a gateway that is still down should not be twenty stack frames deep by the end.
     /// </summary>
     /// <param name="sessionId">The session whose Cockpit screen to open, or null for the front door.</param>
-    private async Task OpenCockpitWithFeedbackAsync(string? sessionId)
+    private Task OpenCockpitWithFeedbackAsync(string? sessionId)
+        => OpenCockpitWithFeedbackAsync(baseUrl => BuildCockpitInfoRequestUrl(baseUrl, sessionId));
+
+    /// <summary>Open the Cockpit page the Gateway hands back for <paramref name="requestUrl"/>, offering Retry on a
+    /// failure.</summary>
+    private async Task OpenCockpitWithFeedbackAsync(Func<string, string> requestUrl)
     {
-        while (await TryOpenCockpitOnceAsync(sessionId))
+        while (await TryOpenCockpitOnceAsync(requestUrl))
         {
             FileLog.Write("[MainWindow] BtnCockpit_Click: user chose Retry");
         }
@@ -3575,10 +3585,10 @@ public partial class MainWindow : Window
 
     /// <summary>One attempt, plus the dialog for each way it can fail. Returns true when the user asked to
     /// retry.</summary>
-    private async Task<bool> TryOpenCockpitOnceAsync(string? sessionId)
+    private async Task<bool> TryOpenCockpitOnceAsync(Func<string, string> buildRequestUrl)
     {
         var baseUrl = CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load());
-        var requestUrl = BuildCockpitInfoRequestUrl(baseUrl, sessionId);
+        var requestUrl = buildRequestUrl(baseUrl);
         FileLog.Write($"[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, request={requestUrl}");
         try
         {
@@ -3645,6 +3655,11 @@ public partial class MainWindow : Window
         => string.IsNullOrWhiteSpace(sessionId)
             ? baseUrl + "/cockpit"
             : baseUrl + "/cockpit?sessionId=" + Uri.EscapeDataString(sessionId.Trim());
+
+    // The same Gateway request for the Cockpit's Licenses page, which the license banner's link opens. The Gateway resolves
+    // {base}/licenses and hands it back whole; this composes only the address of the Gateway's own route.
+    internal static string BuildCockpitLicensesRequestUrl(string baseUrl)
+        => baseUrl + "/cockpit?page=licenses";
 
     // The whole fetch -> select -> OPEN decision for the Cockpit button, lifted OFF the async-void
     // BtnCockpit_Click handler so no cockpit-URL logic AND no browser-open call are left inside it to
@@ -3774,6 +3789,39 @@ public partial class MainWindow : Window
         {
             FileLog.Write($"[MainWindow] ApplyLinkRequests FAILED: {ex}");
         }
+    }
+
+    /// <summary>
+    /// Draw the license banner from the last answer the Gateway gave (<see cref="LicenseAlarmBarView"/>): its summary, its
+    /// link words and its tone, verbatim. Nothing here decides whether an alarm is serious; the Gateway's tone does.
+    /// </summary>
+    private void ApplyLicenseAlarms()
+    {
+        try
+        {
+            var answer = (global::Avalonia.Application.Current as App)?.ControlApiHost?.LicenseAlarms.Current;
+            var view = LicenseAlarmBarView.From(answer);
+            LicenseAlarmBar.IsVisible = view.IsVisible;
+            LicenseAlarmSummary.Text = view.Summary;
+            LicenseAlarmLinkText.Text = view.LinkText;
+            LicenseAlarmLink.IsVisible = view.LinkText.Length > 0;
+            foreach (var tone in LicenseAlarmBarView.AllTones)
+                LicenseAlarmBar.Classes.Set(tone, tone == view.Tone);
+            FileLog.Write($"[MainWindow] ApplyLicenseAlarms: visible={view.IsVisible}, tone={view.Tone}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ApplyLicenseAlarms FAILED: {ex}");
+        }
+    }
+
+    /// <summary>Open the Cockpit's Licenses page, at the address the Gateway hands back for it.</summary>
+    private async void LicenseAlarmLink_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control button) return;
+        await BusyAction.RunAsync(button, "license banner", "open the Licenses page",
+            () => OpenCockpitWithFeedbackAsync(baseUrl => BuildCockpitLicensesRequestUrl(baseUrl)), "Opening...",
+            owner: this, failureTitle: "Cannot Open Cockpit");
     }
 
     /// <summary>This Director's own name for a session, or null when it is not one of ours.</summary>
