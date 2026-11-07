@@ -1,4 +1,6 @@
 using System.Text.Json;
+using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.DevReports;
 using Xunit;
 
@@ -69,6 +71,26 @@ public sealed class DevReportOwnAnswerTests
 
         Assert.Null(items);
         Assert.Contains(fault, error);
+    }
+
+    // ---- the item the Conversation panel reads back -----------------------------------------------------------------
+
+    [Fact]
+    public void Item_AnOwnAnswer_IsServedWithTheOwnersWords_AndNoOtherAnswerHasTheKey()
+    {
+        var own = DevReportEndpoints.Item(new DevReportItemEntity
+        {
+            ClientItemId = "a1", Kind = DevReportItem.Answer, Text = "Email me after 3 days", QuestionId = "q", Question = "Q",
+            OptionValue = DevReportOwnAnswer.Value, OptionLabel = DevReportOwnAnswer.Label,
+        });
+        var ordinary = DevReportEndpoints.Item(new DevReportItemEntity
+        {
+            ClientItemId = "a2", Kind = DevReportItem.Answer, QuestionId = "q", Question = "Q", OptionValue = "yes", OptionLabel = "Yes",
+        });
+
+        Assert.Equal("Email me after 3 days", own["ownAnswer"]);
+        Assert.Equal("Something else", own["optionLabel"]);
+        Assert.False(ordinary.ContainsKey("ownAnswer"));
     }
 
     // ---- the prompt the session receives -------------------------------------------------------------------------

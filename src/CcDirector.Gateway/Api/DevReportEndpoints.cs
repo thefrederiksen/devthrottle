@@ -469,7 +469,7 @@ internal static class DevReportEndpoints
         replies = store.Replies(tenant, report.Id).Select(Reply).ToList(),
     };
 
-    private static Dictionary<string, object?> Item(DevReportItemEntity row)
+    internal static Dictionary<string, object?> Item(DevReportItemEntity row)
     {
         // The contract's item shape (CONTRACT.md section 3), plus the Gateway's state and times.
         var item = new Dictionary<string, object?> { ["id"] = row.ClientItemId, ["kind"] = row.Kind };
