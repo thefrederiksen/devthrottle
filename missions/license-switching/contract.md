@@ -1438,12 +1438,17 @@ need a new one that becomes available when the one we have will expire soon." Pe
 2. 80% or more and a READY next license held on the machine: no problem. It still switches at 97%.
 3. 80% or more and no READY next license: the cannot-switch warning, yellow, repeating hourly (at night only past 90%),
    naming the recommended license.
-4. At 97% or more and still no READY next license: red (the stranded alarm).
+4. At 97% or more and still no READY next license: red (the stranded alarm). A machine whose switch keeps failing (the
+   automatic switch holds it out) is red too, at 80% or more, whatever it holds: state `switch-failing`, the stranded
+   alarm, counted on the coverage grid and by the daily check.
 5. No other license has room: status on the Licenses page only.
 
 READY: signed in on the machine (fresh, not refused, not ending before a switch could finish) and, at today's weekly
 pace, its room lasts from when the license in use reaches 97% until that license resets; ready licenses are added up,
-best first, and until they last the machine needs one more. RECOMMENDED NEXT: the license with the most room left this
+best first, and until they last the machine needs one more. When only the 5-hour window is at the level the switch can
+come at any moment, so the ready licenses must last from now until that window resets. A spare that is full now but
+resets before the license in use runs out counts as ready (covered later): the warning, the Licenses page and the grid
+read the one verdict. RECOMMENDED NEXT: the license with the most room left this
 week; of two within five points, the one that resets sooner.
 
 Once a day the Gateway (`LicenseFireDrillService`) judges every machine under this rule and writes one `fire-drill` row
@@ -1454,3 +1459,12 @@ and back, its `license_fire_drill_machine` setting and its routes are gone; its 
 empty so stored alarms close. **Due**: when no check has started in the last 24 hours, judged from the rows. A row left
 `open` by a Gateway that stopped is finished `failed` with reason `interrupted` and counts as the day's check. The quiet
 daily line for a license a machine does not hold (`license-coverage-gaps`) is gone.
+
+**The owner's 82% test switch** (`LicenseTestUsage`, tenant setting `license_test_usage_machine`): with it on for a
+machine, the license that machine is on reads as at least 82% of its weekly limit on every read - on EVERY machine on
+that license, since the number belongs to the license, not to the machine - so the yellow warning can be watched on a
+real machine without spending a license. It only raises a number and 82% is under the threshold, so nothing is switched.
+The pace a machine is judged by is always taken from the real readings, never from the raised one. While it is on, the
+Licenses answer carries `isTestUsageOn: true` and `testUsageText`, computed on the Gateway, so an 82% on the page is
+never read as real use. It is turned on and off only by the owner's routes (`cockpit-api.md` section 8); no Cockpit,
+phone or command-line control exists.

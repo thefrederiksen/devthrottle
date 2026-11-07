@@ -42,8 +42,9 @@ public sealed record LicenseCoverageRow(
     LicenseNextLicense? Next,
     IReadOnlyList<LicenseCoverageCell> Cells)
 {
-    /// <summary>True when the machine will be stuck: it needs a ready next license (<see cref="LicenseNextLicense.IsNeeded"/>).</summary>
-    public bool HasGap => Next?.IsNeeded == true;
+    /// <summary>True when the machine will be stuck: it needs a ready next license, or its switch keeps failing
+    /// (<see cref="LicenseNextLicense.IsProblem"/>).</summary>
+    public bool HasGap => Next?.IsProblem == true;
 }
 
 /// <summary>A paid account: a column of the grid.</summary>
@@ -175,18 +176,21 @@ public static class LicenseCoverageFold
         if (coverage.Accounts.Count == 0)
             return (NoPaidAccountsText, LicenseTones.Neutral);
         var stranded = coverage.Rows.Where(r => r.Stranded is not null).ToList();
-        var needing = coverage.Rows.Where(r => r.HasGap && r.Stranded is null).ToList();
+        var needing = coverage.Rows.Where(r => r.Next is { IsNeeded: true } && r.Stranded is null).ToList();
+        var failing = coverage.Rows.Where(r => r.Next?.State == LicenseNextLicenseStates.SwitchFailing).ToList();
         var silent = coverage.Rows.Where(r => r.IsStale || r.ReportsRefused).ToList();
-        if (stranded.Count == 0 && needing.Count == 0 && silent.Count == 0)
+        if (stranded.Count == 0 && needing.Count == 0 && failing.Count == 0 && silent.Count == 0)
             return (FullCoverageText, LicenseTones.Good);
         var parts = new List<string>();
         if (stranded.Count > 0)
             parts.Add($"{Names(stranded)} cannot switch and {(stranded.Count == 1 ? "is" : "are")} at the limit.");
+        if (failing.Count > 0)
+            parts.Add($"{Names(failing)} cannot switch: {(failing.Count == 1 ? "its switch keeps" : "their switches keep")} failing.");
         if (needing.Count > 0)
             parts.Add($"{Names(needing)} {(needing.Count == 1 ? "needs" : "need")} a ready next license.");
         if (silent.Count > 0)
             parts.Add($"{Names(silent)} {(silent.Count == 1 ? "is" : "are")} not reporting, so {(silent.Count == 1 ? "it" : "they")} cannot be switched.");
-        var bad = stranded.Count > 0 || needing.Any(r => r.Next!.AtThreshold);
+        var bad = stranded.Count > 0 || failing.Count > 0 || needing.Any(r => r.Next!.AtThreshold);
         return (string.Join(" ", parts), bad ? LicenseTones.Bad : LicenseTones.Warning);
     }
 
@@ -219,7 +223,7 @@ public static class LicenseCoverageFold
             sentences.Add($"Its reports are being refused, so what it holds now is not known and it cannot be switched.");
         else if (row.IsStale && row.LastReportAtUtc is { } last)
             sentences.Add($"Not reporting since {Clock(last)}, so it cannot be switched until it reports again; the cells show its last report.");
-        if (row.Stranded is null && row.Next is { IsNeeded: true } needed && !row.ReportsRefused)
+        if (row.Stranded is null && row.Next is { IsProblem: true } needed && !row.ReportsRefused)
             sentences.Add(needed.Text);
         if (sentences.Count == 0)
         {
@@ -227,7 +231,8 @@ public static class LicenseCoverageFold
                 return (NoPaidAccountsText, LicenseTones.Neutral);
             return row.Next is { } verdict ? (verdict.Text, verdict.Tone) : (NoLicenseText, LicenseTones.Neutral);
         }
-        var bad = row.Stranded is not null || row.Next is { IsNeeded: true, AtThreshold: true };
+        var bad = row.Stranded is not null || row.Next is { IsNeeded: true, AtThreshold: true }
+                  || row.Next?.State == LicenseNextLicenseStates.SwitchFailing;
         return (string.Join(" ", sentences), bad ? LicenseTones.Bad : LicenseTones.Warning);
     }
 

@@ -3102,14 +3102,16 @@ are gone (the owner, 7 November 2026: he tests the licensing himself).
 - `GET /gateway/licenses/test-usage` answers `{ isOn, machineId, percent, text }`: whether the owner's 82% test switch is
   on, and for which machine.
 - `PUT /gateway/licenses/test-usage` with `{ "machineId": "<the machine's identifier on this page>" }` turns it on: the
-  license that machine is on reads as at least 82% of its weekly limit on every read, so the yellow cannot-switch
-  warning can be watched on a real machine. It only ever raises a number, and 82% is under the threshold, so nothing is
+  license that machine is on reads as at least 82% of its weekly limit on every read, on every machine on that license,
+  so the yellow cannot-switch warning can be watched on a real machine. The pace is taken from the real readings. It only ever raises a number, and 82% is under the threshold, so nothing is
   switched. Refused 400 `invalid_machine` and 409 `unknown_machine`. Answers as the read.
 - `DELETE /gateway/licenses/test-usage` turns it off. Answers as the read.
 
 Each check writes one `fire-drill` row in the log (section 4); it names no machine and switches nothing.
 
 Each machine line of `GET /gateway/licenses` also carries its next-license verdict: `nextLicenseState` (`not-needed`,
-`ready`, `needed`, `no-room`, `not-judged`), `nextLicenseText`, `nextLicenseTone`, and - when `needed` -
+`ready`, `needed`, `switch-failing`, `no-room`, `not-judged`), `nextLicenseText`, `nextLicenseTone`, and - when `needed` -
 `recommendedAccountEmail` and `recommendedSignInAction` (`add-spare` or `renew`). The coverage grid's `gapCount` counts
-machines that will be stuck, never licenses that are not held.
+machines that will be stuck, never licenses that are not held. While the test switch is on, the overview's root
+carries `isTestUsageOn: true` and `testUsageText` (the sentence to show, naming the machine and saying every machine on
+its license reads 82%); off, they are `false` and null. The page shows `testUsageText` as given.

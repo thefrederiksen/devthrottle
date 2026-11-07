@@ -91,6 +91,9 @@ public static partial class LicenseDisplayFold
             Coverage = LicenseCoverageFold.Dto(LicenseCoverageFold.Judge(picture, next)),
         };
         LicenseNextLicenseFold.Apply(response, next);
+        // The owner's test switch: the answer says so, so an 82% on the page is never read as real use.
+        response.IsTestUsageOn = picture.TestUsage is not null;
+        response.TestUsageText = picture.TestUsage is { } test ? LicenseTestUsage.Text(test.MachineId, picture.Overview.Machines) : null;
         FileLog.Write($"[LicenseDisplayFold] Overview: empty={empty}, canSwitchNow={response.Accounts.Count(a => a.CanSwitchNow)}");
         return response;
     }

@@ -30,6 +30,10 @@ public sealed class LicenseTestUsageTests : IDisposable
     private readonly LicenseTestUsage _testUsage;
     private readonly LicenseSnapshotSource _snapshots;
     private readonly DateTime _now = T0;
+    private readonly LicenseReadinessService _readiness;
+    private readonly LicenseAlarmService _alarms;
+    private readonly LicenseSignInService _signIns;
+    private readonly FakeLicenseDirectors _directors = new();
 
     public LicenseTestUsageTests()
     {
@@ -37,10 +41,24 @@ public sealed class LicenseTestUsageTests : IDisposable
         _store = new LicenseStore(db);
         _settings = new TenantSettingsStore(db);
         _testUsage = new LicenseTestUsage(_settings);
-        _snapshots = new LicenseSnapshotSource(_store, new LicenseReadModel(_store), _testUsage.MachineFor);
+        var reads = new LicenseReadModel(_store);
+        _snapshots = new LicenseSnapshotSource(_store, reads, _testUsage.MachineFor);
+        var log = new LicenseSignInLog(db);
+        _signIns = new LicenseSignInService(log, reads, _directors.IsConnected, _directors.SendAsync, _directors.EnterScope,
+            () => _now, CancellationToken.None);
+        _alarms = new LicenseAlarmService(db,
+            (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
+            (_, _, _) => Task.CompletedTask, () => _now, (_, _) => false);
+        // The real minute check, with its own forecast from the readings: the pace a machine is judged by.
+        _readiness = new LicenseReadinessService(_store, _snapshots, log, _signIns, (_, _) => null, _directors.IsConnected, _alarms,
+            new LicenseUsageHistory(), () => _now);
     }
 
-    public void Dispose() => _harness.Dispose();
+    public void Dispose()
+    {
+        _signIns.WhenIdleAsync().GetAwaiter().GetResult();
+        _harness.Dispose();
+    }
 
     private void Reports(string machine, params LicenseHolding[] holdings)
         => _store.ApplyReport(Tenant, "dir-" + machine, 1, Report(machine, _now, holdings), _now, TimeSpan.Zero);
@@ -132,6 +150,59 @@ public sealed class LicenseTestUsageTests : IDisposable
 
         _store.ApplyReport(Tenant, "dir-m1", 2, Report("m1", _now, Holding(A, true, sevenDay: 20), Holding(B, false, sevenDay: 5)), _now, TimeSpan.Zero);
         Assert.Equal(LicenseNextLicenseStates.Ready, NextOf(Picture()).Single(v => v.MachineName == "m1").State);
+    }
+
+    // The review of pull request 4741, finding 3: the switch must not feed the pace it is judged by. Through the real
+    // minute check and its forecast: A really at 20% three days into its week, raised to 82%; m1 holds B at 10%. At the
+    // real pace (20 over 72 hours) B lasts long past A's reset, so m1 is ready and no warning opens. At a pace made from
+    // the raised 82 (82 over 72 hours) B would fill first and the warning would stay "needs one more license".
+    [Fact]
+    public async Task On_ThePaceIsTheRealOne_SoASignedInMachineIsReady_AndNoWarningOpens()
+    {
+        Reports("m1", Holding(A, true, sevenDay: 20), Holding(B, false, sevenDay: 10));
+        Reports("m2", Holding(C, true, sevenDay: 30));
+        _directors.Connect(Tenant, "dir-m1");
+        _directors.Connect(Tenant, "dir-m2");
+        Put(Id("m1").ToString("N"));
+
+        var verdict = _readiness.NextLicenses(Tenant, Picture(), _now).Single(v => v.MachineName == "m1");
+        await _readiness.TickAsync(Tenant, CancellationToken.None);
+
+        Assert.Equal(82.0, Weekly(A));
+        Assert.Equal(LicenseNextLicenseStates.Ready, verdict.State);
+        Assert.DoesNotContain(_alarms.ListOpen(Tenant), a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key);
+    }
+
+    // And the warning the owner watches for: through the minute check, m1 holding nothing opens it at the raised 82%. Its
+    // Director is not connected, so the check cannot start the sign-in itself and stand the warning down while it repairs.
+    [Fact]
+    public async Task On_AMachineWithNoReadyNextLicense_TheMinuteCheckOpensTheYellowWarning()
+    {
+        Reports("m1", Holding(A, true, sevenDay: 20));
+        Reports("m2", Holding(B, true, sevenDay: 5));
+        Put(Id("m1").ToString("N"));
+
+        await _readiness.TickAsync(Tenant, CancellationToken.None);
+
+        var warning = Assert.Single(_alarms.ListOpen(Tenant), a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key);
+        Assert.Equal("m1", warning.MachineName);
+    }
+
+    // Finding 4: the Licenses answer says the switch is on, computed on the Gateway, and that every machine on the license
+    // reads it - so an 82% on the page is never taken for real use.
+    [Fact]
+    public void On_TheLicensesAnswerSaysSo_AndOffItDoesNot()
+    {
+        Reports("m1", Holding(A, true, sevenDay: 20));
+        Assert.Equal((false, (string?)null), (OverviewOf(Picture()).IsTestUsageOn, OverviewOf(Picture()).TestUsageText));
+
+        Put(Id("m1").ToString("N"));
+
+        var on = OverviewOf(Picture());
+        Assert.True(on.IsTestUsageOn);
+        Assert.Contains("on every machine on that license", on.TestUsageText);
+        Delete();
+        Assert.False(OverviewOf(Picture()).IsTestUsageOn);
     }
 
     // ----- the routes -----

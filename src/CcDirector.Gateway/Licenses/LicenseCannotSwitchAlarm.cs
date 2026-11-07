@@ -72,11 +72,10 @@ public static class LicenseCannotSwitchAlarm
         {
             var recommended = verdict.RecommendedAccountEmail
                               ?? throw new InvalidOperationException($"Machine {verdict.MachineId:N} needs a next license and none is recommended.");
+            // "Covered later" is not looked at here: the next-license fold already calls such a machine ready, on the same
+            // facts as the readiness check, so the page, the grid, the daily check and this warning give one verdict.
             var judgement = judged.SingleOrDefault(j => j.MachineId == verdict.MachineId)
                             ?? throw new InvalidOperationException($"Machine {verdict.MachineId:N} needs a next license and has no readiness judgement.");
-            // A spare it holds has room again before the license it is on runs out: it has somewhere to go in time.
-            if (judgement.CoveredLater)
-                continue;
             var isOpen = openAlarms.Any(a => a.Kind == Kind.Key && a.ClosedAtUtc is null && a.MachineId == verdict.MachineId
                                              && a.AccountEmail == verdict.ActiveAccountEmail);
             string action;

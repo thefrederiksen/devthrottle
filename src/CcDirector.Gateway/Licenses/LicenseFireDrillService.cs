@@ -15,7 +15,7 @@ namespace CcDirector.Gateway.Licenses;
 /// IT SWITCHES NOTHING. The earlier drill switched a chosen drill machine out to a spare and back every day; the owner
 /// tests the licensing himself (7 November 2026), so the switch, the drill machine setting and its routes are gone. It
 /// raises no alarm either: a machine that will be stuck is the hourly cannot-switch warning's. The drill's stored alarms
-/// are closed by raising its retired kind empty on every check.
+/// are closed by raising its retired kind empty on each day's check.
 ///
 /// DUE: a check is due when none has started in the last <see cref="Every"/>. The rows are the record, so a Gateway that
 /// restarts neither checks twice in a day nor forgets the day's check. A row left open by a Gateway that stopped is
@@ -92,8 +92,6 @@ public sealed class LicenseFireDrillService
             return null;
         try
         {
-            // The retired drill's alarms close: nothing raises that kind any more.
-            await _alarms.RaiseAsync(tenant, LicenseFireDrillFold.RetiredAlarmKind, Array.Empty<LicenseAlarmCondition>(), ct).ConfigureAwait(false);
             var now = _nowUtc();
             var newest = _log.Newest(tenant, 5);
             // Under this process's mark for the tenant, so an open row here is never a check that is running: it was left
@@ -105,6 +103,8 @@ public sealed class LicenseFireDrillService
             }
             if (newest.Any(r => now - r.CreatedAtUtc < Every))
                 return null;
+            // The retired drill's alarms close, on the day's check rather than every minute: nothing raises that kind any more.
+            await _alarms.RaiseAsync(tenant, LicenseFireDrillFold.RetiredAlarmKind, Array.Empty<LicenseAlarmCondition>(), ct).ConfigureAwait(false);
             return Run(tenant, now);
         }
         finally

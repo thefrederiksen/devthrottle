@@ -100,7 +100,8 @@ public sealed class LicenseReadinessService
     public IReadOnlyList<LicenseNextLicense> NextLicenses(TenantId tenant, LicensePicture picture, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        return LicenseNextLicenseFold.Judge(picture, Outlook(tenant, picture, nowUtc).WeeklyPace);
+        var outlook = Outlook(tenant, picture, nowUtc);
+        return LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace, outlook.RunsOut);
     }
 
     private IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture,
@@ -118,7 +119,8 @@ public sealed class LicenseReadinessService
 
     private ForecastRead Outlook(TenantId tenant, LicensePicture picture, DateTime nowUtc)
     {
-        var forecast = LicenseForecaster.Forecast(picture.Snapshot, _history.Read(tenant, nowUtc));
+        // The real numbers: the owner's test switch never feeds the pace it is judged by.
+        var forecast = LicenseForecaster.Forecast(picture.RealSnapshot, _history.Read(tenant, nowUtc));
         var runsOut = forecast.Accounts
             .Where(a => !a.IsStale && a.ExpectedTiredAtUtc is not null)
             .ToDictionary(a => LicenseStore.NormalizeEmail(a.AccountEmail), a => a.ExpectedTiredAtUtc, StringComparer.Ordinal);
@@ -141,11 +143,11 @@ public sealed class LicenseReadinessService
         var openSignIns = _log.ListOpen(tenant);
         var outlook = Outlook(tenant, picture, now);
         var judged = Judge(tenant, picture, openSignIns, outlook.RunsOut, now);
-        var next = LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace);
+        var next = LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace, outlook.RunsOut);
         var open = _alarms.ListOpen(tenant);
         var told = open.Where(a => a.Kind == LicenseStrandedAlarm.Kind.Key || a.Kind == LicenseCannotSwitchAlarm.Kind.Key)
             .Select(a => a.MachineId)
-            .Concat(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open)
+            .Concat(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open)
                 .Concat(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open, outlook.RunsOut))
                 .Select(c => c.MachineId ?? Guid.Empty))
             .Where(id => id != Guid.Empty)
@@ -215,7 +217,7 @@ public sealed class LicenseReadinessService
             var openSignIns = _log.ListOpen(tenant);
             var outlook = Outlook(tenant, picture, now);
             var judged = Judge(tenant, picture, openSignIns, outlook.RunsOut, now);
-            var next = LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace);
+            var next = LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace, outlook.RunsOut);
 
             var started = new List<LicenseSignInStart>();
             foreach (var gap in judged.Where(j => j.Fix == LicenseReadinessFixes.StartNow))
@@ -241,7 +243,7 @@ public sealed class LicenseReadinessService
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
             // A machine whose stranded alarm is open is that alarm's alone: the 80% warning stands down for it.
             var strandedNow = LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
-                openSignIns, open);
+                next, openSignIns, open);
             var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open,
                 outlook.RunsOut);
             var alarms = await RaiseKindAsync(tenant, LicenseCannotSwitchAlarm.Kind,

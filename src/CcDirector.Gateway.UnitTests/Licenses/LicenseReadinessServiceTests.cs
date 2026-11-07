@@ -199,12 +199,16 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     public void CannotSwitchWarning_At85_LeavesOutAMachineCoveredLater_AndDoesNotThrow()
     {
         var (picture, judged) = JudgeAndPicture(T0.AddDays(5), aWeekly: 85, withC: true);
+        var next = NextWith(picture, T0.AddDays(5));
 
         Assert.True(Assert.Single(judged, j => j.MachineName == MachineA).CoveredLater);
+        // One verdict: the next-license fold calls it ready on the same facts, so the page and the grid agree with the warning.
+        Assert.Equal(LicenseNextLicenseStates.Ready, next.Single(v => v.MachineName == MachineA).State);
+        Assert.Equal(0, LicenseCoverageFold.Judge(picture, next).GapCount);
         var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
-            LicenseTestData.NextOf(picture), _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
+            next, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.DoesNotContain(warnings, c => c.MachineId == judged.Single(j => j.MachineName == MachineA).MachineId);
-        Assert.Empty(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One)));
+        Assert.Empty(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, _log.ListOpen(One), _alarms.ListOpen(One)));
     }
 
     // The control: at 85% with the spare back only after account A runs out, the 80% warning still names machine-a.
@@ -216,8 +220,37 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         var a = Assert.Single(judged, j => j.MachineName == MachineA);
         Assert.False(a.CoveredLater);
         var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
-            LicenseTestData.NextOf(picture), _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
+            NextWith(picture, T0.AddDays(3)), _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.Contains(warnings, c => c.MachineId == a.MachineId);
+    }
+
+    private static IReadOnlyList<LicenseNextLicense> NextWith(LicensePicture picture, DateTime aRunsOutAt)
+        => LicenseNextLicenseFold.Judge(picture, _ => null, account => account == A ? aRunsOutAt : null);
+
+    // The same, through the real service and its own forecast: account A at 85% with its week resetting in four days runs
+    // out in about ten hours at the pace it was used; its one spare, B, is full but resets in five. Covered later: the
+    // readiness check, the next-license verdict the Licenses page and the grid read, and the minute check all say ready,
+    // and no warning opens.
+    [Fact]
+    public async Task CoveredLater_ThroughTheService_IsOneVerdict_AndRaisesNothing()
+    {
+        var a = Holding(A, true, 5, 85, readAt: _now);
+        var spare = Holding(B, false, 5, 98, readAt: _now);
+        spare.SevenDay!.ResetsAtUtc = _now.AddHours(5);
+        _store.ApplyReport(One, DirA, ++_sequence, Report(MachineA, _now, a, spare), _now, TimeSpan.Zero);
+        _store.ApplyReport(One, DirB, ++_sequence,
+            Report(MachineB, _now, Holding(C, true, 5, 10, readAt: _now), Holding(A, false, 5, 85, readAt: _now)), _now, TimeSpan.Zero);
+        _directors.Connect(One, DirA);
+        _directors.Connect(One, DirB);
+
+        var tick = await Tick();
+
+        Assert.True(Assert.Single(tick.Judged, j => j.MachineName == MachineA).CoveredLater);
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var next = Service().NextLicenses(One, picture, _now);
+        Assert.Equal(LicenseNextLicenseStates.Ready, next.Single(v => v.MachineName == MachineA).State);
+        Assert.Equal(0, LicenseCoverageFold.Judge(picture, next).GapCount);
+        Assert.DoesNotContain(_alarms.ListOpen(One), x => x.Kind == LicenseCannotSwitchAlarm.Kind.Key);
     }
 
     // Only two accounts, so no account has room now: covered later still applies, rather than "no account has room".

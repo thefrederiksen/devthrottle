@@ -89,17 +89,21 @@ public static class LicenseStrandedAlarm
     /// <param name="machines">The picture's machines with their ids (<see cref="LicenseOverview.Machines"/>).</param>
     /// <param name="judged">The readiness check's judgement of every machine on this same picture
     /// (<see cref="LicenseReadinessFold.Judge"/>): whether the Gateway is repairing a machine, and the one thing to do.</param>
+    /// <param name="next">Every machine's next-license verdict on the same picture (<see cref="LicenseNextLicenseFold.Judge"/>):
+    /// a machine whose switch keeps failing (<see cref="LicenseNextLicenseStates.SwitchFailing"/>) is rule 4's "or the switch
+    /// failed: red", and is one of these alarms too.</param>
     /// <param name="openSignIns">The tenant's sign-in rows that have not ended (<see cref="LicenseSignInLog.ListOpen"/>):
     /// whether a sign-in the readiness fold calls running is still running (<see cref="IsRepairing"/>).</param>
     /// <param name="openAlarms">The alarms open now (<see cref="LicenseAlarmService.ListOpen"/>); only those of
     /// <see cref="Kind"/> are looked at.</param>
     public static IReadOnlyList<LicenseAlarmCondition> Conditions(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
-        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
-        IReadOnlyList<LicenseAlarmEntity> openAlarms)
+        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseNextLicense> next,
+        IReadOnlyList<LicenseSwitchLogEntity> openSignIns, IReadOnlyList<LicenseAlarmEntity> openAlarms)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(judged);
+        ArgumentNullException.ThrowIfNull(next);
         ArgumentNullException.ThrowIfNull(openSignIns);
         ArgumentNullException.ThrowIfNull(openAlarms);
         var conditions = new List<LicenseAlarmCondition>();
@@ -132,9 +136,25 @@ public static class LicenseStrandedAlarm
                 ActionFor(judgement, label, openSignIns, repairing),
                 Subject(label, snapshot, stranded.AccountEmail, null), PastNightPercent(snapshot, stranded.AccountEmail)));
         }
+        // The switch failed: the machine is held out of the automatic switch and stays where it is (the engine leaves a held
+        // machine out of the stranded ones, so this is never a second line for one machine).
+        foreach (var failing in next.Where(n => n.State == LicenseNextLicenseStates.SwitchFailing))
+        {
+            var problem = $"{failing.Label} is stuck on {failing.ActiveAccountEmail}, which is at {failing.Tired}: {failing.Why}.";
+            conditions.Add(new LicenseAlarmCondition(failing.MachineId, failing.Label, failing.ActiveAccountEmail,
+                problem.Length <= LicenseAlarmService.MaxSentenceLength
+                    ? problem
+                    : $"{failing.Label} is stuck on a license close to its limit because its switch keeps failing; the Licenses log says why.",
+                SwitchFailingAction,
+                $"{failing.Label} cannot switch - its switch keeps failing", PastNightPercent(snapshot, failing.ActiveAccountEmail)));
+        }
         conditions.AddRange(StillOpen(snapshot, machines, openAlarms, Kind, LicenseDecisionEngine.ThresholdPercent, conditions).ToList());
         return conditions;
     }
+
+    /// <summary>The one thing to do about a machine whose switch keeps failing.</summary>
+    public const string SwitchFailingAction =
+        "Read why the switch failed on the Licenses log and put it right, then use Switch now on the Licenses page; it ignores the hold.";
 
     /// <summary>
     /// The one thing to do about a machine the readiness check calls not ready: the check's own sentence, except for a

@@ -269,6 +269,53 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Equal("Sign machine-a in to account-b@example.com from the Licenses page.", alarm.Action);
     }
 
+    // Rule 4's second half, "or the switch failed: RED" (the review of pull request 4741, finding 1). machine-a is at 98%
+    // and holds a sign-in for B, but its switch to B has failed three times in a row, so the automatic switch holds it out.
+    // Through the real minute check: one red alarm saying the switch keeps failing, no yellow warning, and the verdict the
+    // Licenses page and the grid read says the same - counted, and red - never "no problem".
+    [Fact]
+    public async Task Tick_AMachineWhoseSwitchKeepsFailing_IsRed_OnTheBarThePageAndTheGrid()
+    {
+        _aWeekly = 98;
+        _machineAHoldsB = true;
+        Report();
+        var machineA = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>())
+            .Overview.Machines.Single(m => m.MachineName == MachineA).MachineId;
+        for (var minutesAgo = 3; minutesAgo >= 1; minutesAgo--)
+        {
+            var at = _now.AddMinutes(-minutesAgo);
+            var row = _store.CreatePendingSwitch(One, machineA, A, B, LicenseSwitchReasons.Threshold, at)!;
+            Assert.True(_store.TrySettle(One, new LicenseSwitchResult
+            {
+                SwitchId = row.SwitchId!,
+                Outcome = LicenseSwitchOutcomes.Failed,
+                ReasonCode = LicenseSwitchReasonCodes.ExchangeFailedRestored,
+                Message = "The exchange failed and the account was restored.",
+                ActiveAccountEmailAfter = A,
+                StartedAtUtc = at,
+                FinishedAtUtc = at,
+            }, at.AddSeconds(1)));
+            _store.HoldAfterRepeatedFailure(One, row.SwitchId!);
+        }
+
+        await Tick();
+
+        Assert.Empty(Warnings());
+        var alarm = Assert.Single(Stranded());
+        Assert.Equal((MachineA, LicenseStrandedAlarm.SwitchFailingAction), (alarm.MachineName, alarm.Action));
+        Assert.StartsWith("machine-a is stuck on account-a@example.com, which is at 98% of its weekly limit: its switch from "
+                          + "account-a@example.com to account-b@example.com has failed more than once in a row", alarm.Problem);
+        Assert.Equal(LicenseAlarmTones.Critical, Assert.Single(BannerLines()).Tone);
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var next = Readiness().NextLicenses(One, picture, _now);
+        var verdict = next.Single(v => v.MachineName == MachineA);
+        Assert.Equal((LicenseNextLicenseStates.SwitchFailing, LicenseTones.Bad, true), (verdict.State, verdict.Tone, verdict.IsProblem));
+        var grid = LicenseCoverageFold.Dto(LicenseCoverageFold.Judge(picture, next));
+        Assert.Equal((1, LicenseTones.Bad), (grid.GapCount, grid.Tone));
+        Assert.Contains("machine-a cannot switch: its switch keeps failing.", grid.Text);
+        Assert.Single(LicenseFireDrillFold.Holes(next));
+    }
+
     // A stale machine is never stranded and never warned about: its holdings are not known to be current. machine-a stops
     // reporting while machine-b keeps the account's reading fresh at 85%.
     [Fact]

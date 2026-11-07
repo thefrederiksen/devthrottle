@@ -151,6 +151,13 @@ public sealed class LicenseOverviewResponse
     /// <summary>In machine name order.</summary>
     public List<LicenseMachineDto> Machines { get; set; } = new();
 
+    /// <summary>The owner's 82% test switch is on: the license one machine is on reads as at least 82% of its weekly limit,
+    /// on EVERY machine on that license. Computed on the Gateway; the 82% is a test, not real use.</summary>
+    public bool IsTestUsageOn { get; set; }
+
+    /// <summary>When <see cref="IsTestUsageOn"/>: the finished sentence saying so and how to turn it off; else null.</summary>
+    public string? TestUsageText { get; set; }
+
     /// <summary>The coverage grid: every machine that reports against every paid account (<see cref="LicenseCoverageDto"/>).</summary>
     public LicenseCoverageDto Coverage { get; set; } = new();
 }
@@ -445,7 +452,8 @@ public sealed class LicenseMachineDto
     /// <summary>
     /// Whether this machine has a READY next license (mission "Licenses - Always Ready, Loud When Not", the owner's ruling
     /// of 7 November 2026): <c>not-needed</c> (under 80% on the license it is on), <c>ready</c>, <c>needed</c> (it will be
-    /// stuck: the one state that is a problem), <c>no-room</c> or <c>not-judged</c>. Null when it is on no license.
+    /// stuck), <c>switch-failing</c> (its switch keeps failing: red, also a problem), <c>no-room</c> or <c>not-judged</c>.
+    /// Null when it is on no license.
     /// </summary>
     public string? NextLicenseState { get; set; }
 

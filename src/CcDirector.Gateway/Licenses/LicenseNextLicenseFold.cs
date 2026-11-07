@@ -23,6 +23,10 @@ public static class LicenseNextLicenseStates
     /// <summary>It cannot be judged now: the reading of the license it is on is too old, or the machine cannot be sent a
     /// switch now (not reporting, mid-switch, refused, held because its switch keeps failing). Those have their own words.</summary>
     public const string NotJudged = "not-judged";
+
+    /// <summary>At <see cref="LicenseNextLicenseFold.WarnPercent"/> or more, and its switch keeps failing, so the automatic
+    /// switch leaves it out (<see cref="LicenseDecisionEngine.IsHeld"/>): rule 4's "or the switch failed", red. A problem.</summary>
+    public const string SwitchFailing = "switch-failing";
 }
 
 /// <summary>The sign-in that gives a machine its recommended next license (<see cref="LicenseNextLicense.SignInAction"/>).</summary>
@@ -70,8 +74,12 @@ public sealed record LicenseNextLicense(
     string Text,
     string Tone)
 {
-    /// <summary>The machine will be stuck: rule 3 (yellow), or rule 4 (red) at the threshold.</summary>
+    /// <summary>The machine needs a ready next license: rule 3 (yellow), or rule 4 (red) at the threshold.</summary>
     public bool IsNeeded => State == LicenseNextLicenseStates.Needed;
+
+    /// <summary>The machine will be stuck: it needs a ready next license, or its switch keeps failing. What the bar's
+    /// count, the coverage grid and the daily check count.</summary>
+    public bool IsProblem => IsNeeded || State == LicenseNextLicenseStates.SwitchFailing;
 }
 
 /// <summary>
@@ -86,7 +94,8 @@ public sealed record LicenseNextLicense(
 /// <item><see cref="WarnPercent"/> or more, and no READY next license: needed - the cannot-switch warning, yellow, naming the
 /// recommended license.</item>
 /// <item>At the threshold or more and still none: needed, red (<see cref="LicenseNextLicense.AtThreshold"/>; the stranded
-/// alarm owns it).</item>
+/// alarm owns it). Or, at <see cref="WarnPercent"/> or more, the switch failed - it keeps failing and the machine is held
+/// out of the automatic switch: <see cref="LicenseNextLicenseStates.SwitchFailing"/>, red, the stranded alarm's too.</item>
 /// <item>No other license has room: status only (<see cref="LicenseNextLicenseStates.NoRoom"/>).</item>
 /// </list>
 ///
@@ -132,10 +141,14 @@ public static class LicenseNextLicenseFold
     /// <summary>Every machine of <paramref name="picture"/> that is on a license, judged. In the picture's order.</summary>
     /// <param name="weeklyPacePerHour">For a license: its weekly pace in percent per hour (<see cref="WeeklyPace"/>), or null
     /// when it is not known.</param>
-    public static IReadOnlyList<LicenseNextLicense> Judge(LicensePicture picture, Func<string, double?> weeklyPacePerHour)
+    /// <param name="expectedRunOutAt">For a license in use: when the forecast expects it to reach the threshold, or null -
+    /// the same answer the readiness check reads, so "covered later" is one verdict (<see cref="LicenseReadinessFold"/>).</param>
+    public static IReadOnlyList<LicenseNextLicense> Judge(LicensePicture picture, Func<string, double?> weeklyPacePerHour,
+        Func<string, DateTime?> expectedRunOutAt)
     {
         ArgumentNullException.ThrowIfNull(picture);
         ArgumentNullException.ThrowIfNull(weeklyPacePerHour);
+        ArgumentNullException.ThrowIfNull(expectedRunOutAt);
         var snapshot = picture.Snapshot;
         var now = snapshot.NowUtc;
         var machines = picture.Overview.Machines;
@@ -169,7 +182,25 @@ public static class LicenseNextLicenseFold
             }
             var tired = string.Join(" and ", atLevel.Select(w => $"{LicenseDecisionEngine.Percent(w.Window.Utilization)} of its {w.Label}"));
             var atThreshold = atLevel.Any(w => LicenseDecisionEngine.IsTired(w.Window, now));
+            // Rule 4, its second half: the switch failed. A held machine is left out of the automatic switch, so it stays
+            // where it is: red, whatever it holds.
+            if (LicenseDecisionEngine.HeldWhy(state, now) is { } heldWhy)
+            {
+                judged.Add(Verdict(LicenseNextLicenseStates.SwitchFailing, $"Its switch keeps failing: {heldWhy}.", LicenseTones.Bad,
+                    tired, atThreshold, why: heldWhy));
+                continue;
+            }
             var ranked = LicenseDecisionEngine.TargetsWithRoom(snapshot, active);
+            // Covered later (the owner, 4 November 2026): ready for no license with room now, but a spare it is ready for has
+            // room again before the license it is on is expected to run out. The readiness check's own rule, on the same facts.
+            if (!ranked.Any(t => LicenseDecisionEngine.Readiness(state, t, now).IsReady)
+                && LicenseReadinessFold.CoveredLater(snapshot, state, active, expectedRunOutAt(active), now) is { } later)
+            {
+                judged.Add(Verdict(LicenseNextLicenseStates.Ready,
+                    LicenseReadinessFold.ReadyLaterText(later.Spare, later.BackAtUtc, active, later.RunsOutAtUtc), LicenseTones.Good,
+                    tired, atThreshold, ready: new[] { later.Spare }));
+                continue;
+            }
             if (ranked.Count == 0)
             {
                 judged.Add(Verdict(LicenseNextLicenseStates.NoRoom,
@@ -178,7 +209,7 @@ public static class LicenseNextLicenseFold
             }
             var switchable = LicenseDecisionEngine.SwitchableMachines(snapshot, active)
                 .Any(m => Key(m.MachineName, m.OsUser) == Key(machine.MachineName, machine.OsUser));
-            if (!switchable || LicenseDecisionEngine.IsHeld(state, now))
+            if (!switchable)
             {
                 judged.Add(Verdict(LicenseNextLicenseStates.NotJudged,
                     $"Not judged: {label} cannot be sent a switch now, so whether it has a next license is said by its status.",
@@ -188,7 +219,8 @@ public static class LicenseNextLicenseFold
             var until = atLevel.All(w => w.Window.ResetsAtUtc is not null) ? atLevel.Max(w => w.Window.ResetsAtUtc) : null;
             var ready = ranked.Where(t => LicenseDecisionEngine.Readiness(state, t, now).IsReady).ToList();
             var notReady = ranked.Where(t => !ready.Contains(t)).ToList();
-            var lasts = Lasts(ready, readings, weeklyPacePerHour(active), reading.SevenDay?.Utilization, until, now);
+            var weeklyAtLevel = atLevel.Any(w => ReferenceEquals(w.Window, reading.SevenDay));
+            var lasts = Lasts(ready, readings, weeklyPacePerHour(active), weeklyAtLevel ? reading.SevenDay!.Utilization : null, until, now);
             if (ready.Count > 0 && (notReady.Count == 0 || atThreshold || lasts))
             {
                 var text = lasts
@@ -196,7 +228,10 @@ public static class LicenseNextLicenseFold
                     : notReady.Count == 0
                         ? $"Ready: signed in to every license with room ({Join(ready)}); at today's pace they may fill before {active} resets at {Clock(until!.Value)}."
                         : $"Ready: it switches to {ready[0]} now; whether that lasts is judged once it is on it.";
-                judged.Add(Verdict(LicenseNextLicenseStates.Ready, text, LicenseTones.Good, tired, atThreshold, until, ready));
+                // Signed in to every license with room and they may still fill: nothing is left to sign in, so it is no problem,
+                // and not good either - neutral, like no room.
+                var tone = !lasts && notReady.Count == 0 ? LicenseTones.Neutral : LicenseTones.Good;
+                judged.Add(Verdict(LicenseNextLicenseStates.Ready, text, tone, tired, atThreshold, until, ready));
                 continue;
             }
             var recommended = Recommend(snapshot, notReady)
@@ -262,12 +297,15 @@ public static class LicenseNextLicenseFold
 
     // The ready licenses, best first, last at today's pace from when the license in use reaches the threshold until it
     // resets: each one's weekly room over the pace, added up. No pace or no reset known: taken as lasting (the class summary).
+    // Only the weekly pace is known, so the time until the switch is counted only when the WEEKLY window is at the level
+    // (weeklyAtLevel is its use, else null). With only the 5-hour window at the level the switch may come at any moment,
+    // so the next license must last the whole time until that window resets.
     private static bool Lasts(IReadOnlyList<string> ready, IReadOnlyDictionary<string, LicenseAccountReading> readings,
-        double? pacePerHour, double? activeWeekly, DateTime? until, DateTime now)
+        double? pacePerHour, double? weeklyAtLevel, DateTime? until, DateTime now)
     {
         if (until is not { } resets || pacePerHour is not { } pace || pace <= 0)
             return true;
-        var untilSwitch = activeWeekly is { } used ? Math.Max(0, LicenseDecisionEngine.ThresholdPercent - used) / pace : 0;
+        var untilSwitch = weeklyAtLevel is { } used ? Math.Max(0, LicenseDecisionEngine.ThresholdPercent - used) / pace : 0;
         var hoursNeeded = (resets - now).TotalHours - untilSwitch;
         if (hoursNeeded <= 0)
             return true; // it resets before it would reach the threshold

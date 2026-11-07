@@ -108,7 +108,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         var (status, _, json) = Overview(TenantOne);
 
         Assert.Equal(200, status);
-        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines", "coverage" }, Names(json));
+        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines", "isTestUsageOn", "testUsageText", "coverage" }, Names(json));
         Assert.False(json.GetProperty("isEmpty").GetBoolean());
         var coverage = json.GetProperty("coverage");
         Assert.Equal(new[] { "text", "tone", "gapCount", "accounts", "rows" }, Names(coverage));

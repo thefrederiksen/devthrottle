@@ -18,7 +18,7 @@ internal static class LicenseTestData
 
     /// <summary>Every machine's next-license verdict on <paramref name="picture"/> with no pace known.</summary>
     public static IReadOnlyList<CcDirector.Gateway.Licenses.LicenseNextLicense> NextOf(CcDirector.Gateway.Licenses.LicensePicture picture)
-        => CcDirector.Gateway.Licenses.LicenseNextLicenseFold.Judge(picture, _ => null);
+        => CcDirector.Gateway.Licenses.LicenseNextLicenseFold.Judge(picture, _ => null, _ => null);
 
     /// <summary>The coverage grid of <paramref name="picture"/> with no pace known.</summary>
     public static CcDirector.Gateway.Licenses.LicenseCoverage CoverageOf(CcDirector.Gateway.Licenses.LicensePicture picture)

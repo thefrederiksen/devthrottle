@@ -35,7 +35,7 @@ public sealed class LicenseNextLicenseFoldTests : IDisposable
     private LicensePicture Picture() => _source.ReadPicture(Tenant, T0, Array.Empty<LicenseExhaustion>());
 
     private LicenseNextLicense Verdict(string machine, double? pacePerHour = null)
-        => LicenseNextLicenseFold.Judge(Picture(), _ => pacePerHour).Single(v => v.MachineName == machine);
+        => LicenseNextLicenseFold.Judge(Picture(), _ => pacePerHour, _ => null).Single(v => v.MachineName == machine);
 
     private static LicenseHolding WeekResets(LicenseHolding holding, DateTime resetsAtUtc)
     {
@@ -171,6 +171,34 @@ public sealed class LicenseNextLicenseFoldTests : IDisposable
     }
 
     private const string D = "account-d@example.com";
+
+    // Only the 5-hour window at the level (the review of pull request 4741, finding 7): the switch may come at any moment,
+    // so the ready license must last until that window resets in two hours. B has one point of weekly room - half an hour
+    // at 2 an hour - so one more is needed. The weekly use, far from the threshold, is not counted as time before the switch.
+    [Fact]
+    public void Ready_OnlyTheFiveHourWindowAtTheLevel_TheReadyLicenseMustLastUntilItResets()
+    {
+        Apply(Report("m1", Holding(A, true, fiveHour: 85, sevenDay: 30), Holding(B, false, fiveHour: 5, sevenDay: 96)));
+        Apply(Report("m2", Holding(C, true, sevenDay: 10)));
+
+        var verdict = Verdict("m1", pacePerHour: 2);
+
+        Assert.Equal((LicenseNextLicenseStates.Needed, C, T0.AddHours(2)), (verdict.State, verdict.RecommendedAccountEmail, verdict.NeededUntilUtc));
+        Assert.Equal(new[] { B }, verdict.ReadyAccounts);
+    }
+
+    // Signed in to every license with room and they may still fill (finding 6): nothing is left to sign in, so it is no
+    // problem - and neutral, not good, because the sentence says it may fill.
+    [Fact]
+    public void Ready_EveryLicenseWithRoomIsReady_ButMayFill_IsNeutral()
+    {
+        Apply(Report("m1", Holding(A, true, sevenDay: 85), Holding(B, false, sevenDay: 20)));
+
+        var verdict = Verdict("m1", pacePerHour: 2);
+
+        Assert.Equal((LicenseNextLicenseStates.Ready, LicenseTones.Neutral, false), (verdict.State, verdict.Tone, verdict.IsProblem));
+        Assert.Contains("may fill before", verdict.Text);
+    }
 
     // ----- recommended next -----
 

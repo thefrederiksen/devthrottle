@@ -11,13 +11,19 @@ namespace CcDirector.Gateway.Licenses;
 /// switchable in one place and mid-switch in another. <see cref="MachineHealth"/> is every open
 /// <see cref="LicenseLogKinds.ReportRefused"/> and <see cref="LicenseLogKinds.MachineSilent"/> row
 /// (<see cref="LicenseStore.ListOpenMachineHealth"/>): a machine whose reports are refused, or that has gone silent.
+/// <see cref="TestUsage"/> is set while the owner's 82% test switch is on (<see cref="LicenseTestUsage"/>).
 /// </summary>
 public sealed record LicensePicture(
     LicenseOverview Overview,
     LicenseSnapshot Snapshot,
     IReadOnlyList<LicenseSwitchLogEntity> OpenSwitches,
-    IReadOnlyList<LicenseSwitchLogEntity> MachineHealth)
+    IReadOnlyList<LicenseSwitchLogEntity> MachineHealth,
+    LicenseTestUsageOn? TestUsage = null)
 {
+    /// <summary>The snapshot with the real numbers: the one the forecast takes its pace from, so the test switch never
+    /// feeds the pace it is judged by. The same as <see cref="Snapshot"/> while the switch is off.</summary>
+    public LicenseSnapshot RealSnapshot => TestUsage?.RealSnapshot ?? Snapshot;
+
     /// <summary>The open refusal of <paramref name="machine"/>'s reports, whichever of its Directors sent them, or null
     /// when they are not being refused (<see cref="LicenseStore.IsRefusalOf"/>).</summary>
     public LicenseSwitchLogEntity? RefusalOf(LicenseMachineView machine)
@@ -68,13 +74,19 @@ public sealed class LicenseSnapshotSource
         try
         {
             // The owner's 82% test switch, when it is on, raises one license's weekly use here, so every reader sees it.
-            var overview = LicenseTestUsage.Apply(_reads.Read(tenant, nowUtc), _testUsageMachine?.Invoke(tenant));
+            var real = _reads.Read(tenant, nowUtc);
+            var testMachine = _testUsageMachine?.Invoke(tenant);
+            var overview = LicenseTestUsage.Apply(real, testMachine);
             var open = _store.ListOpenSwitches(tenant);
             var bars = _store.ListActiveBars(tenant, nowUtc);
             var holds = _store.ListHolds(tenant, nowUtc);
             var health = _store.ListOpenMachineHealth(tenant);
             var snapshot = Build(overview, open, bars, openExhaustions, nowUtc, holds, health);
-            return new LicensePicture(overview, snapshot, open, health);
+            var testUsage = ReferenceEquals(real, overview) || testMachine is not { } machineId
+                ? null
+                : new LicenseTestUsageOn(machineId, LicenseStore.NormalizeEmail(real.Machines.First(m => m.MachineId == machineId).ActiveAccountEmail!),
+                    Build(real, open, bars, openExhaustions, nowUtc, holds, health));
+            return new LicensePicture(overview, snapshot, open, health, testUsage);
         }
         catch (Exception ex)
         {

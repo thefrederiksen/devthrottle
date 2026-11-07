@@ -24,8 +24,8 @@ public sealed record LicenseFireDrillResult(int MachinesChecked, IReadOnlyList<L
 /// Gateway writes down, in the Licenses log and the daily report, whether every machine is ready for when it runs out.
 ///
 /// THE RULE is the owner's of 7 November 2026 (<see cref="LicenseNextLicenseFold"/>): a machine passes when it is under
-/// 80% on the license it is on, or holds a READY next license. It fails only when it NEEDS one
-/// (<see cref="LicenseNextLicenseStates.Needed"/>). Never "every license on every machine": a license that is not held is
+/// 80% on the license it is on, or holds a READY next license. It fails when it NEEDS one
+/// (<see cref="LicenseNextLicenseStates.Needed"/>) or its switch keeps failing (<see cref="LicenseNextLicenseStates.SwitchFailing"/>). Never "every license on every machine": a license that is not held is
 /// no failure. A machine that cannot be judged now, or that has no other license with room to go to, is not a failure of
 /// this check either - the Licenses page says what it is.
 ///
@@ -40,11 +40,12 @@ public static class LicenseFireDrillFold
     public static readonly LicenseAlarmKind RetiredAlarmKind = new("fire-drill-failed", "The daily license drill failed",
         repeatsHourly: true, tone: LicenseAlarmTones.Warning);
 
-    /// <summary>Every machine of <paramref name="next"/> that needs a ready next license, in the picture's order.</summary>
+    /// <summary>Every machine of <paramref name="next"/> that will be stuck - it needs a ready next license, or its switch
+    /// keeps failing - in the picture's order.</summary>
     public static List<LicenseFireDrillHole> Holes(IReadOnlyList<LicenseNextLicense> next)
     {
         ArgumentNullException.ThrowIfNull(next);
-        return next.Where(n => n.IsNeeded)
+        return next.Where(n => n.IsProblem)
             .Select(n => new LicenseFireDrillHole(n.MachineId, n.Label, $"{n.Label}: {n.Text}"))
             .ToList();
     }

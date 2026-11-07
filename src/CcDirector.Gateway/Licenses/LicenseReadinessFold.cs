@@ -349,11 +349,11 @@ public static class LicenseReadinessFold
     public static string ReadyLaterText(string spare, DateTime backAtUtc, string active, DateTime runsOutAtUtc)
         => $"Ready: {spare} has room again on {Day(backAtUtc)}, before {active} is expected to reach {LicenseDecisionEngine.ThresholdPercent.ToString("0", CultureInfo.InvariantCulture)}% on {Day(runsOutAtUtc)}.";
 
-    private sealed record Later(string Spare, DateTime BackAtUtc, DateTime RunsOutAtUtc);
+    internal sealed record Later(string Spare, DateTime BackAtUtc, DateTime RunsOutAtUtc);
 
     // The spare the machine is ready for that has room again first, when that is no later than the account it is on is
     // forecast to run out; null when there is no forecast, the account has run out already, or no spare is back in time.
-    private static Later? CoveredLater(LicenseSnapshot snapshot, LicenseMachineState state, string active, DateTime? runsOut, DateTime nowUtc)
+    internal static Later? CoveredLater(LicenseSnapshot snapshot, LicenseMachineState state, string active, DateTime? runsOut, DateTime nowUtc)
     {
         if (runsOut is not { } runsOutAt || runsOutAt <= nowUtc)
             return null;

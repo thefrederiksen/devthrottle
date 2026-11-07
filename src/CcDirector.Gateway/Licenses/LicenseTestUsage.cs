@@ -5,6 +5,12 @@ using CcDirector.Gateway.Settings;
 
 namespace CcDirector.Gateway.Licenses;
 
+/// <summary>The owner's test switch is on for this picture (<see cref="LicensePicture.TestUsage"/>).</summary>
+/// <param name="MachineId">The machine it is on for.</param>
+/// <param name="AccountEmail">The license that machine is on, lower-cased: every machine on it reads the raised number.</param>
+/// <param name="RealSnapshot">The same picture with the real numbers, for the forecast's pace.</param>
+public sealed record LicenseTestUsageOn(Guid MachineId, string AccountEmail, LicenseSnapshot RealSnapshot);
+
 /// <summary>
 /// THE OWNER'S 82% TEST SWITCH (mission "Licenses - Always Ready, Loud When Not", the owner's ruling of 7 November 2026).
 /// It makes ONE machine's current license read as <see cref="Percent"/> of its weekly limit, so the owner can see the
@@ -14,8 +20,10 @@ namespace CcDirector.Gateway.Licenses;
 /// WHAT IT CHANGES. Every read of the license picture (<see cref="LicenseSnapshotSource"/>) - the minute check, the
 /// Licenses page, the forecast - sees the weekly use of the license that machine is on raised to <see cref="Percent"/>.
 /// It only ever RAISES a number that is lower: a license really above it reads as it is, so a real switch is never hidden.
-/// <see cref="Percent"/> is under the switching threshold, so it switches nothing. A license's use is one number, so every
-/// machine on that same license reads it too.
+/// <see cref="Percent"/> is under the switching threshold, so it switches nothing. A license's use is one number, so EVERY
+/// machine on that same license reads it too, and each of them with no ready next license gets the hourly warning. The
+/// forecast's pace is taken from the real numbers (<see cref="LicensePicture.RealSnapshot"/>), so the switch never invents
+/// the pace a machine is judged by. The Licenses answer says the switch is on (<c>isTestUsageOn</c>, <c>testUsageText</c>).
 ///
 /// HOW IT IS TURNED OFF. The DELETE route. It is a tenant setting (<see cref="TenantSettingKeys.LicenseTestUsageMachine"/>),
 /// so a Gateway that restarts keeps it on, and the GET route says whether it is on and for which machine.
@@ -96,6 +104,6 @@ public sealed class LicenseTestUsage
         return machine is null
             ? $"The test switch is on for a machine no longer on the Licenses page, so it changes nothing. Turn it off."
             : $"The test switch is on: the license {LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser)} is on reads as at least "
-              + $"{percent} of its weekly limit. Turn it off when the test is done.";
+              + $"{percent} of its weekly limit, on every machine on that license. Turn it off when the test is done.";
     }
 }
