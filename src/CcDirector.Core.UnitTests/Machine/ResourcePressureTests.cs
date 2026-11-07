@@ -317,7 +317,7 @@ public class ResourcePressureTests
         }
 
         var memory = crossings.Where(c => c.Kind == ResourceKind.Memory).ToList();
-        var raised = Assert.Single(memory, c => c.ShowsBanner);
+        var raised = Assert.Single(memory, c => c.IsNewWarning);
         Assert.Equal(ResourceLevel.Tight, raised.To);
         Assert.DoesNotContain(memory, c => c.EndsWarning);
     }

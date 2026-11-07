@@ -194,7 +194,7 @@ public sealed class ResourceSamplerTests
             var crossing = Assert.Single(crossings);
             Assert.Equal(ResourceKind.Cpu, crossing.Kind);
             Assert.Equal(ResourceCrossingChange.Raised, crossing.Change);
-            Assert.True(crossing.ShowsBanner);
+            Assert.True(crossing.IsNewWarning);
         }
     }
 
@@ -212,10 +212,10 @@ public sealed class ResourceSamplerTests
             for (var i = 0; i < 10; i++) sampler.Tick();
 
             Assert.Equal(2, crossings.Count);
-            Assert.True(crossings[0].ShowsBanner);
+            Assert.True(crossings[0].IsNewWarning);
             Assert.Equal(ResourceCrossingChange.Cleared, crossings[1].Change);
             Assert.True(crossings[1].EndsWarning);
-            Assert.False(crossings[1].ShowsBanner);
+            Assert.False(crossings[1].IsNewWarning);
         }
     }
 
@@ -230,8 +230,8 @@ public sealed class ResourceSamplerTests
             for (var i = 0; i < 5; i++) sampler.Tick();
 
             Assert.Equal(2, crossings.Count);
-            Assert.Contains(crossings, c => c.Kind == ResourceKind.Cpu && c.ShowsBanner);
-            Assert.Contains(crossings, c => c.Kind == ResourceKind.Memory && c.ShowsBanner);
+            Assert.Contains(crossings, c => c.Kind == ResourceKind.Cpu && c.IsNewWarning);
+            Assert.Contains(crossings, c => c.Kind == ResourceKind.Memory && c.IsNewWarning);
         }
     }
 

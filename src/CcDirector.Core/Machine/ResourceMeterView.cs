@@ -29,21 +29,83 @@ public sealed record ResourceBarView(
 /// <param name="Memory">The MEM bar.</param>
 /// <param name="NarrowText">What a narrow window shows instead of the bars, for example "28%/55%" (issue #2812).</param>
 /// <param name="TooltipLines">The meter's tooltip, one line each, machine figures first and then this Director's own sessions.</param>
+/// <param name="SwapLevel">
+/// Swap's verdict level. SWAP HAS NO BAR - the mission allows exactly two, the processor and memory - but it
+/// does have its own warning limits, and until the warning banner was deleted the banner was the ONLY thing
+/// that read this level. Without it here, a machine paging hard would show two green bars and say nothing
+/// (found in review of pull request 4732). So it colours the frame and speaks in the tooltip instead.
+/// </param>
 public sealed record ResourceMeterView(
     ResourceBarView Cpu,
     ResourceBarView Memory,
     string NarrowText,
-    IReadOnlyList<string> TooltipLines)
+    IReadOnlyList<string> TooltipLines,
+    ResourceLevel SwapLevel = ResourceLevel.Unknown)
 {
     /// <summary>
-    /// The level the meter's frame takes: the worse of the two bars. Unknown only when both are unknown, so one
-    /// bar that cannot be read never hides the other bar's warning (the same rule as
-    /// <see cref="ResourcePressureVerdict.Worst"/>).
+    /// The level the meter's frame takes: the worst of the two bars AND SWAP. Unknown only when all three are
+    /// unknown, so one reading that cannot be taken never hides another's warning (the same rule as
+    /// <see cref="ResourcePressureVerdict.Worst"/>, and it falls out of Unknown being zero in the enum).
+    ///
+    /// Swap is here and not in a bar because it has no bar to be in. The frame is the only place a resource
+    /// without a bar can still be seen without hovering.
     /// </summary>
-    public ResourceLevel FrameLevel => Cpu.Level > Memory.Level ? Cpu.Level : Memory.Level;
+    public ResourceLevel FrameLevel
+    {
+        get
+        {
+            var worst = Cpu.Level > Memory.Level ? Cpu.Level : Memory.Level;
 
-    /// <summary>What a screen reader says for the whole meter, for example "Resources: CPU 28%, memory 55%".</summary>
-    public string AccessibleName => $"Resources: CPU {Cpu.PercentText}, memory {Memory.PercentText}";
+            // SWAP MAY RAISE THIS FRAME; IT MAY NEVER ASSERT HEALTH. Only a warning level counts. Taking the
+            // plain maximum would have let a readable, Normal swap turn a frame whose BOTH BARS CANNOT BE READ
+            // from Unknown into Normal - the meter claiming the machine is fine on the strength of the one
+            // reading nobody can see (found in the second review of pull request 4732). "Cannot read" is never
+            // "normal" anywhere else in this mission and it is not here either.
+            return SwapLevel is ResourceLevel.Tight or ResourceLevel.Critical && SwapLevel > worst
+                ? SwapLevel
+                : worst;
+        }
+    }
+
+    /// <summary>
+    /// What a screen reader says for the whole meter: "Resources: CPU 28%, memory 55%", and when anything is
+    /// warning, the warning in words.
+    ///
+    /// THE WORDS MATTER BECAUSE COLOUR IS NO LONGER ENOUGH. The deleted banner carried its headline and body as
+    /// an automation name, so a screen reader announced the warning. With the banner gone the bar's colour would
+    /// have been the only carrier, which makes the warning unreachable for anyone who cannot see it (found in
+    /// review of pull request 4732).
+    /// </summary>
+    public string AccessibleName
+    {
+        get
+        {
+            var name = $"Resources: CPU {Cpu.PercentText}, memory {Memory.PercentText}";
+            var warnings = new List<string>();
+            if (Cpu.Level is ResourceLevel.Tight or ResourceLevel.Critical) warnings.Add(Word(ResourceKind.Cpu, Cpu.Level));
+            if (Memory.Level is ResourceLevel.Tight or ResourceLevel.Critical) warnings.Add(Word(ResourceKind.Memory, Memory.Level));
+            if (SwapLevel is ResourceLevel.Tight or ResourceLevel.Critical) warnings.Add(Word(ResourceKind.Swap, SwapLevel));
+            return warnings.Count == 0 ? name : $"{name}. Warning: {string.Join("; ", warnings)}.";
+        }
+    }
+
+    /// <summary>
+    /// THE WORDS ARE PER RESOURCE, NOT ONE PAIR FOR ALL THREE. These are the deleted banner's own headlines,
+    /// kept: a busy processor is "running hot", not "running short", and full swap is "nearly full", not
+    /// "maxed out". Flattening them to one pair was a wording regression found in the second review of pull
+    /// request 4732 - it reached a screen reader as "the processor is running short", which is not English for
+    /// what happened.
+    /// </summary>
+    private static string Word(ResourceKind kind, ResourceLevel level)
+    {
+        var critical = level == ResourceLevel.Critical;
+        return kind switch
+        {
+            ResourceKind.Cpu => critical ? "the processor is maxed out" : "the processor is running hot",
+            ResourceKind.Memory => critical ? "memory is nearly gone" : "memory is running short",
+            _ => critical ? "swap is nearly full" : "swap is filling up",
+        };
+    }
 }
 
 /// <summary>The figures and words every Resource Monitor view shares, so the meter and the detail screen cannot disagree.</summary>
@@ -155,7 +217,7 @@ public static class ResourceMeterFold
         ResourceSamplerState state,
         string machineName,
         int runningSessions,
-        SessionUsage? directorSessions,
+        IReadOnlyList<ResourceSessionInput>? sessions,
         TimeSpan? latestAge)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -163,6 +225,8 @@ public static class ResourceMeterFold
 
         var cpu = CpuBar(state);
         var memory = MemoryBar(state);
+        var swap = state.VerdictFor(ResourceKind.Swap);
+        var directorSessions = Combine(sessions);
 
         var lines = new List<string>
         {
@@ -171,11 +235,44 @@ public static class ResourceMeterFold
             memory.Tooltip,
         };
 
+        // THE WARNING BANNER'S ONE UNIQUE FACT, KEPT (the owner's ruling of 2026-11-07, which deleted the banner
+        // strip outright: "it should really just show red in the resource meter, that's enough").
+        //
+        // Everything else the banner said is said better elsewhere: its headline repeated the bar's own colour,
+        // and its evidence is already this bar's tooltip line. The one thing NEITHER can say is WHICH PROGRAM is
+        // eating the resource, and whether it is one of ours - on the screenshot that prompted this, the answer
+        // was chrome.exe at 4.48 GB and not a session of this Director's, which is exactly the fact that tells
+        // you whether to look at DevThrottle at all. So that sentence moves here and nothing else does.
+        //
+        // ONLY FOR A BAR THAT IS ACTUALLY AMBER OR RED. On a quiet machine it would be a line about nothing, and
+        // a tooltip padded with lines nobody needs is the banner's own mistake in a smaller space.
+        foreach (var bar in new[] { cpu, memory })
+        {
+            if (bar.Level is ResourceLevel.Tight or ResourceLevel.Critical)
+                lines.Add(BiggestUser(bar.Kind, state.Latest, sessions));
+        }
+
+
+
         if (state.Latest is { } sample)
         {
             lines.Add(sample.Swap.CouldRead
-                ? $"Swap {ResourceViewText.Bytes(sample.Swap.UsedBytes)} of {ResourceViewText.Bytes(sample.Swap.TotalBytes)}"
+                ? WhyIfWarning($"Swap {ResourceViewText.Bytes(sample.Swap.UsedBytes)} of {ResourceViewText.Bytes(sample.Swap.TotalBytes)}", swap)
                 : $"Swap {ResourceViewText.CannotRead(sample.Swap.UnreadableReason)}");
+
+            // Swap in trouble names the biggest memory user too, exactly as the banner did: a machine paging
+            // hard is a machine short of memory, and the program to look at is the same one. Only when memory
+            // has not already named it, or the same process is named twice.
+            //
+            // IT GOES HERE, AFTER THE SWAP LINE, not up with the bars. The second review of pull request 4732
+            // found it landing ABOVE the swap line that justifies it and directly under a HEALTHY memory line,
+            // so it read as a memory accusation with nothing to explain it. A reason must precede what it
+            // explains.
+            if (swap.Level is ResourceLevel.Tight or ResourceLevel.Critical
+                && memory.Level is not (ResourceLevel.Tight or ResourceLevel.Critical))
+            {
+                lines.Add(BiggestUser(ResourceKind.Memory, state.Latest, sessions));
+            }
 
             if (directorSessions is { } own)
             {
@@ -193,7 +290,7 @@ public static class ResourceMeterFold
             lines.Add("Waiting for the first reading - click for detail");
         }
 
-        return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}", lines);
+        return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}", lines, swap.Level);
     }
 
     /// <summary>
@@ -209,6 +306,61 @@ public static class ResourceMeterFold
         var memory = Unreadable(ResourceKind.Memory, "MEM", why);
         return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}",
             [machineName, cpu.Tooltip, memory.Tooltip]);
+    }
+
+    /// <summary>
+    /// "Biggest: chrome.exe (not attributed to any of this Director's sessions), 4.48 GB." - the one sentence the
+    /// deleted warning banner carried that neither the bar nor its tooltip line could.
+    ///
+    /// AN UNKNOWN IS SAID, NEVER READ AS ZERO. A process with no figure is skipped rather than ranked at zero, and
+    /// when no process has a figure at all the line says so instead of naming whichever one happened to sort first.
+    /// </summary>
+    /// <param name="sessions">
+    /// This Director's sessions and their process trees. NULL IS NOT EMPTY: an empty list is a Director running no
+    /// sessions, so the busiest process is certainly not one of ours and the line may say so; null means nobody has
+    /// worked out which processes belong to which session, and the line then claims nothing about ownership.
+    /// </param>
+    private static string BiggestUser(ResourceKind kind, ResourceSample? sample, IReadOnlyList<ResourceSessionInput>? sessions)
+    {
+        if (sample is null || !sample.Processes.CouldRead)
+            return "The busiest process could not be named: " +
+                   (sample is null ? "there is no reading yet." : $"{sample.Processes.UnreadableReason}.");
+
+        var byProcessor = kind == ResourceKind.Cpu;
+        ProcessReading? top = null;
+        foreach (var process in sample.Processes.Processes)
+        {
+            if (byProcessor)
+            {
+                if (process.CpuPercent is not { } cpu) continue;
+                if (top is null || cpu > top.CpuPercent!.Value) top = process;
+            }
+            else
+            {
+                if (process.MemoryBytes is not { } bytes) continue;
+                if (top is null || bytes > top.MemoryBytes!.Value) top = process;
+            }
+        }
+
+        if (top is null)
+            return byProcessor
+                ? "The busiest process is not known yet: no process has a processor figure in this reading."
+                : "The biggest process is not known: no process has a memory figure in this reading.";
+
+        var figure = byProcessor
+            ? ResourceViewText.PercentOf100(top.CpuPercent)
+            : ResourceViewText.Bytes(top.MemoryBytes);
+        string where;
+        if (sessions is null)
+        {
+            where = string.Empty;
+        }
+        else
+        {
+            var owner = sessions.FirstOrDefault(s => s.Usage.Pids.Contains(top.Pid));
+            where = owner is null ? " (not attributed to any of this Director's sessions)" : $" in session {owner.Label}";
+        }
+        return $"{(byProcessor ? "Busiest" : "Biggest")}: {top.Name}{where}, {figure}.";
     }
 
     /// <summary>
@@ -234,7 +386,8 @@ public static class ResourceMeterFold
 
     private static ResourceBarView CpuBar(ResourceSamplerState state)
     {
-        var level = state.VerdictFor(ResourceKind.Cpu).Level;
+        var verdict = state.VerdictFor(ResourceKind.Cpu);
+        var level = verdict.Level;
         if (state.Latest is not { } sample)
             return Unreadable(ResourceKind.Cpu, "CPU", ResourceSamplerState.NotYetSampledReason);
 
@@ -254,13 +407,14 @@ public static class ResourceMeterFold
         var cores = cpu.LogicalCoreCount is { } count
             ? string.Create(CultureInfo.InvariantCulture, $" of {count} cores")
             : string.Empty;
-        var tooltip = $"CPU {text}{cores} - busiest core {ResourceViewText.PercentOf100(cpu.BusiestCorePercent)}";
+        var tooltip = WhyIfWarning($"CPU {text}{cores} - busiest core {ResourceViewText.PercentOf100(cpu.BusiestCorePercent)}", verdict);
         return new ResourceBarView(ResourceKind.Cpu, "CPU", CouldRead: true, fraction, text, level, tooltip);
     }
 
     private static ResourceBarView MemoryBar(ResourceSamplerState state)
     {
-        var level = state.VerdictFor(ResourceKind.Memory).Level;
+        var verdict = state.VerdictFor(ResourceKind.Memory);
+        var level = verdict.Level;
         if (state.Latest is not { } sample)
             return Unreadable(ResourceKind.Memory, "MEM", ResourceSamplerState.NotYetSampledReason);
 
@@ -271,9 +425,29 @@ public static class ResourceMeterFold
                 memory.CouldRead ? "the memory reading did not add up" : memory.UnreadableReason);
 
         var used = memory.TotalBytes - memory.AvailableBytes;
-        var tooltip = $"Memory {ResourceViewText.Bytes(used)} used of {ResourceViewText.Bytes(memory.TotalBytes)} - {ResourceViewText.Bytes(memory.AvailableBytes)} available";
+        var tooltip = WhyIfWarning(
+            $"Memory {ResourceViewText.Bytes(used)} used of {ResourceViewText.Bytes(memory.TotalBytes)} - {ResourceViewText.Bytes(memory.AvailableBytes)} available",
+            verdict);
         return new ResourceBarView(ResourceKind.Memory, "MEM", CouldRead: true, fraction, ResourceViewText.Percent(fraction), level, tooltip);
     }
+
+    /// <summary>
+    /// A warning bar says WHY, by appending the verdict's own evidence to its figures.
+    ///
+    /// WITHOUT THIS A RED BAR CAN SIT BESIDE A HEALTHY-LOOKING NUMBER. The memory verdict holds its level for
+    /// sixty seconds after the load eases (<see cref="ResourcePressure.SustainedWindow"/>), so the bar is red
+    /// while its own figures already read "60 per cent used, plenty available". The deleted warning banner
+    /// printed that reason; the tooltip never did, and review of pull request 4732 found that the claim "the
+    /// evidence is already this bar's tooltip line" was simply untrue. The first bug report would have been
+    /// "the memory bar is red and the numbers say it is fine".
+    ///
+    /// Only for a warning level: on a healthy machine the evidence is "the processor is 28% busy", which the
+    /// figures already said.
+    /// </summary>
+    private static string WhyIfWarning(string figures, ResourceVerdict verdict) =>
+        verdict.Level is ResourceLevel.Tight or ResourceLevel.Critical && !string.IsNullOrWhiteSpace(verdict.Evidence)
+            ? $"{figures} - {verdict.Evidence}"
+            : figures;
 
     // An unreadable bar is Unknown whatever the verdict says: the bar shows nothing, so it cannot be coloured as though it did.
     private static ResourceBarView Unreadable(ResourceKind kind, string label, string? reason) =>

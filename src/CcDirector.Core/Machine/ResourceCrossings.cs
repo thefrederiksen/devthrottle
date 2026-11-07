@@ -5,13 +5,13 @@ namespace CcDirector.Core.Machine;
 /// <summary>What kind of move a <see cref="ResourceCrossing"/> is.</summary>
 public enum ResourceCrossingChange
 {
-    /// <summary>From normal (or never known) into amber or red. Shows a banner.</summary>
+    /// <summary>From normal (or never known) into amber or red. A new warning.</summary>
     Raised = 1,
 
-    /// <summary>From amber up to red. Shows a banner: it has crossed into red.</summary>
+    /// <summary>From amber up to red. A new warning: it has crossed into red.</summary>
     Escalated = 2,
 
-    /// <summary>From red down to amber. Still a warning; no new banner.</summary>
+    /// <summary>From red down to amber. Still a warning, but not a new one.</summary>
     Eased = 3,
 
     /// <summary>From amber or red back to normal. Ends the warning.</summary>
@@ -19,10 +19,10 @@ public enum ResourceCrossingChange
 }
 
 /// <summary>
-/// One resource moving across a limit, as the banner and the meter must treat it.
+/// One resource moving across a limit, as the meter must treat it.
 ///
-/// THE MEANING IS DECIDED HERE, NOT IN A VIEW. <see cref="ShowsBanner"/> and <see cref="EndsWarning"/> are
-/// computed once in Core, so the banner renders what it is handed and adding a change later is one edit in
+/// THE MEANING IS DECIDED HERE, NOT IN A VIEW. <see cref="IsNewWarning"/> and <see cref="EndsWarning"/> are
+/// computed once in Core, so a reader renders what it is handed and adding a change later is one edit in
 /// <see cref="ResourceCrossingDetector"/>, not a new branch in every view (CLAUDE.md rule 7).
 /// </summary>
 /// <param name="Kind">Which resource.</param>
@@ -40,12 +40,17 @@ public sealed record ResourceCrossing(
     string Evidence)
 {
     /// <summary>
-    /// True when this crossing puts up a banner: the resource has just crossed into amber or into red.
-    /// One banner per resource per crossing (mission section 4, "How loud the warning is").
+    /// True when this crossing is NEWS: the resource has just moved UP into a warning level - from normal or
+    /// from never-known into amber OR straight into red, or from amber up to red. False for easing back from red
+    /// to amber, which is still a warning but not a new one.
+    ///
+    /// This was called ShowsBanner until the owner deleted the warning banner on 2026-11-07. It was renamed
+    /// rather than kept, because a property named for a control that no longer exists is a false description of
+    /// what it computes - the classification itself is unchanged and still correct.
     /// </summary>
-    public bool ShowsBanner => Change is ResourceCrossingChange.Raised or ResourceCrossingChange.Escalated;
+    public bool IsNewWarning => Change is ResourceCrossingChange.Raised or ResourceCrossingChange.Escalated;
 
-    /// <summary>True when this crossing ends the resource's warning, so its banner comes down.</summary>
+    /// <summary>True when this crossing ends the resource's warning.</summary>
     public bool EndsWarning => Change == ResourceCrossingChange.Cleared;
 
     /// <summary>Short, log-safe description.</summary>

@@ -52,7 +52,7 @@ public enum ResourceLevel
 public sealed record ResourceVerdict(ResourceKind Kind, ResourceLevel Level, string Evidence);
 
 /// <summary>
-/// The verdict on every resource at once - what the toolbar meter and the warning banner render.
+/// The verdict on every resource at once - what the toolbar meter renders.
 /// </summary>
 /// <param name="Resources">One verdict per resource.</param>
 public sealed record ResourcePressureVerdict(IReadOnlyList<ResourceVerdict> Resources)

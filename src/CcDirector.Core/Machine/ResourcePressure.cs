@@ -34,7 +34,9 @@ namespace CcDirector.Core.Machine;
 /// the line for sixty seconds before it raises. The difference is what each costs the user: a machine running
 /// out of memory is about to start killing or paging processes, so a late raise costs them, while a late clear
 /// costs nobody anything. A busy processor only slows things down, so a compile burst must not warn. Without the
-/// hold, a machine sitting exactly on a memory limit would raise and clear a banner every five seconds (the
+/// hold, a machine sitting exactly on a memory limit would flip its BAR between amber and green every five
+/// seconds. The hold was first written when a banner would have flickered; the banner is gone and the hold
+/// stays, because what it really governs is the LEVEL, and the level is what colours the bar (the
 /// Implementation Lead's ruling of 2026-11-06, on review finding 4 of pull request 4660).
 ///
 /// THE BUSIEST SINGLE CORE NEVER RAISES A LEVEL. One stuck core of thirty-two is not a machine out of

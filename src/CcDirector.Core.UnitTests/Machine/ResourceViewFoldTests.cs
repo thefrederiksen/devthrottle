@@ -24,7 +24,8 @@ public class ResourceViewFoldTests
         ]));
 
     private static ResourceMeterView Meter(ResourceSamplerState state, SessionUsage? own = null) =>
-        ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4, own, TimeSpan.FromSeconds(3));
+        ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4,
+            own is null ? null : [new ResourceSessionInput(own, own.SessionId, null)], TimeSpan.FromSeconds(3));
 
     // ---- the toolbar meter ----
 
@@ -65,6 +66,64 @@ public class ResourceViewFoldTests
         var lines = Meter(State(new FakeSampleBuilder().Build()), own).TooltipLines;
 
         Assert.Equal("This Director's sessions at least 2.10 GB and at least 19% CPU", lines[4]);
+    }
+
+    /// <summary>
+    /// SWAP MAY RAISE THE FRAME; IT MAY NEVER ASSERT HEALTH. Both bars unreadable and swap readable and Normal:
+    /// the frame stays Unknown. Taking the plain maximum made it Normal - the meter telling you the machine is
+    /// fine on the strength of the one reading you cannot see. Found in the second review of pull request 4732,
+    /// which noticed the semantic change I had not listed.
+    /// </summary>
+    [Fact]
+    public void Meter_BothBarsUnreadableAndSwapNormal_TheFrameStaysUnknown_NeverNormal()
+    {
+        var sample = new FakeSampleBuilder()
+            .CpuUnreadable("the counters are switched off")
+            .MemoryUnreadable("sysctl refused")
+            .Build();
+        var meter = Meter(State(sample, cpu: ResourceLevel.Unknown, memory: ResourceLevel.Unknown));
+
+        Assert.Equal(ResourceLevel.Unknown, meter.Cpu.Level);
+        Assert.Equal(ResourceLevel.Unknown, meter.Memory.Level);
+        Assert.Equal(ResourceLevel.Unknown, meter.FrameLevel);
+    }
+
+    /// <summary>
+    /// A WARNING IS SPOKEN IN ITS OWN RESOURCE'S WORDS. These are the deleted banner's headlines, kept per
+    /// resource. The second review of pull request 4732 found I had flattened all three onto one pair, so a busy
+    /// processor announced itself as "the processor is running short" - not English for what happened - and full
+    /// swap as "maxed out" rather than "nearly full".
+    /// </summary>
+    [Theory]
+    [InlineData(ResourceLevel.Tight, ResourceLevel.Normal, ResourceLevel.Normal, "the processor is running hot")]
+    [InlineData(ResourceLevel.Critical, ResourceLevel.Normal, ResourceLevel.Normal, "the processor is maxed out")]
+    [InlineData(ResourceLevel.Normal, ResourceLevel.Tight, ResourceLevel.Normal, "memory is running short")]
+    [InlineData(ResourceLevel.Normal, ResourceLevel.Critical, ResourceLevel.Normal, "memory is nearly gone")]
+    [InlineData(ResourceLevel.Normal, ResourceLevel.Normal, ResourceLevel.Tight, "swap is filling up")]
+    [InlineData(ResourceLevel.Normal, ResourceLevel.Normal, ResourceLevel.Critical, "swap is nearly full")]
+    public void Meter_AWarning_IsSpokenInItsOwnResourcesWords(
+        ResourceLevel cpu, ResourceLevel memory, ResourceLevel swap, string expected)
+    {
+        var state = new ResourceSamplerState(new FakeSampleBuilder().Build(), new ResourcePressureVerdict(
+        [
+            new ResourceVerdict(ResourceKind.Cpu, cpu, "cpu evidence"),
+            new ResourceVerdict(ResourceKind.Memory, memory, "memory evidence"),
+            new ResourceVerdict(ResourceKind.Swap, swap, "swap evidence"),
+        ]));
+
+        var name = ResourceMeterFold.Build(state, "m", 1, null, TimeSpan.FromSeconds(3)).AccessibleName;
+
+        Assert.Contains(expected, name, StringComparison.Ordinal);
+        Assert.StartsWith("Resources: CPU ", name, StringComparison.Ordinal);
+    }
+
+    /// <summary>A quiet machine says no warning at all - the sentence is the figures and nothing else.</summary>
+    [Fact]
+    public void Meter_NothingWarning_TheSpokenNameCarriesNoWarning()
+    {
+        var name = Meter(State(new FakeSampleBuilder().Build())).AccessibleName;
+
+        Assert.DoesNotContain("Warning", name, StringComparison.Ordinal);
     }
 
     [Fact]

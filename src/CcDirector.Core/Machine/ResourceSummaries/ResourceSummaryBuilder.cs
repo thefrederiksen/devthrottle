@@ -18,7 +18,7 @@ namespace CcDirector.Core.Machine.ResourceSummaries;
 /// its average may be unremarkable, but its peak and its crossing are not.
 ///
 /// A crossing is the MACHINE's. It is also copied onto the row of the session that was the biggest user of that
-/// resource at the crossing's peak - the session the warning banner names - so cost per factory can say which factory
+/// resource at the crossing's peak - so cost per factory can say which factory
 /// was running hot when the machine was. A session never gets a crossing of its own invention: there are no
 /// per-session limits.
 /// </summary>

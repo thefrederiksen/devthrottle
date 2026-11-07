@@ -33,7 +33,7 @@ public enum SlownessCause
 /// <param name="ProcessName">The busiest process's name.</param>
 /// <param name="Pid">The busiest process's id.</param>
 /// <param name="SessionId">The session that process belongs to, when it belongs to one.</param>
-/// <param name="SessionName">That session's name, for the banner.</param>
+/// <param name="SessionName">That session's name, for whatever shows the diagnosis.</param>
 /// <param name="DiskName">The physical disk to blame, for a disk cause, for example <c>sdc</c>.</param>
 /// <param name="DiskKind">What that disk is - the reason a 75%-busy disk matters.</param>
 public sealed record SlownessCulprit(
@@ -45,7 +45,7 @@ public sealed record SlownessCulprit(
     DiskKind? DiskKind);
 
 /// <summary>
-/// The answer to "why is it slow?" - shown in the banner, at the top of the detail screen, in the
+/// The answer to "why is it slow?" - shown at the top of the detail screen, in the
 /// Diagnosis tab, and returned by the diagnose command to an agent.
 ///
 /// This is only the RESULT. It is produced by a pure function of the stall readings, in a class named

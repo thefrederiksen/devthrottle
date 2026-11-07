@@ -4,7 +4,7 @@ using Xunit;
 namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
-/// When a resource has crossed a limit, and what that means for the banner (issue #2811, phase 2). Both
+/// When a resource has crossed a limit, and what that means (issue #2811, phase 2). Both
 /// halves matter: a warning that fires and never clears is a defect, and so is an unreadable reading that
 /// quietly clears one.
 /// </summary>
@@ -33,7 +33,7 @@ public class ResourceCrossingDetectorTests
         Assert.Equal(ResourceCrossingChange.Raised, crossing.Change);
         Assert.Equal(ResourceLevel.Normal, crossing.From);
         Assert.Equal(ResourceLevel.Tight, crossing.To);
-        Assert.True(crossing.ShowsBanner);
+        Assert.True(crossing.IsNewWarning);
         Assert.False(crossing.EndsWarning);
         Assert.Equal("processor Tight", crossing.Evidence);
         Assert.Equal(At.AddSeconds(5), crossing.AtUtc);
@@ -45,7 +45,7 @@ public class ResourceCrossingDetectorTests
         var crossing = Assert.Single(Run(ResourceLevel.Normal, ResourceLevel.Critical));
 
         Assert.Equal(ResourceCrossingChange.Raised, crossing.Change);
-        Assert.True(crossing.ShowsBanner);
+        Assert.True(crossing.IsNewWarning);
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class ResourceCrossingDetectorTests
 
         Assert.Equal(2, crossings.Count);
         Assert.Equal(ResourceCrossingChange.Escalated, crossings[1].Change);
-        Assert.True(crossings[1].ShowsBanner);
+        Assert.True(crossings[1].IsNewWarning);
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class ResourceCrossingDetectorTests
         var crossings = Run(ResourceLevel.Critical, ResourceLevel.Tight);
 
         Assert.Equal(ResourceCrossingChange.Eased, crossings[1].Change);
-        Assert.False(crossings[1].ShowsBanner);
+        Assert.False(crossings[1].IsNewWarning);
         Assert.False(crossings[1].EndsWarning);
     }
 
@@ -75,7 +75,7 @@ public class ResourceCrossingDetectorTests
 
         Assert.Equal(ResourceCrossingChange.Cleared, crossings[1].Change);
         Assert.True(crossings[1].EndsWarning);
-        Assert.False(crossings[1].ShowsBanner);
+        Assert.False(crossings[1].IsNewWarning);
     }
 
     [Fact]
