@@ -55,7 +55,15 @@ public sealed record ResourceMeterView(
         get
         {
             var worst = Cpu.Level > Memory.Level ? Cpu.Level : Memory.Level;
-            return SwapLevel > worst ? SwapLevel : worst;
+
+            // SWAP MAY RAISE THIS FRAME; IT MAY NEVER ASSERT HEALTH. Only a warning level counts. Taking the
+            // plain maximum would have let a readable, Normal swap turn a frame whose BOTH BARS CANNOT BE READ
+            // from Unknown into Normal - the meter claiming the machine is fine on the strength of the one
+            // reading nobody can see (found in the second review of pull request 4732). "Cannot read" is never
+            // "normal" anywhere else in this mission and it is not here either.
+            return SwapLevel is ResourceLevel.Tight or ResourceLevel.Critical && SwapLevel > worst
+                ? SwapLevel
+                : worst;
         }
     }
 
@@ -81,15 +89,22 @@ public sealed record ResourceMeterView(
         }
     }
 
+    /// <summary>
+    /// THE WORDS ARE PER RESOURCE, NOT ONE PAIR FOR ALL THREE. These are the deleted banner's own headlines,
+    /// kept: a busy processor is "running hot", not "running short", and full swap is "nearly full", not
+    /// "maxed out". Flattening them to one pair was a wording regression found in the second review of pull
+    /// request 4732 - it reached a screen reader as "the processor is running short", which is not English for
+    /// what happened.
+    /// </summary>
     private static string Word(ResourceKind kind, ResourceLevel level)
     {
-        var what = kind switch
+        var critical = level == ResourceLevel.Critical;
+        return kind switch
         {
-            ResourceKind.Cpu => "the processor",
-            ResourceKind.Memory => "memory",
-            _ => "swap",
+            ResourceKind.Cpu => critical ? "the processor is maxed out" : "the processor is running hot",
+            ResourceKind.Memory => critical ? "memory is nearly gone" : "memory is running short",
+            _ => critical ? "swap is nearly full" : "swap is filling up",
         };
-        return level == ResourceLevel.Critical ? $"{what} is maxed out" : $"{what} is running short";
     }
 }
 
@@ -237,20 +252,27 @@ public static class ResourceMeterFold
                 lines.Add(BiggestUser(bar.Kind, state.Latest, sessions));
         }
 
-        // Swap in trouble names the biggest memory user too, exactly as the banner did - a machine paging hard
-        // is a machine short of memory, and the program to look at is the same one. Only when memory has not
-        // already said it, because they would name the same process twice.
-        if (swap.Level is ResourceLevel.Tight or ResourceLevel.Critical
-            && memory.Level is not (ResourceLevel.Tight or ResourceLevel.Critical))
-        {
-            lines.Add(BiggestUser(ResourceKind.Memory, state.Latest, sessions));
-        }
+
 
         if (state.Latest is { } sample)
         {
             lines.Add(sample.Swap.CouldRead
                 ? WhyIfWarning($"Swap {ResourceViewText.Bytes(sample.Swap.UsedBytes)} of {ResourceViewText.Bytes(sample.Swap.TotalBytes)}", swap)
                 : $"Swap {ResourceViewText.CannotRead(sample.Swap.UnreadableReason)}");
+
+            // Swap in trouble names the biggest memory user too, exactly as the banner did: a machine paging
+            // hard is a machine short of memory, and the program to look at is the same one. Only when memory
+            // has not already named it, or the same process is named twice.
+            //
+            // IT GOES HERE, AFTER THE SWAP LINE, not up with the bars. The second review of pull request 4732
+            // found it landing ABOVE the swap line that justifies it and directly under a HEALTHY memory line,
+            // so it read as a memory accusation with nothing to explain it. A reason must precede what it
+            // explains.
+            if (swap.Level is ResourceLevel.Tight or ResourceLevel.Critical
+                && memory.Level is not (ResourceLevel.Tight or ResourceLevel.Critical))
+            {
+                lines.Add(BiggestUser(ResourceKind.Memory, state.Latest, sessions));
+            }
 
             if (directorSessions is { } own)
             {

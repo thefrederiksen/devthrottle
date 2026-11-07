@@ -226,17 +226,21 @@ public sealed class ResourceMeterWindowTests
     /// it. The reviewer of pull request 4732 confirmed it is a real measurement by adding this test to main,
     /// where the banner still existed, and watching it fail with the body at 125 instead of 71.
     ///
-    /// TWO PLACES ARE MEASURED, because the same review showed one was not enough:
+    /// THREE THINGS ARE MEASURED, each because a review proved the previous set insufficient by BUILDING the
+    /// strip that slipped through it:
     /// <list type="bullet">
-    /// <item>the layout grid's own top, which catches a strip between the toolbar and the body - where the
-    /// deleted one lived;</item>
-    /// <item>the session view INSIDE the grid, which catches a strip added to the grid's header row. That one
-    /// pushes the user's work down without moving the grid's top-left at all, and the first version of this
-    /// test would have stayed green through it.</item>
+    /// <item>the layout grid's own top - a strip between the toolbar and the body, where the deleted one lived;</item>
+    /// <item>the session view INSIDE the grid - a strip in the grid's header row pushes the user's work down
+    /// without moving the grid's top-left at all. The reviewer showed the added version catches it, 107 against
+    /// 140;</item>
+    /// <item>the session view's HEIGHT - a strip docked to the BOTTOM of the window takes the user's space
+    /// without moving any origin at all. Both position checks stayed green through a 56-pixel bottom strip the
+    /// reviewer built and photographed; only height sees it. The rig's window is a fixed 600, so a height that
+    /// does not change is a window nothing was taken from.</item>
     /// </list>
     ///
-    /// WHAT IT STILL DOES NOT COVER: it measures the vertical only. A strip docked to the left or right would
-    /// not fail it. That is a deliberate choice - the owner's complaint was about height - and not an oversight.
+    /// WHAT IT STILL DOES NOT COVER: the vertical only. A strip docked left or right would not fail it. That is
+    /// a deliberate choice - the owner's complaint was about height - and not an oversight.
     /// </summary>
     [AvaloniaFact]
     public void GoingRed_MovesNothingInTheWindow()
@@ -245,8 +249,10 @@ public sealed class ResourceMeterWindowTests
         rig.Read(Machine(28, (ulong)(7.14 * Gb)).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
         var quietGrid = rig.Window.MainLayoutGrid.TranslatePoint(new Point(0, 0), rig.Window);
         var quietBody = rig.Window.SessionViewGrid.TranslatePoint(new Point(0, 0), rig.Window);
+        var quietHeight = rig.Window.SessionViewGrid.Bounds.Height;
         Assert.NotNull(quietGrid);
         Assert.NotNull(quietBody);
+        Assert.True(quietHeight > 0, "the session view has no height, so this test would prove nothing");
 
         rig.Read(Machine(98, (ulong)(0.95 * Gb)).Build(), ResourceLevel.Critical, ResourceLevel.Critical);
 
@@ -259,6 +265,7 @@ public sealed class ResourceMeterWindowTests
         Assert.NotNull(redBody);
         Assert.Equal(quietGrid!.Value.Y, redGrid!.Value.Y);
         Assert.Equal(quietBody!.Value.Y, redBody!.Value.Y);
+        Assert.Equal(quietHeight, rig.Window.SessionViewGrid.Bounds.Height);
     }
 
     /// <summary>
@@ -289,7 +296,8 @@ public sealed class ResourceMeterWindowTests
         Assert.Equal(ResourceLevel.Critical, view.FrameLevel);
         Assert.Contains(view.TooltipLines, line => line.StartsWith("Swap", StringComparison.Ordinal)
             && line.Contains("swap is 81% full", StringComparison.Ordinal));
-        Assert.Contains("swap is maxed out", view.AccessibleName, StringComparison.Ordinal);
+        // The words are the banner's own, per resource: full swap is "nearly full", never "maxed out".
+        Assert.Contains("swap is nearly full", view.AccessibleName, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -321,7 +329,7 @@ public sealed class ResourceMeterWindowTests
             StringComparison.Ordinal);
         // The healthy bar says only its figures; the evidence is for a bar that is actually warning.
         Assert.DoesNotContain("the processor is 28% busy", view.Cpu.Tooltip, StringComparison.Ordinal);
-        Assert.Contains("memory is maxed out", view.AccessibleName, StringComparison.Ordinal);
+        Assert.Contains("memory is nearly gone", view.AccessibleName, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
