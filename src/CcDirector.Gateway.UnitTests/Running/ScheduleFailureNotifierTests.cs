@@ -352,6 +352,45 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
     }
 
     [Fact]
+    public async Task ARecoveryNoticeThatFails_FailsTheScan_AndTheNextScanTellsTheOwner()
+    {
+        var job = NewSchedule();
+        var inboxDown = false;
+        var notifier = new ScheduleFailureNotifier(_runs, new CronFailureNoticeStore(_db),
+            jobOf: (_, id) => _jobs.TryGetValue(id, out var j) ? j : null,
+            machineOsOf: (_, _) => DirectorOs.MacOs,
+            fleet: new FleetChannel(_fleet),
+            push: (_, notice, _) => { _pushed.Add(notice); return Task.CompletedTask; },
+            inbox: (tenant, message) =>
+            {
+                if (inboxDown) throw new InvalidOperationException("the inbox store is down");
+                _inbox.Add(tenant, message);
+            },
+            enterScope: _ => new NoScope(),
+            clock: () => _now);
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+
+        _runs.Append(job.Id, new CronRunRecord
+        {
+            ScheduledUtc = _now, FiredUtc = _now, Machine = "studio-mac", TargetDirectorId = "director-1",
+            SessionId = "session-1", InfraStatus = "started", TaskStatus = "completed",
+            Result = CronRunResults.Ok, ResultUtc = _now,
+        });
+        _now = _now.AddSeconds(30);
+        inboxDown = true;
+
+        var failed = await Assert.ThrowsAsync<InvalidOperationException>(() => notifier.ScanAsync(CancellationToken.None));
+        Assert.Equal("the inbox store is down", failed.Message);
+
+        inboxDown = false;
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        Assert.Contains(InboxMessages(), m => m.Subject == $"Schedule recovered: {job.Name}");
+    }
+
+    [Fact]
     public void Claim_InsideTheHour_HoldsBack_AfterIt_SendsWithTheCount()
     {
         var store = new CronFailureNoticeStore(_db);
