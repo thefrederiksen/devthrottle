@@ -793,3 +793,72 @@ export function addLicenseSpare(accountEmail: string, machineId: string, signal?
 export function renewLicenseSignIn(accountEmail: string, machineId: string, signal?: AbortSignal): Promise<LicenseSignInStarted> {
   return startLicenseSignIn("/gateway/licenses/sign-ins/renew", "renew the sign-in", accountEmail, machineId, signal);
 }
+
+// ---- the daily license fire drill (mission "Licenses - Always Ready, Loud When Not", step 7) ----
+
+/** The drill's newest line, exactly as the daily report shows it. Folded on the Gateway (LicenseFireDrillFold). */
+export interface LicenseFireDrillLine {
+  type: string;
+  /** The newest drill passed. False also when it has not run, or is not set up. It picks the line's tone, nothing else. */
+  passed: boolean;
+  /** The finished line: when, on which machine, what it found, and how many passed in a row. Drawn as given. */
+  text: string;
+  /** When the newest drill finished; null when none has. */
+  ranAtUtc: string | null;
+  /** How many drills in a row have passed, the newest included; 0 when it did not pass. */
+  passedInARow: number;
+}
+
+/** The answer of every fire drill route: GET, PUT machine and POST run. */
+export interface LicenseFireDrill {
+  /** The drill machine's machineId (as the overview gives it); null when none is chosen. */
+  machineId: string | null;
+  /** Null when no machine of the account reports. */
+  line: LicenseFireDrillLine | null;
+}
+
+// A drill is two switches, each waiting on its machine. The Gateway answers when it has finished, so the page waits as
+// long as it takes: a time limit here would only abandon an answer the Gateway is about to give.
+
+function fireDrillAnswer(status: number, path: string, body: LicenseFireDrill | null): LicenseFireDrill {
+  // An answer without its machineId field would leave the page unable to say whether a machine is chosen.
+  if (body === null || !("machineId" in body) || !("line" in body)) {
+    throw new GatewayError(status, `The Gateway answered ${path} without its 'machineId' and 'line'.`);
+  }
+  return body;
+}
+
+/** GET /gateway/licenses/fire-drill - the drill machine and the drill's newest line. */
+export async function getLicenseFireDrill(signal?: AbortSignal): Promise<LicenseFireDrill> {
+  const path = "/gateway/licenses/fire-drill";
+  const res = await gatewayFetch(
+    path,
+    { ...JSON_GET, headers: { Accept: "application/json", ...authHeaders() }, signal },
+    { timeoutMs: POLL_TIMEOUT_MS },
+  );
+  if (!res.ok) throw await GatewayError.from(res, "read the fire drill");
+  return fireDrillAnswer(res.status, path, (await res.json()) as LicenseFireDrill | null);
+}
+
+/**
+ * PUT /gateway/licenses/fire-drill/machine - choose the drill machine (its machineId in the overview), or clear the
+ * choice with null. `machineId` is always sent. The owner's own; a refusal throws GatewayError carrying the Gateway's
+ * own sentence.
+ */
+export async function setLicenseFireDrillMachine(machineId: string | null, signal?: AbortSignal): Promise<LicenseFireDrill> {
+  const path = "/gateway/licenses/fire-drill/machine";
+  const res = await gatewayFetch(path, { method: "PUT", headers: jsonWriteHeaders(), body: JSON.stringify({ machineId }), signal });
+  if (!res.ok) throw await GatewayError.from(res, "choose the drill machine");
+  return fireDrillAnswer(res.status, path, (await res.json()) as LicenseFireDrill | null);
+}
+
+/**
+ * POST /gateway/licenses/fire-drill/run - run the drill now: it switches the drill machine out to a spare and back.
+ * Answered after the drill. The owner's own; a refusal throws GatewayError carrying the Gateway's own sentence.
+ */
+export async function runLicenseFireDrill(signal?: AbortSignal): Promise<LicenseFireDrill> {
+  const path = "/gateway/licenses/fire-drill/run";
+  const res = await gatewayFetch(path, { method: "POST", headers: { Accept: "application/json", ...authHeaders() }, signal });
+  if (!res.ok) throw await GatewayError.from(res, "run the fire drill");
+  return fireDrillAnswer(res.status, path, (await res.json()) as LicenseFireDrill | null);
+}

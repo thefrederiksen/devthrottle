@@ -3107,3 +3107,91 @@ session key guard's list; the two writes are the owner's own, like Switch now.
 
 Each drill writes one `fire-drill` row in the log (section 4), and its two switches are ordinary `switch` rows whose
 explanation says they are the drill.
+
+### Examples
+
+Produced by the route handlers over a test store (`LicenseFireDrillEndpointTests`' picture: the-windows-machine on
+account A, holding account B as a spare). The drill machine's identifier is shown as the-windows-machine's in the
+overview example (section 2), so the two read together. The two owner-only refusals are the sentence
+`FleetManagerOwnerDevice.Require` writes for a workstation credential, with each route's own `what`.
+
+The read, with no drill machine chosen (and the answer of a PUT that clears it):
+
+```json
+{
+  "machineId": null,
+  "line": {
+    "type": "license-fire-drill",
+    "passed": false,
+    "text": "The license fire drill is not set up: no drill machine is chosen, so it does not run.",
+    "ranAtUtc": null,
+    "passedInARow": 0
+  }
+}
+```
+
+The answer of a run that passed, the second in a row:
+
+```json
+{
+  "machineId": "f26a799d85a244129a27ba10b8cb3427",
+  "line": {
+    "type": "license-fire-drill",
+    "passed": true,
+    "text": "License fire drill, 2026-10-11 03:12 UTC, on the-windows-machine: Passed: every machine holds a fresh sign-in for every paid account, verified by a usage read, and the-windows-machine switched to account-b@example.com and back to account-a@example.com, each verified by a usage read. 2 drills passed in a row.",
+    "ranAtUtc": "2026-10-11T03:12:00Z",
+    "passedInARow": 2
+  }
+}
+```
+
+The answer of a run that failed: the spare's sign-in is refused, so there is no spare to switch to.
+
+```json
+{
+  "machineId": "f26a799d85a244129a27ba10b8cb3427",
+  "line": {
+    "type": "license-fire-drill",
+    "passed": false,
+    "text": "License fire drill, 2026-10-11 03:12 UTC, on the-windows-machine: Failed: 1 hole. The drill switch failed at choosing a spare with room: the-windows-machine holds no fresh sign-in for an account with room besides account-a@example.com. the-windows-machine: its sign-in for account-b@example.com is refused and needs a new sign-in.",
+    "ranAtUtc": "2026-10-11T03:12:00Z",
+    "passedInARow": 0
+  }
+}
+```
+
+`POST /gateway/licenses/fire-drill/run` with no drill machine chosen, refused 409:
+
+```json
+{
+  "code": "no_drill_machine",
+  "error": "No drill machine is chosen, so there is no drill to run."
+}
+```
+
+`PUT /gateway/licenses/fire-drill/machine` naming a machine not on the Licenses page, refused 409:
+
+```json
+{
+  "code": "unknown_machine",
+  "error": "That machine is not on the Licenses page."
+}
+```
+
+The PUT, asked by a caller that is not the owner's own signed-in phone or browser, refused 403:
+
+```json
+{
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may choose the machine of the license fire drill; this request was made with a device (workstation) credential"
+}
+```
+
+The run, asked by the same caller, refused 403:
+
+```json
+{
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may run the license fire drill; this request was made with a device (workstation) credential"
+}
+```

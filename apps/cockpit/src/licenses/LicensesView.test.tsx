@@ -27,6 +27,8 @@ vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   switchLicenseNow: (...args: unknown[]) => switchLicenseNow(...args),
   setLicenseRenewalDate: (...args: unknown[]) => setLicenseRenewalDate(...args),
   getLicenseApprovers: (...args: unknown[]) => getLicenseApprovers(...args),
+  // The fire drill card is not what this file is about: it reads the Gateway's "not set up" example.
+  getLicenseFireDrill: async () => (await import("./fixtures")).FIRE_DRILL_NOT_SET_UP,
 }));
 // describeAndReport is the one way an error reaches the screen (and the Gateway); here it only has to say the error.
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({

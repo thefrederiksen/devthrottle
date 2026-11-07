@@ -43,6 +43,7 @@ import {
   SIGN_IN_RUNNING,
   SIGN_IN_STARTED,
   SIGN_IN_UNKNOWN_MACHINE,
+  FIRE_DRILL_NOT_SET_UP,
   copyOf,
 } from "./fixtures";
 
@@ -132,6 +133,7 @@ beforeEach(() => {
     "GET /gateway/licenses/forecast": () => json(200, FORECAST),
     "GET /gateway/licenses/log": () => json(200, LOG_PAGE),
     [READ_APPROVERS]: () => json(200, APPROVERS),
+    "GET /gateway/licenses/fire-drill": () => json(200, FIRE_DRILL_NOT_SET_UP),
   };
   vi.stubGlobal(
     "fetch",

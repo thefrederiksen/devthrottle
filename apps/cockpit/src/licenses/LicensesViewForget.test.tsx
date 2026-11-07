@@ -9,7 +9,7 @@ import { render, screen, cleanup, within, fireEvent } from "@testing-library/rea
 //   - the one write is an application/json POST naming the machine, and the answer's sentence is shown as given;
 //   - a refusal is shown in the Gateway's sentence and the confirmation stays open.
 import { LicensesView } from "./LicensesView";
-import { APPROVERS_EMPTY, FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
+import { APPROVERS_EMPTY, FIRE_DRILL_NOT_SET_UP, FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
 
 const FORGET = "POST /gateway/licenses/machines/forget";
 const FORGET_TEXT =
@@ -54,6 +54,7 @@ beforeEach(() => {
     "GET /gateway/licenses/forecast": () => json(200, FORECAST),
     "GET /gateway/licenses/log": () => json(200, LOG_PAGE),
     "GET /gateway/licenses/approvers": () => json(200, APPROVERS_EMPTY),
+    "GET /gateway/licenses/fire-drill": () => json(200, FIRE_DRILL_NOT_SET_UP),
   };
   vi.stubGlobal(
     "fetch",

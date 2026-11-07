@@ -17,6 +17,8 @@ vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   switchLicenseNow: vi.fn(),
   setLicenseRenewalDate: vi.fn(),
   getLicenseApprovers: (...args: unknown[]) => getLicenseApprovers(...args),
+  // The fire drill card is not what this file is about: it reads the Gateway's "not set up" example.
+  getLicenseFireDrill: async () => (await import("./fixtures")).FIRE_DRILL_NOT_SET_UP,
 }));
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   describeAndReport: (_surface: string, _action: string, err: unknown) => (err instanceof Error ? err.message : String(err)),

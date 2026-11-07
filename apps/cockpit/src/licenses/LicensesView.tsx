@@ -3,6 +3,7 @@ import {
   addLicenseSpare,
   forgetLicenseMachine,
   getLicenseApprovers,
+  getLicenseFireDrill,
   getLicenseForecast,
   getLicenseLog,
   getLicenseOverview,
@@ -14,6 +15,7 @@ import {
   type LicenseAccount,
   type LicenseApprover,
   type LicenseApprovers,
+  type LicenseFireDrill,
   type LicenseForecast,
   type LicenseHolding,
   type LicenseLogEntry,
@@ -30,6 +32,7 @@ import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
 import { LicenseCoverageGrid } from "./LicenseCoverage";
+import { LicenseFireDrillCard } from "./LicenseFireDrill";
 import { LicenseUsageTab } from "./LicenseUsageTab";
 import { LicenseOutlookChart, LicenseOutlookHeadline, LicenseOutlookTiles } from "./LicenseOutlook";
 import { AddSpareChoice, LicenseSignIns, SignInAnswer, type ApproverEditorOpen } from "./LicenseSignIns";
@@ -40,14 +43,14 @@ import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill, toneClass } from "./l
 // card with its two usage windows and its Forecast and Subscription boxes, the schedule (which account each machine is on, which is next and when), the sign-ins, the switch log,
 // and the things a person does here: Switch now, setting the day a subscription is billed again, saying which
 // machine approves the sign-ins of an account, adding a spare to a machine, renewing a sign-in, and forgetting a machine
-// that is gone.
+// that is gone. And the daily fire drill: its newest line, choosing its machine, and running it now.
 //
 // THE PAGE DECIDES NOTHING (CLAUDE.md rule 7). Every status, tone, sentence and offer on it is folded on the
 // Gateway (LicenseDisplayFold) and shown as sent. The page never compares a percentage with the switching
 // threshold and never works out how far away a time is. What it does do is lay out, look a row up by its
 // account or machine, and show a time in the viewer's own time zone.
 //
-// The four reads are polled separately, so a failure of one leaves the others on screen. The sentences are
+// The five reads are polled separately, so a failure of one leaves the others on screen. The sentences are
 // true at each answer's asOfUtc; reading again every 30 seconds keeps them true.
 const POLL_MS = 30000;
 
@@ -55,6 +58,7 @@ const readOverview = (signal?: AbortSignal) => getLicenseOverview(signal);
 const readForecast = (signal?: AbortSignal) => getLicenseForecast(signal);
 const readNewestLog = (signal?: AbortSignal) => getLicenseLog(null, signal);
 const readApprovers = (signal?: AbortSignal) => getLicenseApprovers(signal);
+const readFireDrill = (signal?: AbortSignal) => getLicenseFireDrill(signal);
 
 interface Polled<S> {
   data: S | null;
@@ -143,6 +147,7 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
   const forecast = usePolled<LicenseForecast, LicenseForecast>(readForecast, "read the license forecast", newest);
   const log = usePolled<LicenseLogPage, LogView>(readNewestLog, "read the switch log", foldNewestLogPage);
   const approvers = usePolled<LicenseApprovers, LicenseApprovers>(readApprovers, "read who approves sign-ins", newest);
+  const drill = usePolled<LicenseFireDrill, LicenseFireDrill>(readFireDrill, "read the fire drill", newest);
 
   const [olderBusy, setOlderBusy] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
@@ -186,6 +191,7 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
     void forecast.refresh();
     void log.refresh();
     void approvers.refresh();
+    void drill.refresh();
   };
 
   // A refusal throws with the Gateway's own sentence; the dialog stays open and shows it.
@@ -377,6 +383,19 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
 
           <h2 className="lic-h2">Coverage</h2>
           <LicenseCoverageGrid coverage={data.coverage} />
+
+          <h2 className="lic-h2">Fire drill</h2>
+          {/* The answer of a choice or a run is the read as it now stands; the drill's row of the log follows it. */}
+          <LicenseFireDrillCard
+            drill={drill.data}
+            error={drill.error}
+            onRetry={() => void drill.refresh()}
+            machines={data.machines}
+            onAnswer={(answer) => {
+              drill.update(() => answer);
+              void log.refresh();
+            }}
+          />
 
           {lastSwitch !== null && (
             <SwitchNowAnswer result={lastSwitch} log={log.data?.entries ?? []} onDismiss={() => setLastSwitch(null)} />

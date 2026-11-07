@@ -58,6 +58,14 @@ WANTED = [
     ("SIGN_IN_UNKNOWN_MACHINE", REFUSAL, "A sign-in refused 404: no machine with that identifier has reported.", "error", False),
     ("SIGN_IN_LOG", "LicenseLogPage", "GET /gateway/licenses/log with three sign-ins: one running, one that signed in, one that failed.", "entries", False),
     ("OVERVIEW_SIGN_IN_FIELDS", SIGN_IN_FIELDS, "The sign-in fields of GET /gateway/licenses, and only those, while a renewal was running on the-windows-machine and the Director on the-mac was not connected. It is another picture than OVERVIEW: there the-mac is on account C.", "machines", False),
+    # ---- section 8: the daily license fire drill ----
+    ("FIRE_DRILL_NOT_SET_UP", "LicenseFireDrill", "GET /gateway/licenses/fire-drill with no drill machine chosen.", "line", False),
+    ("FIRE_DRILL_PASSED", "LicenseFireDrill", "POST /gateway/licenses/fire-drill/run, a drill that passed, the second in a row.", "line", False),
+    ("FIRE_DRILL_FAILED", "LicenseFireDrill", "POST /gateway/licenses/fire-drill/run, a drill that failed: no spare to switch to.", "line", False),
+    ("FIRE_DRILL_NO_MACHINE", REFUSAL, "POST /gateway/licenses/fire-drill/run with no drill machine chosen: 409.", "error", False),
+    ("FIRE_DRILL_UNKNOWN_MACHINE", REFUSAL, "PUT /gateway/licenses/fire-drill/machine naming a machine not on the page: 409.", "error", False),
+    ("FIRE_DRILL_MACHINE_OWNER_ONLY", REFUSAL, "PUT /gateway/licenses/fire-drill/machine, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
+    ("FIRE_DRILL_RUN_OWNER_ONLY", REFUSAL, "POST /gateway/licenses/fire-drill/run, asked by the same caller: 403, with its own sentence.", "error", False),
 ]
 
 if len(blocks) != len(WANTED):
@@ -78,6 +86,7 @@ out = [
     "  LicenseApprover,",
     "  LicenseApproverRemoved,",
     "  LicenseApprovers,",
+    "  LicenseFireDrill,",
     "  LicenseForecast,",
     "  LicenseHolding,",
     "  LicenseLogPage,",

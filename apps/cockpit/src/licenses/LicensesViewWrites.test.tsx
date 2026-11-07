@@ -17,6 +17,7 @@ import { render, screen, cleanup, waitFor, within, fireEvent } from "@testing-li
 import { LicensesView } from "./LicensesView";
 import {
   APPROVERS_EMPTY,
+  FIRE_DRILL_NOT_SET_UP,
   BARRED_FIELDS,
   FORECAST,
   LOG_PAGE,
@@ -67,6 +68,7 @@ beforeEach(() => {
     "GET /gateway/licenses/forecast": () => json(200, FORECAST),
     "GET /gateway/licenses/log": () => json(200, LOG_PAGE),
     "GET /gateway/licenses/approvers": () => json(200, APPROVERS_EMPTY),
+    "GET /gateway/licenses/fire-drill": () => json(200, FIRE_DRILL_NOT_SET_UP),
   };
   vi.stubGlobal(
     "fetch",

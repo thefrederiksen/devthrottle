@@ -3,6 +3,7 @@ import type {
   LicenseApprover,
   LicenseApproverRemoved,
   LicenseApprovers,
+  LicenseFireDrill,
   LicenseForecast,
   LicenseHolding,
   LicenseLogPage,
@@ -1735,6 +1736,66 @@ export const OVERVIEW_SIGN_IN_FIELDS: LicenseOverviewSignInFields = {
       ]
     }
   ]
+};
+
+/** GET /gateway/licenses/fire-drill with no drill machine chosen. */
+export const FIRE_DRILL_NOT_SET_UP: LicenseFireDrill = {
+  "machineId": null,
+  "line": {
+    "type": "license-fire-drill",
+    "passed": false,
+    "text": "The license fire drill is not set up: no drill machine is chosen, so it does not run.",
+    "ranAtUtc": null,
+    "passedInARow": 0
+  }
+};
+
+/** POST /gateway/licenses/fire-drill/run, a drill that passed, the second in a row. */
+export const FIRE_DRILL_PASSED: LicenseFireDrill = {
+  "machineId": "f26a799d85a244129a27ba10b8cb3427",
+  "line": {
+    "type": "license-fire-drill",
+    "passed": true,
+    "text": "License fire drill, 2026-10-11 03:12 UTC, on the-windows-machine: Passed: every machine holds a fresh sign-in for every paid account, verified by a usage read, and the-windows-machine switched to account-b@example.com and back to account-a@example.com, each verified by a usage read. 2 drills passed in a row.",
+    "ranAtUtc": "2026-10-11T03:12:00Z",
+    "passedInARow": 2
+  }
+};
+
+/** POST /gateway/licenses/fire-drill/run, a drill that failed: no spare to switch to. */
+export const FIRE_DRILL_FAILED: LicenseFireDrill = {
+  "machineId": "f26a799d85a244129a27ba10b8cb3427",
+  "line": {
+    "type": "license-fire-drill",
+    "passed": false,
+    "text": "License fire drill, 2026-10-11 03:12 UTC, on the-windows-machine: Failed: 1 hole. The drill switch failed at choosing a spare with room: the-windows-machine holds no fresh sign-in for an account with room besides account-a@example.com. the-windows-machine: its sign-in for account-b@example.com is refused and needs a new sign-in.",
+    "ranAtUtc": "2026-10-11T03:12:00Z",
+    "passedInARow": 0
+  }
+};
+
+/** POST /gateway/licenses/fire-drill/run with no drill machine chosen: 409. */
+export const FIRE_DRILL_NO_MACHINE: { code: string; error: string } = {
+  "code": "no_drill_machine",
+  "error": "No drill machine is chosen, so there is no drill to run."
+};
+
+/** PUT /gateway/licenses/fire-drill/machine naming a machine not on the page: 409. */
+export const FIRE_DRILL_UNKNOWN_MACHINE: { code: string; error: string } = {
+  "code": "unknown_machine",
+  "error": "That machine is not on the Licenses page."
+};
+
+/** PUT /gateway/licenses/fire-drill/machine, asked by a caller that is not the owner's own signed-in phone or browser: 403. */
+export const FIRE_DRILL_MACHINE_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may choose the machine of the license fire drill; this request was made with a device (workstation) credential"
+};
+
+/** POST /gateway/licenses/fire-drill/run, asked by the same caller: 403, with its own sentence. */
+export const FIRE_DRILL_RUN_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may run the license fire drill; this request was made with a device (workstation) credential"
 };
 
 /** A fresh copy of a fixture, so a test may change it without changing it for the next test. */

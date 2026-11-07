@@ -11,6 +11,7 @@ vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   getLicenseForecast: () => new Promise(() => undefined),
   getLicenseLog: () => new Promise(() => undefined),
   getLicenseApprovers: () => new Promise(() => undefined),
+  getLicenseFireDrill: () => new Promise(() => undefined),
 }));
 vi.mock("@devthrottle/client-core/licenses/licenseUsageClient", () => ({
   getLicenseUsage: () =>
