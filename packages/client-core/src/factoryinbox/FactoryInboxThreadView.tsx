@@ -16,7 +16,12 @@ import "./factoryInbox.css";
 // message carries its own trail - Sent, Received, with the Boss, the decision - so "it was listened to" can be seen at a
 // glance. Every word under a message, and the tone it is coloured by, is the Gateway's; this view prints them.
 //
-// The decision arrives minutes later, from the Boss, so the thread is read again every 15 seconds while it is open.
+// The decision arrives minutes later, from the Boss, so the thread is read again 15 seconds after each read ends while
+// it is open. ONE READ AT A TIME (the end-to-end proof of 6 November 2026, defect 1): the next read never starts while one
+// is still running, and a running read is never aborted to make room for it - an aborted read keeps running on the
+// Gateway, so a slow thread re-read every 15 seconds piled reads up there and never showed an answer. A read asked for
+// while one runs (the composer left a message) starts as soon as that one ends, so the screen still shows the latest
+// answer. The read in flight is aborted only when the screen leaves this factory.
 
 const REFRESH_MS = 15_000;
 
@@ -37,12 +42,13 @@ export function FactoryInboxThreadView({ factory, surface, actions, showTitle = 
   const [summary, setSummary] = useState<FactoryInboxSummary | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [reads, setReads] = useState(0);
   // The latest onTitle, without making the read depend on a callback the shell rebuilds every render.
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
+  // Ask for a read of the open factory now: at once when none runs, or as soon as the running one ends.
+  const readNowRef = useRef<() => void>(() => {});
 
-  const reload = useCallback(() => setReads((n) => n + 1), []);
+  const reload = useCallback(() => readNowRef.current(), []);
 
   useEffect(() => {
     setThread(null);
@@ -53,26 +59,51 @@ export function FactoryInboxThreadView({ factory, surface, actions, showTitle = 
 
   useEffect(() => {
     const controller = new AbortController();
-    const background = reads > 0;
-    getFactoryInboxThread(factory, controller.signal).then(
-      (t) => {
+    let running = false;
+    let wanted = false;
+    let reads = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = () => {
+      clearTimeout(timer);
+      timer = undefined;
+      if (running) {
+        wanted = true;
+        return;
+      }
+      running = true;
+      wanted = false;
+      const background = reads > 0;
+      reads += 1;
+      const ended = () => {
         if (controller.signal.aborted) return;
-        setThread(t);
-        setError(null);
-        onTitleRef.current?.(t.title);
-        backgroundRecovered(FACTORY_INBOX_SURFACE, "read the factory's messages");
-      },
-      (err: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(describeAndReport(FACTORY_INBOX_SURFACE, "read the factory's messages", err, background ? { background: true } : undefined));
-      },
-    );
-    const timer = setTimeout(reload, REFRESH_MS);
+        running = false;
+        if (wanted) read();
+        else timer = setTimeout(read, REFRESH_MS);
+      };
+      getFactoryInboxThread(factory, controller.signal)
+        .then(
+          (t) => {
+            if (controller.signal.aborted) return;
+            setThread(t);
+            setError(null);
+            onTitleRef.current?.(t.title);
+            backgroundRecovered(FACTORY_INBOX_SURFACE, "read the factory's messages");
+          },
+          (err: unknown) => {
+            if (controller.signal.aborted) return;
+            setError(describeAndReport(FACTORY_INBOX_SURFACE, "read the factory's messages", err, background ? { background: true } : undefined));
+          },
+        )
+        .finally(ended);
+    };
+    readNowRef.current = read;
+    read();
     return () => {
+      readNowRef.current = () => {};
       controller.abort();
       clearTimeout(timer);
     };
-  }, [factory, reads, reload]);
+  }, [factory]);
 
   const toggleSummary = useCallback(() => {
     if (summaryOpen) {

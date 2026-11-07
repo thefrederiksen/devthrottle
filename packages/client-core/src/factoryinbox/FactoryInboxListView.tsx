@@ -80,6 +80,11 @@ export function FactoryInboxListView({ surface, onOpen, selected = null, showCom
                 <span className="fi-row-title">{f.title}</span>
                 <span className="fi-row-line">{f.row.line}</span>
                 {f.row.waitingLine !== null && <span className="fi-row-waiting">{f.row.waitingLine}</span>}
+                {f.row.reasonLine !== null && (
+                  <span className="fi-row-reason" data-tone={f.row.tone}>
+                    {f.row.reasonLine}
+                  </span>
+                )}
               </span>
               <span className="fi-badge" data-tone={f.row.tone}>
                 {f.row.badge}

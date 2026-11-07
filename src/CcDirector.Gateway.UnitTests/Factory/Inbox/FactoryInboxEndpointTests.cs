@@ -622,4 +622,27 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         Assert.Equal("Waiting - no Director is running on the Boss's computer, SOREN_NORTH; it goes on when one connects there",
             message.GetProperty("stateLabel").GetString());
     }
+
+    [Fact]
+    public async Task TheList_RowSaysWhyTheNewestMessageWaits_InTheThreadsWords()
+    {
+        // The end-to-end proof of 6 November 2026, defect 6: the row said only "1 waiting for a decision" and "Sent".
+        await Leave("Check the totals");
+        var row = _wakes.Row(A, "invoices", _now);
+        Assert.True(_wakes.TryUpdate(A, "invoices", row.Version, w =>
+        {
+            w.SecretaryWaiting = FactoryInboxWords.Waiting.NoDirector;
+            w.SecretaryWaitingDetail = "SOREN_NORTH";
+        }, _now));
+
+        var (status, body) = await Get("/gateway/factory/inbox", Phone);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var invoices = body.GetProperty("factories").EnumerateArray().Single(f => f.GetProperty("factory").GetString() == "invoices");
+        var listed = invoices.GetProperty("row");
+        Assert.Equal("Waiting - no Director is running on the Boss's computer, SOREN_NORTH; it goes on when one connects there",
+            listed.GetProperty("reasonLine").GetString());
+        Assert.Equal("Waiting", listed.GetProperty("badge").GetString());
+        Assert.Equal("1 waiting for a decision", listed.GetProperty("waitingLine").GetString());
+    }
 }

@@ -5177,6 +5177,19 @@ a.banner-btn {
   flex-direction: column;
   gap: 10px;
 }
+/* The inbox's app bar carries titles the owner did not choose - a factory's title, a Your inbox subject of any length.
+   The title starts from no width and takes the room left between Back and the bell, wrapping there (breaking a word
+   too long for it), so nothing else in the bar is made to shrink and the bell never leaves the right edge (the
+   end-to-end proof of 6 November 2026, defect 5). The title fills that room, so the bar needs no spacer. The bell's
+   own rule is not touched: only alerts.css writes it. */
+.screen .fi-phone-bar h1 {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.screen .fi-phone-bar .app-bar-spacer {
+  display: none;
+}
 .screen .fi-row {
   padding: 12px;
 }

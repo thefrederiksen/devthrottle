@@ -60,6 +60,8 @@ export interface FactoryInboxRow {
   waitingLine: string | null;
   badge: string;
   tone: FactoryInboxTone;
+  /** Why the newest message waits, in the Gateway's words; null when it does not wait. */
+  reasonLine: string | null;
 }
 
 export interface FactoryInboxListEntry {

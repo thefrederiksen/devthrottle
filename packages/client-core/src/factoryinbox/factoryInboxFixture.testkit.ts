@@ -38,14 +38,14 @@ export function oddList(): FactoryInboxList {
       {
         factory: "zeta-works",
         title: "Zeta Works (gateway)",
-        row: { line: "Quokka ledger needs a gentler tone", waitingLine: "Two still pondering (gateway)", badge: "Mulling (gateway)", tone: "amber" },
+        row: { line: "Quokka ledger needs a gentler tone", waitingLine: "Two still pondering (gateway)", badge: "Mulling (gateway)", tone: "amber", reasonLine: "Held up because the burrow is unlit (gateway)" },
         waiting: 2,
         lastMessage: oddMessage(),
       },
       {
         factory: "alpha-mill",
         title: "Alpha Mill (gateway)",
-        row: { line: "Silence so far (gateway)", waitingLine: null, badge: "Empty-ish (gateway)", tone: "grey" },
+        row: { line: "Silence so far (gateway)", waitingLine: null, badge: "Empty-ish (gateway)", tone: "grey", reasonLine: null },
         waiting: 0,
         lastMessage: null,
       },

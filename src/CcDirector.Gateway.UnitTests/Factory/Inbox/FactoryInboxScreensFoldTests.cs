@@ -117,6 +117,37 @@ public sealed class FactoryInboxScreensFoldTests
         Assert.Equal(FactoryInboxWords.Tones.Ok, row.Tone);
     }
 
+    [Fact]
+    public void Row_NewestSentAndTheSecretaryCannotBeStarted_SaysWhyAndBadgesItWaiting()
+    {
+        var waiting = new FactoryInboxWaitingLabels("Waiting - no Director is running on the Boss's computer, fi-inbox-test; it goes on when one connects there", null);
+
+        var row = FactoryInboxFold.Row(1, Message(FactoryInboxWords.States.Sent), null, waiting);
+
+        Assert.Equal("Waiting - no Director is running on the Boss's computer, fi-inbox-test; it goes on when one connects there", row.ReasonLine);
+        Assert.Equal("Waiting", row.Badge);
+        Assert.Equal("1 waiting for a decision", row.WaitingLine);
+        Assert.Equal(FactoryInboxWords.Tones.Amber, row.Tone);
+    }
+
+    [Fact]
+    public void Row_NewestWithTheBossAndOnlyTheSecretaryWaits_HasNoReason()
+    {
+        var waiting = new FactoryInboxWaitingLabels("Waiting - the Secretary did not start: busy; it is tried again", null);
+
+        var row = FactoryInboxFold.Row(1, Message(FactoryInboxWords.States.WithBoss), null, waiting);
+
+        Assert.Null(row.ReasonLine);
+        Assert.Equal("With the Boss", row.Badge);
+    }
+
+    [Fact]
+    public void Row_NothingWaits_HasNoReason()
+    {
+        Assert.Null(FactoryInboxFold.Row(1, Message(FactoryInboxWords.States.Sent), null).ReasonLine);
+        Assert.Null(FactoryInboxFold.Row(0, null, null).ReasonLine);
+    }
+
     [Theory]
     [InlineData(0, "All dealt with")]
     [InlineData(1, "1 waiting for a decision")]

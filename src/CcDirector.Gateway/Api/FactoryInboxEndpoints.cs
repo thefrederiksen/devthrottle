@@ -137,16 +137,17 @@ internal static class FactoryInboxEndpoints
                 {
                     var c = counts.TryGetValue(f.Factory, out var found) ? found : null;
                     var lastDecision = c is not null && decisions.TryGetValue(c.Last.Id, out var ld) ? ld : null;
+                    var waitingLabels = c is null ? null : WaitingOf(parts, tenant, f.Factory);
                     return new
                     {
                         factory = f.Factory,
                         title = f.Title,
                         // The row's words and tone (phase 4): the screens print these and decide nothing.
-                        row = FactoryInboxFold.Row(c?.Waiting ?? 0, c?.Last, lastDecision),
+                        row = FactoryInboxFold.Row(c?.Waiting ?? 0, c?.Last, lastDecision, waitingLabels),
 
                         waiting = c?.Waiting ?? 0,
                         lastMessage = c is null ? null : FactoryInboxFold.Message(c.Last,
-                            decisions.TryGetValue(c.Last.Id, out var d) ? d : null, HandedOf(handed, c.Last), WaitingOf(parts, tenant, f.Factory)),
+                            decisions.TryGetValue(c.Last.Id, out var d) ? d : null, HandedOf(handed, c.Last), waitingLabels),
                     };
                 })
                 .ToList();
@@ -431,7 +432,7 @@ internal static class FactoryInboxEndpoints
 
         if (Registered(factories, tenant, factory, out var registered) is { } missing) return missing;
         if (registered!.ArchivedAtUtc is not null)
-            return Error(409, "factory_archived", $"'{registered.Factory}' is archived, so it takes no messages. Restore it from the Factories screen first.");
+            return Error(409, "factory_archived", $"{registered.Title} is archived, so it takes no messages. Restore it from the Factories screen first.");
         if (string.IsNullOrWhiteSpace(registered.BossSeat))
             return Error(409, "factory_has_no_boss", $"'{registered.Factory}' names no Boss seat, so nobody would read a message left there.");
         owner = new OwnerSend(registered, device,

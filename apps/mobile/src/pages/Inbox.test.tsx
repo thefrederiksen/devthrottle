@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { oddList, oddThread } from "@devthrottle/client-core/factoryinbox/factoryInboxFixture.testkit";
 import { oddYourCount, oddYourList, oddYourMessage } from "@devthrottle/client-core/yourinbox/yourInboxFixture.testkit";
 
@@ -155,6 +157,22 @@ describe("the phone's Inbox", () => {
     expect(container.querySelector(".yi-subject")).toBeNull(); // the app bar holds it; it is not printed twice
     expect(container.querySelector(".screen > .app-bar > .back-link")?.getAttribute("href")).toBe("/mobile/inbox?tab=yours");
     expect(screen.getAllByTestId("yi-link")[0].getAttribute("href")).toBe("/mobile/session/11111111-1111-4111-8111-111111111111");
+  });
+
+  // The end-to-end proof of 6 November 2026, defect 5: a long subject pushed the bell off the right edge. A test page
+  // has no layout, so this holds the two halves of the fix in place - the frame names its bar, and the phone's sheet
+  // gives that bar's title the room left beside the bell, starting from no width, so nothing else has to shrink. The real-browser proof is the rig in
+  // docs/qa/factory-inbox/proof-findings-polish, which fails if the bell leaves the bar.
+  it("Inbox_AppBar_GivesALongTitleOnlyTheRoomBesideTheBell", async () => {
+    const { container } = mountAt("/mobile/inbox?tab=yours&message=y-1");
+    await screen.findByTestId("yi-body");
+
+    expect(container.querySelector(".screen > .app-bar.fi-phone-bar > h1")).not.toBeNull();
+    const sheet = readFileSync(join(__dirname, "..", "styles.css"), "utf8");
+    const rule = (selector: string) => sheet.match(new RegExp(`${selector.replace(/[.]/g, "\\.")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+    expect(rule(".screen .fi-phone-bar h1")).toContain("flex: 1 1 0");
+    expect(rule(".screen .fi-phone-bar h1")).toContain("min-width: 0");
+    expect(rule(".screen .fi-phone-bar h1")).toContain("overflow-wrap: anywhere");
   });
 
   // Section 7 of the mission: the unread count on the Inbox entry equals the Gateway's count.

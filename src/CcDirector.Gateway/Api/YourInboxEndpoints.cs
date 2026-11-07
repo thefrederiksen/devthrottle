@@ -321,7 +321,7 @@ internal static class YourInboxEndpoints
         if (registered is null)
             return Error(409, "factory_not_found", $"'{factory}' is no longer a factory of this account, so there is no Factory inbox to leave the reply in. Nothing was sent.");
         if (registered.ArchivedAtUtc is not null)
-            return Error(409, "factory_archived", $"'{registered.Factory}' is archived, so it takes no messages. Restore it from the Factories screen first. Nothing was sent.");
+            return Error(409, "factory_archived", $"{registered.Title} is archived, so it takes no messages. Restore it from the Factories screen first. Nothing was sent.");
         if (string.IsNullOrWhiteSpace(registered.BossSeat))
             return Error(409, "factory_has_no_boss", $"'{registered.Factory}' names no Boss seat, so nobody would read a reply left there. Nothing was sent.");
         return null;

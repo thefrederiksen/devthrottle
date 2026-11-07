@@ -175,6 +175,10 @@ public static class FactoryInboxWords
     /// <summary>The label of a held message's time: when anything last reached the Gateway for it.</summary>
     public const string HeldAtLabel = "Last tried";
 
+    /// <summary>The badge a factory's row shows when its newest message waits for a seat that cannot be started; the
+    /// row's reason line says why.</summary>
+    public const string WaitingBadge = "Waiting";
+
     /// <summary>The badge a factory's row shows when it has no message yet.</summary>
     public const string NoMessagesBadge = "No messages";
 
