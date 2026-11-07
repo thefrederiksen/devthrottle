@@ -11,12 +11,21 @@ namespace CcDirector.Core.Machine.ResourceSummaries;
 /// </summary>
 public static class ResourceSummarySampleFold
 {
-    /// <summary>Builds the summary sample, or null before the first read (there is nothing to summarise).</summary>
-    public static ResourceSummarySample? From(ResourceSamplerState state, IReadOnlyList<ResourceSessionInput> sessions)
+    /// <summary>
+    /// Builds the summary sample, or null before the first read (there is nothing to summarise).
+    /// <paramref name="sessions"/> is null when the sessions could not be measured at this read: the sample then
+    /// carries no session shares AND says why, so the summary never reads "no sessions ran" into a read that failed.
+    /// </summary>
+    public static ResourceSummarySample? From(ResourceSamplerState state, IReadOnlyList<ResourceSessionInput>? sessions)
     {
         ArgumentNullException.ThrowIfNull(state);
-        ArgumentNullException.ThrowIfNull(sessions);
         if (state.Latest is not { } sample) return null;
+
+        var sessionsReason = sessions is null
+            ? sample.Processes.CouldRead
+                ? "the sessions were not measured at this read"
+                : $"the process list could not be read: {sample.Processes.UnreadableReason}"
+            : null;
 
         var cpuFraction = ResourceViewText.CpuFraction(sample.Cpu);
         var cpuReason = cpuFraction is null
@@ -39,7 +48,8 @@ public static class ResourceSummarySampleFold
             total,
             memoryReason,
             state.VerdictFor(ResourceKind.Memory).Level,
-            sessions.Select(Session).ToList());
+            sessions is null ? Array.Empty<ResourceSummarySessionSample>() : sessions.Select(Session).ToList(),
+            sessionsReason);
     }
 
     private static ResourceSummarySessionSample Session(ResourceSessionInput input)

@@ -258,13 +258,15 @@ public sealed class ResourceSummaryStore
         var end = start.AddSeconds(window.WindowSeconds);
         if (FiguresProblem(window.Machine, isMachine: true, window.SampleCount, start, end) is { } machineProblem)
             return $"the machine's figures are impossible: {machineProblem}";
+        if (window.SamplesWithUnknownSessions < 0 || window.SamplesWithUnknownSessions > window.SampleCount)
+            return $"it claims {window.SamplesWithUnknownSessions} samples with unknown sessions in a window of {window.SampleCount}";
         var machineTotal = window.Machine is { MemoryCouldRead: true } m ? m.MemoryTotalBytes : null;
         foreach (var session in window.Sessions ?? new List<ResourceSessionSummary>())
         {
             if (session is null) return "it holds an empty session row";
             if (session.ProcessesWithUnknownFigures < 0) return $"session {session.SessionId} counts fewer than no unknown processes";
-            if (session.SampleCount <= 0 || session.SampleCount > window.SampleCount)
-                return $"session {session.SessionId} claims {session.SampleCount} samples in a window of {window.SampleCount}";
+            if (session.SampleCount <= 0 || session.SampleCount > window.SampleCount - window.SamplesWithUnknownSessions)
+                return $"session {session.SessionId} claims {session.SampleCount} samples in a window of {window.SampleCount}, {window.SamplesWithUnknownSessions} of which could not measure the sessions";
             if (FiguresProblem(session.Figures, isMachine: false, session.SampleCount, start, end) is { } sessionProblem)
                 return $"session {session.SessionId}'s figures are impossible: {sessionProblem}";
             if (machineTotal is { } total && session.Figures.MemoryPeakUsedBytes is { } sessionPeak && sessionPeak > total)

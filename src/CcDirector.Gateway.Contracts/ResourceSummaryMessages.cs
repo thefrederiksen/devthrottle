@@ -88,8 +88,23 @@ public sealed class ResourceSummaryWindow
     /// <summary>The whole machine: average, peak and crossings, for memory and the processor.</summary>
     public ResourceSummaryFigures Machine { get; set; } = new();
 
-    /// <summary>One row per session seen in the window. A session's figures include the child processes it started.</summary>
+    /// <summary>One row per session seen in the window. A session's figures include the child processes it started.
+    /// An empty list means no session was seen at a sample whose sessions COULD be measured; whether any could is
+    /// <see cref="SamplesWithUnknownSessions"/>, never this list's emptiness.</summary>
     public List<ResourceSessionSummary> Sessions { get; set; } = new();
+
+    /// <summary>
+    /// How many of the window's samples could not measure the sessions at all (the process list could not be read).
+    /// Zero when every sample measured them. Above zero, the session rows rest on the other samples only, and when it
+    /// equals <see cref="SampleCount"/> nothing is known about the sessions in this window: an empty
+    /// <see cref="Sessions"/> then means "unknown", not "nothing ran". A client renders this field; it never infers it
+    /// from an empty list - an empty list is a plausible number, which is exactly what an unknown must not become.
+    /// </summary>
+    public int SamplesWithUnknownSessions { get; set; }
+
+    /// <summary>Why the sessions could not be measured, from the newest sample that could not, in plain English.
+    /// Null when <see cref="SamplesWithUnknownSessions"/> is zero.</summary>
+    public string? SessionsUnreadableReason { get; set; }
 }
 
 /// <summary>One session's share of a window.</summary>

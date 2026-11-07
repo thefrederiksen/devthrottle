@@ -69,6 +69,27 @@ public sealed class ResourceMonitorHostTests
     }
 
     [Fact]
+    public void From_SessionsThatCouldNotBeMeasured_CarryNoSharesAndSayWhy_NeverAnEmptyListAlone()
+    {
+        var sample = new FakeSampleBuilder().ProcessesUnreadable("the process table was locked").Build();
+
+        var summary = ResourceSummarySampleFold.From(new ResourceSamplerState(sample, Verdict(ResourceLevel.Normal, ResourceLevel.Normal)), null)!;
+
+        Assert.Empty(summary.Sessions);
+        Assert.Equal("the process list could not be read: the process table was locked", summary.SessionsUnreadableReason);
+    }
+
+    [Fact]
+    public void From_SessionsMeasuredAndNoneRunning_IsAnEmptyListWithNoReason()
+    {
+        var summary = ResourceSummarySampleFold.From(
+            new ResourceSamplerState(new FakeSampleBuilder().Build(), Verdict(ResourceLevel.Normal, ResourceLevel.Normal)), [])!;
+
+        Assert.Empty(summary.Sessions);
+        Assert.Null(summary.SessionsUnreadableReason);
+    }
+
+    [Fact]
     public void From_ASessionWhoseEveryProcessRefusedAFigure_IsNull_NotTheZeroItsSumWouldGive()
     {
         var refused = new ResourceSessionInput(new SessionUsage("s-1", 10, 0, 0, [10, 11], 2, 2), "1", "Marketing");

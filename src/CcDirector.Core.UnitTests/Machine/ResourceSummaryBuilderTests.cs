@@ -18,11 +18,51 @@ public class ResourceSummaryBuilderTests
     private const long Gb = 1_000_000_000;
 
     private static ResourceSummarySample Quiet(DateTime at, double cpu = 20, long used = 8 * Gb, params ResourceSummarySessionSample[] sessions) =>
-        new(at, cpu, null, ResourceLevel.Normal, used, 16 * Gb, null, ResourceLevel.Normal, sessions);
+        new(at, cpu, null, ResourceLevel.Normal, used, 16 * Gb, null, ResourceLevel.Normal, sessions, null);
 
     /// <summary>Sixty five-second samples: one whole window.</summary>
     private static List<ResourceSummarySample> QuietWindow(DateTime start) =>
         Enumerable.Range(0, 60).Select(i => Quiet(start.AddSeconds(5 * i))).ToList();
+
+    [Fact]
+    public void Build_SamplesThatCouldNotMeasureTheSessions_AreCountedWithTheirReason()
+    {
+        // Arrange: a whole window in which the last ten samples could not read the process list.
+        var share = new ResourceSummarySessionSample("s-1", null, 10, 1 * Gb, null);
+        var samples = Enumerable.Range(0, 60).Select(i => i < 50
+            ? Quiet(W0.AddSeconds(5 * i), sessions: share)
+            : Quiet(W0.AddSeconds(5 * i)) with { SessionsUnreadableReason = $"the process list could not be read: attempt {i}" });
+
+        // Act
+        var window = ResourceSummaryBuilder.Build(W0, "devlinux", samples);
+
+        // Assert: the session row rests on the fifty samples that measured it, and the window says the other ten could not.
+        Assert.Equal(10, window.SamplesWithUnknownSessions);
+        Assert.Equal("the process list could not be read: attempt 59", window.SessionsUnreadableReason);
+        Assert.Equal(50, Assert.Single(window.Sessions).SampleCount);
+    }
+
+    [Fact]
+    public void Build_AWindowWhoseSessionsWereNeverMeasured_SaysUnknown_NotNothingRan()
+    {
+        var samples = Enumerable.Range(0, 60).Select(i =>
+            Quiet(W0.AddSeconds(5 * i)) with { SessionsUnreadableReason = "the process list could not be read: denied" });
+
+        var window = ResourceSummaryBuilder.Build(W0, "devlinux", samples);
+
+        Assert.Empty(window.Sessions);
+        Assert.Equal(window.SampleCount, window.SamplesWithUnknownSessions);
+        Assert.Equal("the process list could not be read: denied", window.SessionsUnreadableReason);
+    }
+
+    [Fact]
+    public void Build_EverySampleMeasuredTheSessions_CountsNoneUnknown()
+    {
+        var window = ResourceSummaryBuilder.Build(W0, "devlinux", QuietWindow(W0));
+
+        Assert.Equal(0, window.SamplesWithUnknownSessions);
+        Assert.Null(window.SessionsUnreadableReason);
+    }
 
     [Fact]
     public void Build_NinetySecondRedSpike_SurvivesAsPeakAndCrossing()

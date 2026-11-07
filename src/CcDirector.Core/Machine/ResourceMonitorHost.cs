@@ -96,7 +96,7 @@ public sealed class ResourceMonitorHost : IDisposable
         var update = new ResourceMonitorUpdate(state, sessions, running.Count);
         _latest = update;
 
-        var summarySample = ResourceSummarySampleFold.From(state, sessions ?? Array.Empty<ResourceSessionInput>());
+        var summarySample = ResourceSummarySampleFold.From(state, sessions);
         if (summarySample is not null) _summary.Add(summarySample);
         if (_summary.CloseIfDue(_time.GetUtcNow().UtcDateTime))
             FileLog.Write("[ResourceMonitorHost] OnSampled: a five-minute window closed and went to the outbox");

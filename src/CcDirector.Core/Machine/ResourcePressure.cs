@@ -27,11 +27,15 @@ namespace CcDirector.Core.Machine;
 /// the run, so one failed read does not reset a real warning; the readable samples must still reach
 /// back the whole window.
 ///
-/// MEMORY IS JUDGED ON THE NEWEST SAMPLE, by the existing tested <see cref="MemoryPressure"/> levels, and
-/// is not held for sixty seconds. Mission section 5c gives memory "the existing MemoryPressure Tight and
-/// Critical levels, unchanged", and those levels are already a judgement of how much is left rather than a
-/// spike: available memory does not swing in and out the way a processor's busy share does. The sixty-second
-/// rule of section 5c is applied to the processor, where a compile burst would otherwise warn.
+/// MEMORY IS HELD ASYMMETRICALLY, AND THAT IS DELIBERATE - DO NOT MAKE IT SYMMETRICAL. Memory uses the existing
+/// tested <see cref="MemoryPressure"/> levels, unchanged. It RAISES on the newest reading, with no window, and
+/// it CLEARS only after <see cref="SustainedWindow"/> continuously below the line: its level is the worst
+/// readable level inside the last sixty seconds. The processor is the other way round - it must be held over
+/// the line for sixty seconds before it raises. The difference is what each costs the user: a machine running
+/// out of memory is about to start killing or paging processes, so a late raise costs them, while a late clear
+/// costs nobody anything. A busy processor only slows things down, so a compile burst must not warn. Without the
+/// hold, a machine sitting exactly on a memory limit would raise and clear a banner every five seconds (the
+/// Implementation Lead's ruling of 2026-11-06, on review finding 4 of pull request 4660).
 ///
 /// THE BUSIEST SINGLE CORE NEVER RAISES A LEVEL. One stuck core of thirty-two is not a machine out of
 /// processor; it is shown in the detail screen and nowhere else.
@@ -91,7 +95,7 @@ public static class ResourcePressure
 
         // OrderBy is a stable sort, so samples sharing a time keep the order the caller gave them.
         var ordered = history.OrderBy(sample => sample.Timeline).ToList();
-        return new ResourcePressureVerdict([Cpu(ordered), Memory(ordered[^1].Sample), Swap(ordered)]);
+        return new ResourcePressureVerdict([Cpu(ordered), Memory(ordered), Swap(ordered)]);
     }
 
     /// <summary>Map the existing memory level onto the shared ladder, unchanged.</summary>
@@ -156,19 +160,43 @@ public static class ResourcePressure
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Memory: the existing, tested levels on the newest sample
+    // Memory: the existing, tested levels - raised at once, cleared only after sixty seconds below
     // ---------------------------------------------------------------------------------------------
 
-    private static ResourceVerdict Memory(ResourceSample newest)
+    private static ResourceVerdict Memory(List<TimelineSample> ordered)
     {
+        var newestPoint = ordered[^1];
+        var newest = newestPoint.Sample;
         var memoryLevel = MemoryPressure.Level(newest.Memory);
         var level = FromMemoryLevel(memoryLevel);
-        var evidence = level == ResourceLevel.Unknown
-            ? newest.Memory.CouldRead
+        if (level == ResourceLevel.Unknown)
+            return new ResourceVerdict(ResourceKind.Memory, ResourceLevel.Unknown, newest.Memory.CouldRead
                 ? $"the memory reading is not believable ({newest.Memory})"
-                : $"memory cannot be read: {newest.Memory.UnreadableReason}"
-            : $"{newest.Memory}; {MemoryPressure.Describe(memoryLevel)}";
-        return new ResourceVerdict(ResourceKind.Memory, level, evidence);
+                : $"memory cannot be read: {newest.Memory.UnreadableReason}");
+
+        var evidence = $"{newest.Memory}; {MemoryPressure.Describe(memoryLevel)}";
+
+        // ASYMMETRIC ON PURPOSE (see the class summary): the newest reading raises at once, and a warning stays until
+        // no readable sample in the last sixty seconds was at its level. An unreadable sample proves nothing either way
+        // and is skipped.
+        var windowStart = newestPoint.Timeline - SustainedWindow;
+        var held = level;
+        var heldSince = newestPoint.Timeline;
+        for (var index = ordered.Count - 2; index >= 0; index--)
+        {
+            var point = ordered[index];
+            if (point.Timeline < windowStart) break;
+            var earlier = FromMemoryLevel(MemoryPressure.Level(point.Sample.Memory));
+            if (earlier == ResourceLevel.Unknown || earlier <= held) continue;
+            held = earlier;
+            heldSince = point.Timeline;
+        }
+
+        if (held == level) return new ResourceVerdict(ResourceKind.Memory, level, evidence);
+
+        var word = held == ResourceLevel.Critical ? "critical" : "tight";
+        return new ResourceVerdict(ResourceKind.Memory, held,
+            $"{evidence}; but it was {word} {Seconds(newestPoint.Timeline - heldSince)} ago, and a memory warning clears only after {Seconds(SustainedWindow)} continuously below the line");
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -20,7 +20,12 @@ namespace CcDirector.Core.Machine.ResourceSummaries;
 /// <param name="MemoryTotalBytes">The machine's total memory, or null when it could not be read.</param>
 /// <param name="MemoryUnreadableReason">Why memory could not be read, when it could not.</param>
 /// <param name="MemoryLevel">The memory verdict for this sample.</param>
-/// <param name="Sessions">Each session's share at this sample, child processes included.</param>
+/// <param name="Sessions">Each session's share at this sample, child processes included. Empty both when no session
+/// ran and when the sessions could not be measured; <paramref name="SessionsUnreadableReason"/> is what tells the two
+/// apart, never the emptiness.</param>
+/// <param name="SessionsUnreadableReason">Why the sessions' shares could not be measured at this sample (the process
+/// list could not be read), or null when they were measured. When it is set, <paramref name="Sessions"/> is empty
+/// because nothing is known - not because nothing ran.</param>
 public sealed record ResourceSummarySample(
     DateTime AtUtc,
     double? ProcessorPercent,
@@ -30,7 +35,8 @@ public sealed record ResourceSummarySample(
     long? MemoryTotalBytes,
     string? MemoryUnreadableReason,
     ResourceLevel MemoryLevel,
-    IReadOnlyList<ResourceSummarySessionSample> Sessions);
+    IReadOnlyList<ResourceSummarySessionSample> Sessions,
+    string? SessionsUnreadableReason);
 
 /// <summary>One session's share of one sample.</summary>
 /// <param name="SessionId">The session.</param>

@@ -133,6 +133,8 @@ public sealed class ResourceSummaryStoreTests : IDisposable
     [InlineData("a million samples", "claims 1000000 samples")]
     [InlineData("session memory above the machine's total", "more than the machine's total")]
     [InlineData("session samples above the window's", "claims 61 samples in a window of 60")]
+    [InlineData("more samples with unknown sessions than samples", "claims 61 samples with unknown sessions in a window of 60")]
+    [InlineData("a session row from a sample that could not measure sessions", "59 of which could not measure the sessions")]
     public void Store_ImpossibleFigures_AreStoredMarkedRefusedWithTheReason_NeverDropped(string defect, string reasonContains)
     {
         var store = NewStore();
@@ -154,6 +156,8 @@ public sealed class ResourceSummaryStoreTests : IDisposable
             case "a million samples": window.SampleCount = 1_000_000; break;
             case "session memory above the machine's total": window.Sessions[0].Figures.MemoryPeakUsedBytes = 400 * Gb; window.Sessions[0].Figures.MemoryAverageUsedBytes = 1 * Gb; break;
             case "session samples above the window's": window.Sessions[0].SampleCount = 61; break;
+            case "more samples with unknown sessions than samples": window.SamplesWithUnknownSessions = 61; break;
+            case "a session row from a sample that could not measure sessions": window.SamplesWithUnknownSessions = 59; window.Sessions[0].SampleCount = 2; break;
         }
 
         var ack = store.Store(Tenant, Director, Batch(window));

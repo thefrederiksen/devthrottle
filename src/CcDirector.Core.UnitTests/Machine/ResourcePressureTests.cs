@@ -248,7 +248,7 @@ public class ResourcePressureTests
 
 
     // -------------------------------------------------------------------------------------------
-    // Memory: the existing MemoryPressure levels, unchanged, on the newest sample
+    // Memory: the existing MemoryPressure levels, unchanged
     // -------------------------------------------------------------------------------------------
 
     [Theory]
@@ -267,6 +267,59 @@ public class ResourcePressureTests
         };
 
         Assert.Equal(expected, Verdict(history, ResourceKind.Memory).Level);
+    }
+
+    // Memory is held ASYMMETRICALLY: raised on the newest reading, cleared only after sixty seconds
+    // continuously below the line (the Implementation Lead's ruling of 2026-11-06).
+
+    private static ResourceSample MemoryAt(TimeSpan at, double availableGigabytes) =>
+        (new ResourceSampleBuilder { At = at } with
+        {
+            Memory = MachineMemoryReading.Read(39 * Gigabyte, (ulong)(availableGigabytes * Gigabyte), Start + at),
+        }).Build();
+
+    [Fact]
+    public void Evaluate_MemoryCrossesAndDropsStraightBack_StaysUpForTheMinute_ThenClears()
+    {
+        // One tight reading at five seconds, then plenty of memory every five seconds after it.
+        var history = new List<ResourceSample> { MemoryAt(TimeSpan.Zero, 26), MemoryAt(TimeSpan.FromSeconds(5), 1.5) };
+        for (var seconds = 10; seconds <= 65; seconds += 5) history.Add(MemoryAt(TimeSpan.FromSeconds(seconds), 26));
+
+        // Sixty seconds after the tight reading it is still inside the window: held.
+        var held = Verdict(history, ResourceKind.Memory);
+        Assert.Equal(ResourceLevel.Tight, held.Level);
+        Assert.Contains("clears only after 60 seconds continuously below the line", held.Evidence);
+
+        // Five seconds later the tight reading has left the window: cleared.
+        history.Add(MemoryAt(TimeSpan.FromSeconds(70), 26));
+        Assert.Equal(ResourceLevel.Normal, Verdict(history, ResourceKind.Memory).Level);
+    }
+
+    [Fact]
+    public void Evaluate_MemoryRaisesOnTheFirstReading_WithNoWindow()
+    {
+        var history = new[] { MemoryAt(TimeSpan.Zero, 26), MemoryAt(TimeSpan.FromSeconds(5), 0.5) };
+
+        Assert.Equal(ResourceLevel.Critical, Verdict(history, ResourceKind.Memory).Level);
+    }
+
+    [Fact]
+    public void Evaluate_MemoryOscillatingAcrossTheLineEveryFiveSeconds_RaisesExactlyOnce()
+    {
+        // Ten minutes of a machine sitting on the Tight line, alternating each five-second sample.
+        var detector = new ResourceCrossingDetector();
+        var history = new List<ResourceSample>();
+        var crossings = new List<ResourceCrossing>();
+        for (var i = 0; i < 120; i++)
+        {
+            history.Add(MemoryAt(TimeSpan.FromSeconds(5 * i), i % 2 == 0 ? 26 : 1.5));
+            crossings.AddRange(detector.Observe(ResourcePressure.Evaluate(Timed(history)), Start.AddSeconds(5 * i)));
+        }
+
+        var memory = crossings.Where(c => c.Kind == ResourceKind.Memory).ToList();
+        var raised = Assert.Single(memory, c => c.ShowsBanner);
+        Assert.Equal(ResourceLevel.Tight, raised.To);
+        Assert.DoesNotContain(memory, c => c.EndsWarning);
     }
 
     [Fact]
