@@ -108,8 +108,13 @@ public sealed class LicenseEndpointsTests : IDisposable
         var (status, _, json) = Overview(TenantOne);
 
         Assert.Equal(200, status);
-        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines" }, Names(json));
+        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines", "coverage" }, Names(json));
         Assert.False(json.GetProperty("isEmpty").GetBoolean());
+        var coverage = json.GetProperty("coverage");
+        Assert.Equal(new[] { "text", "tone", "gapCount", "accounts", "rows" }, Names(coverage));
+        Assert.Equal(new[] { "accountEmail", "planText" }, Names(coverage.GetProperty("accounts")[0]));
+        Assert.Equal(new[] { "machine", "activeAccountEmail", "text", "tone", "gapCount", "cells" }, Names(coverage.GetProperty("rows")[0]));
+        Assert.Equal(new[] { "accountEmail", "state", "text", "tone", "isGap" }, Names(coverage.GetProperty("rows")[0].GetProperty("cells")[0]));
         Assert.Equal(JsonValueKind.Null, json.GetProperty("emptyText").ValueKind);
         Assert.Equal("2026-10-11T03:12:00Z", json.GetProperty("asOfUtc").GetString());
 
