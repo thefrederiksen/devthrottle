@@ -45,21 +45,34 @@ criterion is worse than one that measures with the wrong clock, because its fail
 product's.
 
 *Order comes from the recording too, and so does membership once the baseline is known.* The baseline is
-the earliest line on the recording's timeline whose stamp, **corrected by its own step mark**, is at or
-after the change; from there on, every line at or after it on that timeline is a member and the stamps are
-not consulted again. Ordering or selecting by the stamp would hand a backward step the power to choose
-which two lines get subtracted, which is the same defect one level up: the measurement monotonic, the
-choice of what to measure not. Review found that twice. A step bigger than the gap between the change and
-the next sample was the second and worse case, because it hid the sample AND the mark that would have said
-so: a 75-second warning measured as 65 and passed clean. Undoing the mark on the one line that carries it
-is what rescues that line.
+the earliest line on the recording's timeline whose **raw stamp or corrected stamp** is at or after the
+change - corrected meaning its own step mark undone; from there on, every line at or after it on that
+timeline is a member and the stamps are not consulted again. Ordering or selecting by the stamp alone would
+hand a clock step the power to choose which two lines get subtracted, which is the same defect one level
+up: the measurement monotonic, the choice of what to measure not.
 
-*Where that rule is still imprecise, and in which direction.* When the clock stepped BEFORE the change
-rather than after it, the correction is not wanted and can pick a baseline a few seconds too early, which
-OVERSTATES the wait - it can turn a pass into a failure, never a failure into a pass - and such a window
-always reports the clock step, because the marked line is then the baseline itself. A step under the
-recorder's roughly two-second tolerance carries no mark and is bounded by that tolerance. Two steps inside
-one five-second sample interval are not handled.
+**Review found that three times, and each stamp alone is wrong in the case the other gets right.** A
+backward step bigger than the gap between the change and the next sample hid that sample AND the mark that
+would have declared it, so a 75-second warning measured as 65 and passed clean; the corrected stamp
+rescues it. A forward step just before the change made the change's own stamp eight seconds later than the
+clock the correction reads, so the line that should have been the baseline was thrown out and the next one
+took its place: 75 seconds measured as 70, inside the limit, no caveat; the raw stamp rescues that one.
+Taking either is right whenever one of them is, because the line cannot say which clock stamped the change.
+Dropping either half fails exactly one test.
+
+*Where that rule is still imprecise, and in which direction.* A **backward** step shortly before the change
+pulls the change's own stamp back, so unmarked lines taken before the step qualify by their raw stamps and
+the earliest of them becomes the baseline. The measurement then starts **up to the size of the step** too
+early - a sixty-second step with the change inside the following sixty seconds starts it up to sixty seconds
+early. It OVERSTATES, which is the safe direction: it can turn a pass into a failure, never a failure into a
+pass. Such a window reports the clock step, because the marked line sits inside the span - not because it is
+the baseline, which it is not. The scan misses it in one geometry only: the qualifying sample comes before
+the marked line, which needs the condition to have already held before the change. That cannot happen on the
+processor wait or either clear wait; it can on the memory amber wait, where the meter may be amber while the
+fill is still finishing, and there the state reported is true while the figure overstates. A step under the
+recorder's roughly two-second tolerance carries no mark, so both sides are read on one clock and the only
+error is the same overstatement bounded by that tolerance. Two steps inside one five-second sample interval
+are not handled.
 
 *What the measurement costs.* It overstates by at most one five-second sample interval, because the
 baseline is the first sample at or after the change rather than the change itself. That is the safe

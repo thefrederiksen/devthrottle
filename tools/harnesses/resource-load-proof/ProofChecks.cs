@@ -42,7 +42,7 @@ public sealed record MeterBar(bool CouldRead, double? Percent, MeterLevel Level)
 /// <param name="Elapsed">From the first sample at or after the change to the one that met it.</param>
 /// <param name="Sample">The sample that met the condition, or null when none did.</param>
 /// <param name="Baseline">The first sample at or after the change, which the elapsed time is measured from.</param>
-/// <param name="ClockStepped">The recorder marked a wall-clock step on a line inside the span. The figure stands - it is monotonic - but the run is worth a second look.</param>
+/// <param name="ClockStepped">The recorder marked a wall-clock step on a line inside the span. The figure is a monotonic measurement of the span it reports, but when the step fell BEFORE the change the span itself can start too early, so the figure can OVERSTATE - see <see cref="ProofChecks.StampCorrectedByItsOwnStep"/> for the bound. Never a second look worth skipping.</param>
 /// <param name="DirectorRestarted">The span crosses a Director restart, where the recorder bridges the gap with the WALL clock. The figure is then NOT a monotonic measurement, so it never counts as met.</param>
 public sealed record WarningVerdict(
     bool Seen, bool Met, TimeSpan Elapsed, MeterObservation? Sample, MeterObservation? Baseline,
@@ -140,13 +140,22 @@ public static class ProofChecks
         // produced a false pass in review.
         var onTheTimeline = window.OrderBy(sample => sample.RecordingSeconds).ToList();
 
-        // THE BASELINE IS THE EARLIEST LINE WHOSE STAMP, CORRECTED BY ITS OWN STEP MARK, IS AT OR AFTER
-        // THE CHANGE. The mark is the only thing that can rescue the line a backward step hides. A step
-        // LARGER than the gap between the change and the next sample used to push that sample out of the
-        // selection and put its mark below the scan at the same time, so a 75-second warning was measured
-        // as 65 and passed with no caveat: review arrangement C.
+        // THE BASELINE IS THE EARLIEST LINE WHOSE RAW STAMP **OR** CORRECTED STAMP IS AT OR AFTER THE
+        // CHANGE. Either one being right is enough, because the line cannot say which clock stamped the
+        // change: the RAW stamp is the exact comparison when the step happened BEFORE the change, so the
+        // change carries the stepped clock too, and the CORRECTED stamp is the exact comparison when the
+        // step happened AFTER it, so the change carries the pre-step clock. Taking whichever qualifies is
+        // therefore right whenever either is right.
+        //
+        // Both halves were found by review, each as a false pass. Without the corrected stamp, a BACKWARD
+        // step larger than the gap to the next sample pushed that sample out of the selection and put its
+        // mark below the scan at the same time, so a 75-second warning measured 65 (arrangement C). Without
+        // the raw stamp, a FORWARD step just before the change excluded the one line that should have been
+        // the baseline, and the next line became it: 75 seconds measured as 70, inside the limit, with no
+        // caveat (probe D). Both are pinned as tests below.
         var baseline = onTheTimeline.FirstOrDefault(
-            sample => TakenAfterTheChange(changeUtc, StampCorrectedByItsOwnStep(sample)));
+            sample => TakenAfterTheChange(changeUtc, sample.TakenAtUtc)
+                || TakenAfterTheChange(changeUtc, StampCorrectedByItsOwnStep(sample)));
         if (baseline is null) return WarningVerdict.NothingRecorded;
 
         // FROM THE BASELINE ON, THE STAMPS ARE NOT CONSULTED AT ALL. Every line at or after it on the
@@ -199,11 +208,12 @@ public static class ProofChecks
     /// for ORDER against a single reference, which is selection, not measurement - the distinction the rest
     /// of this file turns on.
     ///
-    /// IT IS NEVER GIVEN A RAW STAMP BY <see cref="JudgeWarning"/>. A backward step leaves the lines after
-    /// it stamped before the change, and a raw comparison skips them until the stamps climb back past it -
-    /// which either overstates or, when the step is larger than the gap to the first sample, UNDERSTATES by
-    /// starting from a later line while hiding the mark that would have said so. So the caller passes
-    /// <see cref="StampCorrectedByItsOwnStep"/>, and only to pick the baseline.
+    /// <see cref="JudgeWarning"/> ASKS IT TWICE FOR THE BASELINE, with the raw stamp and with
+    /// <see cref="StampCorrectedByItsOwnStep"/>, and takes the line if either qualifies. Neither stamp is
+    /// sufficient alone, and each is exact in the case the other gets wrong: a step after the change needs
+    /// the correction, a step before it needs the raw stamp. Asking only one of them UNDERSTATES - by
+    /// starting from a later line while hiding the mark that would have said so - and an understatement is
+    /// a false pass. It is asked only to pick the baseline; after that, membership comes from the timeline.
     /// </summary>
     public static bool TakenAfterTheChange(DateTime changeUtc, DateTime sampleTakenAtUtc) =>
         sampleTakenAtUtc >= changeUtc;
@@ -214,14 +224,27 @@ public static class ProofChecks
     /// step of eight seconds leaves minus eight on that line; subtracting the mark puts the line back where
     /// the pre-step clock would have stamped it. An unmarked line is its own stamp.
     ///
-    /// WHAT IT DOES NOT COVER, SAID PLAINLY. It corrects only the line CARRYING the mark - the later lines
-    /// need no correction, because membership after the baseline is read off the recording's timeline. When
-    /// the step happened BEFORE the change rather than after it, the change is already stamped on the
-    /// stepped clock and the correction is not wanted; it can then pick a baseline a few seconds too early,
-    /// which OVERSTATES the elapsed time. That direction is safe - it can turn a pass into a failure, never
-    /// a failure into a pass - and such a window always reports <c>ClockStepped</c>, because the marked line
-    /// is then the baseline itself. A step under the recorder's roughly two-second tolerance carries no mark
-    /// and is bounded by that tolerance, and two steps inside one sample interval are not handled.
+    /// WHAT IT DOES NOT COVER, SAID PLAINLY AND WITH THE DIRECTION OF THE ERROR. It corrects only the line
+    /// CARRYING the mark; the later lines need no correction, because membership after the baseline is read
+    /// off the recording's timeline.
+    ///
+    /// THE RESIDUAL IS A BACKWARD STEP SHORTLY BEFORE THE CHANGE. The change is then stamped on the pulled-
+    /// back clock, so the UNMARKED lines taken before the step carry stamps at or after it and qualify by
+    /// their raw stamps. The earliest of them becomes the baseline, and the measurement starts **up to the
+    /// size of the step** too early - not a few seconds: a sixty-second step, with the change inside the
+    /// following sixty seconds, starts it up to sixty seconds early. It OVERSTATES, which is the safe
+    /// direction: it can turn a pass into a failure, never a failure into a pass.
+    ///
+    /// Such a window normally reports <c>ClockStepped</c>, because the marked line sits INSIDE the span -
+    /// not because it is the baseline, which it is not. The scan misses it in one geometry only: the
+    /// qualifying sample comes before the marked line on the timeline, which needs the condition to have
+    /// already held before the change. That cannot happen on the processor wait or either clear wait; it can
+    /// on the memory amber wait, where the meter may be amber while the fill is still finishing. The state
+    /// reported there is true and the figure overstates, so it is recorded here rather than counted.
+    ///
+    /// A step under the recorder's roughly two-second tolerance carries no mark, and with no mark the raw
+    /// stamps on both sides are read on one clock, so the only error is the same overstatement bounded by
+    /// that tolerance. Two steps inside one sample interval are not handled.
     /// </summary>
     public static DateTime StampCorrectedByItsOwnStep(MeterObservation sample)
     {

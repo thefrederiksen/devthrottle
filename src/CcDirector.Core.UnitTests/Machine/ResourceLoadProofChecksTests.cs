@@ -224,9 +224,88 @@ public class ResourceLoadProofChecksTests
     }
 
     /// <summary>
+    /// REVIEW PROBE D: a FORWARD step just before the change must not exclude the line that should be the
+    /// baseline. This is the other half of arrangement C and it fails the other way - as a false PASS.
+    ///
+    /// The clock jumps forward eight seconds just before the change, so the change is stamped eight seconds
+    /// ahead of the clock the first sample's CORRECTED stamp is read on. Judging on the corrected stamp
+    /// alone threw that sample out, took the next one as the baseline, measured 70 instead of the true 75
+    /// and reported no clock step: a 75-second warning inside the limit with no caveat. The RAW stamp is the
+    /// exact comparison here, because the change and the line were stamped on the same clock.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AForwardStepJustBeforeTheChange_DoesNotExcludeTheRealBaseline()
+    {
+        var change = Noon.AddSeconds(17);
+        var window = new List<MeterObservation>
+        {
+            At(18, MeterLevel.Normal, recordingSeconds: 10, clockStepSeconds: 8),
+            At(23, MeterLevel.Normal, recordingSeconds: 15),
+            At(28, MeterLevel.Normal, recordingSeconds: 20),
+            At(93, MeterLevel.Critical, recordingSeconds: 85),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        Assert.Equal(10, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // The arrangement really does need the RAW stamp: corrected, that line reads 12:00:10, which is
+        // before the change, so a corrected-only rule drops it and the measurement starts five seconds late.
+        Assert.True(ProofChecks.StampCorrectedByItsOwnStep(window[0]) < change);
+        Assert.True(ProofChecks.TakenAfterTheChange(change, window[0].TakenAtUtc));
+    }
+
+    /// <summary>
+    /// THE RESIDUAL, PINNED SO THAT IT CANNOT QUIETLY CHANGE DIRECTION. A backward step shortly BEFORE the
+    /// change pulls the change's own stamp back, so unmarked lines taken before the step qualify on their
+    /// raw stamps and the earliest of them becomes the baseline. The measurement then starts up to the size
+    /// of the step too early.
+    ///
+    /// This is left uncovered deliberately, and this test is what makes that honest: the error OVERSTATES,
+    /// which can only turn a pass into a failure, and the window reports the clock step - because the marked
+    /// line sits inside the span, not because it is the baseline. Both are asserted. If a later change ever
+    /// makes this case understate, or go unflagged, this test fails.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_ABackwardStepShortlyBeforeTheChange_OverstatesAndSaysSo()
+    {
+        var change = Noon.AddSeconds(1);
+        var window = new List<MeterObservation>
+        {
+            At(5, MeterLevel.Normal, recordingSeconds: 5),
+            At(2, MeterLevel.Normal, recordingSeconds: 10, clockStepSeconds: -8),
+            At(7, MeterLevel.Normal, recordingSeconds: 15),
+            At(12, MeterLevel.Critical, recordingSeconds: 20),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        // The baseline is five seconds earlier on the timeline than the true first sample after the change,
+        // which is the line at 10 - so the figure is 15 where the truth is 10.
+        Assert.Equal(5, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(15, verdict.Elapsed.TotalSeconds);
+
+        // OVERSTATED, never understated, and bounded by the size of the step.
+        Assert.True(verdict.Elapsed.TotalSeconds > 10);
+        Assert.True(verdict.Elapsed.TotalSeconds - 10 <= 8);
+
+        // And the run says so: the marked line is a member of the span, though it is not the baseline.
+        Assert.True(verdict.ClockStepped);
+        Assert.NotEqual(verdict.Baseline!.RecordingSeconds, window[1].RecordingSeconds);
+    }
+
+    /// <summary>
     /// The mark corrects only the line that carries it, and a line whose CORRECTED stamp is still before the
     /// change stays out. A step that is old news - the clock moved before the change - must not drag a line
     /// taken before the change into the span and start the measurement there.
+    ///
+    /// WHAT THIS TEST DOES NOT GUARD, so it is not read as stronger than it is: its marked line is excluded
+    /// on BOTH stamps, so it passes whether or not the correction runs at all. It guards against
+    /// over-correcting and nothing else. The overstatement geometry is pinned by
+    /// <see cref="JudgeWarning_ABackwardStepShortlyBeforeTheChange_OverstatesAndSaysSo"/>.
     /// </summary>
     [Fact]
     public void JudgeWarning_AMarkedLineStillBeforeTheChangeOnceCorrected_IsNotTheBaseline()
