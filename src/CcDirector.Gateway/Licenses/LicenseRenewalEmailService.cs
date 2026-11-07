@@ -344,7 +344,10 @@ public sealed class LicenseRenewalEmailService
     /// the one the machine reported then. Both are times of the machine's own clock compared with each other, never
     /// with the Gateway's. The sign-in time has no drift - the tool reads it from its own record - so it needs no
     /// tolerance.</summary>
-    private static bool IsNewerSignIn(LicenseSwitchLogEntity row, LicenseHoldingView holding)
+    /// <summary>True when the machine reports a newer sign-in than the one <paramref name="row"/>'s streak was opened
+    /// under: a later end, or a later sign-in time. The renewal alarm asks the same, so it closes on the check on which a
+    /// renewal is reported, whichever of the two checks of that minute runs first.</summary>
+    internal static bool IsNewerSignIn(LicenseSwitchLogEntity row, LicenseHoldingView holding)
         => (holding.SignInExpiresAtUtc is { } ends && row.NotAfterUtc is { } endedBefore && ends > endedBefore + LicenseContract.SignInEndTolerance)
            || (holding.SignedInAtUtc is { } signedIn && LicenseRenewalFailureLog.SignedInWhenOpened(row) is { } signedInBefore && signedIn > signedInBefore);
 
