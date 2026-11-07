@@ -591,6 +591,8 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Conflict, status);
         Assert.Equal("factory_archived", Code(body));
+        Assert.Equal("Booking is archived, so it takes no messages. Restore it from the Factories screen first. Nothing was sent.",
+            body.GetProperty("error").GetString());
         Assert.Equal(0, _factoryInbox.Thread(A, "booking", 10).Total);
         Assert.Empty(_store.Replies(A, id));
         Assert.Empty(_wakes);

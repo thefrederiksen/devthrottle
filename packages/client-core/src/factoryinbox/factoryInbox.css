@@ -86,6 +86,15 @@
   color: var(--text-dim);
   font-size: 12px;
 }
+/* Why the newest message waits: the Gateway's sentence, in its tone, wrapped rather than cut. */
+.fi-row-reason {
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+[data-tone="amber"].fi-row-reason {
+  color: var(--warn);
+}
 
 /* A badge and a state: the Gateway's word, in its tone. */
 .fi-badge,

@@ -1,0 +1,57 @@
+{
+  "factory-inbox-list": {
+    "request": "GET /gateway/factory/inbox",
+    "status": 200,
+    "body": {
+      "count": 1,
+      "factories": [
+        {
+          "factory": "factory-inbox-test",
+          "title": "Factory Inbox test",
+          "row": {
+            "line": "Step 1 test: please have a short note written that lists three plain-English names we could give the notes folder of this test factory.",
+            "waitingLine": "1 waiting for a decision",
+            "badge": "Waiting",
+            "tone": "amber",
+            "reasonLine": "Waiting - no Director is running on the Boss's computer, fi-inbox-test; it goes on when one connects there"
+          },
+          "waiting": 1,
+          "lastMessage": {
+            "id": "fcf00cc6-50c6-49cc-b1ca-ebdb2075fec5",
+            "factory": "factory-inbox-test",
+            "text": "Step 1 test: please have a short note written that lists three plain-English names we could give the notes folder of this test factory.",
+            "rawText": null,
+            "note": "none",
+            "noteLabel": "",
+            "source": "typed",
+            "surface": "phone",
+            "sentAtUtc": "2026-11-07T00:09:48.2806125Z",
+            "state": "sent",
+            "stateLabel": "Waiting - no Director is running on the Boss's computer, fi-inbox-test; it goes on when one connects there",
+            "mergedInto": null,
+            "links": [],
+            "bundleId": null,
+            "decision": null,
+            "trail": [
+              {
+                "step": "sent",
+                "label": "Sent from the phone",
+                "atUtc": "2026-11-07T00:09:48.2806125Z"
+              }
+            ],
+            "tone": "amber",
+            "sourceLabel": "Typed"
+          }
+        }
+      ]
+    }
+  },
+  "archived-factory-send-refused": {
+    "request": "POST /gateway/factory/old-shop/inbox",
+    "status": 409,
+    "body": {
+      "error": "Old shop is archived, so it takes no messages. Restore it from the Factories screen first.",
+      "code": "factory_archived"
+    }
+  }
+}

@@ -198,6 +198,22 @@ public sealed class FactorySeatStartByTheBossTests : IAsyncDisposable
         Assert.Equal("WarmForward - Scout - find ten", sent.Name);
     }
 
+    [Theory]
+    [InlineData("WarmForward - Scout - find ten")]
+    [InlineData("  warmforward - scout - find ten ")]
+    [InlineData("WarmForward - Scout - WarmForward - Scout - find ten")]
+    public async Task Start_ANameThatAlreadyCarriesTheFactoryAndSeat_IsNotGivenThePrefixAgain(string name)
+    {
+        // The end-to-end proof of 6 November 2026 found "Factory Inbox test - Writer - Factory Inbox test - Writer - ..."
+        // when the Boss passed a whole name.
+        await StartAsync();
+
+        var response = await Start("scout", new { name, prompt = "THE JOB find ten leads." });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal("WarmForward - Scout - find ten", Assert.Single(_sent).Request.Name);
+    }
+
     [Fact]
     public async Task Start_ByTheBossASessionInNoFactoryStarted_IsAllowed_though_its_kit_is_rules_only()
     {

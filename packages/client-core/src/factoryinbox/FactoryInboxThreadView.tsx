@@ -10,13 +10,15 @@ import {
 } from "./factoryInboxClient";
 import { FACTORY_INBOX_SURFACE, FactoryComposer } from "./FactoryComposer";
 import { formatInboxTime } from "./formatInboxTime";
+import { startOneReadAtATime } from "./oneReadAtATime";
 import "./factoryInbox.css";
 
 // ONE FACTORY'S THREAD (Factory Inbox mission, phase 4; mockup B, and the Cockpit's reading pane in mockup D). Each
 // message carries its own trail - Sent, Received, with the Boss, the decision - so "it was listened to" can be seen at a
 // glance. Every word under a message, and the tone it is coloured by, is the Gateway's; this view prints them.
 //
-// The decision arrives minutes later, from the Boss, so the thread is read again every 15 seconds while it is open.
+// The decision arrives minutes later, from the Boss, so the thread is read again 15 seconds after each read ends while
+// it is open - one read at a time, each with its own time limit (oneReadAtATime.ts; the end-to-end proof's defect 1).
 
 const REFRESH_MS = 15_000;
 
@@ -37,12 +39,13 @@ export function FactoryInboxThreadView({ factory, surface, actions, showTitle = 
   const [summary, setSummary] = useState<FactoryInboxSummary | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [reads, setReads] = useState(0);
   // The latest onTitle, without making the read depend on a callback the shell rebuilds every render.
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
+  // Ask for a read of the open factory now: at once when none runs, or as soon as the running one ends.
+  const readNowRef = useRef<() => void>(() => {});
 
-  const reload = useCallback(() => setReads((n) => n + 1), []);
+  const reload = useCallback(() => readNowRef.current(), []);
 
   useEffect(() => {
     setThread(null);
@@ -52,27 +55,29 @@ export function FactoryInboxThreadView({ factory, surface, actions, showTitle = 
   }, [factory]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const background = reads > 0;
-    getFactoryInboxThread(factory, controller.signal).then(
-      (t) => {
-        if (controller.signal.aborted) return;
-        setThread(t);
-        setError(null);
-        onTitleRef.current?.(t.title);
-        backgroundRecovered(FACTORY_INBOX_SURFACE, "read the factory's messages");
-      },
-      (err: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(describeAndReport(FACTORY_INBOX_SURFACE, "read the factory's messages", err, background ? { background: true } : undefined));
-      },
+    const loop = startOneReadAtATime(
+      (signal, background) =>
+        getFactoryInboxThread(factory, signal).then(
+          (t) => {
+            if (signal.aborted) return;
+            setThread(t);
+            setError(null);
+            onTitleRef.current?.(t.title);
+            backgroundRecovered(FACTORY_INBOX_SURFACE, "read the factory's messages");
+          },
+          (err: unknown) => {
+            if (signal.aborted) return;
+            setError(describeAndReport(FACTORY_INBOX_SURFACE, "read the factory's messages", err, background ? { background: true } : undefined));
+          },
+        ),
+      REFRESH_MS,
     );
-    const timer = setTimeout(reload, REFRESH_MS);
+    readNowRef.current = loop.readNow;
     return () => {
-      controller.abort();
-      clearTimeout(timer);
+      readNowRef.current = () => {};
+      loop.stop();
     };
-  }, [factory, reads, reload]);
+  }, [factory]);
 
   const toggleSummary = useCallback(() => {
     if (summaryOpen) {

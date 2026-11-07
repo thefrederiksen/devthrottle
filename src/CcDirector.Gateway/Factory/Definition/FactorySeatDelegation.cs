@@ -45,13 +45,20 @@ public static class FactorySeatDelegation
             : null;
     }
 
-    /// <summary>The name of the session: the fleet's convention of factory, seat and what this session does.</summary>
+    /// <summary>The name of the session: the fleet's convention of factory, seat and what this session does. A Boss
+    /// that passes a whole name ("WarmForward - Scout - find ten") already wrote the factory and the seat, so that
+    /// prefix is not added a second time; the name only ever carries it once.</summary>
     public static string SessionName(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, string name)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        return $"{factory.Title} - {seat.Name} - {name.Trim()}";
+        var prefix = $"{factory.Title} - {seat.Name} - ";
+        var what = name.Trim();
+        while (what.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+               && what[prefix.Length..].Trim() is { Length: > 0 } rest)
+            what = rest;
+        return prefix + what;
     }
 
     /// <summary>

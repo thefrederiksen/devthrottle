@@ -9,14 +9,14 @@ import { oddList, oddMessage, oddSummary, oddThread } from "./factoryInboxFixtur
 // Gateway client is stood in for; what is under test is what the screens print, send and report.
 
 const gw = vi.hoisted(() => ({
-  list: null as (() => Promise<FactoryInboxList>) | null,
-  thread: null as (() => Promise<FactoryInboxThread>) | null,
+  list: null as ((signal?: AbortSignal) => Promise<FactoryInboxList>) | null,
+  thread: null as ((factory?: string, signal?: AbortSignal) => Promise<FactoryInboxThread>) | null,
   summary: null as (() => Promise<FactoryInboxSummary>) | null,
   send: null as ((factory: string, text: string, note: string) => Promise<FactoryInboxMessage>) | null,
 }));
 vi.mock("./factoryInboxClient", () => ({
-  getFactoryInboxList: vi.fn(() => gw.list!()),
-  getFactoryInboxThread: vi.fn(() => gw.thread!()),
+  getFactoryInboxList: vi.fn((signal?: AbortSignal) => gw.list!(signal)),
+  getFactoryInboxThread: vi.fn((factory: string, signal?: AbortSignal) => gw.thread!(factory, signal)),
   getFactoryInboxSummary: vi.fn(() => gw.summary!()),
   sendFactoryInboxMessage: vi.fn((factory: string, text: string, note: string) => gw.send!(factory, text, note)),
 }));
@@ -39,7 +39,7 @@ vi.mock("../errors/reportClientError", async (importActual) => {
 });
 
 import { describeAndReport } from "../errors/reportClientError";
-import { sendFactoryInboxMessage } from "./factoryInboxClient";
+import { getFactoryInboxList, getFactoryInboxThread, sendFactoryInboxMessage } from "./factoryInboxClient";
 import { FactoryInboxListView } from "./FactoryInboxListView";
 import { FactoryInboxThreadView } from "./FactoryInboxThreadView";
 import { FactoryComposer } from "./FactoryComposer";
@@ -52,6 +52,8 @@ beforeEach(() => {
   gw.send = () => Promise.resolve(oddMessage());
   vi.mocked(describeAndReport).mockClear();
   vi.mocked(sendFactoryInboxMessage).mockClear();
+  vi.mocked(getFactoryInboxThread).mockClear();
+  vi.mocked(getFactoryInboxList).mockClear();
 });
 
 afterEach(() => {
@@ -71,6 +73,68 @@ describe("FactoryInboxListView (mockup A)", () => {
     expect(badge.getAttribute("data-tone")).toBe("amber");
     expect(within(rows[1]).getByText("Silence so far (gateway)")).toBeTruthy();
     expect(within(rows[1]).getByText("Empty-ish (gateway)").getAttribute("data-tone")).toBe("grey");
+  });
+
+  it("FactoryInboxListView_RowWithAReason_PrintsTheGatewaysReasonVerbatim_AndARowWithoutOneNone", async () => {
+    render(<FactoryInboxListView surface="mobile" onOpen={() => {}} />);
+
+    const rows = await screen.findAllByTestId("fi-row");
+    const reason = within(rows[0]).getByText("Held up because the burrow is unlit (gateway)");
+    expect(reason.className).toBe("fi-row-reason");
+    expect(rows[1].querySelector(".fi-row-reason")).toBeNull();
+  });
+
+  // The review of pull request 4703: the list had the thread's old loop, aborting its read every 15 seconds.
+  describe("re-reading", () => {
+    type Pending = { signal?: AbortSignal; resolve: (l: FactoryInboxList) => void };
+    let pending: Pending[];
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      pending = [];
+      gw.list = (signal) => new Promise<FactoryInboxList>((resolve) => pending.push({ signal, resolve }));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const settle = async () => {
+      for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(0);
+    };
+
+    it("FactoryInboxListView_SlowRead_IsNeverAbortedOrJoinedByAnother_ThenReadsAgain15SecondsAfterItEnds", async () => {
+      render(<FactoryInboxListView surface="mobile" onOpen={() => {}} />);
+      await settle();
+
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(1);
+      expect(pending[0].signal?.aborted).toBe(false);
+
+      pending[0].resolve(oddList());
+      await settle();
+      expect(screen.getAllByTestId("fi-row")).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(2);
+    });
+
+    it("FactoryInboxListView_MessageLeftWhileAReadRuns_ReadsAgainWhenThatReadEnds_NotBefore", async () => {
+      render(<FactoryInboxListView surface="mobile" onOpen={() => {}} />);
+      await settle();
+      pending[0].resolve(oddList());
+      await settle();
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(2);
+
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "One more thing" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await settle();
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(2);
+      expect(pending[1].signal?.aborted).toBe(false);
+
+      pending[1].resolve(oddList());
+      await settle();
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(3);
+    });
   });
 
   it("FactoryInboxListView_RowPressed_OpensThatFactory", async () => {
@@ -167,6 +231,83 @@ describe("FactoryInboxThreadView (mockup B)", () => {
     await screen.findAllByTestId("fi-message");
 
     expect(screen.queryByTestId("fi-held")).toBeNull();
+  });
+
+  // The end-to-end proof of 6 November 2026, defect 1: the 15-second re-read aborted the read in flight and started
+  // another, so a slow thread never showed and the aborted reads piled up on the Gateway.
+  describe("re-reading", () => {
+    type Pending = { signal?: AbortSignal; resolve: (t: FactoryInboxThread) => void };
+    let pending: Pending[];
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      pending = [];
+      gw.thread = (_factory, signal) => new Promise<FactoryInboxThread>((resolve) => pending.push({ signal, resolve }));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const settle = async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    };
+
+    it("FactoryInboxThreadView_SlowRead_IsNeverAbortedOrJoinedByAnother_AndItsAnswerIsShown", async () => {
+      render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
+      await settle();
+      expect(pending).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(90_000);
+
+      expect(getFactoryInboxThread).toHaveBeenCalledTimes(1);
+      expect(pending[0].signal?.aborted).toBe(false);
+      pending[0].resolve(oddThread());
+      await settle();
+      expect(screen.getAllByTestId("fi-message")).toHaveLength(2);
+    });
+
+    it("FactoryInboxThreadView_AfterARead_ReadsAgain15SecondsLater_AndShowsTheLatestAnswer", async () => {
+      render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
+      await settle();
+      pending[0].resolve(oddThread());
+      await settle();
+
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(getFactoryInboxThread).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(getFactoryInboxThread).toHaveBeenCalledTimes(2);
+
+      pending[1].resolve({ ...oddThread(), title: "Zeta Works renamed (gateway)" });
+      await settle();
+      expect(screen.getByRole("heading", { name: "Zeta Works renamed (gateway)" })).toBeTruthy();
+    });
+
+    it("FactoryInboxThreadView_MessageLeftWhileAReadRuns_ReadsAgainWhenThatReadEnds_NotBefore", async () => {
+      gw.send = () => Promise.resolve(oddMessage());
+      render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
+      await settle();
+
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "One more thing" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await settle();
+      expect(getFactoryInboxThread).toHaveBeenCalledTimes(1);
+      expect(pending[0].signal?.aborted).toBe(false);
+
+      pending[0].resolve(oddThread());
+      await settle();
+      expect(getFactoryInboxThread).toHaveBeenCalledTimes(2);
+    });
+
+    it("FactoryInboxThreadView_Closed_AbortsTheReadInFlight_AndReadsNoMore", async () => {
+      const { unmount } = render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
+      await settle();
+
+      unmount();
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(pending[0].signal?.aborted).toBe(true);
+      expect(getFactoryInboxThread).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("FactoryInboxThreadView_HasItsOwnComposerForThisFactory", async () => {

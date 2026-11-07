@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import { getFactoryInboxList, type FactoryInboxList } from "./factoryInboxClient";
 import { FACTORY_INBOX_SURFACE, FactoryComposer } from "./FactoryComposer";
+import { startOneReadAtATime } from "./oneReadAtATime";
 import "./factoryInbox.css";
 
 // THE FACTORY INBOX LIST (Factory Inbox mission, phase 4; mockup A, and the Cockpit's list column in mockup D): every
 // factory with a Boss, in the Gateway's order, each row with the Gateway's own line, waiting line, badge and tone. The
 // composer is on the list itself, so the owner can pick a factory, speak and send in one place without opening a
-// thread - "never wait for anything to start".
+// thread - "never wait for anything to start". The list is read again 15 seconds after each read ends - one read at a
+// time, each with its own time limit (oneReadAtATime.ts), the same loop as the thread.
 
 const REFRESH_MS = 15_000;
 
@@ -24,32 +26,35 @@ export interface FactoryInboxListViewProps {
 export function FactoryInboxListView({ surface, onOpen, selected = null, showComposer = true }: FactoryInboxListViewProps) {
   const [list, setList] = useState<FactoryInboxList | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reads, setReads] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
+  // Ask for a read now: at once when none runs, or as soon as the running one ends.
+  const readNowRef = useRef<() => void>(() => {});
 
-  const reload = useCallback(() => setReads((n) => n + 1), []);
+  const reload = useCallback(() => readNowRef.current(), []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const background = reads > 0;
-    getFactoryInboxList(controller.signal).then(
-      (l) => {
-        if (controller.signal.aborted) return;
-        setList(l);
-        setError(null);
-        backgroundRecovered(FACTORY_INBOX_SURFACE, "read the factory inbox");
-      },
-      (err: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(describeAndReport(FACTORY_INBOX_SURFACE, "read the factory inbox", err, background ? { background: true } : undefined));
-      },
+    const loop = startOneReadAtATime(
+      (signal, background) =>
+        getFactoryInboxList(signal).then(
+          (l) => {
+            if (signal.aborted) return;
+            setList(l);
+            setError(null);
+            backgroundRecovered(FACTORY_INBOX_SURFACE, "read the factory inbox");
+          },
+          (err: unknown) => {
+            if (signal.aborted) return;
+            setError(describeAndReport(FACTORY_INBOX_SURFACE, "read the factory inbox", err, background ? { background: true } : undefined));
+          },
+        ),
+      REFRESH_MS,
     );
-    const timer = setTimeout(reload, REFRESH_MS);
+    readNowRef.current = loop.readNow;
     return () => {
-      controller.abort();
-      clearTimeout(timer);
+      readNowRef.current = () => {};
+      loop.stop();
     };
-  }, [reads, reload]);
+  }, []);
 
   // The composer's factory: the one picked, else the open one, else the first in the Gateway's order.
   const choices = list?.factories.map((f) => ({ factory: f.factory, title: f.title })) ?? [];
@@ -80,6 +85,11 @@ export function FactoryInboxListView({ surface, onOpen, selected = null, showCom
                 <span className="fi-row-title">{f.title}</span>
                 <span className="fi-row-line">{f.row.line}</span>
                 {f.row.waitingLine !== null && <span className="fi-row-waiting">{f.row.waitingLine}</span>}
+                {f.row.reasonLine !== null && (
+                  <span className="fi-row-reason" data-tone={f.row.tone}>
+                    {f.row.reasonLine}
+                  </span>
+                )}
               </span>
               <span className="fi-badge" data-tone={f.row.tone}>
                 {f.row.badge}

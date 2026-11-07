@@ -39,18 +39,23 @@ public static class FactoryInboxFold
 
     /// <summary>
     /// One factory's row on the Factory inbox list (phase 4): the line under its name, the waiting line, and its badge -
-    /// the newest message's state in short with its tone, or "No messages" in grey. Every word is decided here; the
-    /// screens print them.
+    /// the newest message's state in short with its tone, or "No messages" in grey. When the newest message waits for a
+    /// seat that cannot be started (<paramref name="waitingLabels"/>, the factory's wake row), the row says why in
+    /// <see cref="FactoryInboxRowDto.ReasonLine"/> - the same sentence the thread shows - and its badge says "Waiting"
+    /// rather than the plain state (the end-to-end proof, defect 6). Every word is decided here; the screens print them.
     /// </summary>
-    public static FactoryInboxRowDto Row(int waiting, FactoryInboxMessageEntity? last, FactoryInboxDecisionEntity? lastDecision)
+    public static FactoryInboxRowDto Row(int waiting, FactoryInboxMessageEntity? last, FactoryInboxDecisionEntity? lastDecision,
+        FactoryInboxWaitingLabels? waitingLabels = null)
     {
         if (last is null)
-            return new FactoryInboxRowDto(FactoryInboxWords.NoMessagesLine, null, FactoryInboxWords.NoMessagesBadge, FactoryInboxWords.Tones.Grey);
+            return new FactoryInboxRowDto(FactoryInboxWords.NoMessagesLine, null, FactoryInboxWords.NoMessagesBadge, FactoryInboxWords.Tones.Grey, null);
+        var reason = WaitingLabelOf(last, waitingLabels);
         return new FactoryInboxRowDto(
             Line: last.Text,
             WaitingLine: FactoryInboxWords.WaitingLine(waiting),
-            Badge: FactoryInboxWords.StateLabel(last.State, lastDecision?.Kind),
-            Tone: FactoryInboxWords.Tone(last.State, lastDecision?.Kind));
+            Badge: reason is null ? FactoryInboxWords.StateLabel(last.State, lastDecision?.Kind) : FactoryInboxWords.WaitingBadge,
+            Tone: FactoryInboxWords.Tone(last.State, lastDecision?.Kind),
+            ReasonLine: reason);
     }
 
     /// <summary>
@@ -163,9 +168,9 @@ public sealed record FactoryInboxMessageDto(
     string SourceLabel);
 
 /// <summary>A factory's row on the Factory inbox list: <see cref="Line"/> under its name (its newest message, or that it has
-/// none), <see cref="WaitingLine"/> (null with no messages), and a short <see cref="Badge"/> with the <see cref="Tone"/> a
-/// screen colours it by.</summary>
-public sealed record FactoryInboxRowDto(string Line, string? WaitingLine, string Badge, string Tone);
+/// none), <see cref="WaitingLine"/> (null with no messages), a short <see cref="Badge"/> with the <see cref="Tone"/> a
+/// screen colours it by, and <see cref="ReasonLine"/>: why the newest message waits, or null when it does not.</summary>
+public sealed record FactoryInboxRowDto(string Line, string? WaitingLine, string Badge, string Tone, string? ReasonLine);
 
 /// <summary>One held spoken message on a factory's thread: the recording's id, the <see cref="Line"/> to print, the label
 /// of its time and the time itself (UTC), and the <see cref="Tone"/> a screen colours it by.</summary>

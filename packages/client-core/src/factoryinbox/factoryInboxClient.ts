@@ -60,6 +60,8 @@ export interface FactoryInboxRow {
   waitingLine: string | null;
   badge: string;
   tone: FactoryInboxTone;
+  /** Why the newest message waits, in the Gateway's words; null when it does not wait. */
+  reasonLine: string | null;
 }
 
 export interface FactoryInboxListEntry {
@@ -127,19 +129,30 @@ async function readJson<T>(res: Response, what: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function get<T>(path: string, what: string, signal?: AbortSignal): Promise<T> {
-  const res = await gatewayFetch(path, { method: "GET", headers: { Accept: "application/json", ...authHeaders() }, signal });
+async function get<T>(path: string, what: string, signal?: AbortSignal, timeoutMs?: number): Promise<T> {
+  const res = await gatewayFetch(path, { method: "GET", headers: { Accept: "application/json", ...authHeaders() }, signal },
+    timeoutMs === undefined ? undefined : { timeoutMs });
   return readJson<T>(res, what);
 }
 
+/**
+ * The time limit on the list and thread reads, which their screens repeat one at a time (oneReadAtATime.ts). Without
+ * one, a read that hangs half-open on a flaky phone network never ends and the screen never reads again (the review of
+ * pull request 4703). It is two minutes, far above the slowest honest read seen (70 to 90 seconds on the live Gateway
+ * before pull request 4690), so a slow Gateway is waited for rather than asked again and again - the pile-up of the
+ * end-to-end proof's defect 1. Not the 10-second POLL_TIMEOUT_MS for that reason.
+ */
+export const FACTORY_INBOX_READ_TIMEOUT_MS = 120_000;
+
 /** Every factory with a Boss: its row's words, and its newest message. */
 export function getFactoryInboxList(signal?: AbortSignal): Promise<FactoryInboxList> {
-  return get<FactoryInboxList>(`${PREFIX}/inbox`, "read the factory inbox", signal);
+  return get<FactoryInboxList>(`${PREFIX}/inbox`, "read the factory inbox", signal, FACTORY_INBOX_READ_TIMEOUT_MS);
 }
 
 /** One factory's thread, newest first. */
 export function getFactoryInboxThread(factory: string, signal?: AbortSignal): Promise<FactoryInboxThread> {
-  return get<FactoryInboxThread>(factoryPath(factory, "/inbox"), "read the factory's messages", signal);
+  return get<FactoryInboxThread>(factoryPath(factory, "/inbox"), "read the factory's messages", signal,
+    FACTORY_INBOX_READ_TIMEOUT_MS);
 }
 
 /** What came in since yesterday at this time, and the decision on each (the Gateway's default window). */

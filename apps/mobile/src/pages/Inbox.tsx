@@ -36,7 +36,7 @@ export function phoneInboxHref(link: YourInboxLink): string | null {
 function PhoneFrame({ title, back, children }: { title: string; back: string; children: ReactNode }) {
   return (
     <div className="screen">
-      <header className="app-bar">
+      <header className="app-bar fi-phone-bar">
         <Link className="back-link" to={back}>
           Back
         </Link>

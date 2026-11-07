@@ -559,7 +559,7 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Conflict, status);
         Assert.Equal("factory_archived", Code(body));
-        Assert.Equal("'old-shop' is archived, so it takes no messages. Restore it from the Factories screen first.",
+        Assert.Equal("Old shop is archived, so it takes no messages. Restore it from the Factories screen first.",
             body.GetProperty("error").GetString());
     }
 
