@@ -14,7 +14,7 @@ namespace CcDirector.Gateway.Tests;
 ///
 /// Remove-the-network-port mission, phase 5: the Director's /fleet/spawn HTTP route is gone with the
 /// listener, and the ONE spawn path every caller rides is the <c>create</c> verb - the Gateway
-/// dispatches it down the tunnel and <see cref="SessionCommandExecutor.Create"/> is its whole body:
+/// dispatches it down the tunnel and <see cref="SessionCommandExecutor.CreateAsync"/> is its whole body:
 /// validation, create funnel, pre-launch stamp, DTO mapper. These tests drive that real verb core, so
 /// the strength of the original wire tests is preserved over the surviving code. The sessions are
 /// `cmd /k`, the same harmless launch the sibling spawn tests use.
@@ -62,13 +62,13 @@ public sealed class FleetSpawnOriginTests : IDisposable
     };
 
     private DirectorCommandResult Spawn(NewSessionRequest body)
-        => SessionCommandExecutor.Create(_sm, DirectorId, new DirectorCommand
+        => SessionCommandExecutor.CreateAsync(_sm, DirectorId, new DirectorCommand
         {
             CommandId = "cmd-spawn-origin",
             Verb = "create",
             SessionId = "",
             PayloadJson = JsonSerializer.Serialize(body, Json),
-        });
+        }).GetAwaiter().GetResult();
 
     private SessionDto SpawnOk(NewSessionRequest body)
     {

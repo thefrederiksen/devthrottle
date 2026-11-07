@@ -94,7 +94,7 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
             "hold" => SessionCommandExecutor.Hold(sessionManager, command),
             "kill" => await SessionCommandExecutor.KillAsync(sessionManager, command),
             "patch" => SessionCommandExecutor.Patch(sessionManager, context.DirectorId, command),
-            "create" => SessionCommandExecutor.Create(sessionManager, context.DirectorId, command, context.Services),
+            "create" => await SessionCommandExecutor.CreateAsync(sessionManager, context.DirectorId, command, context.Services),
             "wingman-goal" => SessionCommandExecutor.WingmanGoal(sessionManager, command, context.Services),
             "set-role" => SessionCommandExecutor.SetRole(sessionManager, context.DirectorId, command),
             "attach-mission" => SessionCommandExecutor.AttachMission(sessionManager, context.DirectorId, command, context.Services),
@@ -672,7 +672,10 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
                 // it: whether the target inherits the source's membership depends on who asked, and only the
                 // Gateway saw the credential. Null means none, which is what an unrelated session's handover
                 // produces.
-                target = sessionManager.CreateSession(repo, agent, userArgs: null, SessionBackendType.ConPty, resumeSessionId: null,
+                // On the thread pool, never on the thread that delivered the command (factory failures of 6 November
+                // 2026, fix B): a target in a repository with pooled worktrees waits on cc-worktrees, which can take
+                // minutes, and while a command holds its delivering thread no other command reaches this Director.
+                target = await Task.Run(() => sessionManager.CreateSession(repo, agent, userArgs: null, SessionBackendType.ConPty, resumeSessionId: null,
                     beforeLaunch: s =>
                     {
                         s.StampOrigin(new SessionOrigin(
@@ -681,7 +684,7 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
                         s.StampFactory(req.Factory);
                         // The seat the Gateway settled with the factory (Factory Definition mission, phase 5).
                         StampHandoverSeat(s, req);
-                    });
+                    }));
             }
             catch (Exception ex)
             {

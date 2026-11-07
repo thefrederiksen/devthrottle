@@ -139,7 +139,7 @@ public sealed class CleanInstallSessionLaunchTests : IDisposable
 
     private Session CreateThroughControlApi()
     {
-        var result = SessionCommandExecutor.Create(_sm, DirectorId, new DirectorCommand
+        var result = SessionCommandExecutor.CreateAsync(_sm, DirectorId, new DirectorCommand
         {
             Verb = "create",
             PayloadJson = JsonSerializer.Serialize(new NewSessionRequest
@@ -148,7 +148,7 @@ public sealed class CleanInstallSessionLaunchTests : IDisposable
                 Agent = "ClaudeCode",
                 Name = "issue 1050 clean install launch",
             }, Web),
-        });
+        }).GetAwaiter().GetResult();
 
         Assert.Equal(DirectorCommandStatus.Ok, result.Status);
         var dto = JsonSerializer.Deserialize<SessionDto>(result.BodyJson!, Web);

@@ -46,7 +46,10 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
         public readonly List<(string Repo, string Holder, int PoolSize)> Taken = new();
         public string? RefuseWith;
 
-        public PooledWorktree Get(string repoPath, string holder, int poolSize)
+        public Task<PooledWorktree> GetAsync(string repoPath, string holder, int poolSize, CancellationToken cancellationToken)
+            => Task.FromResult(Get(repoPath, holder, poolSize));
+
+        private PooledWorktree Get(string repoPath, string holder, int poolSize)
         {
             Taken.Add((repoPath, holder, poolSize));
             if (RefuseWith is not null) throw new CcWorktreesRefusedException("pool-full", RefuseWith, 3, Array.Empty<string>());

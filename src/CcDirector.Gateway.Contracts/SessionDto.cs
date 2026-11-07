@@ -372,6 +372,15 @@ public sealed class SessionDto
     public string? FirstPromptFailureReason { get; set; }
 
     /// <summary>
+    /// True when this session NEVER LAUNCHED: the Director answered its create at once and the start that followed -
+    /// the seat's kit, a pooled worktree from cc-worktrees, the launch - failed (factory failures of 6 November 2026).
+    /// Such a row also carries <see cref="FirstPromptFailedAtUtc"/> (the first prompt reached no agent, because there
+    /// is none) and <see cref="FirstPromptFailureReason"/>, which then holds why the start failed in the words of
+    /// whatever refused it. False for every session that launched, and from a Director too old to say.
+    /// </summary>
+    public bool StartFailed { get; set; }
+
+    /// <summary>
     /// Gateway-owned plain-English notice that this session lost a prompt, or null when there is nothing to
     /// say. Folded once by <c>SessionOrdering.PromptDeliveryNotice</c> from the Director-reported facts
     /// above and rendered VERBATIM by every client (CLAUDE.md rule 7). Always null in Director-local

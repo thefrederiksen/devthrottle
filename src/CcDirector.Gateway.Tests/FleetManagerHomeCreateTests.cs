@@ -61,11 +61,11 @@ public sealed class FleetManagerHomeCreateTests : IDisposable
     }
 
     private DirectorCommandResult Create(NewSessionRequest request)
-        => SessionCommandExecutor.Create(_sm, DirectorId, new DirectorCommand
+        => SessionCommandExecutor.CreateAsync(_sm, DirectorId, new DirectorCommand
         {
             Verb = "create",
             PayloadJson = JsonSerializer.Serialize(request, Web),
-        });
+        }).GetAwaiter().GetResult();
 
     private Session SessionOf(DirectorCommandResult result)
     {

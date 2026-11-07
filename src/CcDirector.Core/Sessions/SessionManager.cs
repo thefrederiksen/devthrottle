@@ -19,6 +19,10 @@ public sealed class SessionManager : IDisposable
 {
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
 
+    // Starts accepted and not yet launched, and starts that failed after their create was answered (factory failures of
+    // 6 November 2026). A launched session leaves this map the moment it enters _sessions.
+    private readonly ConcurrentDictionary<Guid, PendingSessionStart> _pendingStarts = new();
+
     // The session-creation hold (devthrottle_internal#2311, review finding F3): while a Director changes team,
     // no session may start, from any path - Settings, a Gateway-started spawn, a schedule. Every create enters
     // through EnterCreation, and the hold and the in-flight count share one lock, so a create that has already
@@ -812,19 +816,211 @@ public sealed class SessionManager : IDisposable
     /// size (the default, four, when it was never set). A refusal is the tool's own, unchanged.</param>
     public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null, FactoryKitRequest? factoryKit = null, bool forcePooledWorktree = false, SessionConnectionMode connectionMode = SessionConnectionMode.Terminal)
     {
-        using var creation = EnterCreation();
-        if (agent is null)
-            throw new ArgumentNullException(nameof(agent));
-        // API mode is refused here, before anything is taken, when this agent's wrapper does not speak it (issue #4070).
-        if (connectionMode == SessionConnectionMode.Api)
-            RequireApiModeSupported(agent, backendType);
-        if (forcePooledWorktree && factoryKit is null)
-            throw new ArgumentException("A pooled worktree is forced only for a seat, which always comes with its kit.", nameof(forcePooledWorktree));
-        var home = factoryKit?.Home == true;
-        if (!home && !Directory.Exists(repoPath))
-            throw new DirectoryNotFoundException($"Repository path not found: {repoPath}");
+        // The desktop's New Session and every other caller of this method wait for the launch, as they always did: the
+        // start runs on the calling thread, and a pooled slot is waited for there. The Gateway's create verb uses
+        // AcceptSessionStart and StartAcceptedSessionAsync instead, so the command channel is never held by a start.
+        var start = AcceptSessionStart(repoPath, agent, userArgs, backendType, resumeSessionId, groupId, groupRole, groupName,
+            nameFactory, controllerSessionId, beforeLaunch, reattachPooledWorktree, factoryKit, forcePooledWorktree, connectionMode,
+            pendingFacts: null);
+        var started = StartSessionCoreAsync(start, waitOnCallingThread: true);
+        if (!started.IsCompleted)
+            throw new InvalidOperationException($"The start of session {start.Id} did not finish on the calling thread, which a waited create requires.");
+        return started.GetAwaiter().GetResult();
+    }
 
-        var id = Guid.NewGuid();
+    /// <summary>
+    /// ACCEPT a create (factory failures of 6 November 2026, findings 1, fix A). Everything a create can refuse at once
+    /// is checked here - the creation hold, the agent, API mode, the folder, the repository's pooled-worktree setting -
+    /// and the session's id and its name are minted. Nothing slow runs: no kit is downloaded, no slot is taken, no
+    /// process is started. With <paramref name="pendingFacts"/> the session is reported from this moment as a row in
+    /// the Starting state (<see cref="ListPendingStarts"/>), so the Gateway finds it by its id and its name while the
+    /// start runs. Hand the result to <see cref="StartAcceptedSessionAsync"/> exactly once.
+    /// </summary>
+    public SessionStart AcceptSessionStart(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null, FactoryKitRequest? factoryKit = null, bool forcePooledWorktree = false, SessionConnectionMode connectionMode = SessionConnectionMode.Terminal, PendingSessionFacts? pendingFacts = null)
+    {
+        var ticket = EnterCreation();
+        try
+        {
+            if (agent is null)
+                throw new ArgumentNullException(nameof(agent));
+            // API mode is refused here, before anything is taken, when this agent's wrapper does not speak it (issue #4070).
+            if (connectionMode == SessionConnectionMode.Api)
+                RequireApiModeSupported(agent, backendType);
+            if (forcePooledWorktree && factoryKit is null)
+                throw new ArgumentException("A pooled worktree is forced only for a seat, which always comes with its kit.", nameof(forcePooledWorktree));
+            var home = factoryKit?.Home == true;
+            if (!home && !Directory.Exists(repoPath))
+                throw new DirectoryNotFoundException($"Repository path not found: {repoPath}");
+
+            var id = Guid.NewGuid();
+
+            // Issue #800: the name-at-birth is composed HERE, once, because the pooled worktree is taken in this session's
+            // name - the holder `cc-worktrees list` shows should be the name a person reads, not only an identifier - and
+            // because a starting session's row carries it before the session exists.
+            var birthName = nameFactory?.Invoke(id);
+
+            var start = new SessionStart(id, birthName, ticket)
+            {
+                RepoPath = repoPath,
+                Agent = agent,
+                UserArgs = userArgs,
+                BackendType = backendType,
+                ResumeSessionId = resumeSessionId,
+                GroupId = groupId,
+                GroupRole = groupRole,
+                GroupName = groupName,
+                ControllerSessionId = controllerSessionId,
+                BeforeLaunch = beforeLaunch,
+                ReattachPooledWorktree = reattachPooledWorktree,
+                FactoryKit = factoryKit,
+                ForcePooledWorktree = forcePooledWorktree,
+                ConnectionMode = connectionMode,
+            };
+
+            // WHETHER THIS START ASKS cc-worktrees FOR A SLOT, settled now from the repository's setting, because that call
+            // is the one that can take minutes. A seat with no repository takes none, a restore brings its own, and a seat
+            // in a repository always takes one.
+            if (!home && reattachPooledWorktree is null)
+                SettlePooledSlot(start, forcePooledWorktree ? factoryKit : null);
+
+            if (pendingFacts is not null)
+            {
+                var pending = new PendingSessionStart(id, birthName, repoPath, agent.Kind, DateTime.UtcNow, pendingFacts);
+                start.Pending = pending;
+                _pendingStarts[id] = pending;
+                FileLog.Write($"[SessionManager] AcceptSessionStart: session={id}, name={birthName ?? "(none)"}, agent={agent.Kind}, " +
+                              $"takesPooledSlot={start.TakesPooledSlot}; reported as starting");
+                RaisePendingStartChanged(pending);
+            }
+            else
+            {
+                FileLog.Write($"[SessionManager] AcceptSessionStart: session={id}, name={birthName ?? "(none)"}, agent={agent.Kind}, " +
+                              $"takesPooledSlot={start.TakesPooledSlot}; the caller waits for the launch");
+            }
+            return start;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionManager] AcceptSessionStart FAILED: repo={repoPath}, the create is refused: {ex.Message}");
+            ticket.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// START an accepted create: the seat's kit, the pooled slot (awaited, never waited on), the launch. The order inside
+    /// is the create's order, unchanged: the kit, then the slot, then the session, its memory, its preamble file, its
+    /// hooks and its process. A caller types the first prompt only after this completes. A failure throws with its
+    /// reason; a start reported as starting (<see cref="SessionStart.Pending"/>) that failed after it reached the pool
+    /// (<see cref="SessionStart.ReachedThePool"/>), where its create was answered, also becomes a failed row carrying that
+    /// reason, because nobody is waiting on the throw.
+    /// </summary>
+    public Task<Session> StartAcceptedSessionAsync(SessionStart start)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        return StartSessionCoreAsync(start, waitOnCallingThread: false);
+    }
+
+    /// <summary>The sessions this Director has accepted and is still starting, and the starts that failed and have not
+    /// been closed. Never a session that has launched: that one is in <see cref="ListSessions"/>.</summary>
+    public IReadOnlyList<PendingSessionStart> ListPendingStarts()
+        => _pendingStarts.Values.Where(p => !_sessions.ContainsKey(p.Id)).OrderBy(p => p.AcceptedAtUtc).ToList();
+
+    /// <summary>A start this Director accepted and has not launched, by id, or null.</summary>
+    public PendingSessionStart? GetPendingStart(Guid id)
+        => _pendingStarts.TryGetValue(id, out var p) && !_sessions.ContainsKey(id) ? p : null;
+
+    /// <summary>Raised when a start is accepted and when it fails: the row a client sees has changed.</summary>
+    public event Action<PendingSessionStart>? OnPendingStartChanged;
+
+    /// <summary>Raised when a starting row leaves without becoming a session - a failed start closed by a person, or a
+    /// start whose caller was answered with the failure itself - so it leaves every roster.</summary>
+    public event Action<PendingSessionStart>? OnPendingStartDismissed;
+
+    /// <summary>
+    /// Close a failed start's row. Returns false when <paramref name="id"/> names no failed start: a start still in
+    /// progress cannot be closed, because its slot and its process may yet appear, and closing the row would hide them.
+    /// </summary>
+    public bool DismissFailedStart(Guid id)
+    {
+        if (!_pendingStarts.TryGetValue(id, out var pending) || pending.FailedAtUtc is null)
+        {
+            FileLog.Write($"[SessionManager] DismissFailedStart: session={id} is not a failed start; nothing closed");
+            return false;
+        }
+        if (!_pendingStarts.TryRemove(id, out _))
+            return false;
+        FileLog.Write($"[SessionManager] DismissFailedStart: session={id} closed");
+        RaisePendingStartDismissed(pending);
+        return true;
+    }
+
+    private void RaisePendingStartChanged(PendingSessionStart pending)
+    {
+        try { OnPendingStartChanged?.Invoke(pending); }
+        catch (Exception ex) { _log?.Invoke($"OnPendingStartChanged handler threw: {ex.Message}"); }
+    }
+
+    private void RaisePendingStartDismissed(PendingSessionStart pending)
+    {
+        try { OnPendingStartDismissed?.Invoke(pending); }
+        catch (Exception ex) { _log?.Invoke($"OnPendingStartDismissed handler threw: {ex.Message}"); }
+    }
+
+    private async Task<Session> StartSessionCoreAsync(SessionStart start, bool waitOnCallingThread)
+    {
+        FileLog.Write($"[SessionManager] StartSessionCoreAsync: session={start.Id}, takesPooledSlot={start.TakesPooledSlot}, waitOnCallingThread={waitOnCallingThread}");
+        try
+        {
+            var session = await CreateSessionCoreAsync(start, waitOnCallingThread).ConfigureAwait(false);
+            FileLog.Write($"[SessionManager] StartSessionCoreAsync: session={start.Id} launched");
+            return session;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionManager] StartSessionCoreAsync FAILED: session={start.Id}: {ex.Message}");
+            if (start.Pending is { } pending)
+            {
+                if (start.ReachedThePool.IsCompleted)
+                {
+                    // Answered when it reached the pool, so this row is the only place the failure can be reported: it
+                    // stays, failed, with the reason, as a crashed session stays until a person closes it.
+                    pending.MarkFailed(ex.Message, DateTime.UtcNow);
+                    _log?.Invoke($"Session {start.Id} could not be started: {pending.FailureReason}");
+                    RaisePendingStartChanged(pending);
+                }
+                else if (_pendingStarts.TryRemove(start.Id, out _))
+                {
+                    // The caller is answered with the failure itself, so the starting row goes.
+                    RaisePendingStartDismissed(pending);
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            start.ReleaseTicket();
+        }
+    }
+
+    private async Task<Session> CreateSessionCoreAsync(SessionStart start, bool waitOnCallingThread)
+    {
+        var id = start.Id;
+        var repoPath = start.RepoPath;
+        var agent = start.Agent;
+        var userArgs = start.UserArgs;
+        var backendType = start.BackendType;
+        var resumeSessionId = start.ResumeSessionId;
+        var groupId = start.GroupId;
+        var groupRole = start.GroupRole;
+        var groupName = start.GroupName;
+        var controllerSessionId = start.ControllerSessionId;
+        var beforeLaunch = start.BeforeLaunch;
+        var reattachPooledWorktree = start.ReattachPooledWorktree;
+        var factoryKit = start.FactoryKit;
+        var connectionMode = start.ConnectionMode;
+        var birthName = start.BirthName;
+        var home = factoryKit?.Home == true;
 
         // A SEAT'S KIT, IN PLACE BEFORE ANYTHING ELSE (Factory Definition mission, phase 5). Like the memory, it stops a
         // launch: a seat never starts without its kit, so a download that fails ends the create here with the reason,
@@ -851,12 +1047,6 @@ public sealed class SessionManager : IDisposable
             }
         }
 
-        // Issue #800: the name-at-birth is composed HERE, once, because the pooled worktree below is
-        // taken in this session's name and the holder shown by `cc-worktrees list` should be the name
-        // a person reads, not only an identifier. The factory takes nothing but the id, so composing it
-        // a few lines earlier than it is assigned changes nothing else.
-        var birthName = nameFactory?.Invoke(id);
-
         // THE POOLED WORKTREE, when this repository has the setting turned on. Off is the default and
         // off means today's behaviour exactly: no tool is run and the session works in the checkout it
         // was opened in.
@@ -880,7 +1070,7 @@ public sealed class SessionManager : IDisposable
             pooled = home ? null
                 : reattachPooledWorktree is not null
                     ? ReattachPooledWorktree(reattachPooledWorktree, id, birthName)
-                    : AcquirePooledWorktree(repoPath, id, birthName, forcePooledWorktree ? factoryKit : null);
+                    : await AcquirePooledWorktreeAsync(start, waitOnCallingThread).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -1419,6 +1609,10 @@ public sealed class SessionManager : IDisposable
             session.MarkRunning();
 
             _sessions[id] = session;
+            // The launched session replaces its starting row under the same id. Dropped AFTER the session is in the
+            // roster, so no snapshot taken in between can miss both (ListPendingStarts leaves out an id the roster has).
+            if (_pendingStarts.TryRemove(id, out _))
+                FileLog.Write($"[SessionManager] CreateSession: session={id} launched; its starting row is replaced by the session");
             RaiseSessionCreated(session);
 
             // Pre-populate ClaudeSessionId when we already know it:
@@ -1813,8 +2007,14 @@ public sealed class SessionManager : IDisposable
         return pooled;
     }
 
-    private Git.PooledWorktree? AcquirePooledWorktree(string repoPath, Guid id, string? birthName, FactoryKitRequest? forSeat = null)
+    /// <summary>
+    /// Settle, at the accept, whether this start asks cc-worktrees for a slot and with what pool size. Reading the
+    /// repository's setting is quick and local; asking the tool is the slow part, and it happens on the start's own task
+    /// (<see cref="AcquirePooledWorktreeAsync"/>).
+    /// </summary>
+    private void SettlePooledSlot(SessionStart start, FactoryKitRequest? forSeat)
     {
+        var repoPath = start.RepoPath;
         var force = forSeat is not null;
         Git.WorktreePoolSetting setting;
         try
@@ -1825,7 +2025,7 @@ public sealed class SessionManager : IDisposable
         {
             // A seat must take a slot, so "off" is not a safe reading here: it would start the seat in the shared
             // checkout. The create stops instead, saying why.
-            FileLog.Write($"[SessionManager] AcquirePooledWorktree FAILED: could not read the setting for {repoPath}: {ex.Message}; a seat cannot start");
+            FileLog.Write($"[SessionManager] SettlePooledSlot FAILED: could not read the setting for {repoPath}: {ex.Message}; a seat cannot start");
             throw new InvalidOperationException(
                 $"No session was opened. A seat works in a pooled worktree of {repoPath}, and that repository's pooled-worktree setting could not be read: {ex.Message}", ex);
         }
@@ -1833,24 +2033,53 @@ public sealed class SessionManager : IDisposable
         {
             // The setting could not be read. OFF is the only safe reading of "I do not know", and it is
             // also the default, so this session behaves exactly as it did before the setting existed.
-            FileLog.Write($"[SessionManager] AcquirePooledWorktree FAILED: could not read the setting for {repoPath}: {ex.Message}; treating it as off");
-            return null;
+            FileLog.Write($"[SessionManager] SettlePooledSlot FAILED: could not read the setting for {repoPath}: {ex.Message}; treating it as off");
+            return;
         }
 
         // A seat of a defined factory that works in a repository takes a slot whatever the setting says (phase 5): a
         // seat never runs in the shared checkout. The pool size is the repository's own, which is the default (four)
         // when the setting was never saved - the size a person gets the moment they turn the setting on.
         if (!setting.Enabled && !force)
+            return;
+
+        start.TakesPooledSlot = true;
+        start.PoolSize = setting.PoolSize;
+        start.PoolSettingEnabled = setting.Enabled;
+        FileLog.Write($"[SessionManager] SettlePooledSlot: session={start.Id}, repo={repoPath}, poolSize={setting.PoolSize}, settingEnabled={setting.Enabled}, seat={force}");
+    }
+
+    /// <summary>
+    /// Take the slot settled at the accept. Awaited on the start's own task, so the minutes cc-worktrees can take never
+    /// hold the Director's command channel. <paramref name="waitOnCallingThread"/> is for a caller that waits for the
+    /// launch on its own thread (the desktop's New Session): the call is then waited for there, on the thread pool, as it
+    /// always was. Returns null when the start takes no slot.
+    /// </summary>
+    private async Task<Git.PooledWorktree?> AcquirePooledWorktreeAsync(SessionStart start, bool waitOnCallingThread)
+    {
+        if (!start.TakesPooledSlot)
             return null;
+
+        var repoPath = start.RepoPath;
+        var id = start.Id;
+        var birthName = start.BirthName;
+        var forSeat = start.ForcePooledWorktree ? start.FactoryKit : null;
 
         // Who holds the slot, as `cc-worktrees list` will show it: the name the session is born with
         // when it has one, and its identifier either way so one slot maps to exactly one session.
         var holder = string.IsNullOrWhiteSpace(birthName) ? id.ToString() : $"{birthName.Trim()} ({id})";
 
-        FileLog.Write($"[SessionManager] AcquirePooledWorktree: repo={repoPath}, poolSize={setting.PoolSize}, holder={holder}");
+        FileLog.Write($"[SessionManager] AcquirePooledWorktree: repo={repoPath}, poolSize={start.PoolSize}, holder={holder}");
+        // Every quick check is behind this start (the kit, its agent, its secrets); only the slow call is left, so a
+        // create that waits for this point answers now and the rest is reported on the session's row.
+        start.MarkReachedThePool();
         try
         {
-            var pooled = _worktreePool.Get(repoPath, holder, setting.PoolSize);
+            // The desktop's own wait runs on the thread pool, as it always did: a wait on a task that resumes on the
+            // desktop's thread would deadlock.
+            var pooled = waitOnCallingThread
+                ? Task.Run(() => _worktreePool.GetAsync(repoPath, holder, start.PoolSize, CancellationToken.None)).GetAwaiter().GetResult()
+                : await _worktreePool.GetAsync(repoPath, holder, start.PoolSize, CancellationToken.None).ConfigureAwait(false);
             _log?.Invoke($"This session runs in the pooled worktree {pooled.Path} (slot {pooled.Slot} of {repoPath}).");
             return pooled;
         }
@@ -1861,7 +2090,7 @@ public sealed class SessionManager : IDisposable
             var help = ex.Help.Count == 0 ? "" : " Try: " + string.Join("; ", ex.Help);
             // Why a slot was asked for at all: the repository's setting, or - for a seat, whatever the setting says - the
             // rule that a seat never runs in the shared checkout.
-            var why = setting.Enabled
+            var why = start.PoolSettingEnabled
                 ? $"{repoPath} is set to run its sessions in a pooled worktree"
                 : $"A seat of a defined factory always works in a pooled worktree of {repoPath}";
             var message = $"No session was opened. {why}, and cc-worktrees refused: {ex.Message}.{help}";

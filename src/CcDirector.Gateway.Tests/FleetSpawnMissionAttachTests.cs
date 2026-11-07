@@ -72,13 +72,13 @@ public sealed class FleetSpawnMissionAttachTests : IDisposable
     };
 
     private DirectorCommandResult Spawn(NewSessionRequest body)
-        => SessionCommandExecutor.Create(_sm, "dir-spawn-mission", new DirectorCommand
+        => SessionCommandExecutor.CreateAsync(_sm, "dir-spawn-mission", new DirectorCommand
         {
             CommandId = "cmd-spawn-mission",
             Verb = "create",
             SessionId = "",
             PayloadJson = JsonSerializer.Serialize(body, Json),
-        }, null);
+        }, null).GetAwaiter().GetResult();
 
     private async Task<SessionDto> SpawnOkAndCleanUpAsync(NewSessionRequest body)
     {

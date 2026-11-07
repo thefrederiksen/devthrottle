@@ -397,6 +397,32 @@ public sealed class CronRunResultTests : IDisposable
     }
 
     [Fact]
+    public void Sweep_ASessionWhoseStartFailedAfterTheCreateWasAnswered_DidNotRunInTheToolsWords()
+    {
+        // Factory failures of 6 November 2026: the Director answers a pooled seat's create at once, and the start that
+        // follows can still fail (cc-worktrees refuses). That run did not run - it never had a session that started.
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = new SessionDto
+        {
+            SessionId = "s1", Crashed = true, ActivityState = "Exited", StartFailed = true,
+            FirstPromptFailedAtUtc = fired.AddMinutes(4),
+            FirstPromptFailureReason = "No session was opened. cc-worktrees refused: pool full (4 of 4).",
+        };
+        _now = fired.AddMinutes(5);
+
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+
+        var run = runs.List("cj_a").Single();
+        Assert.Equal(CronRunResults.Problem, run.Result);
+        Assert.Equal(CronRunProblems.DidNotRun, run.Problem);
+        Assert.Equal("the session could not be started: No session was opened. cc-worktrees refused: pool full (4 of 4)",
+            run.ResultReason);
+    }
+
+    [Fact]
     public void Sweep_ALaterSendThatFailed_DoesNotCondemnARunWhoseFirstPromptArrived()
     {
         // The #3392 review, finding 1: the seed arrived, the agent worked for an hour, then a send from the phone failed.
