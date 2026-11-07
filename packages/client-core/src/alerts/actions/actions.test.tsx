@@ -9,7 +9,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { RestartRequestActions } from "./RestartRequestActions";
 import { SecretTransferActions } from "./SecretTransferActions";
 import { MessageRequestActions } from "./MessageRequestActions";
-import { restartRequest, secretTransfer, messageRequest } from "../alertsFixtures.testkit";
+import { FactoryInboxStuckActions } from "./FactoryInboxStuckActions";
+import { restartRequest, secretTransfer, messageRequest, stuckAlert } from "../alertsFixtures.testkit";
 
 let calls: { url: string; method: string; body?: string }[] = [];
 
@@ -169,5 +170,32 @@ describe("MessageRequestActions", () => {
     render(<MessageRequestActions request={messageRequest()} />);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("already allowed"));
+  });
+});
+
+describe("FactoryInboxStuckActions", () => {
+  const stuck = () => {
+    const a = stuckAlert();
+    if (a.kind !== "factory-inbox-stuck") throw new Error("the fixture is a stuck alert");
+    return a.detail;
+  };
+
+  it("Dealt with it posts to the factory's own inbox route, then tells the list", async () => {
+    fakeGateway(200, { factory: "invoices", marked: 1 });
+    const answered = vi.fn();
+    render(<FactoryInboxStuckActions stuck={stuck()} onAnswered={answered} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dealt with it" }));
+    await waitFor(() => expect(answered).toHaveBeenCalled());
+    const post = calls.find((c) => c.method === "POST");
+    expect(post?.url).toBe("/gateway/factory/invoices/inbox/dealt-with");
+  });
+
+  it("shows a refusal in the Gateway's words, and does not tell the list", async () => {
+    fakeGateway(409, { error: "This factory's inbox is not stuck now, so nothing was marked. A Secretary or the Boss has taken its messages since.", code: "not_stuck" });
+    const answered = vi.fn();
+    render(<FactoryInboxStuckActions stuck={stuck()} onAnswered={answered} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dealt with it" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("is not stuck now, so nothing was marked"));
+    expect(answered).not.toHaveBeenCalled();
   });
 });

@@ -44,7 +44,8 @@ public sealed class FactoryInboxMessageEntity : GatewayMintedKeyEntity
     /// <summary>When it was sent (UTC).</summary>
     public DateTime SentAtUtc { get; set; }
 
-    /// <summary><c>sent</c>, <c>received</c>, <c>with-boss</c> or <c>decided</c>.</summary>
+    /// <summary><c>sent</c>, <c>received</c>, <c>with-boss</c> or <c>decided</c> (by the Boss, or by the owner when
+    /// <see cref="OwnerDealtWithAtUtc"/> is set).</summary>
     public string State { get; set; } = "";
 
     /// <summary>When a Secretary first marked it received (UTC), or null before then.</summary>
@@ -69,9 +70,14 @@ public sealed class FactoryInboxMessageEntity : GatewayMintedKeyEntity
     /// <c>run</c>, <c>report</c> or <c>record</c>. Null when it attached none.</summary>
     public string? LinksJson { get; set; }
 
-    /// <summary>When the owner dealt with the message outside the normal inbox flow (UTC), or null. When set, the message
-    /// leaves the factory inbox stuck alert even if it was never received or decided.</summary>
+    /// <summary>When the owner pressed "Dealt with it" on the factory's stuck alert (UTC), or null. Set together with
+    /// <see cref="OwnerDealtWithBy"/> and the state <c>decided</c>, with no Boss decision: the owner handled the message
+    /// himself because the inbox could not (issue 4746), so it leaves every queue and the stuck alert, and its thread says
+    /// who handled it and when.</summary>
     public DateTime? OwnerDealtWithAtUtc { get; set; }
+
+    /// <summary>The device id of the owner's phone or browser that pressed "Dealt with it", or null.</summary>
+    public string? OwnerDealtWithBy { get; set; }
 }
 
 /// <summary>

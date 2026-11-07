@@ -1999,6 +1999,12 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(16)")
                         .UseCollation("C");
 
+                    b.Property<DateTime?>("OwnerDealtWithAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OwnerDealtWithBy")
+                        .HasColumnType("text");
+
                     b.Property<string>("RawText")
                         .HasMaxLength(20000)
                         .HasColumnType("character varying(20000)");

@@ -574,23 +574,83 @@ public sealed class FactoryInboxStore
         }
     }
 
+    // ---------------------------------------------------------------- the owner
+
     /// <summary>
-    /// Mark messages of a factory's stuck inbox alert as owner dealt with. The owner has handled them outside the normal
-    /// inbox flow and they should not appear in the stuck alert until new ones arrive. All messages from the named factory
-    /// that are not yet decided are marked.
+    /// THE OWNER DEALT WITH IT (issue 4746). The factory's inbox is stuck and the owner has handled what it holds himself,
+    /// so he ends the alert by hand. Every item the stuck alert counts (<see cref="FactoryInboxStuckAlertSource"/>'s three
+    /// rules, with the same clock) is marked decided by the owner: a message no Secretary received in time, a message held
+    /// by a Secretary that has ended, and every undecided message of a bundle the Boss has not decided in time - and those
+    /// bundles close. Each marked message records who pressed it and when, has no Boss decision, and leaves every queue,
+    /// so no Secretary files it later. Nothing else is touched: a message sent a minute ago, or held by a Secretary still
+    /// running, goes on as normal, and if it becomes stuck it raises the alert again.
+    ///
+    /// Each update repeats its own condition, so a Secretary that received a message between the read and the write keeps
+    /// it. Refused with 409 when nothing is stuck now - the alert had already gone.
     /// </summary>
-    public void MarkOwnerDealtWith(TenantId tenant, string factory, DateTime nowUtc)
+    /// <param name="isEnded">Whether the Gateway has recorded a session as ended, asked once per Secretary holding a
+    /// message too long.</param>
+    /// <returns>How many messages the owner's press marked.</returns>
+    public int DealtWithByOwner(TenantId tenant, string factory, string ownerDeviceId, Func<string, bool> isEnded, DateTime nowUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(factory);
-        FileLog.Write($"[FactoryInboxStore] MarkOwnerDealtWith: factory={factory}");
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerDeviceId);
+        ArgumentNullException.ThrowIfNull(isEnded);
+        FileLog.Write($"[FactoryInboxStore] DealtWithByOwner: factory={factory} by={ownerDeviceId}");
+        var receiveBy = nowUtc - FactoryInboxStuckAlertSource.ReceiveWithin;
+        var decideBy = nowUtc - FactoryInboxStuckAlertSource.DecideWithin;
 
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var updated = ctx.FactoryInboxMessages
-                .Where(m => m.Factory == factory && m.State != FactoryInboxWords.States.Decided && m.OwnerDealtWithAtUtc == null)
-                .ExecuteUpdate(set => set.SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc));
-            FileLog.Write($"[FactoryInboxStore] MarkOwnerDealtWith: factory={factory}, marked={updated}");
+            using var tx = ctx.Database.BeginTransaction();
+
+            var heldBy = ctx.FactoryInboxMessages.AsNoTracking()
+                .Where(m => m.Factory == factory).Where(FactoryInboxStuckAlertSource.HeldSince(receiveBy))
+                .Select(m => m.ClaimSessionId!).Distinct().ToList();
+            var ended = heldBy.Where(isEnded).ToList();
+            var bundles = ctx.FactoryInboxBundles.AsNoTracking()
+                .Where(b => b.Factory == factory).Where(FactoryInboxStuckAlertSource.UndecidedSince(decideBy))
+                .Select(b => (Guid?)b.Id).ToList();
+
+            var notReceived = ctx.FactoryInboxMessages
+                .Where(m => m.Factory == factory).Where(FactoryInboxStuckAlertSource.NotReceivedBy(receiveBy))
+                .ExecuteUpdate(set => set
+                    .SetProperty(m => m.State, FactoryInboxWords.States.Decided)
+                    .SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc)
+                    .SetProperty(m => m.OwnerDealtWithBy, ownerDeviceId));
+            var heldByEnded = ended.Count == 0 ? 0 : ctx.FactoryInboxMessages
+                .Where(m => m.Factory == factory).Where(FactoryInboxStuckAlertSource.HeldSince(receiveBy))
+                .Where(m => ended.Contains(m.ClaimSessionId!))
+                .ExecuteUpdate(set => set
+                    .SetProperty(m => m.State, FactoryInboxWords.States.Decided)
+                    .SetProperty(m => m.ClaimSessionId, (string?)null)
+                    .SetProperty(m => m.ClaimedAtUtc, (DateTime?)null)
+                    .SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc)
+                    .SetProperty(m => m.OwnerDealtWithBy, ownerDeviceId));
+            var withBoss = bundles.Count == 0 ? 0 : ctx.FactoryInboxMessages
+                .Where(m => m.Factory == factory && bundles.Contains(m.BundleId) && m.State == FactoryInboxWords.States.WithBoss)
+                .ExecuteUpdate(set => set
+                    .SetProperty(m => m.State, FactoryInboxWords.States.Decided)
+                    .SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc)
+                    .SetProperty(m => m.OwnerDealtWithBy, ownerDeviceId));
+            var closed = bundles.Count == 0 ? 0 : ctx.FactoryInboxBundles
+                .Where(b => bundles.Contains(b.Id) && b.ClosedAtUtc == null
+                            && !ctx.FactoryInboxMessages.Any(m => m.BundleId == b.Id && m.State != FactoryInboxWords.States.Decided))
+                .ExecuteUpdate(set => set.SetProperty(b => b.ClosedAtUtc, nowUtc));
+
+            var marked = notReceived + heldByEnded + withBoss;
+            if (marked == 0 && closed == 0)
+            {
+                tx.Rollback();
+                FileLog.Write($"[FactoryInboxStore] DealtWithByOwner: factory={factory} nothing is stuck");
+                throw new FactoryInboxRefusedException("not_stuck",
+                    "This factory's inbox is not stuck now, so nothing was marked. A Secretary or the Boss has taken its messages since.", 409);
+            }
+            tx.Commit();
+            FileLog.Write($"[FactoryInboxStore] DealtWithByOwner: factory={factory} marked={marked} (not received {notReceived}, " +
+                          $"held by an ended Secretary {heldByEnded}, with the Boss {withBoss}), bundles closed={closed}");
+            return marked;
         }
     }
 

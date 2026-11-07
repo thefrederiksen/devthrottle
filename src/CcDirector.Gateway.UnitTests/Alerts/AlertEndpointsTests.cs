@@ -62,9 +62,7 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
             new AlertMarkStore(_harness.Open()), () => _now);
         AlertEndpoints.Map(_app,
             ctx => ctx.Request.Headers.TryGetValue(AccountHeader, out var v) ? new TenantId(v.ToString()) : null,
-            service,
-            tenant => new CcDirector.Gateway.Factory.Inbox.FactoryInboxStore(_harness.Open(),
-                t => new CcDirector.Core.Dictation.DictationDictionary()));
+            service);
         await _app.StartAsync();
         _client = _app.GetTestClient();
     }

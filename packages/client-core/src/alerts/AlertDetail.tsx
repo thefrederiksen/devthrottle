@@ -102,10 +102,12 @@ function KindBody({ alert, where, onAnswered }: AlertDetailProps) {
       );
     }
     case "factory-inbox-stuck": {
+      // The reasons say what is wrong and what to do, in the Gateway's words. The Gateway makes the first reason the
+      // summary, which is already shown, so only the others are listed - never a sentence twice. Then the one thing the
+      // owner can do here: say he dealt with it himself (issue 4746).
       const more = alert.detail.reasons.slice(1);
       return (
         <>
-          <FactoryInboxStuckActions alert={alert} onAnswered={onAnswered} />
           {more.length > 0 ? (
             <ul className="alert-line" data-testid="factory-inbox-stuck-reasons">
               {more.map((r) => (
@@ -113,6 +115,7 @@ function KindBody({ alert, where, onAnswered }: AlertDetailProps) {
               ))}
             </ul>
           ) : null}
+          {alert.needsAnswer ? <FactoryInboxStuckActions stuck={alert.detail} onAnswered={onAnswered} /> : null}
         </>
       );
     }

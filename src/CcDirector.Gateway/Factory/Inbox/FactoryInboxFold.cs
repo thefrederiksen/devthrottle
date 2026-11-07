@@ -27,7 +27,7 @@ public static class FactoryInboxFold
             Surface: m.Surface,
             SentAtUtc: m.SentAtUtc,
             State: m.State,
-            StateLabel: WaitingLabelOf(m, waiting) ?? FactoryInboxWords.StateLabel(m.State, decision?.Kind),
+            StateLabel: WaitingLabelOf(m, waiting) ?? StateLabelOf(m, decision),
             MergedInto: m.MergedIntoId?.ToString("D"),
             Links: FactoryInboxStore.ReadLinks(m.LinksJson),
             BundleId: m.BundleId?.ToString("D"),
@@ -53,7 +53,7 @@ public static class FactoryInboxFold
         return new FactoryInboxRowDto(
             Line: last.Text,
             WaitingLine: FactoryInboxWords.WaitingLine(waiting),
-            Badge: reason is null ? FactoryInboxWords.StateLabel(last.State, lastDecision?.Kind) : FactoryInboxWords.WaitingBadge,
+            Badge: reason is null ? StateLabelOf(last, lastDecision) : FactoryInboxWords.WaitingBadge,
             Tone: FactoryInboxWords.Tone(last.State, lastDecision?.Kind),
             ReasonLine: reason);
     }
@@ -71,6 +71,12 @@ public static class FactoryInboxFold
                 DateTime.SpecifyKind(p.LastActivityUtc, DateTimeKind.Utc), FactoryInboxWords.Tones.Amber))
             .ToList();
     }
+
+    /// <summary>A message's state in words: its decision, or that the owner dealt with it himself (issue 4746).</summary>
+    private static string StateLabelOf(FactoryInboxMessageEntity m, FactoryInboxDecisionEntity? decision)
+        => m.OwnerDealtWithAtUtc is not null && decision is null
+            ? FactoryInboxWords.OwnerDealtWithLabel
+            : FactoryInboxWords.StateLabel(m.State, decision?.Kind);
 
     /// <summary>The waiting sentence a message shows, or null when it does not wait.</summary>
     private static string? WaitingLabelOf(FactoryInboxMessageEntity m, FactoryInboxWaitingLabels? waiting) => m.State switch
@@ -118,6 +124,8 @@ public static class FactoryInboxFold
             trail.Add(new(FactoryInboxWords.Steps.WithBoss, "Handed to the Boss", handedAtUtc));
         if (decision is not null)
             trail.Add(new(FactoryInboxWords.Steps.Decided, DecidedLine(decision), decision.DecidedAtUtc));
+        else if (m.OwnerDealtWithAtUtc is { } dealt)
+            trail.Add(new(FactoryInboxWords.Steps.Decided, FactoryInboxWords.OwnerDealtWithLabel, dealt));
         return trail;
     }
 
@@ -142,11 +150,14 @@ public static class FactoryInboxFold
             .Select(k => new FactoryInboxCountDto(k, FactoryInboxWords.DecisionLabel(k), decided.Count(d => d.Kind == k)))
             .Where(c => c.Count > 0)
             .ToList();
-        var waiting = sent.Count(m => !decisionOfSent.ContainsKey(m.Id));
+        // A message the owner dealt with himself (issue 4746) is not waiting, and it is not a Boss decision either.
+        var ownerDealt = sent.Count(m => !decisionOfSent.ContainsKey(m.Id) && m.OwnerDealtWithAtUtc is not null);
+        var waiting = sent.Count(m => !decisionOfSent.ContainsKey(m.Id) && m.OwnerDealtWithAtUtc is null);
         var line = sent.Count == 0 && decided.Count == 0
             ? "Nothing came in and nothing was decided."
             : $"{Count(sent.Count, "message")} came in; {Count(decided.Count, "decision")} made" +
               (byDecision.Count == 0 ? "" : " (" + string.Join(", ", byDecision.Select(c => $"{c.Label} {c.Count}")) + ")") +
+              (ownerDealt == 0 ? "" : $"; {ownerDealt} dealt with by the owner") +
               (waiting == 0 ? "." : $"; {waiting} still waiting.");
         var items = sent.Select(m => Message(m, decisionOfSent.TryGetValue(m.Id, out var d) ? d : null,
             m.BundleId is { } b && handedAt.TryGetValue(b, out var at) ? at : null)).ToList();

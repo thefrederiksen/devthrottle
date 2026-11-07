@@ -210,21 +210,120 @@ public sealed class FactoryInboxStuckAlertSourceTests : IDisposable
         Assert.Single(_source.List(B, T0.AddHours(1)));
     }
 
-    [Fact]
-    public void List_MessageMarkedOwnerDealtWith_DoesNotRaiseTheStuckAlert()
+    // ---------- the owner dealt with it (issue 4746) ----------
+
+    private const string OwnerPhone = "owner-phone-1";
+
+    private int DealtWith(DateTime at) => _store.DealtWithByOwner(A, Factory, OwnerPhone, _ended.Contains, at);
+
+    private FactoryInboxMessageEntityView Row(Guid id)
     {
-        var msg = Send(T0);
+        var m = _store.Get(A, id) ?? throw new InvalidOperationException($"message {id} is gone");
+        return new FactoryInboxMessageEntityView(m.State, m.OwnerDealtWithAtUtc, m.OwnerDealtWithBy, m.ClaimSessionId);
+    }
 
-        // Verify the alert is raised before dealing with it
-        var alert = Assert.Single(_source.List(A, T0.AddMinutes(15)));
-        Assert.Equal("factory-inbox-stuck:invoices", alert.Id);
+    private sealed record FactoryInboxMessageEntityView(string State, DateTime? DealtAt, string? DealtBy, string? Claim);
 
-        // Mark the message as owner dealt with
-        var store = new FactoryInboxStore(_h.Open(), FactoryInboxStoreTests.DictionaryOf);
-        store.MarkOwnerDealtWith(A, Factory, T0.AddMinutes(15));
+    [Fact]
+    public void DealtWithByOwner_AMessageNoSecretaryReceived_EndsTheAlert_RecordsWhoAndWhen_AndNoSecretaryFilesItLater()
+    {
+        var id = Send(T0);
+        Assert.Single(_source.List(A, T0.AddMinutes(20)));
 
-        // Verify the alert is no longer raised
-        Assert.Empty(_source.List(A, T0.AddMinutes(15)));
+        Assert.Equal(1, DealtWith(T0.AddMinutes(20)));
+
+        Assert.Empty(_source.List(A, T0.AddMinutes(20)));
+        Assert.Empty(_source.List(A, T0.AddDays(1)));
+        Assert.Equal(new FactoryInboxMessageEntityView(FactoryInboxWords.States.Decided, T0.AddMinutes(20), OwnerPhone, null), Row(id));
+        // It left the to-file queue: a Secretary that starts later is not handed a message the owner already dealt with.
+        Assert.Empty(_store.ToFile(A, Factory, Secretary, []));
+        Assert.Empty(_store.Receive(A, Factory, Secretary, null, [], [], [], T0.AddMinutes(30)));
+    }
+
+    [Fact]
+    public void DealtWithByOwner_LeavesAMessageNotYetStuck_WhichRaisesTheAlertAgainWhenItsOwnTimeRunsOut()
+    {
+        var stuck = Send(T0);
+        var fresh = Send(T0.AddMinutes(10));
+
+        Assert.Equal(1, DealtWith(T0.AddMinutes(20)));
+
+        Assert.Equal(FactoryInboxWords.States.Sent, Row(fresh).State);
+        Assert.Null(Row(fresh).DealtAt);
+        Assert.Equal(FactoryInboxWords.States.Decided, Row(stuck).State);
+        // The fresh one is inside its 15 minutes: nothing to show.
+        Assert.Empty(_source.List(A, T0.AddMinutes(24)));
+        // A NEW stuck condition after the dismissal: a new alert, counting only the message the owner did not deal with.
+        var again = Assert.Single(_source.List(A, T0.AddMinutes(25)));
+        Assert.Equal("factory-inbox-stuck:invoices", again.Id);
+        Assert.Equal(1, Assert.Single(Assert.IsType<FactoryInboxStuckDetail>(again.Detail).Reasons).Count);
+    }
+
+    [Fact]
+    public void DealtWithByOwner_AMessageHeldByAnEndedSecretary_EndsTheAlert_AndReleasesTheClaim()
+    {
+        var id = Send(T0);
+        Receive(T0.AddMinutes(1), id);
+        _ended.Add(Secretary);
+        Assert.Single(_source.List(A, T0.AddMinutes(20)));
+
+        Assert.Equal(1, DealtWith(T0.AddMinutes(20)));
+
+        Assert.Empty(_source.List(A, T0.AddDays(1)));
+        Assert.Equal(new FactoryInboxMessageEntityView(FactoryInboxWords.States.Decided, T0.AddMinutes(20), OwnerPhone, null), Row(id));
+    }
+
+    [Fact]
+    public void DealtWithByOwner_NeverTakesAMessageFromASecretaryStillRunning()
+    {
+        var notReceived = Send(T0);
+        var held = Send(T0);
+        Receive(T0.AddMinutes(1), held);
+
+        Assert.Equal(1, DealtWith(T0.AddMinutes(20)));
+
+        Assert.Equal(FactoryInboxWords.States.Decided, Row(notReceived).State);
+        Assert.Equal(new FactoryInboxMessageEntityView(FactoryInboxWords.States.Received, null, null, Secretary), Row(held));
+    }
+
+    [Fact]
+    public void DealtWithByOwner_ABundleTheBossDidNotDecide_EndsTheAlert_AndClosesTheBundle()
+    {
+        var id = Send(T0);
+        Receive(T0.AddMinutes(1), id);
+        Hand(T0.AddMinutes(2), id);
+        Assert.Single(_source.List(A, T0.AddHours(3)));
+
+        Assert.Equal(1, DealtWith(T0.AddHours(3)));
+
+        Assert.Empty(_source.List(A, T0.AddDays(1)));
+        Assert.Equal(FactoryInboxWords.States.Decided, Row(id).State);
+        Assert.Empty(_store.OpenBundles(A, Factory, Boss, T0.AddHours(3)));
+    }
+
+    [Fact]
+    public void DealtWithByOwner_NothingStuck_IsRefusedInWords_AndChangesNothing()
+    {
+        var id = Send(T0);
+
+        var refused = Assert.Throws<FactoryInboxRefusedException>(() => DealtWith(T0.AddMinutes(14)));
+
+        Assert.Equal("not_stuck", refused.Code);
+        Assert.Equal(409, refused.Status);
+        Assert.Equal(FactoryInboxWords.States.Sent, Row(id).State);
+        Assert.Null(Row(id).DealtAt);
+    }
+
+    [Fact]
+    public void DealtWithByOwner_InOneAccount_LeavesAnotherAccountsStuckInbox()
+    {
+        Send(T0);
+        Send(T0, B);
+
+        Assert.Equal(1, DealtWith(T0.AddMinutes(20)));
+
+        Assert.Empty(_source.List(A, T0.AddMinutes(20)));
+        Assert.Single(_source.List(B, T0.AddMinutes(20)));
     }
 
     // ---------- the Boss's computer ----------

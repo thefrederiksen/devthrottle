@@ -191,6 +191,10 @@ public static class FactoryInboxWords
         _ => $"{waiting} waiting for a decision",
     };
 
+    /// <summary>What a message the owner marked with "Dealt with it" on the stuck alert shows as its state, and as the last
+    /// step of its trail (issue 4746). It has no Boss decision.</summary>
+    public const string OwnerDealtWithLabel = "Dealt with by the owner";
+
     /// <summary>What a message's state is shown as. A decided message shows its decision.</summary>
     public static string StateLabel(string state, string? decision) => state switch
     {

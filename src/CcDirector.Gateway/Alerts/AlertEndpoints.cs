@@ -9,26 +9,25 @@ using Microsoft.AspNetCore.Routing;
 namespace CcDirector.Gateway.Alerts;
 
 /// <summary>
-/// THE ALERTS ROUTES (the Alerts mission, section 5.2): one list of everything that needs the owner, and the
-/// things he does to it here - mark it seen, clear what no longer needs him, and respond to what does.
+/// THE ALERTS ROUTES (the Alerts mission, section 5.2): one list of everything that needs the owner, and the two
+/// things he does to it here - mark it seen, and clear what no longer needs him.
 ///
 /// <list type="bullet">
 /// <item><c>GET /gateway/alerts</c> - <c>{ alerts, needsAnswerCount }</c>.</item>
 /// <item><c>POST /gateway/alerts/seen</c> <c>{ ids }</c> - mark those alerts seen at their current version.</item>
 /// <item><c>POST /gateway/alerts/{id}/clear</c> - clear one; refused 409 while it still needs an answer.</item>
 /// <item><c>POST /gateway/alerts/clear</c> - clear every alert that does not need an answer.</item>
-/// <item><c>POST /gateway/alerts/{id}/owner-dealt-with</c> - for factory inbox stuck alerts: mark all messages as dealt with by owner.</item>
 /// </list>
 ///
 /// THE OWNER'S, NOT A SESSION'S. None of these is on <see cref="Util.SessionKeyGuard"/>'s allow list, so a session key
-/// is refused all, the way it is refused the owner's list of message requests: an alert is the owner's view of
+/// is refused all four, the way it is refused the owner's list of message requests: an alert is the owner's view of
 /// requests sessions made, and a session never marks or clears the owner's alerts. Answering is not here at all - the
 /// detail view uses each feature's own answer route, which keeps every check it has.
 ///
-/// THE WRITES ARE THE OWNER'S OWN DEVICE'S (the Delivery Lead's decision on the phase 2 review, observation 1).
-/// Marking seen, clearing, and responding go one step further than the read: like hand-over and the owner's list of message
+/// THE THREE WRITES ARE THE OWNER'S OWN DEVICE'S (the Delivery Lead's decision on the phase 2 review, observation 1).
+/// Marking seen and clearing go one step further than the read: like hand-over and the owner's list of message
 /// requests, they take <see cref="Api.FleetManagerOwnerDevice.Require"/>, so a Director's own credential and the shared
-/// machine token are refused too, and only the owner on his signed-in phone or browser acts on his alerts. The
+/// machine token are refused too, and only the owner on his signed-in phone or browser empties his Earlier list. The
 /// read stays open to any credential that resolves the account.
 ///
 /// TENANT CONFINEMENT: the account is resolved from the authenticated credential through the same resolver every
@@ -41,19 +40,16 @@ public static class AlertEndpoints
     public const string SeenRoute = "/gateway/alerts/seen";
     public const string ClearAllRoute = "/gateway/alerts/clear";
     public const string ClearOneRoute = "/gateway/alerts/{id}/clear";
-    public const string OwnerDealtWithRoute = "/gateway/alerts/{id}/owner-dealt-with";
 
     private static readonly JsonSerializerOptions BodyJsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>The most ids one seen call may carry - more than any tray shows.</summary>
     public const int MaxSeenIds = 500;
 
-    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, AlertsService alerts,
-        Func<TenantId, CcDirector.Gateway.Factory.Inbox.FactoryInboxStore> factoryInboxStoreOf)
+    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, AlertsService alerts)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(alerts);
-        ArgumentNullException.ThrowIfNull(factoryInboxStoreOf);
 
         app.MapGet(ListRoute, (HttpContext ctx) => List(ctx, resolveTenant, alerts));
         // The return types are stated on purpose: an async lambda whose only parameter is HttpContext also fits
@@ -61,8 +57,7 @@ public static class AlertEndpoints
         app.MapPost(SeenRoute, async Task<IResult> (HttpContext ctx) => await SeenAsync(ctx, resolveTenant, alerts));
         app.MapPost(ClearAllRoute, (HttpContext ctx) => ClearAll(ctx, resolveTenant, alerts));
         app.MapPost(ClearOneRoute, (HttpContext ctx, string id) => ClearOne(ctx, id, resolveTenant, alerts));
-        app.MapPost(OwnerDealtWithRoute, (HttpContext ctx, string id) => OwnerDealtWith(ctx, id, resolveTenant, alerts, factoryInboxStoreOf));
-        FileLog.Write($"[AlertEndpoints] mapped GET {ListRoute}, POST {SeenRoute}, POST {ClearAllRoute}, POST {ClearOneRoute}, POST {OwnerDealtWithRoute}");
+        FileLog.Write($"[AlertEndpoints] mapped GET {ListRoute}, POST {SeenRoute}, POST {ClearAllRoute}, POST {ClearOneRoute}");
     }
 
     internal static IResult List(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, AlertsService alerts)
@@ -147,34 +142,6 @@ public static class AlertEndpoints
         catch (Exception ex)
         {
             FileLog.Write($"[AlertEndpoints] POST {ClearAllRoute} FAILED: {ex.Message}");
-            throw;
-        }
-    }
-
-    internal static IResult OwnerDealtWith(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
-        AlertsService alerts, Func<TenantId, CcDirector.Gateway.Factory.Inbox.FactoryInboxStore> factoryInboxStoreOf)
-    {
-        FileLog.Write($"[AlertEndpoints] POST owner-dealt-with: id={id}");
-        try
-        {
-            if (resolveTenant(ctx) is not { } tenant) return NoAccount();
-            if (!FromTheOwner(ctx, "respond to the owner's alerts", out var refused)) return refused!;
-            if (!AlertsService.IsWellFormedId(id)) return MalformedId(id);
-
-            // Parse the alert id to get the factory (format: "factory-inbox-stuck:<factory>")
-            var parts = id.Split(':');
-            if (parts.Length != 2 || parts[0] != "factory-inbox-stuck")
-                return Refuse(StatusCodes.Status400BadRequest, "invalid_alert", "This alert type does not support owner-dealt-with.");
-
-            var factory = parts[1];
-            var store = factoryInboxStoreOf(tenant);
-            store.MarkOwnerDealtWith(tenant, factory, DateTime.UtcNow);
-
-            return Results.Json(new { success = true });
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[AlertEndpoints] POST {OwnerDealtWithRoute} FAILED: {ex.Message}");
             throw;
         }
     }
