@@ -10,8 +10,9 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// The license fire drill is a line of the daily report (mission "Licenses - Always Ready, Loud When Not", step 7): the
-/// line the drill folds is added as given, and it reaches the email renderer with its own type word.
+/// The daily license check is a line of the daily report (mission "Licenses - Always Ready, Loud When Not"): the line the
+/// check folds is added as given, and it reaches the email renderer with its own type word. The quiet daily line for a
+/// license a machine merely does not hold is gone (the owner, 7 November 2026), and a test here proves it is not produced.
 /// </summary>
 public sealed class MorningReportLicenseFireDrillTests : IDisposable
 {
@@ -28,7 +29,7 @@ public sealed class MorningReportLicenseFireDrillTests : IDisposable
     [Fact]
     public void Build_TheDrillHasALine_ItIsAnAttentionItem_WithItsTypeWord()
     {
-        var line = new LicenseFireDrillAttentionDto { Passed = true, Text = "License fire drill passed.", PassedInARow = 2, RanAtUtc = Now.AddHours(-1) };
+        var line = new LicenseFireDrillAttentionDto { Passed = true, Text = "Daily license check passed.", RanAtUtc = Now.AddHours(-1) };
 
         var report = new MorningReportBuilder(Db, utcNow: () => Now, licenseFireDrill: t => t == Alice ? line : null)
             .Build("someone@example.com", Alice, Yesterday);
@@ -36,7 +37,23 @@ public sealed class MorningReportLicenseFireDrillTests : IDisposable
         Assert.Same(line, Assert.Single(report.Attention.OfType<LicenseFireDrillAttentionDto>()));
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Contains("\"type\":\"license-fire-drill\"", json);
-        Assert.Contains("\"passedInARow\":2", json);
+        Assert.DoesNotContain("passedInARow", json);
+    }
+
+    // The quiet daily gap line is dropped: no attention type for it exists, and a report with a license line carries none.
+    [Fact]
+    public void Build_WithLicenses_HasNoQuietDailyGapLine()
+    {
+        var line = new LicenseFireDrillAttentionDto { Passed = false, Text = "Daily license check failed.", RanAtUtc = Now.AddHours(-1) };
+
+        var report = new MorningReportBuilder(Db, utcNow: () => Now, licenseFireDrill: _ => line)
+            .Build("someone@example.com", Alice, Yesterday);
+
+        var json = JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.DoesNotContain("license-coverage-gaps", json);
+        Assert.DoesNotContain(typeof(MorningAttentionTypes).GetFields(), f => (string?)f.GetValue(null) == "license-coverage-gaps");
+        Assert.DoesNotContain(typeof(MorningAttentionItemDto).Assembly.GetTypes(), t => t.Name == "LicenseCoverageGapsAttentionDto");
+        Assert.Single(report.Attention.OfType<LicenseFireDrillAttentionDto>());
     }
 
     [Fact]

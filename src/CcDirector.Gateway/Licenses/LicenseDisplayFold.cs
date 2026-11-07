@@ -65,9 +65,12 @@ public static partial class LicenseDisplayFold
     // ----- the overview -----
 
     /// <summary>Every account and every machine, as the Licenses page shows them.</summary>
-    public static LicenseOverviewResponse Overview(LicensePicture picture)
+    /// <param name="next">Every machine's next-license verdict on the same picture (<see cref="LicenseNextLicenseFold.Judge"/>):
+    /// the coverage grid and each machine's line read it.</param>
+    public static LicenseOverviewResponse Overview(LicensePicture picture, IReadOnlyList<LicenseNextLicense> next)
     {
         ArgumentNullException.ThrowIfNull(picture);
+        ArgumentNullException.ThrowIfNull(next);
         var now = picture.Snapshot.NowUtc;
         FileLog.Write($"[LicenseDisplayFold] Overview: accounts={picture.Overview.Accounts.Count}, machines={picture.Overview.Machines.Count}");
 
@@ -84,9 +87,13 @@ public static partial class LicenseDisplayFold
             Machines = picture.Overview.Machines.Select(m => Machine(m, picture))
                 .Concat(refusedOnly.Select(r => RefusedMachine(r, now)))
                 .ToList(),
-            // Every machine against every paid account: the one place a gap is decided (LicenseCoverageFold).
-            Coverage = LicenseCoverageFold.Dto(LicenseCoverageFold.Judge(picture)),
+            // Every machine against every paid account; a gap is a machine with no ready next license (LicenseCoverageFold).
+            Coverage = LicenseCoverageFold.Dto(LicenseCoverageFold.Judge(picture, next)),
         };
+        LicenseNextLicenseFold.Apply(response, next);
+        // The owner's test switch: the answer says so, so an 82% on the page is never read as real use.
+        response.IsTestUsageOn = picture.TestUsage is not null;
+        response.TestUsageText = picture.TestUsage is { } test ? LicenseTestUsage.Text(test.MachineId, picture.Overview.Machines) : null;
         FileLog.Write($"[LicenseDisplayFold] Overview: empty={empty}, canSwitchNow={response.Accounts.Count(a => a.CanSwitchNow)}");
         return response;
     }
@@ -1006,7 +1013,7 @@ public static partial class LicenseDisplayFold
             // An account a sign-in by hand replaced and the machine could not keep: open while its reports say so.
             LicenseLogStates.Open when row.Kind == LicenseLogKinds.SignInNotKept => ("Not kept", LicenseTones.Bad),
             LicenseLogStates.Ended when row.Kind == LicenseLogKinds.SignInNotKept => ("Over", LicenseTones.Neutral),
-            // The daily fire drill: running, then passed or failed (its Failed takes the general "Failed" above).
+            // The daily license check: running, then passed or failed (its Failed takes the general "Failed" above).
             LicenseLogStates.Open when row.Kind == LicenseLogKinds.FireDrill => ("Running", LicenseTones.Neutral),
             LicenseLogStates.Passed when row.Kind == LicenseLogKinds.FireDrill => ("Passed", LicenseTones.Good),
             _ => (string.IsNullOrWhiteSpace(row.State) ? "Recorded" : row.State, LicenseTones.Neutral),
@@ -1031,7 +1038,7 @@ public static partial class LicenseDisplayFold
             LicenseLogKinds.CanSwitchAgain => "Can switch again",
             LicenseLogKinds.LeftBehind => "Not switched",
             LicenseLogKinds.SignInNotKept => "Sign-in not kept",
-            LicenseLogKinds.FireDrill => "Fire drill",
+            LicenseLogKinds.FireDrill => "Daily license check",
             LicenseLogKinds.Forgotten => ForgottenKindText,
             _ => "Note",
         };
@@ -1139,8 +1146,8 @@ public static partial class LicenseDisplayFold
         LicenseGatewayReasonCodes.MachineForgotten => "The machine was forgotten, so this switch can never be answered.",
         LicenseCannotSwitchReasons.ToolMissing => "The DevThrottle tool is missing from the machine's Python tool environment.",
         LicenseCannotSwitchReasons.SwitchingOff => "License switching is turned off on the machine's Director, although it holds spares.",
-        LicenseFireDrillLog.FailedReason => "The drill found a hole, or its switch failed; the message says which.",
-        LicenseFireDrillLog.InterruptedReason => "The Gateway stopped while the drill was running.",
+        LicenseFireDrillLog.FailedReason => "A machine will be stuck without a ready next license; the message says which.",
+        LicenseFireDrillLog.InterruptedReason => "The Gateway stopped while the daily license check was running.",
         LicenseStore.CannotSwitchReasonNotKnown => "The machine's Director says it cannot run a switch, for a reason this Gateway does not know.",
         _ => reasonCode,
     };

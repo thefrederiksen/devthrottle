@@ -8,10 +8,11 @@ namespace CcDirector.Gateway.Licenses;
 /// <param name="AccountEmail">The paid account, lower-cased.</param>
 /// <param name="State">One of <see cref="LicenseCoverageCellStates"/>.</param>
 /// <param name="SignInExpiresAtUtc">When the machine's sign-in for the account ends, when it holds one and said; else null.</param>
-/// <param name="IsGap">The machine could not switch to this account now and keep working on it: it holds no sign-in, a
-/// refused one, or one that ends within <see cref="LicenseCoverageRules.EndingWithin"/>. The account it is on is never a gap.</param>
-/// <param name="IsCritical">A gap on a machine that has nowhere to go while the account it is on is at or above the switching
-/// threshold, for an account with room: the one sign-in that would let it switch. Only these are red.</param>
+/// <param name="IsGap">The machine NEEDS this account as its next license: it is at or above
+/// <see cref="LicenseNextLicenseFold.WarnPercent"/> with no READY next license, and this is the license it is told to sign
+/// in to (<see cref="LicenseNextLicense.RecommendedAccountEmail"/>). A license that is merely not held is never a gap (the
+/// owner, 7 November 2026).</param>
+/// <param name="IsCritical">A gap on a machine whose license is at or above the switching threshold: red.</param>
 public sealed record LicenseCoverageCell(string AccountEmail, string State, DateTime? SignInExpiresAtUtc, bool IsGap, bool IsCritical);
 
 /// <summary>One machine's row of the coverage grid (<see cref="LicenseCoverageFold.Judge"/>).</summary>
@@ -24,6 +25,8 @@ public sealed record LicenseCoverageCell(string AccountEmail, string State, Date
 /// <param name="ReportsRefused">Its reports are being refused, so what it holds now is not known.</param>
 /// <param name="Stranded">When it is on an account at or above the switching threshold, some account has room, and it is
 /// ready for none of them: the engine's own verdict (<see cref="LicenseDecisionEngine.StrandedMachines"/>); else null.</param>
+/// <param name="Next">Its next-license verdict (<see cref="LicenseNextLicenseFold.Judge"/>); null when it is on no license,
+/// or it is a Director whose reports were only ever refused.</param>
 /// <param name="Cells">One per paid account, in <see cref="LicenseCoverage.Accounts"/> order.</param>
 public sealed record LicenseCoverageRow(
     string MachineId,
@@ -36,13 +39,12 @@ public sealed record LicenseCoverageRow(
     bool ReportsRefused,
     DateTime? LastReportAtUtc,
     LicenseStrandedMachine? Stranded,
+    LicenseNextLicense? Next,
     IReadOnlyList<LicenseCoverageCell> Cells)
 {
-    /// <summary>The cells of this row that are gaps.</summary>
-    public IReadOnlyList<LicenseCoverageCell> Gaps => Cells.Where(c => c.IsGap).ToList();
-
-    /// <summary>True when any cell of this row is a gap.</summary>
-    public bool HasGap => Cells.Any(c => c.IsGap);
+    /// <summary>True when the machine will be stuck: it needs a ready next license, or its switch keeps failing
+    /// (<see cref="LicenseNextLicense.IsProblem"/>).</summary>
+    public bool HasGap => Next?.IsProblem == true;
 }
 
 /// <summary>A paid account: a column of the grid.</summary>
@@ -51,39 +53,36 @@ public sealed record LicenseCoverageAccount(string AccountEmail, string? Plan);
 /// <summary>The whole grid of one tenant at one moment.</summary>
 public sealed record LicenseCoverage(DateTime NowUtc, IReadOnlyList<LicenseCoverageAccount> Accounts, IReadOnlyList<LicenseCoverageRow> Rows)
 {
-    /// <summary>Every gap of every row.</summary>
-    public int GapCount => Rows.Sum(r => r.Gaps.Count);
+    /// <summary>How many MACHINES will be stuck: each needs a ready next license. Never a count of licenses not held.</summary>
+    public int GapCount => Rows.Count(r => r.HasGap);
 }
 
 /// <summary>
 /// COVERAGE: EVERY MACHINE AGAINST EVERY PAID ACCOUNT (mission "Licenses - Always Ready, Loud When Not", step 1).
 ///
-/// On 6 November 2026 a machine reached 99% of its weekly limit and could not switch: it held no sign-in for the one
-/// account that had room, and nothing on the Licenses page showed the hole until it was too late. This fold asks, for
-/// every machine that reports and every PAID account, whether the machine holds a fresh sign-in for it - so the owner
-/// sees at a glance whether every machine could switch now, whatever the usage.
-///
-/// THIS IS THE ONE PLACE THAT DECIDES "GAP". The Licenses page draws it, and the repeating cannot-switch warning and the
-/// daily fire drill read the same <see cref="Judge"/>. Whether a sign-in is usable is
-/// <see cref="LicenseDecisionEngine.Readiness"/> (the one definition of ready); this adds only that a sign-in ending within
-/// <see cref="LicenseCoverageRules.EndingWithin"/> is a gap too, because it will not be there when it is needed.
+/// The grid shows, for every machine that reports and every PAID account, which sign-ins the machine holds. What counts
+/// as a GAP is the owner's ruling of 7 November 2026: "We don't need all licenses logged in at all times. When we run
+/// out, we just need a new one that becomes available when the one we have will expire soon." So a license that is not
+/// held is never a gap by itself. A machine has a gap only when <see cref="LicenseNextLicenseFold"/> says it needs a READY
+/// next license - at or above <see cref="LicenseNextLicenseFold.WarnPercent"/> on the license it is on, with none - and
+/// the gap is the one cell of the license it is told to sign in to. The count is of MACHINES that will be stuck.
 ///
 /// COLOUR (the owner, 6 November 2026, verbatim): "I think a warning should be yellow, not red. It doesn't go red until
-/// it goes above 97%." A gap is <see cref="LicenseTones.Warning"/>. A cell is <see cref="LicenseTones.Bad"/> only when the
-/// machine is stranded - on an account at or above <see cref="LicenseDecisionEngine.ThresholdPercent"/> with nowhere to go
-/// (<see cref="LicenseDecisionEngine.StrandedMachines"/>, the same rule the switch acts on) - and the cell is a gap for an
-/// account with room. At or above, because at the threshold the switch is due: a machine that cannot make it has stopped.
+/// it goes above 97%." A gap is <see cref="LicenseTones.Warning"/>; it is <see cref="LicenseTones.Bad"/> when the license
+/// the machine is on is at or above <see cref="LicenseDecisionEngine.ThresholdPercent"/>. A sign-in that is not held,
+/// refused or ending and is not needed is <see cref="LicenseTones.Neutral"/>: a fact, not a problem.
 ///
-/// Only paid accounts are columns: an account with no paid plan is no place to switch to, so not holding it is no gap.
-/// Every machine that reports is a row, a test Director's machine included: a missing sign-in is a gap whatever the machine.
-/// Pure: facts go in, an answer comes out.
+/// Only paid accounts are columns: an account with no paid plan is no place to switch to. Pure: facts go in, an answer
+/// comes out.
 /// </summary>
 public static class LicenseCoverageFold
 {
     /// <summary>Judge every machine of <paramref name="picture"/> against every paid account.</summary>
-    public static LicenseCoverage Judge(LicensePicture picture)
+    /// <param name="next">Every machine's next-license verdict on the same picture (<see cref="LicenseNextLicenseFold.Judge"/>).</param>
+    public static LicenseCoverage Judge(LicensePicture picture, IReadOnlyList<LicenseNextLicense> next)
     {
         ArgumentNullException.ThrowIfNull(picture);
+        ArgumentNullException.ThrowIfNull(next);
         var snapshot = picture.Snapshot;
         var now = snapshot.NowUtc;
         var plans = picture.Overview.Accounts.ToDictionary(a => LicenseStore.NormalizeEmail(a.AccountEmail), a => a.Plan, StringComparer.Ordinal);
@@ -103,28 +102,25 @@ public static class LicenseCoverageFold
             var state = states[Key(machine.MachineName, machine.OsUser)];
             var active = state.ActiveAccountEmail is { } a ? LicenseStore.NormalizeEmail(a) : null;
             var stuck = stranded.FirstOrDefault(s => Key(s.MachineName, s.OsUser) == Key(machine.MachineName, machine.OsUser));
-            var withRoom = stuck is null
-                ? new HashSet<string>(StringComparer.Ordinal)
-                : LicenseDecisionEngine.TargetsWithRoom(snapshot, stuck.AccountEmail).ToHashSet(StringComparer.Ordinal);
-            var cells = paid.Select(p => Cell(state, active, p.AccountEmail, withRoom, now)).ToList();
+            var verdict = next.FirstOrDefault(n => n.MachineId == machine.MachineId);
+            var cells = paid.Select(p => Cell(state, active, p.AccountEmail, verdict, now)).ToList();
             rows.Add(new LicenseCoverageRow(machine.MachineId.ToString("N"), machine.MachineName, machine.OsUser, machine.DirectorId,
                 LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser), active,
-                LicenseDecisionEngine.IsMachineStale(state, now), state.ReportsRefused, Utc(machine.LastReportAtUtc), stuck, cells));
+                LicenseDecisionEngine.IsMachineStale(state, now), state.ReportsRefused, Utc(machine.LastReportAtUtc), stuck, verdict, cells));
         }
         // A Director whose reports were only ever refused has no machine row, and the Licenses page shows it from its
-        // refusal. It is a row here too: what it holds is not known, so nothing can be switched to on it - a gap in every
-        // column, whatever the machine.
+        // refusal. It is a row here too, with nothing known in it - and no gap, because nothing says it is running out.
         foreach (var refusal in LicenseDisplayFold.RefusedWithNoMachine(picture))
         {
             var shown = LicenseDisplayFold.RefusedMachine(refusal, now);
             rows.Add(new LicenseCoverageRow(shown.MachineId, shown.MachineName, shown.OsUser, refusal.DirectorId ?? "", shown.Label,
-                null, IsStale: true, ReportsRefused: true, LastReportAtUtc: null, Stranded: null,
-                paid.Select(p => new LicenseCoverageCell(p.AccountEmail, LicenseCoverageCellStates.NotHeld, null, true, false)).ToList()));
+                null, IsStale: true, ReportsRefused: true, LastReportAtUtc: null, Stranded: null, Next: null,
+                paid.Select(p => new LicenseCoverageCell(p.AccountEmail, LicenseCoverageCellStates.NotHeld, null, false, false)).ToList()));
         }
         return new LicenseCoverage(now, paid, rows);
     }
 
-    private static LicenseCoverageCell Cell(LicenseMachineState state, string? active, string account, HashSet<string> withRoom, DateTime now)
+    private static LicenseCoverageCell Cell(LicenseMachineState state, string? active, string account, LicenseNextLicense? next, DateTime now)
     {
         if (active == account)
             return new LicenseCoverageCell(account, LicenseCoverageCellStates.InUse, state.ActiveSignInExpiresAtUtc, false, false);
@@ -138,43 +134,10 @@ public static class LicenseCoverageFold
             null => LicenseCoverageCellStates.Held,
             _ => throw new InvalidOperationException($"Readiness gave a reason the coverage grid does not know: {readiness.NotReadyReason}"),
         };
-        var gap = cellState != LicenseCoverageCellStates.Held;
-        return new LicenseCoverageCell(account, cellState, readiness.SignInExpiresAtUtc, gap, gap && withRoom.Contains(account));
+        // The one gap of a machine is the license it is told to sign in to next; nothing else it does not hold is a gap.
+        var gap = next is { IsNeeded: true } && next.RecommendedAccountEmail == account;
+        return new LicenseCoverageCell(account, cellState, readiness.SignInExpiresAtUtc, gap, gap && next!.AtThreshold);
     }
-
-    // ----- the quiet daily line -----
-
-    /// <summary>
-    /// The quiet daily line of the gaps (mission step 2, the owner: "As soon as any machine is missing a sign-in it would
-    /// need, at any usage level, as a quiet daily line."): the heading and one sentence per machine with a gap, or null when
-    /// the grid has none. The loud warning is <see cref="LicenseCannotSwitchAlarm"/>; this is only a line.
-    /// </summary>
-    public static LicenseCoverageGapsAttentionDto? DailyLine(LicenseCoverage coverage)
-    {
-        ArgumentNullException.ThrowIfNull(coverage);
-        var gappy = coverage.Rows.Where(r => r.HasGap).ToList();
-        if (gappy.Count == 0)
-            return null;
-        var now = coverage.NowUtc;
-        var machines = gappy.Select(r => r.ReportsRefused
-            ? $"{r.Label}: its reports are being refused, so what it holds is not known"
-            : $"{r.Label}: {string.Join("; ", r.Gaps.Select(c => GapWords(c, now)))}");
-        return new LicenseCoverageGapsAttentionDto
-        {
-            Title = $"{Count(coverage.GapCount, "missing sign-in")} on {Count(gappy.Count, "machine")}",
-            Text = string.Join(". ", machines) + ". Sign them in from the Licenses page before a machine needs to switch.",
-        };
-    }
-
-    private static string GapWords(LicenseCoverageCell cell, DateTime now) => cell.State switch
-    {
-        LicenseCoverageCellStates.NotHeld => $"no sign-in for {cell.AccountEmail}",
-        LicenseCoverageCellStates.Refused => $"the sign-in for {cell.AccountEmail} was refused",
-        LicenseCoverageCellStates.Ending => cell.SignInExpiresAtUtc is { } ends && ends > now
-            ? $"the sign-in for {cell.AccountEmail} ends in {LicenseDisplayFold.Span(ends - now)}"
-            : $"the sign-in for {cell.AccountEmail} has ended",
-        _ => throw new InvalidOperationException($"A coverage cell that is not a gap was worded as one: {cell.State}"),
-    };
 
     // ----- the words -----
 
@@ -194,7 +157,7 @@ public static class LicenseCoverageFold
             Rows = coverage.Rows.Select(r => Row(r, now)).ToList(),
         };
         (dto.Text, dto.Tone) = Summary(coverage);
-        FileLog.Write($"[LicenseCoverageFold] Dto: accounts={dto.Accounts.Count}, rows={dto.Rows.Count}, gaps={dto.GapCount}, tone={dto.Tone}");
+        FileLog.Write($"[LicenseCoverageFold] Dto: accounts={dto.Accounts.Count}, rows={dto.Rows.Count}, machinesStuck={dto.GapCount}, tone={dto.Tone}");
         return dto;
     }
 
@@ -202,7 +165,9 @@ public static class LicenseCoverageFold
 
     public const string NoPaidAccountsText = "No paid account is known yet.";
 
-    public const string FullCoverageText = "Every machine holds a fresh sign-in for every paid account.";
+    public const string FullCoverageText = "Every machine has a ready next license, or does not need one yet.";
+
+    public const string NoLicenseText = "Not on a license, so it needs no next license.";
 
     private static (string Text, string Tone) Summary(LicenseCoverage coverage)
     {
@@ -211,18 +176,22 @@ public static class LicenseCoverageFold
         if (coverage.Accounts.Count == 0)
             return (NoPaidAccountsText, LicenseTones.Neutral);
         var stranded = coverage.Rows.Where(r => r.Stranded is not null).ToList();
-        var gappy = coverage.Rows.Where(r => r.HasGap).ToList();
+        var needing = coverage.Rows.Where(r => r.Next is { IsNeeded: true } && r.Stranded is null).ToList();
+        var failing = coverage.Rows.Where(r => r.Next?.State == LicenseNextLicenseStates.SwitchFailing).ToList();
         var silent = coverage.Rows.Where(r => r.IsStale || r.ReportsRefused).ToList();
-        if (stranded.Count == 0 && gappy.Count == 0 && silent.Count == 0)
+        if (stranded.Count == 0 && needing.Count == 0 && failing.Count == 0 && silent.Count == 0)
             return (FullCoverageText, LicenseTones.Good);
         var parts = new List<string>();
         if (stranded.Count > 0)
             parts.Add($"{Names(stranded)} cannot switch and {(stranded.Count == 1 ? "is" : "are")} at the limit.");
-        if (gappy.Count > 0)
-            parts.Add($"{Count(coverage.GapCount, "missing sign-in")} on {Count(gappy.Count, "machine")}.");
+        if (failing.Count > 0)
+            parts.Add($"{Names(failing)} cannot switch: {(failing.Count == 1 ? "its switch keeps" : "their switches keep")} failing.");
+        if (needing.Count > 0)
+            parts.Add($"{Names(needing)} {(needing.Count == 1 ? "needs" : "need")} a ready next license.");
         if (silent.Count > 0)
             parts.Add($"{Names(silent)} {(silent.Count == 1 ? "is" : "are")} not reporting, so {(silent.Count == 1 ? "it" : "they")} cannot be switched.");
-        return (string.Join(" ", parts), stranded.Count > 0 ? LicenseTones.Bad : LicenseTones.Warning);
+        var bad = stranded.Count > 0 || failing.Count > 0 || needing.Any(r => r.Next!.AtThreshold);
+        return (string.Join(" ", parts), bad ? LicenseTones.Bad : LicenseTones.Warning);
     }
 
     private static LicenseCoverageRowDto Row(LicenseCoverageRow row, DateTime now)
@@ -240,7 +209,7 @@ public static class LicenseCoverageFold
             ActiveAccountEmail = row.ActiveAccountEmail,
             Text = text,
             Tone = tone,
-            GapCount = row.Gaps.Count,
+            GapCount = row.HasGap ? 1 : 0,
             Cells = row.Cells.Select(c => CellDto(c, now)).ToList(),
         };
     }
@@ -254,11 +223,17 @@ public static class LicenseCoverageFold
             sentences.Add($"Its reports are being refused, so what it holds now is not known and it cannot be switched.");
         else if (row.IsStale && row.LastReportAtUtc is { } last)
             sentences.Add($"Not reporting since {Clock(last)}, so it cannot be switched until it reports again; the cells show its last report.");
-        if (row.Stranded is null && row.HasGap && !row.ReportsRefused)
-            sentences.Add($"Missing a fresh sign-in for {Count(row.Gaps.Count, "paid account")}.");
+        if (row.Stranded is null && row.Next is { IsProblem: true } needed && !row.ReportsRefused)
+            sentences.Add(needed.Text);
         if (sentences.Count == 0)
-            return (row.Cells.Count == 0 ? NoPaidAccountsText : "Could switch to any paid account now.", row.Cells.Count == 0 ? LicenseTones.Neutral : LicenseTones.Good);
-        return (string.Join(" ", sentences), row.Stranded is not null ? LicenseTones.Bad : LicenseTones.Warning);
+        {
+            if (row.Cells.Count == 0)
+                return (NoPaidAccountsText, LicenseTones.Neutral);
+            return row.Next is { } verdict ? (verdict.Text, verdict.Tone) : (NoLicenseText, LicenseTones.Neutral);
+        }
+        var bad = row.Stranded is not null || row.Next is { IsNeeded: true, AtThreshold: true }
+                  || row.Next?.State == LicenseNextLicenseStates.SwitchFailing;
+        return (string.Join(" ", sentences), bad ? LicenseTones.Bad : LicenseTones.Warning);
     }
 
     private static LicenseCoverageCellDto CellDto(LicenseCoverageCell cell, DateTime now) => new()
@@ -276,7 +251,10 @@ public static class LicenseCoverageFold
             LicenseCoverageCellStates.Refused => "Sign-in refused",
             _ => throw new InvalidOperationException($"A coverage cell state the words do not know: {cell.State}"),
         },
-        Tone = cell.IsCritical ? LicenseTones.Bad : cell.IsGap ? LicenseTones.Warning : LicenseTones.Good,
+        Tone = cell.IsCritical ? LicenseTones.Bad
+            : cell.IsGap ? LicenseTones.Warning
+            : cell.State is LicenseCoverageCellStates.InUse or LicenseCoverageCellStates.Held ? LicenseTones.Good
+            : LicenseTones.Neutral,
         IsGap = cell.IsGap,
     };
 
@@ -285,8 +263,6 @@ public static class LicenseCoverageFold
         1 => rows[0].Label,
         _ => string.Join(", ", rows.Take(rows.Count - 1).Select(r => r.Label)) + " and " + rows[^1].Label,
     };
-
-    private static string Count(int number, string unit) => number == 1 ? $"1 {unit}" : $"{number} {unit}s";
 
     private static string Clock(DateTime utc) => Utc(utc).ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 

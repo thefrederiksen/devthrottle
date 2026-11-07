@@ -37,7 +37,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
     private LicensePicture Picture(DateTime now) => _source.ReadPicture(Tenant, now, Array.Empty<LicenseExhaustion>());
 
-    private LicenseOverviewResponse Overview(DateTime now) => LicenseDisplayFold.Overview(Picture(now));
+    private LicenseOverviewResponse Overview(DateTime now) => LicenseTestData.OverviewOf(Picture(now));
 
     private LicenseAccountDto Account(string email, DateTime now) => Overview(now).Accounts.Single(a => a.AccountEmail == email);
 

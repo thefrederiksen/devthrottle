@@ -38,7 +38,7 @@ namespace CcDirector.Gateway.Licenses;
 /// already open stays open while a later retry runs: a retry is not yet a fix.
 ///
 /// ONE MACHINE, ONE FAULT, ONE LINE (the same ruling, and its second form). From the threshold up this alarm owns the
-/// machine once it is OPEN: the 80% warning (<see cref="LicenseCannotSwitchAlarm"/>, the same rule at 80%) stands down
+/// machine once it is OPEN: the yellow warning (<see cref="LicenseCannotSwitchAlarm"/>, a machine with no ready next license) stands down
 /// for every machine whose stranded alarm is open (<see cref="StandDown"/>), and for no other. A warning already open
 /// while the stranded alarm is held back for a repair keeps its line. So from 80% of either window the owner hears the
 /// yellow warning every hour, and at 97% the warning's line closes as this one opens, red, and is told every hour in its
@@ -77,7 +77,7 @@ public static class LicenseStrandedAlarm
     }
 
     // The sign-in the readiness fold calls running for this machine and account: the oldest open row, the same read.
-    private static LicenseSwitchLogEntity? Running(LicenseMachineReadiness judgement, IReadOnlyList<LicenseSwitchLogEntity> openSignIns)
+    internal static LicenseSwitchLogEntity? Running(LicenseMachineReadiness judgement, IReadOnlyList<LicenseSwitchLogEntity> openSignIns)
         => openSignIns.Where(r => r.MachineId == judgement.MachineId && r.ToAccountEmail == judgement.TargetAccountEmail)
             .OrderBy(r => r.CreatedAtUtc).FirstOrDefault();
 
@@ -89,109 +89,102 @@ public static class LicenseStrandedAlarm
     /// <param name="machines">The picture's machines with their ids (<see cref="LicenseOverview.Machines"/>).</param>
     /// <param name="judged">The readiness check's judgement of every machine on this same picture
     /// (<see cref="LicenseReadinessFold.Judge"/>): whether the Gateway is repairing a machine, and the one thing to do.</param>
+    /// <param name="next">Every machine's next-license verdict on the same picture (<see cref="LicenseNextLicenseFold.Judge"/>):
+    /// a machine whose switch keeps failing (<see cref="LicenseNextLicenseStates.SwitchFailing"/>) is rule 4's "or the switch
+    /// failed: red", and is one of these alarms too.</param>
     /// <param name="openSignIns">The tenant's sign-in rows that have not ended (<see cref="LicenseSignInLog.ListOpen"/>):
     /// whether a sign-in the readiness fold calls running is still running (<see cref="IsRepairing"/>).</param>
     /// <param name="openAlarms">The alarms open now (<see cref="LicenseAlarmService.ListOpen"/>); only those of
     /// <see cref="Kind"/> are looked at.</param>
     public static IReadOnlyList<LicenseAlarmCondition> Conditions(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
-        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
-        IReadOnlyList<LicenseAlarmEntity> openAlarms)
-        => ConditionsAt(snapshot, machines, judged, openSignIns, openAlarms, Kind, LicenseDecisionEngine.ThresholdPercent,
-            NoForecast, TimeSpan.Zero, (label, stranded, _) => Problem(label, stranded));
-
-    private static DateTime? NoForecast(string account) => null;
-
-    /// <summary>
-    /// The rule of <see cref="Conditions"/> at any use level, shared with the cannot-switch warning
-    /// (<see cref="LicenseCannotSwitchAlarm"/>) so the two cannot drift: the machines
-    /// <see cref="LicenseDecisionEngine.MachinesThatCannotSwitch"/> names at <paramref name="atPercent"/>, each with the
-    /// readiness check's own action, and each open alarm of <paramref name="kind"/> that cannot be judged now. A machine
-    /// the Gateway is repairing (<see cref="IsRepairing"/>) opens nothing at either level; an alarm already open stays.
-    /// The conditions of a cannot-switch kind: every machine <see cref="LicenseDecisionEngine.MachinesThatCannotSwitch"/>
-    /// names at <paramref name="atPercent"/>, and - when <paramref name="forecastWithin"/> is more than zero - every machine
-    /// that cannot switch off an account the forecast expects to reach the threshold within it
-    /// (<paramref name="expectedAtLimit"/>), whatever its use now. Each condition carries its email subject - the machine
-    /// and the hours left (<see cref="Subject"/>) - and whether it is pushed at night (<see cref="PastNightPercent"/>).
-    /// </summary>
-    internal static IReadOnlyList<LicenseAlarmCondition> ConditionsAt(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
-        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
-        IReadOnlyList<LicenseAlarmEntity> openAlarms, LicenseAlarmKind kind, double atPercent,
-        Func<string, DateTime?> expectedAtLimit, TimeSpan forecastWithin,
-        Func<string, LicenseStrandedMachine, DateTime?, string> problem)
+        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseNextLicense> next,
+        IReadOnlyList<LicenseSwitchLogEntity> openSignIns, IReadOnlyList<LicenseAlarmEntity> openAlarms)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(judged);
+        ArgumentNullException.ThrowIfNull(next);
         ArgumentNullException.ThrowIfNull(openSignIns);
         ArgumentNullException.ThrowIfNull(openAlarms);
-        ArgumentNullException.ThrowIfNull(kind);
-        ArgumentNullException.ThrowIfNull(expectedAtLimit);
-        ArgumentNullException.ThrowIfNull(problem);
         var conditions = new List<LicenseAlarmCondition>();
-        foreach (var stranded in CannotSwitch(snapshot, atPercent, expectedAtLimit, forecastWithin))
+        foreach (var engine in LicenseDecisionEngine.StrandedMachines(snapshot))
         {
-            var machine = machines.Single(m => SameMachine(m, stranded.MachineName, stranded.OsUser));
-            // Covered later by a spare it holds (back before its account is forecast to run out): not stranded, nothing to
-            // warn about. At the threshold the forecast says "now", so a machine at its limit is never covered later.
+            var machine = machines.Single(m => SameMachine(m, engine.MachineName, engine.OsUser));
+            // Covered later by a spare it holds: not stranded. At the threshold the forecast says "now", so a machine at its
+            // limit is never covered later.
             if (judged.Any(j => j.MachineId == machine.MachineId && j.CoveredLater))
                 continue;
             var label = LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser);
-            // Judged on the same picture against the same account: NextTarget is the best account with room, which is the
-            // account a stranded machine is named against. Anything else is a defect, not a case to word around.
-            var judgement = judged.SingleOrDefault(j => j.MachineId == machine.MachineId && j.IsGap
-                                                        && j.TargetAccountEmail == stranded.NeededAccountEmail)
-                ?? throw new InvalidOperationException(
-                    $"Stranded machine {machine.MachineId:N} has no readiness judgement for {stranded.NeededAccountEmail}.");
-            var isOpen = openAlarms.Any(a => a.Kind == kind.Key && a.ClosedAtUtc is null && a.MachineId == machine.MachineId
+            // Judged on the same picture: a stranded machine is ready for no account with room, which the readiness check
+            // calls not ready. Anything else is a defect, not a case to word around.
+            var judgement = judged.SingleOrDefault(j => j.MachineId == machine.MachineId && j.IsGap)
+                ?? throw new InvalidOperationException($"Stranded machine {machine.MachineId:N} has no not-ready judgement.");
+            // The readiness check names the recommended next license (LicenseNextLicenseFold.Recommend), the one it signs the
+            // machine in to; the alarm names the same one, so its problem and its action never name two licenses.
+            var state = snapshot.Machines.First(m => SameMachine(machine, m.MachineName, m.OsUser));
+            var stranded = engine with
+            {
+                Readiness = LicenseDecisionEngine.Readiness(state, judgement.TargetAccountEmail
+                    ?? throw new InvalidOperationException("A not-ready judgement names no account."), snapshot.NowUtc),
+            };
+            var isOpen = openAlarms.Any(a => a.Kind == Kind.Key && a.ClosedAtUtc is null && a.MachineId == machine.MachineId
                                              && a.AccountEmail == stranded.AccountEmail);
             var repairing = IsRepairing(judgement, openSignIns, snapshot.NowUtc);
             if (!isOpen && repairing)
                 continue; // the Gateway is signing it in itself: nothing for the owner to do yet
-            // A sign-in the fold calls running that got no answer: the fold's "nothing to do yet" would be untrue.
-            var action = judgement.Fix == LicenseReadinessFixes.SigningIn && !repairing
-                ? Unanswered(label, Running(judgement, openSignIns)
-                                    ?? throw new InvalidOperationException("A machine that is signing in has no open sign-in row."))
-                : judgement.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
-            var atLimit = expectedAtLimit(stranded.AccountEmail);
-            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, problem(label, stranded, atLimit), action,
-                Subject(label, snapshot, stranded.AccountEmail, atLimit), PastNightPercent(snapshot, stranded.AccountEmail)));
+            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, Problem(label, stranded),
+                ActionFor(judgement, label, openSignIns, repairing),
+                Subject(label, snapshot, stranded.AccountEmail, null), PastNightPercent(snapshot, stranded.AccountEmail)));
         }
-
-        foreach (var open in openAlarms.Where(a => a.Kind == kind.Key && a.ClosedAtUtc is null))
+        // The switch failed: the machine is held out of the automatic switch and stays where it is (the engine leaves a held
+        // machine out of the stranded ones, so this is never a second line for one machine).
+        foreach (var failing in next.Where(n => n.State == LicenseNextLicenseStates.SwitchFailing))
         {
-            if (conditions.Any(c => c.MachineId == open.MachineId && c.AccountEmail == open.AccountEmail))
-                continue;
-            if (machines.FirstOrDefault(m => m.MachineId == open.MachineId) is not { } machine)
-                continue; // the machine is gone from the picture: forgotten, so nothing is stranded on it
-            if (StaysOpenUnjudged(snapshot, machine, open.AccountEmail, atPercent, expectedAtLimit, forecastWithin))
-                conditions.Add(new LicenseAlarmCondition(open.MachineId, open.MachineName, open.AccountEmail, open.Problem, open.Action,
-                    Subject(open.MachineName, snapshot, open.AccountEmail, expectedAtLimit(open.AccountEmail)),
-                    PastNightPercent(snapshot, open.AccountEmail)));
+            var problem = $"{failing.Label} is stuck on {failing.ActiveAccountEmail}, which is at {failing.Tired}: {failing.Why}.";
+            conditions.Add(new LicenseAlarmCondition(failing.MachineId, failing.Label, failing.ActiveAccountEmail,
+                problem.Length <= LicenseAlarmService.MaxSentenceLength
+                    ? problem
+                    : $"{failing.Label} is stuck on a license close to its limit because its switch keeps failing; the Licenses log says why.",
+                SwitchFailingAction,
+                $"{failing.Label} cannot switch - its switch keeps failing", PastNightPercent(snapshot, failing.ActiveAccountEmail)));
         }
+        conditions.AddRange(StillOpen(snapshot, machines, openAlarms, Kind, LicenseDecisionEngine.ThresholdPercent, conditions).ToList());
         return conditions;
     }
 
-    // The machines that cannot switch at the level, then those the forecast adds, each machine and account once.
-    private static IReadOnlyList<LicenseStrandedMachine> CannotSwitch(LicenseSnapshot snapshot, double atPercent,
-        Func<string, DateTime?> expectedAtLimit, TimeSpan forecastWithin)
+    /// <summary>The one thing to do about a machine whose switch keeps failing.</summary>
+    public const string SwitchFailingAction =
+        "Read why the switch failed on the Licenses log and put it right, then use Switch now on the Licenses page; it ignores the hold.";
+
+    /// <summary>
+    /// The one thing to do about a machine the readiness check calls not ready: the check's own sentence, except for a
+    /// sign-in the check calls running that got no answer, where the check's "nothing to do yet" would be untrue.
+    /// </summary>
+    internal static string ActionFor(LicenseMachineReadiness judgement, string label, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
+        bool repairing)
+        => judgement.Fix == LicenseReadinessFixes.SigningIn && !repairing
+            ? Unanswered(label, Running(judgement, openSignIns)
+                                ?? throw new InvalidOperationException("A machine that is signing in has no open sign-in row."))
+            : judgement.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
+
+    /// <summary>
+    /// Every open alarm of <paramref name="kind"/> not already in <paramref name="raised"/> that cannot be judged afresh now
+    /// (<see cref="StaysOpenUnjudged"/>): kept open, in its own words. An alarm whose machine has left the picture is not.
+    /// </summary>
+    internal static IEnumerable<LicenseAlarmCondition> StillOpen(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
+        IReadOnlyList<LicenseAlarmEntity> openAlarms, LicenseAlarmKind kind, double atPercent, IReadOnlyList<LicenseAlarmCondition> raised)
     {
-        var atLevel = LicenseDecisionEngine.MachinesThatCannotSwitch(snapshot, atPercent).ToList();
-        if (forecastWithin <= TimeSpan.Zero)
-            return atLevel;
-        var soon = LicenseDecisionEngine.MachinesThatCannotSwitch(snapshot, 0)
-            .Where(m => ExpectedWithin(snapshot, m.AccountEmail, expectedAtLimit, forecastWithin))
-            .Where(m => !atLevel.Any(a => a.AccountEmail == m.AccountEmail && SameMachine(a, m)))
-            .ToList();
-        return atLevel.Concat(soon).ToList();
+        foreach (var open in openAlarms.Where(a => a.Kind == kind.Key && a.ClosedAtUtc is null))
+        {
+            if (raised.Any(c => c.MachineId == open.MachineId && c.AccountEmail == open.AccountEmail))
+                continue;
+            if (machines.FirstOrDefault(m => m.MachineId == open.MachineId) is not { } machine)
+                continue; // the machine is gone from the picture: forgotten, so nothing is stranded on it
+            if (StaysOpenUnjudged(snapshot, machine, open.AccountEmail, atPercent))
+                yield return new LicenseAlarmCondition(open.MachineId, open.MachineName, open.AccountEmail, open.Problem, open.Action,
+                    Subject(open.MachineName, snapshot, open.AccountEmail, null), PastNightPercent(snapshot, open.AccountEmail));
+        }
     }
-
-    private static bool SameMachine(LicenseStrandedMachine a, LicenseStrandedMachine b)
-        => string.Equals(a.MachineName.Trim(), b.MachineName.Trim(), StringComparison.OrdinalIgnoreCase)
-           && string.Equals(a.OsUser.Trim(), b.OsUser.Trim(), StringComparison.OrdinalIgnoreCase);
-
-    // The forecast expects the account to reach the threshold within the window (and has not passed it yet).
-    private static bool ExpectedWithin(LicenseSnapshot snapshot, string account, Func<string, DateTime?> expectedAtLimit, TimeSpan within)
-        => within > TimeSpan.Zero && expectedAtLimit(account) is { } at && at > snapshot.NowUtc && at - snapshot.NowUtc < within;
 
     /// <summary>The use above which a cannot-switch alarm is pushed during the owner's night: 90% (the owner, 6 November
     /// 2026: "also at night once the account is past 90%").</summary>
@@ -232,11 +225,9 @@ public static class LicenseStrandedAlarm
             : $"{label} cannot switch";
     }
 
-    // An open alarm whose machine is still on the account, on an account still at the level (or still forecast to reach
-    // the threshold within the window) as far as is known, that cannot be judged afresh now. Anything else is a fact that
-    // ends it.
-    private static bool StaysOpenUnjudged(LicenseSnapshot snapshot, LicenseMachineView machine, string account, double atPercent,
-        Func<string, DateTime?> expectedAtLimit, TimeSpan forecastWithin)
+    /// <summary>An open alarm whose machine is still on the account, on an account still at the level as far as is known,
+    /// that cannot be judged afresh now. Anything else is a fact that ends it.</summary>
+    internal static bool StaysOpenUnjudged(LicenseSnapshot snapshot, LicenseMachineView machine, string? account, double atPercent)
     {
         var now = snapshot.NowUtc;
         var state = snapshot.Machines.FirstOrDefault(m => SameMachine(machine, m.MachineName, m.OsUser));
@@ -246,8 +237,7 @@ public static class LicenseStrandedAlarm
         if (reading is null)
             return false;
         var stillTired = new[] { reading.FiveHour, reading.SevenDay }
-                             .Any(w => w is not null && LicenseDecisionEngine.IsAtOrAbove(w, now, atPercent))
-                         || ExpectedWithin(snapshot, account, expectedAtLimit, forecastWithin);
+            .Any(w => w is not null && LicenseDecisionEngine.IsAtOrAbove(w, now, atPercent));
         if (!stillTired)
             return false; // the account reset, or a fresh reading shows it under the threshold
         if (LicenseDecisionEngine.IsReadingStale(reading, now))
@@ -273,7 +263,7 @@ public static class LicenseStrandedAlarm
     }
 
     // The one thing to do when the Gateway's own sign-in got no answer: the machine's Director is not answering.
-    private static string Unanswered(string label, LicenseSwitchLogEntity row)
+    internal static string Unanswered(string label, LicenseSwitchLogEntity row)
     {
         var action = $"The sign-in to {row.ToAccountEmail} that DevThrottle sent to {label} at {Clock(row.CreatedAtUtc)} got no "
                      + $"answer from the machine, so restart the Director on {label}.";

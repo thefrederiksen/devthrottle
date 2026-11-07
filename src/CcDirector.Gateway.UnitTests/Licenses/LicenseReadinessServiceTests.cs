@@ -199,11 +199,16 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     public void CannotSwitchWarning_At85_LeavesOutAMachineCoveredLater_AndDoesNotThrow()
     {
         var (picture, judged) = JudgeAndPicture(T0.AddDays(5), aWeekly: 85, withC: true);
+        var next = NextWith(picture, T0.AddDays(5));
 
         Assert.True(Assert.Single(judged, j => j.MachineName == MachineA).CoveredLater);
-        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
+        // One verdict: the next-license fold calls it ready on the same facts, so the page and the grid agree with the warning.
+        Assert.Equal(LicenseNextLicenseStates.Ready, next.Single(v => v.MachineName == MachineA).State);
+        Assert.Equal(0, LicenseCoverageFold.Judge(picture, next).GapCount);
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+            next, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.DoesNotContain(warnings, c => c.MachineId == judged.Single(j => j.MachineName == MachineA).MachineId);
-        Assert.Empty(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One)));
+        Assert.Empty(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, _log.ListOpen(One), _alarms.ListOpen(One)));
     }
 
     // The control: at 85% with the spare back only after account A runs out, the 80% warning still names machine-a.
@@ -214,8 +219,38 @@ public sealed class LicenseReadinessServiceTests : IDisposable
 
         var a = Assert.Single(judged, j => j.MachineName == MachineA);
         Assert.False(a.CoveredLater);
-        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+            NextWith(picture, T0.AddDays(3)), _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.Contains(warnings, c => c.MachineId == a.MachineId);
+    }
+
+    private static IReadOnlyList<LicenseNextLicense> NextWith(LicensePicture picture, DateTime aRunsOutAt)
+        => LicenseNextLicenseFold.Judge(picture, _ => null, account => account == A ? aRunsOutAt : null);
+
+    // The same, through the real service and its own forecast: account A at 85% with its week resetting in four days runs
+    // out in about ten hours at the pace it was used; its one spare, B, is full but resets in five. Covered later: the
+    // readiness check, the next-license verdict the Licenses page and the grid read, and the minute check all say ready,
+    // and no warning opens.
+    [Fact]
+    public async Task CoveredLater_ThroughTheService_IsOneVerdict_AndRaisesNothing()
+    {
+        var a = Holding(A, true, 5, 85, readAt: _now);
+        var spare = Holding(B, false, 5, 98, readAt: _now);
+        spare.SevenDay!.ResetsAtUtc = _now.AddHours(5);
+        _store.ApplyReport(One, DirA, ++_sequence, Report(MachineA, _now, a, spare), _now, TimeSpan.Zero);
+        _store.ApplyReport(One, DirB, ++_sequence,
+            Report(MachineB, _now, Holding(C, true, 5, 10, readAt: _now), Holding(A, false, 5, 85, readAt: _now)), _now, TimeSpan.Zero);
+        _directors.Connect(One, DirA);
+        _directors.Connect(One, DirB);
+
+        var tick = await Tick();
+
+        Assert.True(Assert.Single(tick.Judged, j => j.MachineName == MachineA).CoveredLater);
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var next = Service().NextLicenses(One, picture, _now);
+        Assert.Equal(LicenseNextLicenseStates.Ready, next.Single(v => v.MachineName == MachineA).State);
+        Assert.Equal(0, LicenseCoverageFold.Judge(picture, next).GapCount);
+        Assert.DoesNotContain(_alarms.ListOpen(One), x => x.Kind == LicenseCannotSwitchAlarm.Kind.Key);
     }
 
     // Only two accounts, so no account has room now: covered later still applies, rather than "no account has room".
@@ -592,8 +627,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Empty(first.Started);
         var alarm = Assert.Single(_alarms.ListOpen(One));
         Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
-        Assert.Equal("machine-a is on account-a@example.com, which is at 80% of its weekly limit, and cannot switch to account-b@example.com, "
-                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal("machine-a is on account-a@example.com, which is at 80% of its weekly limit, and it holds no sign-in for account-b@example.com: "
+                     + "it needs account-b@example.com as its next license.", alarm.Problem);
         Assert.Equal("No machine is set to approve sign-ins for account-b@example.com. Set an approver for account-b@example.com on the Licenses page.",
             alarm.Action);
         Assert.Single(_emails);
@@ -610,8 +645,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
 
         await Tick();
 
-        Assert.Equal("machine-a is on account-a@example.com, which is at 85.5% of its 5-hour window, and cannot switch to account-b@example.com, "
-                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.",
+        Assert.Equal("machine-a is on account-a@example.com, which is at 85.5% of its 5-hour window, and it holds no sign-in for account-b@example.com: "
+                     + "it needs account-b@example.com as its next license.",
             Assert.Single(_alarms.ListOpen(One)).Problem);
     }
 
@@ -1021,8 +1056,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
 
         var alarm = Assert.Single(_alarms.ListOpen(One));
         Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA), (alarm.Kind, alarm.MachineName));
-        Assert.Equal("machine-a is on account-a@example.com, which is at 85% of its 5-hour window, and cannot switch to account-b@example.com, "
-                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal("machine-a is on account-a@example.com, which is at 85% of its 5-hour window, and it holds no sign-in for account-b@example.com: "
+                     + "it needs account-b@example.com as its next license.", alarm.Problem);
         Assert.Equal((0, 0, 0), (tick.NoRoomAlarms!.Opened, tick.NoRoomAlarms.StillOpen, tick.NoRoomAlarms.Closed));
     }
 }

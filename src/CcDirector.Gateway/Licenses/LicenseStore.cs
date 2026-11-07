@@ -28,7 +28,8 @@ public static class LicenseLogKinds
     /// null. Written and read by <see cref="LicenseRenewalFailureLog"/> only.</summary>
     public const string RenewalFailed = "renewal-failed";
 
-    /// <summary>The daily license fire drill (<see cref="LicenseFireDrillService"/>): one row for each drill, open while it
+    /// <summary>The daily license check (<see cref="LicenseFireDrillService"/>; the stored word is kept from the drill it
+    /// replaced): one row for each check, open while it
     /// runs, then <see cref="LicenseLogStates.Passed"/> or <see cref="LicenseLogStates.Failed"/> with what it found.
     /// Written and read by <see cref="LicenseFireDrillLog"/> only.</summary>
     public const string FireDrill = "fire-drill";

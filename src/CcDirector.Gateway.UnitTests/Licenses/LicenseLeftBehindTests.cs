@@ -87,7 +87,7 @@ public sealed class LicenseLeftBehindTests : IDisposable
     private LicenseMachineDto MachineDto(string name)
     {
         var picture = new LicenseSnapshotSource(_store, new LicenseReadModel(_store)).ReadPicture(Tenant, _now, Array.Empty<LicenseExhaustion>());
-        return LicenseDisplayFold.Overview(picture).Machines.Single(m => m.MachineName == name);
+        return LicenseTestData.OverviewOf(picture).Machines.Single(m => m.MachineName == name);
     }
 
     [Fact]

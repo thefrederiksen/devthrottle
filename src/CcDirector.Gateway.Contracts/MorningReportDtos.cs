@@ -100,7 +100,6 @@ public sealed class MorningReportWindowDto
 [JsonDerivedType(typeof(LongRunningSessionsAttentionDto))]
 [JsonDerivedType(typeof(UsageLimitStopsAttentionDto))]
 [JsonDerivedType(typeof(OutdatedDirectorsAttentionDto))]
-[JsonDerivedType(typeof(LicenseCoverageGapsAttentionDto))]
 [JsonDerivedType(typeof(LicenseFireDrillAttentionDto))]
 public abstract class MorningAttentionItemDto
 {
@@ -118,32 +117,13 @@ public static class MorningAttentionTypes
     public const string LongRunningSessions = "long-running-sessions";
     public const string UsageLimitStops = "usage-limit-stops";
     public const string OutdatedDirectors = "outdated-directors";
-    public const string LicenseCoverageGaps = "license-coverage-gaps";
     public const string LicenseFireDrill = "license-fire-drill";
 }
 
 /// <summary>
-/// THE QUIET DAILY LINE OF A LICENSE GAP (mission "Licenses - Always Ready, Loud When Not", step 2). The owner, 6 November
-/// 2026: "As soon as any machine is missing a sign-in it would need, at any usage level, as a quiet daily line." ONE item
-/// per account, present only while the coverage grid has a gap (<c>Licenses.LicenseCoverageFold</c>). Both sentences are
-/// the Gateway's own, finished: the renderer draws them as given. The loud, repeating warning is a different thing and
-/// does not come through here.
-/// </summary>
-public sealed class LicenseCoverageGapsAttentionDto : MorningAttentionItemDto
-{
-    public override string Type => MorningAttentionTypes.LicenseCoverageGaps;
-
-    /// <summary>The row's heading: "2 missing sign-ins on 2 machines".</summary>
-    public string Title { get; set; } = "";
-
-    /// <summary>The row's detail: each machine and what it is missing, then what to do.</summary>
-    public string Text { get; set; } = "";
-}
-
-/// <summary>
-/// The daily license fire drill (mission "Licenses - Always Ready, Loud When Not", step 7): ONE item per account whose
-/// machines report licenses, every day, green or not - a drill that passed is the line that says the licenses are
-/// ready, and the run of passes is how the mission is closed. Folded on the Gateway
+/// The daily license check (mission "Licenses - Always Ready, Loud When Not"): ONE item per account whose machines report
+/// licenses, every day, green or not - whether every machine is under 80% on its license or holds a ready next license.
+/// There is no quiet daily line for a license that is merely not held (the owner, 7 November 2026). Folded on the Gateway
 /// (<c>LicenseFireDrillFold.ReportLine</c>); the renderer shows <see cref="Text"/> as given, in the tone
 /// <see cref="Passed"/> says.
 /// </summary>
@@ -151,7 +131,7 @@ public sealed class LicenseFireDrillAttentionDto : MorningAttentionItemDto
 {
     public override string Type => MorningAttentionTypes.LicenseFireDrill;
 
-    /// <summary>The newest drill passed. False also when it has not run, or is not set up.</summary>
+    /// <summary>The newest check passed. False also when it has not run.</summary>
     public bool Passed { get; set; }
 
     /// <summary>The finished line: when, on which machine, and what it found.</summary>
@@ -160,8 +140,6 @@ public sealed class LicenseFireDrillAttentionDto : MorningAttentionItemDto
     /// <summary>When the newest drill finished; null when none has.</summary>
     public DateTime? RanAtUtc { get; set; }
 
-    /// <summary>How many drills in a row have passed, the newest included; 0 when it did not pass.</summary>
-    public int PassedInARow { get; set; }
 }
 
 /// <summary>

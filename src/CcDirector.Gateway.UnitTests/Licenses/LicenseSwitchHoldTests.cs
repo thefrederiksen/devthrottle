@@ -284,8 +284,8 @@ public sealed class LicenseSwitchHoldTests : IDisposable
     {
         HeldSince0314();
 
-        var held = Assert.Single(LicenseDisplayFold.Overview(Picture(T0.AddMinutes(3))).Machines);
-        var after = Assert.Single(LicenseDisplayFold.Overview(Picture(T0.AddMinutes(5))).Machines);
+        var held = Assert.Single(LicenseTestData.OverviewOf(Picture(T0.AddMinutes(3))).Machines);
+        var after = Assert.Single(LicenseTestData.OverviewOf(Picture(T0.AddMinutes(5))).Machines);
 
         Assert.Equal(T0.AddMinutes(4).AddSeconds(1), held.HeldUntilUtc);
         Assert.Equal("Held out of the automatic switch for 1 minute, until 2026-10-11 03:16 UTC: its switch from account-a@example.com to "
@@ -299,7 +299,7 @@ public sealed class LicenseSwitchHoldTests : IDisposable
     {
         HeldSince0314();
 
-        var account = LicenseDisplayFold.Overview(Picture(T0.AddMinutes(3))).Accounts.Single(a => a.AccountEmail == A);
+        var account = LicenseTestData.OverviewOf(Picture(T0.AddMinutes(3))).Accounts.Single(a => a.AccountEmail == A);
 
         Assert.True(account.CanSwitchNow);
         Assert.Equal(B, account.SwitchNowTargetAccountEmail);

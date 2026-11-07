@@ -108,7 +108,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         var (status, _, json) = Overview(TenantOne);
 
         Assert.Equal(200, status);
-        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines", "coverage" }, Names(json));
+        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines", "isTestUsageOn", "testUsageText", "coverage" }, Names(json));
         Assert.False(json.GetProperty("isEmpty").GetBoolean());
         var coverage = json.GetProperty("coverage");
         Assert.Equal(new[] { "text", "tone", "gapCount", "accounts", "rows" }, Names(coverage));
@@ -159,6 +159,7 @@ public sealed class LicenseEndpointsTests : IDisposable
             "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "heldUntilUtc", "heldText", "canAddSpare", "addSpareText", "canForget", "forgetText",
             "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
             "readiness", "readinessTargetAccountEmail", "readinessText", "readinessTone",
+            "nextLicenseState", "nextLicenseText", "nextLicenseTone", "recommendedAccountEmail", "recommendedSignInAction",
         }, Names(machine));
         Assert.Equal(("the-windows-machine", "owner", A), (machine.GetProperty("machineName").GetString(), machine.GetProperty("osUser").GetString(), machine.GetProperty("activeAccountEmail").GetString()));
         // It holds the sign-in for B, the account it would switch to next (phase 6, readiness).

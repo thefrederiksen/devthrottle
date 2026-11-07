@@ -212,7 +212,7 @@ public sealed class LicenseApproverAlarmTests : IDisposable
         }, _now);
         var readiness = LicenseReadinessTestKit.ForReading(_db, _licenses, (_, directorId) => _connected.Contains(directorId), () => _now);
         var picture = new LicenseSnapshotSource(_licenses, new LicenseReadModel(_licenses)).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
-        var overview = LicenseDisplayFold.Overview(picture);
+        var overview = LicenseTestData.OverviewOf(picture);
 
         LicenseReadinessFold.Apply(overview, readiness.Judge(One, picture, _now), _approvers.ListFailedChecksQuietly(One), _now);
 

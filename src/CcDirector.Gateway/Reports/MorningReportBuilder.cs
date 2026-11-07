@@ -35,7 +35,6 @@ public sealed class MorningReportBuilder
     private readonly RepoStateStore? _repoState;
     private readonly Func<TenantId, IReadOnlyCollection<DirectorDto>>? _directors;
     private readonly Func<string?>? _newestRelease;
-    private readonly Func<TenantId, DateTime, Licenses.LicenseCoverage>? _licenseCoverage;
     private readonly Func<TenantId, LicenseFireDrillAttentionDto?>? _licenseFireDrill;
     private readonly TimeSpan _streamStale;
     private readonly Func<DateTime> _utcNow;
@@ -86,7 +85,7 @@ public sealed class MorningReportBuilder
     /// <param name="streamStale">How old a Director's pushed roster may be and still be believed.</param>
     /// <param name="utcNow">Clock seam for tests.</param>
     /// <param name="directors">One tenant's Directors, for the out-of-date row. Null means no such row.</param>
-    /// <param name="licenseFireDrill">The license fire drill's line for one tenant, or null for a tenant with no
+    /// <param name="licenseFireDrill">The daily license check's line for one tenant, or null for a tenant with no
     /// licenses. Null - the function - means no such line.</param>
     /// <param name="newestRelease">The newest published release as this Gateway last read it, or null while
     /// it has not been read. Null - the function or its answer - means nobody is called behind.</param>
@@ -98,10 +97,8 @@ public sealed class MorningReportBuilder
         RepoStateStore? repoState = null,
         Func<TenantId, IReadOnlyCollection<DirectorDto>>? directors = null,
         Func<string?>? newestRelease = null,
-        Func<TenantId, DateTime, Licenses.LicenseCoverage>? licenseCoverage = null,
         Func<TenantId, LicenseFireDrillAttentionDto?>? licenseFireDrill = null)
     {
-        _licenseCoverage = licenseCoverage;
         _licenseFireDrill = licenseFireDrill;
         _directors = directors;
         _newestRelease = newestRelease;
@@ -156,12 +153,9 @@ public sealed class MorningReportBuilder
         if (OutdatedDirectors(tenant, now) is { } outdated)
             report.Attention.Add(outdated);
 
-        // A machine missing a sign-in, at any use: one quiet line, worded by the coverage grid's own fold - the one place
-        // a gap is decided. A builder given no coverage reader has no license facts, and adds no line.
-        if (_licenseCoverage is not null && Licenses.LicenseCoverageFold.DailyLine(_licenseCoverage(tenant, now)) is { } gaps)
-            report.Attention.Add(gaps);
-
-        // The license fire drill (step 7 of "Licenses - Always Ready, Loud When Not"): every day, green or not.
+        // No line for a license a machine merely does not hold (the owner, 7 November 2026): the quiet daily gap line is
+        // gone. The daily license check (mission "Licenses - Always Ready, Loud When Not") is the one license line, every
+        // day, green or not.
         if (_licenseFireDrill?.Invoke(tenant) is { } drill)
             report.Attention.Add(drill);
 

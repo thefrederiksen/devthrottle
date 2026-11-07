@@ -123,7 +123,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
         await Raise();
 
         var alarm = Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
-        var page = Assert.Single(LicenseDisplayFold.Overview(
+        var page = Assert.Single(LicenseTestData.OverviewOf(
             new LicenseSnapshotSource(_store, new LicenseReadModel(_store)).ReadPicture(Tenant, _now, Array.Empty<LicenseExhaustion>())).Machines);
         Assert.Equal(page.MachineId, alarm.MachineId.ToString("N"));
         Assert.Equal("machine-a", alarm.MachineName);

@@ -62,7 +62,7 @@ public sealed class LicenseRefusedAndSilentMachineTests : IDisposable
 
     private LicensePicture Picture(TenantId? tenant = null) => _source.ReadPicture(tenant ?? Tenant, _now, Array.Empty<LicenseExhaustion>());
 
-    private LicenseOverviewResponse Overview(TenantId? tenant = null) => LicenseDisplayFold.Overview(Picture(tenant));
+    private LicenseOverviewResponse Overview(TenantId? tenant = null) => LicenseTestData.OverviewOf(Picture(tenant));
 
     private LicenseMachineDto TheMachine() => Assert.Single(Overview().Machines);
 
@@ -456,20 +456,21 @@ public sealed class LicenseRefusedAndSilentMachineTests : IDisposable
     }
 
     // The coverage grid (the review of pull request 4707, finding a): a Director whose reports were only ever refused has no
-    // machine row, and the Licenses page shows it from its refusal. The grid gives it a row too, every paid account a gap,
-    // since the cannot-switch warning and the daily fire drill read the same Judge.
+    // machine row, and the Licenses page shows it from its refusal. The grid gives it a row too - and no gap, because a gap
+    // is a machine running out with no ready next license (the owner, 7 November 2026), and nothing says it is running out.
     [Fact]
-    public void Coverage_ADirectorOnlyEverRefused_IsARow_EveryPaidAccountAGap()
+    public void Coverage_ADirectorOnlyEverRefused_IsARow_WithNoGap()
     {
         _store.ApplyReport(Tenant, "dir-machine-b", 1, Report("machine-b", Holding(A, true), Holding(B, false)), _now, TimeSpan.Zero);
         Assert.Equal(LicenseIngestOutcome.Malformed, Push(HeldTwice()));
 
-        var coverage = LicenseCoverageFold.Judge(Picture());
+        var coverage = LicenseTestData.CoverageOf(Picture());
 
         var refused = Assert.Single(coverage.Rows, r => r.MachineName == "machine-a");
         Assert.Equal(LicenseDisplayFold.RefusedMachineId(Assert.Single(Log(LicenseLogKinds.ReportRefused))), refused.MachineId);
         Assert.True(refused.ReportsRefused);
-        Assert.Equal(new[] { A, B }, refused.Gaps.Select(c => c.AccountEmail));
+        Assert.False(refused.HasGap);
+        Assert.All(refused.Cells, c => Assert.False(c.IsGap));
         var row = Assert.Single(LicenseCoverageFold.Dto(coverage).Rows, r => r.Machine.MachineName == "machine-a");
         Assert.Equal(("Its reports are being refused, so what it holds now is not known and it cannot be switched.", LicenseTones.Warning),
             (row.Text, row.Tone));
