@@ -3470,16 +3470,23 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Draw both Mission buttons - the session tab bar's and the toolbar corner's - from <see cref="_missionPresenter"/>.
-    /// Words, tooltip and look are the presenter's, which are the Gateway's verdict verbatim; this only copies them onto
-    /// the controls. Both buttons show the selected session, so the corner follows the selection.
+    /// Words, tooltip, look and icon are the presenter's, which are the Gateway's verdict verbatim; this only copies them
+    /// onto the controls. Both buttons show the selected session, so the corner follows the selection.
     /// </summary>
     private void UpdateMissionButtons()
     {
-        foreach (var (button, text) in new[] { (TabBarMissionButton, TabBarMissionText), (BtnMission, BtnMissionText) })
+        var buttons = new[]
+        {
+            (TabBarMissionButton, TabBarMissionText, TabBarMissionDocumentIcon, TabBarMissionWarningIcon),
+            (BtnMission, BtnMissionText, BtnMissionDocumentIcon, BtnMissionWarningIcon),
+        };
+        foreach (var (button, text, documentIcon, warningIcon) in buttons)
         {
             button.IsVisible = _missionPresenter.IsVisible;
             foreach (var look in MissionButtonPresenter.AllLooks)
                 button.Classes.Set(look, look == _missionPresenter.Look);
+            documentIcon.IsVisible = _missionPresenter.Icon == MissionButtonIcon.Document;
+            warningIcon.IsVisible = _missionPresenter.Icon == MissionButtonIcon.Warning;
             text.Text = _missionPresenter.Label;
             ToolTip.SetTip(button, _missionPresenter.Tooltip);
         }

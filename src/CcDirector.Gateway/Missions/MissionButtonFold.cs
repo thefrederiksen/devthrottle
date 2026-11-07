@@ -8,9 +8,13 @@ namespace CcDirector.Gateway.Missions;
 /// corner button first - renders what this decides, verbatim (repository rule 7). Three verdicts, from the session's
 /// Mission attachment and the Gateway's mission store:
 ///
-///   a Mission with a document  -> the Mission's name, colour "mission", tooltip = name and goal, address /r/&lt;id&gt;
-///   a Mission, no document yet -> the Mission's name, colour "mission-outline", tooltip says there is no document
-///   no Mission                 -> "No mission", colour "warning", tooltip says the session has no Mission
+///   a Mission with a document  -> "Mission", colour "mission", icon "document", tooltip = name and goal, address /r/&lt;id&gt;
+///   a Mission, no document yet -> "Mission", colour "mission-outline", icon "none", tooltip = name, says no document
+///   no Mission                 -> "Mission", colour "warning", icon "warning", tooltip says how to attach one
+///
+/// THE BUTTON ALWAYS SAYS "Mission" (the owner, 7 November 2026). It used to print the Mission's name, which made it
+/// wide and cut off in every header; the name and goal now live only in the tooltip, and the icon and colour tell the
+/// three states apart.
 ///
 /// THE MISSION RECORD WINS OVER THE SESSION'S CACHED NAME. A session carries the name it was attached under, and a
 /// rename since then is only on the record, so the record's name is shown whenever the record is found. A session
@@ -23,8 +27,11 @@ namespace CcDirector.Gateway.Missions;
 /// </summary>
 internal static class MissionButtonFold
 {
-    /// <summary>The words on the button of a session attached to no Mission.</summary>
-    public const string NoMissionLabel = "No mission";
+    /// <summary>The words on the button, in every state.</summary>
+    public const string ButtonLabel = "Mission";
+
+    /// <summary>The last line of the tooltip of a Mission with a document: what a click does.</summary>
+    public const string OpenDocumentHint = "Click to open the mission document.";
 
     /// <summary>The tooltip of a session attached to no Mission.</summary>
     public const string NoMissionTooltip = "This session has no Mission. Attach it to one with: cc-devthrottle mission attach <session> <mission>";
@@ -40,8 +47,9 @@ internal static class MissionButtonFold
             return new MissionButtonDisplay
             {
                 Verdict = MissionButtonDisplay.VerdictNoMission,
-                Label = NoMissionLabel,
+                Label = ButtonLabel,
                 ColorKey = MissionButtonDisplay.ColorWarning,
+                IconKey = MissionButtonDisplay.IconWarning,
                 Tooltip = NoMissionTooltip,
                 DocumentAddress = null,
             };
@@ -56,11 +64,12 @@ internal static class MissionButtonFold
             return new MissionButtonDisplay
             {
                 Verdict = MissionButtonDisplay.VerdictMissionWithDocument,
-                Label = name,
+                Label = ButtonLabel,
                 ColorKey = MissionButtonDisplay.ColorMission,
+                IconKey = MissionButtonDisplay.IconDocument,
                 Tooltip = goal.Length > 0
-                    ? $"Mission: {name}\nGoal: {goal}"
-                    : $"Mission: {name}\nGoal: not set - the mission document has no goal section.",
+                    ? $"Mission: {name}\nGoal: {goal}\n{OpenDocumentHint}"
+                    : $"Mission: {name}\nGoal: not set - the mission document has no goal section.\n{OpenDocumentHint}",
                 // The one source of the address is the route that serves it, so the two cannot drift apart.
                 DocumentAddress = $"{Api.DevReportLinkRoute.Prefix}{reportId:D}",
             };
@@ -69,8 +78,9 @@ internal static class MissionButtonFold
         return new MissionButtonDisplay
         {
             Verdict = MissionButtonDisplay.VerdictMissionWithoutDocument,
-            Label = name,
+            Label = ButtonLabel,
             ColorKey = MissionButtonDisplay.ColorMissionOutline,
+            IconKey = MissionButtonDisplay.IconNone,
             Tooltip = $"Mission: {name}\nThis Mission has no document yet.",
             DocumentAddress = null,
         };

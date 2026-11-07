@@ -54,15 +54,16 @@ describe("the phone's session app bar", () => {
         manage={manage(
           row({
             verdict: "mission-with-document",
-            label: "Mission Button on the Web",
+            label: "Mission",
             colorKey: "mission",
+            iconKey: "document",
             tooltip: "Mission Button on the Web\nShow each session's Mission",
             documentAddress: "/r/a24e87a1-fd9e-4f8b-87e6-04013cf1e75f",
           }),
         )}
       />,
     );
-    const link = screen.getByRole("link", { name: "Mission Button on the Web" });
+    const link = screen.getByRole("link", { name: "Mission" });
     expect(link.className).toContain("mb-mission");
     expect(link.getAttribute("href")).toBe("/r/a24e87a1-fd9e-4f8b-87e6-04013cf1e75f");
     expect(link.getAttribute("target")).toBe("_blank");
@@ -73,10 +74,10 @@ describe("the phone's session app bar", () => {
     render(
       <SessionAppBar
         title="Developer"
-        manage={manage(row({ verdict: "no-mission", label: "No mission", colorKey: "warning", tooltip: "Attached to no Mission.", documentAddress: null }))}
+        manage={manage(row({ verdict: "no-mission", label: "Mission", colorKey: "warning", iconKey: "warning", tooltip: "Attached to no Mission.", documentAddress: null }))}
       />,
     );
-    expect(screen.getByRole("button", { name: "No mission" }).className).toContain("mb-warning");
+    expect(screen.getByRole("button", { name: "Mission" }).className).toContain("mb-warning");
   });
 
   it("SessionAppBar_RowWithoutVerdict_DrawsNoMissionButton", () => {
