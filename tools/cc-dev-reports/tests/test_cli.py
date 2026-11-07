@@ -644,6 +644,43 @@ def test_answers_another_accounts_report_prints_the_gateways_refusal(wire):
     assert "code: report_not_found" in result.output.splitlines()
 
 
+def _own_answer_view():
+    """A report whose first question the owner answered with "Something else", in their own words."""
+    view = _answers_view()
+    view["questions"][0].update({
+        "optionValue": "own-answer", "optionLabel": "Something else", "comment": "",
+        "ownAnswer": "Email me after 3 days, not 7, and copy Gitte",
+        "answerLabel": "OWN ANSWER (not one of your options)",
+    })
+    return view
+
+
+def test_answers_prints_an_own_answer_as_not_one_of_the_options_with_the_owners_words(wire):
+    wire((200, {"count": 1, "reports": [_own_answer_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert "      answer: OWN ANSWER (not one of your options)" in lines
+    assert '      said: "Email me after 3 days, not 7, and copy Gitte"' in lines
+    # Never printed as if it were one of the report's options.
+    assert not any("(value own-answer)" in line for line in lines)
+    assert result.output.isascii()
+
+
+def test_answers_json_carries_the_own_answer_and_its_label_as_the_gateway_sent_them(wire):
+    wire((200, {"count": 1, "reports": [_own_answer_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--json"])
+
+    assert result.exit_code == 0, result.output
+    question = json.loads(result.output)["reports"][0]["questions"][0]
+    assert question["optionValue"] == "own-answer"
+    assert question["ownAnswer"] == "Email me after 3 days, not 7, and copy Gitte"
+    assert question["answerLabel"] == "OWN ANSWER (not one of your options)"
+
+
 def test_answers_json_has_the_same_keys_as_every_other_command(wire):
     wire((200, {"count": 1, "reports": [_answers_view()]}))
 

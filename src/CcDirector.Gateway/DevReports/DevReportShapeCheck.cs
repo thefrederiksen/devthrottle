@@ -406,6 +406,14 @@ internal static class DevReportShapeCheck
                 errors.Add($"The question \"{Label(q)}\" has more than one option with the value \"{value}\". Give every " +
                            "option in a question a different value.");
             }
+            // "Something else" is added to every question by the note-taking script with a reserved value (Report Answers by
+            // Voice). An author's option with that value would be indistinguishable from the owner's own answer.
+            if (own.Any(r => DevReportOwnAnswer.Is(r.GetAttribute("value") ?? "")))
+            {
+                errors.Add($"The question \"{Label(q)}\" has an option with the value \"{DevReportOwnAnswer.Value}\", which is " +
+                           $"reserved: every question already gets a last option \"{DevReportOwnAnswer.Label}\" with that value, " +
+                           "added for you. Give your option a different value.");
+            }
             CheckRadioGroup(q, own, ownersByName, errors);
         }
     }

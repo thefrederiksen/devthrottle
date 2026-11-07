@@ -485,6 +485,8 @@ internal static class DevReportEndpoints
             item["optionValue"] = row.OptionValue;
             item["optionLabel"] = row.OptionLabel;
             item["comment"] = row.Comment;
+            // The owner's own answer carries their words; no other answer has the key at all (CONTRACT.md section 3).
+            if (DevReportOwnAnswer.Is(row.OptionValue)) item["ownAnswer"] = row.Text;
         }
         item["status"] = row.Status;
         item["statusLabel"] = row.StatusLabel;

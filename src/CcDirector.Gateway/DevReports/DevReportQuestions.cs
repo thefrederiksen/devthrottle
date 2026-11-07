@@ -17,15 +17,9 @@ internal sealed record DevReportQuestionOption(string Value, string Label, bool 
 /// <param name="Options">Its options, in the report's order.</param>
 internal sealed record DevReportQuestion(string Id, string Text, IReadOnlyList<DevReportQuestionOption> Options)
 {
-    /// <summary>The option whose value is <paramref name="value"/>, or null when the question has none. The special "own-answer" value is always allowed (not one of the report's options).</summary>
-    public DevReportQuestionOption? Option(string value)
-    {
-        if (value == "own-answer")
-        {
-            return new DevReportQuestionOption("own-answer", "Something else", false);
-        }
-        return Options.FirstOrDefault(o => string.Equals(o.Value, value, StringComparison.Ordinal));
-    }
+    /// <summary>The option whose value is <paramref name="value"/>, or null when the question has none.</summary>
+    public DevReportQuestionOption? Option(string value) =>
+        Options.FirstOrDefault(o => string.Equals(o.Value, value, StringComparison.Ordinal));
 }
 
 /// <summary>

@@ -16,6 +16,7 @@
 import { GatewayError } from "../api/client";
 import { backgroundRecovered, describeAndReport, reportShownError } from "../errors/reportClientError";
 import type { DevReportDetail, DevReportHtml, DevReportSendUpdate } from "./devReportsClient";
+import { DevReportDictation, type DevReportDictationOptions } from "./dictationHost";
 import { DevReportFrameHost } from "./frameHost";
 import {
   emptyPageState,
@@ -68,6 +69,12 @@ export interface DevReportControllerOptions {
   window: Window;
   script: string;
   theme: DevReportTheme;
+  /**
+   * Recording and transcription for the page's microphone buttons (Report Answers by Voice). Left out, the page is
+   * told there is no dictation and draws no microphone. The viewer passes the session prompt's own recorder and
+   * Gateway transcription; tests pass fakes.
+   */
+  dictation?: Omit<DevReportDictationOptions, "push">;
   /** Passed to the host, for tests. */
   random?: () => string;
   onRefused?: (why: string) => void;
@@ -90,6 +97,8 @@ function sendFailureLabel(err: unknown): string {
 
 export class DevReportController {
   readonly host: DevReportFrameHost;
+  /** The page's dictation, or null when this viewer offers none. */
+  readonly dictation: DevReportDictation | null;
   private readonly options: DevReportControllerOptions;
   private snapshot: DevReportSnapshot = {
     detail: null,
@@ -109,6 +118,10 @@ export class DevReportController {
 
   constructor(options: DevReportControllerOptions) {
     this.options = options;
+    const dictation = options.dictation
+      ? new DevReportDictation({ ...options.dictation, push: (update) => void this.host.pushDictation(update) })
+      : null;
+    this.dictation = dictation;
     this.host = new DevReportFrameHost({
       container: options.container,
       title: "Dev report",
@@ -121,7 +134,12 @@ export class DevReportController {
       onStateChanged: (state) => this.onStateChanged(state),
       onSend: (items) => void this.send(items),
       onNoteModeChanged: (noteMode) => this.update({ noteMode }),
+      onDictation: dictation
+        ? (request) => void (request.action === "start" ? dictation.start(request.fieldId) : dictation.stop(request.fieldId))
+        : undefined,
       onConnectedChange: (connected) => {
+        // A page that went away has no box to put words in: let the microphone go at once.
+        if (!connected) dictation?.cancel();
         // A page that is not connected cannot be picking, and there is nothing selected in it that this app
         // could note. Leaving the panel saying "Cancel" after the page went away would offer an action that
         // reaches nothing.
@@ -141,6 +159,7 @@ export class DevReportController {
   dispose(): void {
     this.disposed = true;
     this.listeners.clear();
+    this.dictation?.cancel();
     this.host.dispose();
   }
 

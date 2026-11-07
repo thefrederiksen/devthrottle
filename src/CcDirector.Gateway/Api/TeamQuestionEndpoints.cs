@@ -19,7 +19,8 @@ namespace CcDirector.Gateway.Api;
 ///
 /// <list type="bullet">
 /// <item><c>GET  /teams/{teamId}/questions</c> - the questions waiting on the caller, and the ones they answered.</item>
-/// <item><c>POST /teams/{teamId}/questions/{reportId}/{questionId}/answer</c> - <c>{version, optionValue, comment}</c>.</item>
+/// <item><c>POST /teams/{teamId}/questions/{reportId}/{questionId}/answer</c> - <c>{version, optionValue, comment}</c>, or
+/// <c>{version, optionValue: "own-answer", ownAnswer}</c> for the person's own answer (<see cref="DevReportOwnAnswer"/>).</item>
 /// </list>
 ///
 /// THE CHOICE GOES TO THE SESSION THAT ASKED; THE WORDS GO TO A PERSON. The chosen option goes through the one answer
@@ -91,8 +92,15 @@ internal static class TeamQuestionEndpoints
                     return TeamReportEndpoints.BadRequest("bad_request_body", "\"comment\" must be a string when it is sent.");
                 comment = c.GetString()!;
             }
+            string? ownAnswer = null;
+            if (body.Value.TryGetProperty("ownAnswer", out var own) && own.ValueKind != JsonValueKind.Null)
+            {
+                if (own.ValueKind != JsonValueKind.String)
+                    return TeamReportEndpoints.BadRequest("bad_request_body", "\"ownAnswer\" must be a string when it is sent.");
+                ownAnswer = own.GetString()!;
+            }
             return await questions.AnswerAsync(teamId, TeamReportEndpoints.Caller(ctx), reportId, questionId, version,
-                option.GetString()!, comment, AuthMiddleware.IdentityKind(ctx), ctx.RequestAborted).ConfigureAwait(false);
+                option.GetString()!, comment, ownAnswer, AuthMiddleware.IdentityKind(ctx), ctx.RequestAborted).ConfigureAwait(false);
         });
 
         FileLog.Write($"[TeamQuestionEndpoints] mapped {GroupPath} (list, answer)");
@@ -124,6 +132,20 @@ internal sealed class TeamQuestions
     /// <summary>A comment when the person who asked can no longer read comments in this team.</summary>
     internal const string CommentClosed =
         "The person who asked can no longer read comments in this team. Only your choice can be sent.";
+
+    /// <summary>An own answer with no words in it.</summary>
+    internal const string OwnAnswerEmpty = "Your own answer is empty. Write it, or pick one of the options.";
+
+    /// <summary>An own answer sent with a separate comment: the own answer already is the person's words.</summary>
+    internal const string OwnAnswerWithComment =
+        "Your own answer already goes to the person who asked, so it is sent without a separate comment. Put everything in your own answer.";
+
+    /// <summary>Words in ownAnswer with an option that is not the own answer.</summary>
+    internal const string OwnAnswerNotChosen = "Words in your own answer are sent only when you choose \"Something else\".";
+
+    /// <summary>An own answer when the person who asked can no longer read words in this team.</summary>
+    internal const string OwnAnswerClosed =
+        "The person who asked can no longer read comments in this team, so your own answer cannot reach them. Pick one of the options.";
 
     /// <summary>The comment box's placeholder - the words of the mockup.</summary>
     internal const string CommentPlaceholder = "Anything to add (optional)";
@@ -215,11 +237,28 @@ internal sealed class TeamQuestions
     /// <see cref="DevReportDelivery"/>; the comment, when there is one, goes to the report's author person and is never
     /// part of what the session receives. Nothing is stored when the answer is refused.
     /// </summary>
-    public async Task<IResult> AnswerAsync(string teamId, string caller, string reportId, string questionId, int version,
+    public Task<IResult> AnswerAsync(string teamId, string caller, string reportId, string questionId, int version,
         string optionValue, string comment, string senderKind, CancellationToken ct)
+        => AnswerAsync(teamId, caller, reportId, questionId, version, optionValue, comment, null, senderKind, ct);
+
+    /// <summary>
+    /// As above, with the person's OWN answer (<see cref="DevReportOwnAnswer"/>): <paramref name="optionValue"/> is the
+    /// reserved value and <paramref name="ownAnswer"/> holds their words. Those words take this route's privacy rule - they
+    /// go to the report's author person exactly as a comment does, and the session receives only that the person answered
+    /// in their own words. So an own answer carries no separate comment, and needs an author who can still read words.
+    /// </summary>
+    public async Task<IResult> AnswerAsync(string teamId, string caller, string reportId, string questionId, int version,
+        string optionValue, string comment, string? ownAnswer, string senderKind, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(optionValue);
         ArgumentNullException.ThrowIfNull(comment);
+        var isOwn = DevReportOwnAnswer.Is(optionValue);
+        if (!isOwn && ownAnswer is not null)
+            return TeamReportEndpoints.BadRequest("own_answer_not_chosen", OwnAnswerNotChosen);
+        if (isOwn && (ownAnswer is null || ownAnswer.Trim().Length == 0))
+            return TeamReportEndpoints.BadRequest("own_answer_empty", OwnAnswerEmpty);
+        if (isOwn && comment.Trim().Length > 0)
+            return TeamReportEndpoints.BadRequest("own_answer_with_comment", OwnAnswerWithComment);
         var team = new TenantId(teamId);
         FileLog.Write($"[TeamQuestions] AnswerAsync: team {team.ToLogString()} report={reportId} question={questionId} version={version} commented={comment.Trim().Length > 0}");
 
@@ -239,18 +278,27 @@ internal sealed class TeamQuestions
         var question = DevReportQuestions.Read(held.Html).FirstOrDefault(q => string.Equals(q.Id, questionId, StringComparison.Ordinal));
         if (question is null)
             return TeamReportEndpoints.NotFound(NoSuchQuestion);
-        var option = question.Option(optionValue);
-        if (option is null)
-            return TeamReportEndpoints.BadRequest("option_unknown", "That is not one of this question's options. Pick one of the options shown.");
+        DevReportItem choice;
+        if (isOwn)
+        {
+            choice = OwnAnswerItem(question);
+        }
+        else
+        {
+            var option = question.Option(optionValue);
+            if (option is null)
+                return TeamReportEndpoints.BadRequest("option_unknown", "That is not one of this question's options. Pick one of the options shown.");
+            choice = ChoiceItem(question, option);
+        }
 
-        var words = comment.Trim().Length == 0 ? "" : comment;
+        var words = isOwn ? ownAnswer! : comment.Trim().Length == 0 ? "" : comment;
         if (words.Length > DevReportPersonComments.MaxLength)
             return TeamReportEndpoints.BadRequest("comment_too_long",
                 $"The comment is {words.Length} characters; the limit is {DevReportPersonComments.MaxLength}.");
         if (words.Length > 0 && !TeamReports.AuthorCanReceive(_access, teamId, report))
         {
-            FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} has a comment, and its author can no longer read comments - REFUSED");
-            return Conflict("author_cannot_receive", CommentClosed);
+            FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} has words (own answer={isOwn}), and its author can no longer read comments - REFUSED");
+            return Conflict("author_cannot_receive", isOwn ? OwnAnswerClosed : CommentClosed);
         }
 
         if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended)
@@ -262,7 +310,6 @@ internal sealed class TeamQuestions
         // THE CHOICE AND THE WORDS, STORED TOGETHER IN ONE TRANSACTION that also decides, in the database, that the caller
         // still holds this version and has not answered this question (review F2, F3, F4). The words go to the person who
         // asked, by the person-only table; the choice is stored held, with no words in it.
-        var choice = ChoiceItem(question, option);
         var stored = _store.AddMemberAnswer(team, report, row.SentVersion, choice, caller, words,
             report.AuthorSubject ?? "", senderKind, _utcNow());
         switch (stored)
@@ -318,6 +365,17 @@ internal sealed class TeamQuestions
         ArgumentNullException.ThrowIfNull(option);
         return new DevReportItem("a-" + Guid.NewGuid().ToString("N"), DevReportItem.Answer, "", null,
             question.Id, question.Text, option.Value, option.Label, "");
+    }
+
+    /// <summary>
+    /// THE ITEM A MEMBER'S OWN ANSWER BECOMES: the reserved own-answer value and its label, and - as for every member's
+    /// choice - no text and no comment. The person's words go to the author by the person-only table, never in here.
+    /// </summary>
+    internal static DevReportItem OwnAnswerItem(DevReportQuestion question)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        return new DevReportItem("a-" + Guid.NewGuid().ToString("N"), DevReportItem.Answer, "", null,
+            question.Id, question.Text, DevReportOwnAnswer.Value, DevReportOwnAnswer.Label, "");
     }
 
     /// <summary>A comment's question, as its author reads it beside the comment; null for a comment on the whole report.</summary>

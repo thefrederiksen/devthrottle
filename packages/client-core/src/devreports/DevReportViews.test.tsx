@@ -258,6 +258,36 @@ describe("DevReportConversation", () => {
     expect(screen.getByTestId("dev-report-send-error").textContent).toBe("Not sent: odd failure words");
   });
 
+  it("shows the owner's own answer as the Gateway's label and the owner's words, queued and sent alike", () => {
+    const own = {
+      id: "a2",
+      kind: "answer" as const,
+      questionId: "stall",
+      question: "Tell you when it stalls?",
+      optionValue: "own-answer",
+      optionLabel: "Something else (Gateway label, odd 4)",
+      ownAnswer: "Email me after 3 days, not 7",
+      comment: "and copy Gitte",
+    };
+    render(
+      <DevReportConversation
+        conversation={{
+          queued: [own],
+          sent: [{ ...own, id: "a3", status: "held", statusLabel: "Held", sentAtUtc: null, deliveredAtUtc: null }],
+          replies: [],
+          sending: false,
+          sendError: null,
+          send: () => {},
+          ...NOTE_CONTROLS,
+        }}
+      />,
+    );
+    for (const row of [screen.getByTestId("dev-report-queued-item"), screen.getByTestId("dev-report-sent-item")]) {
+      const words = row.querySelector("[data-own-answer=true]");
+      expect(words?.textContent).toBe('Something else (Gateway label, odd 4): "Email me after 3 days, not 7" - and copy Gitte');
+    }
+  });
+
   it("disables Send when nothing is queued", () => {
     render(<DevReportConversation conversation={{ queued: [], sent: [], replies: [], sending: false, sendError: null, send: () => {}, ...NOTE_CONTROLS }} />);
     expect((screen.getByTestId("dev-report-send") as HTMLButtonElement).disabled).toBe(true);

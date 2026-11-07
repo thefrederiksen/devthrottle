@@ -6,8 +6,16 @@
 
 export const DEV_REPORT_CHANNEL = "devthrottle.dev-report";
 export const DEV_REPORT_PROTOCOL_VERSION = 1;
-export const OWN_ANSWER_VALUE = "own-answer";
 const MAX_STRING = 20000;
+
+/**
+ * THE OWNER'S OWN ANSWER (Report Answers by Voice). The note-taking script adds a last option, "Something else", to
+ * every question; picking it sends an answer with this reserved value and the owner's own words in `ownAnswer`. No
+ * report may use this value for an option of its own - the Gateway's shape check refuses one that does.
+ */
+export const OWN_ANSWER_VALUE = "own-answer";
+/** The label of that option, as the page draws it. The Gateway stores the same words whatever a page sends. */
+export const OWN_ANSWER_LABEL = "Something else";
 const ANCHOR_TYPES = ["element", "text", "table-cell", "svg-part"];
 
 export interface DevReportAnchor {
@@ -34,6 +42,8 @@ export interface DevReportAnswerItem {
   optionValue: string;
   optionLabel: string;
   comment: string;
+  /** The owner's own answer, in their words. Present exactly when `optionValue` is OWN_ANSWER_VALUE. */
+  ownAnswer?: string;
 }
 
 export type DevReportItem = DevReportNoteItem | DevReportAnswerItem;
@@ -52,7 +62,7 @@ export interface DevReportPageState {
   sent: DevReportSentItem[];
   replies: DevReportPageReply[];
   draft: { anchor: DevReportAnchor; text: string } | null;
-  answerDrafts: { questionId: string; optionValue: string; comment: string }[];
+  answerDrafts: { questionId: string; optionValue: string; comment: string; ownAnswer?: string }[];
   scroll: { x: number; y: number };
 }
 
@@ -108,10 +118,17 @@ export function isValidItem(item: unknown): item is DevReportItem {
       isStr(item.question) &&
       isStr(item.optionValue) &&
       isStr(item.optionLabel) &&
-      isStr(item.comment)
+      isStr(item.comment) &&
+      ownAnswerFits(item.optionValue, item.ownAnswer)
     );
   }
   return false;
+}
+
+/** An own answer carries words; no other answer carries `ownAnswer` at all. */
+function ownAnswerFits(optionValue: unknown, ownAnswer: unknown): boolean {
+  if (optionValue === OWN_ANSWER_VALUE) return isStr(ownAnswer) && ownAnswer.trim() !== "";
+  return ownAnswer === undefined;
 }
 
 function isValidQueuedItem(item: unknown): boolean {
@@ -132,7 +149,9 @@ function isValidReply(r: unknown): boolean {
 }
 
 function isValidAnswerDraft(d: unknown): boolean {
-  return isPlainObject(d) && isStr(d.questionId) && d.questionId !== "" && isStr(d.optionValue) && isStr(d.comment);
+  return (
+    isPlainObject(d) && isStr(d.questionId) && d.questionId !== "" && isStr(d.optionValue) && isStr(d.comment) && isOptStr(d.ownAnswer)
+  );
 }
 
 /** The same state check the note-taking script applies to a restore, so the host never keeps - or hands
@@ -168,21 +187,30 @@ export interface DevReportNoteMode {
 /** What the host asks the page to do about a note. "off" cancels picking. */
 export type DevReportNoteModeRequest = "pick" | "selection" | "off";
 
-/** A request from the page to the host to record and transcribe speech for a field. */
-export interface DevReportDictationRequest {
-  fieldId: string;
-}
+/** The longest field id a page may name in a dictation message. The page's own ids are short and fixed. */
+export const MAX_DICTATION_FIELD_ID = 200;
 
-/** The host's response to a dictation request: the transcribed text. */
-export interface DevReportDictationResult {
-  fieldId: string;
-  transcript: string;
-}
+/**
+ * DICTATION (Report Answers by Voice). The report's frame has no same-origin access, so it cannot open the
+ * microphone. Its microphone button asks the host instead: `dictation-start` on the first tap, `dictation-stop` on
+ * the second. The host records, transcribes through the Gateway, and tells the page where it stands with one
+ * `dictation` message per change - and, while recording, a fresh one a few times a second carrying the seconds and
+ * the level. One box records at a time.
+ */
+export type DevReportDictationPhase = "starting" | "recording" | "transcribing" | "done" | "failed";
 
-/** The host's failure response to a dictation request. */
-export interface DevReportDictationFailed {
+/** What the host tells the page about one box's dictation. */
+export interface DevReportDictationUpdate {
   fieldId: string;
-  reason: string;
+  phase: DevReportDictationPhase;
+  /** Whole seconds recorded so far ("recording"). */
+  seconds?: number;
+  /** The microphone level, 0 to 1 ("recording"). */
+  level?: number;
+  /** The transcript, exactly as the Gateway returned it ("done"). */
+  text?: string;
+  /** Why it failed, in words for the owner ("failed"); or, with "done", a warning that some audio was dropped. */
+  reason?: string;
 }
 
 /** A message from the page, as the host acts on it. */
@@ -191,7 +219,12 @@ export type PageMessage =
   | { type: "send"; items: DevReportItem[] }
   | { type: "state-changed"; state: DevReportPageState }
   | { type: "note-mode-changed"; noteMode: DevReportNoteMode }
-  | { type: "dictation-start"; fieldId: string };
+  | { type: "dictation-start"; fieldId: string }
+  | { type: "dictation-stop"; fieldId: string };
+
+function isFieldId(v: unknown): v is string {
+  return typeof v === "string" && v !== "" && v.length <= MAX_DICTATION_FIELD_ID;
+}
 
 function envelopeOk(data: unknown): data is Record<string, unknown> {
   return isPlainObject(data) && data.channel === DEV_REPORT_CHANNEL && data.version === DEV_REPORT_PROTOCOL_VERSION;
@@ -208,7 +241,7 @@ export function parseReady(data: unknown): Extract<PageMessage, { type: "ready" 
 /** Returns a port message from the page when its shape is exactly right, else null. */
 export function parsePortMessage(
   data: unknown,
-): Extract<PageMessage, { type: "send" | "state-changed" | "note-mode-changed" | "dictation-start" }> | null {
+): Extract<PageMessage, { type: "send" | "state-changed" | "note-mode-changed" | "dictation-start" | "dictation-stop" }> | null {
   if (!envelopeOk(data)) return null;
   const p = data.payload;
   if (!isPlainObject(p)) return null;
@@ -223,13 +256,14 @@ export function parsePortMessage(
     if (p.selectionQuote !== null && !isStr(p.selectionQuote)) return null;
     return { type: "note-mode-changed", noteMode: { picking: p.picking, selectionQuote: p.selectionQuote } };
   }
-  if (data.type === "dictation-start") {
-    if (!isStr(p.fieldId)) return null;
-    return { type: "dictation-start", fieldId: p.fieldId };
+  if (data.type === "dictation-start" || data.type === "dictation-stop") {
+    return isFieldId(p.fieldId) ? { type: data.type, fieldId: p.fieldId } : null;
   }
   return null;
 }
 
-export function hostEnvelope(type: "restore" | "status" | "reply" | "note-mode" | "dictation-result" | "dictation-failed", payload: unknown) {
+export type HostMessageType = "restore" | "status" | "reply" | "note-mode" | "dictation";
+
+export function hostEnvelope(type: HostMessageType, payload: unknown) {
   return { channel: DEV_REPORT_CHANNEL, version: DEV_REPORT_PROTOCOL_VERSION, type, payload };
 }

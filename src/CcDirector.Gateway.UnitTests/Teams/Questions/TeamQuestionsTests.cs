@@ -300,6 +300,68 @@ public sealed class TeamQuestionsTests : IDisposable
         Assert.Empty(_comments.To(_tenant, report, Alice));
     }
 
+    // ---- the person's own answer: "Something else" (Report Answers by Voice) ------------------------------------------
+
+    private Task<(int Status, JsonElement Body)> OwnAnswerAsync(string who, Guid report, string? ownAnswer, string comment = "",
+        string option = DevReportOwnAnswer.Value)
+        => Run(_questions.AnswerAsync(_team, who, report.ToString("D"), "trial-length", 1, option, comment, ownAnswer, "device",
+            CancellationToken.None));
+
+    [Fact]
+    public async Task AnswerAsync_AnOwnAnswer_IsTaken_TheSessionHearsItIsNotOneOfItsOptions_AndTheWordsGoToTheAsker()
+    {
+        var (report, sid) = Report(Mike);
+        _reach[sid] = DevReportSessionReach.Idle;
+
+        var (status, body) = await OwnAnswerAsync(Mike, report, "Neither - 21 days, and only for teams");
+
+        Assert.Equal(200, status);
+        var prompt = Assert.Single(_prompts);
+        Assert.Contains($"to \"{Question}\": their own answer, not one of your options. " +
+                        "Their words went to the person who sent the report, not to this session.", prompt.Text);
+        // The person's words never reach the session; they reach the person who asked.
+        Assert.DoesNotContain("21 days", prompt.Text);
+        var stored = Assert.Single(_store.Items(_tenant, report));
+        Assert.Equal((Mike, DevReportOwnAnswer.Value, DevReportOwnAnswer.Label, "", ""),
+            (stored.AnswererSubject, stored.OptionValue, stored.OptionLabel, stored.Text, stored.Comment));
+        Assert.Equal("Neither - 21 days, and only for teams", Assert.Single(_comments.To(_tenant, report, Alice)).Text);
+        var answer = body.GetProperty("question").GetProperty("answer");
+        Assert.Equal("You chose \"Something else\"", answer.GetProperty("chosenLabel").GetString());
+        Assert.Equal("Neither - 21 days, and only for teams", answer.GetProperty("yourComment").GetString());
+    }
+
+    [Theory]
+    [InlineData(null, "", DevReportOwnAnswer.Value, "own_answer_empty")]
+    [InlineData("   ", "", DevReportOwnAnswer.Value, "own_answer_empty")]
+    [InlineData("my own words", "and a comment", DevReportOwnAnswer.Value, "own_answer_with_comment")]
+    [InlineData("my own words", "", "30", "own_answer_not_chosen")]
+    public async Task AnswerAsync_AnOwnAnswerOutOfShape_IsRefused_AndNothingIsStored(string? ownAnswer, string comment, string option, string code)
+    {
+        var (report, sid) = Report(Mike);
+        _reach[sid] = DevReportSessionReach.Idle;
+
+        var (status, body) = await OwnAnswerAsync(Mike, report, ownAnswer, comment, option);
+
+        Assert.Equal(400, status);
+        Assert.Equal(code, body.GetProperty("code").GetString());
+        Assert.Empty(_store.Items(_tenant, report));
+        Assert.Empty(_prompts);
+    }
+
+    [Fact]
+    public async Task AnswerAsync_AnOwnAnswerWhenTheAskerCanNoLongerReadWords_IsRefused_BecauseItWouldReachNobody()
+    {
+        var (report, sid) = Report(Mike);
+        _reach[sid] = DevReportSessionReach.Idle;
+        Assert.True(_teams.ChangeRole(_team, Alice, TeamRole.Collaborator).IsDone);
+
+        var (status, body) = await OwnAnswerAsync(Mike, report, "my own words");
+
+        Assert.Equal(409, status);
+        Assert.Equal(TeamQuestions.OwnAnswerClosed, body.GetProperty("error").GetString());
+        Assert.Empty(_store.Items(_tenant, report));
+    }
+
     [Fact]
     public async Task AnswerAsync_ACommentOverTheLimit_IsRefused_AndOnlyWhitespaceIsNoComment()
     {

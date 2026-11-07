@@ -51,6 +51,7 @@ export function ReportPage() {
     <div className="report-page" data-testid="report-page">
       <DevReportViewer
         key={reportId}
+        dictationSurface="cockpit"
         reportId={reportId}
         onNotFound={() => setNotFound(true)}
         onBackToSession={backToSession}

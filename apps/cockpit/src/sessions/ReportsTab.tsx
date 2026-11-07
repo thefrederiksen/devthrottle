@@ -41,6 +41,7 @@ export function ReportsTab({ sessionId, openReportId, onOpenReport, onCloseRepor
       <div className="reports-tab-body">
         <DevReportViewer
           key={openReportId}
+          dictationSurface="cockpit"
           reportId={openReportId}
           onNotFound={onCloseReport}
           leading={

@@ -44,8 +44,10 @@ internal sealed record DevReportAnchor(
 /// <summary>
 /// One item the owner sent - a note or an answer - in the contract's shape
 /// (<c>packages/client-core/src/devreports/CONTRACT.md</c> section 3). A note carries <see cref="Text"/> and
-/// <see cref="Anchor"/>; an answer carries the question and option fields and <see cref="Comment"/>. Every
-/// string is the owner's page's, verbatim.
+/// <see cref="Anchor"/>; an answer carries the question and option fields and <see cref="Comment"/>. The owner's
+/// OWN answer (<see cref="DevReportOwnAnswer"/>) is an answer whose option value is the reserved one, and whose
+/// <see cref="Text"/> holds the owner's own words. Every string is the owner's page's, verbatim, except an own
+/// answer's label, which the Gateway sets.
 /// </summary>
 internal sealed record DevReportItem(
     string Id,
@@ -60,6 +62,9 @@ internal sealed record DevReportItem(
 {
     public const string Note = "note";
     public const string Answer = "answer";
+
+    /// <summary>The owner answered in their own words rather than with one of the author's options.</summary>
+    public bool IsOwnAnswer => Kind == Answer && DevReportOwnAnswer.Is(OptionValue);
 
     /// <summary>The contract's limit on every string, in UTF-16 code units - what the script's
     /// <c>string.length</c> counts.</summary>
@@ -153,7 +158,23 @@ internal sealed record DevReportItem(
             if (!Str(e, "optionValue", out var optionValue, ref fault)) return null;
             if (!Str(e, "optionLabel", out var optionLabel, ref fault)) return null;
             if (!Str(e, "comment", out var comment, ref fault)) return null;
-            return new DevReportItem(id, Answer, "", null, questionId, question, optionValue, optionLabel, comment);
+            if (!OptStr(e, "ownAnswer", out var ownAnswer, ref fault)) return null;
+            if (!DevReportOwnAnswer.Is(optionValue))
+            {
+                if (ownAnswer is not null)
+                {
+                    fault = $"ownAnswer is sent only with the optionValue \"{DevReportOwnAnswer.Value}\", the owner's own answer.";
+                    return null;
+                }
+                return new DevReportItem(id, Answer, "", null, questionId, question, optionValue, optionLabel, comment);
+            }
+            // THE OWNER'S OWN ANSWER: their words are the answer, so there must be some. The label is the Gateway's.
+            if (ownAnswer is null || ownAnswer.Trim().Length == 0)
+            {
+                fault = $"the optionValue \"{DevReportOwnAnswer.Value}\" is the owner's own answer and needs their words in ownAnswer.";
+                return null;
+            }
+            return new DevReportItem(id, Answer, ownAnswer, null, questionId, question, optionValue, DevReportOwnAnswer.Label, comment);
         }
 
         fault = $"kind \"{kind}\" is not note or answer.";

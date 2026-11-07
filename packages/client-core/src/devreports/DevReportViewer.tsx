@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { GatewayError } from "../api/client";
+import { GatewayError, transcribeUtterance } from "../api/client";
+import { captureLossWarning, logCaptureHealth } from "../dictation/captureHealth";
+import { MicRecorder, startRecorderWithTimeout } from "../dictation/recorder";
+import { blobToWav16kMono } from "../dictation/wav";
 import { describeAndReport, reportShownError } from "../errors/reportClientError";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { DevReportController, type DevReportApi, type DevReportSnapshot } from "./controller";
@@ -9,6 +12,7 @@ import { getDevReport, getDevReportHtml, sendDevReportItems } from "./devReports
 import { reportFileName, saveHtmlFile } from "./exportReport";
 import { DEV_REPORT_ANSWERS_OFF_SCRIPT } from "./answersOffScript";
 import { DEV_REPORT_NOTES_SCRIPT } from "./notesScript";
+import type { DevReportDictationOptions, DictationTranscript } from "./dictationHost";
 import { DevReportStateStore } from "./stateStore";
 import { APP_DEV_REPORT_THEME } from "./theme";
 import "./devReports.css";
@@ -65,6 +69,35 @@ export interface DevReportViewerProps {
    * without the Gateway's words - there is no back link at all, because the alternative is inventing one.
    */
   onBackToSession?: (sessionId: string) => void;
+  /**
+   * Dictation into the report's boxes (Report Answers by Voice), named by the surface it is measured as ("cockpit",
+   * "mobile") - the same tag the Speak dialog files its capture health under. Left out, the page draws no microphone.
+   * Only offered with notes on: without the notes script there is no box with a microphone to draw. Read once.
+   */
+  dictationSurface?: string;
+}
+
+/**
+ * THE SESSION PROMPT'S OWN TRANSCRIPTION, for a dictation into a report's box (Report Answers by Voice): the captured
+ * audio transcoded to 16 kHz mono WAV and sent up the same Gateway upload the Speak dialog uses, with the same
+ * capture-health measurement. The words come back exactly as the Gateway returned them - the speech model's output
+ * with only the owner's own dictionary corrections - and nothing here changes them.
+ */
+export async function transcribeForDevReport(captured: Blob, recordedMs: number, surface: string): Promise<DictationTranscript> {
+  const transcoded = await blobToWav16kMono(captured);
+  const health = { recordedMs, decodedSeconds: transcoded.decodedSeconds, sourceBytes: transcoded.sourceBytes };
+  logCaptureHealth(surface, health);
+  const transcribed = await transcribeUtterance(transcoded.wav, { ...health, surface });
+  return { text: transcribed.text, warning: captureLossWarning(health) };
+}
+
+/** The real recorder and transcriber for one surface. */
+export function gatewayDictation(surface: string): Omit<DevReportDictationOptions, "push"> {
+  return {
+    createRecorder: () => new MicRecorder(),
+    startRecorder: (recorder) => startRecorderWithTimeout(recorder as MicRecorder),
+    transcribe: (captured, recordedMs) => transcribeForDevReport(captured, recordedMs, surface),
+  };
 }
 
 const idleSubscribe = () => () => {};
@@ -96,11 +129,23 @@ const idleSnapshot: DevReportSnapshot = {
   noteMode: { picking: false, selectionQuote: null },
 };
 
-export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = true, answers = true, renderConversation, onNotFound, onBackToSession, leading, trailing }: DevReportViewerProps) {
+export function DevReportViewer({
+  reportId,
+  api = gatewayDevReportApi,
+  notes = true,
+  answers = true,
+  renderConversation,
+  onNotFound,
+  onBackToSession,
+  leading,
+  trailing,
+  dictationSurface,
+}: DevReportViewerProps) {
   // The data source is fixed for the life of one open report: a new one is a new report on screen.
   const apiRef = useRef(api);
   const notesRef = useRef(notes);
   const answersRef = useRef(answers);
+  const dictationSurfaceRef = useRef(dictationSurface);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [controller, setController] = useState<DevReportController | null>(null);
 
@@ -117,6 +162,7 @@ export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = t
       // either gets the report's own answer controls disabled (round-3 review R1) - never a control that goes nowhere.
       script: frameScriptFor(notesRef.current, answersRef.current),
       theme: APP_DEV_REPORT_THEME,
+      dictation: notesRef.current && dictationSurfaceRef.current ? gatewayDictation(dictationSurfaceRef.current) : undefined,
       onRefused: (why) => console.warn(`[DevReportViewer] report ${reportId}: refused a frame message - ${why}`),
     });
     setController(next);

@@ -34,6 +34,16 @@
   var CHANNEL = "devthrottle.dev-report";
   var VERSION = 1;
   var MAX_STRING = 20000;
+  // THE OWNER'S OWN ANSWER (Report Answers by Voice). Every question gets a last option, "Something else", with this
+  // reserved value; picking it opens a box for the owner's own words, sent as the answer's ownAnswer. No report may
+  // use the value for an option of its own (the Gateway's shape check refuses one that does).
+  var OWN_ANSWER_VALUE = "own-answer";
+  var OWN_ANSWER_LABEL = "Something else";
+  // The field ids the microphone buttons name to the host. Fixed and short, never random, so a restore names the
+  // same box.
+  var NOTE_FIELD_ID = "note";
+  var MAX_FIELD_ID = 200;
+  var DICTATION_PHASES = ["starting", "recording", "transcribing", "done", "failed"];
   var QUOTE_LENGTH = 240;
   var TOKEN_ATTR = "data-dev-report-token";
   var THEME_ATTR = "data-dev-report-theme";
@@ -115,6 +125,14 @@
   function cleanText(value, limit) {
     var text = String(value == null ? "" : value).replace(/\s+/g, " ").trim();
     return limit ? text.slice(0, limit) : text;
+  }
+
+  // Joins dictated words onto what a box already holds with exactly one space between them, and changes nothing
+  // else - the same rule as the session prompt's joinText (packages/client-core/src/dictation/transcript.ts).
+  function joinText(left, right) {
+    if (!left) return right;
+    if (!right) return left;
+    return /\s$/.test(left) || /^\s/.test(right) ? left + right : left + " " + right;
   }
 
   function textOf(el) {
@@ -418,9 +436,16 @@
     if (item.kind === "note") return isStr(item.text) && validAnchor(item.anchor);
     if (item.kind === "answer") {
       return isStr(item.questionId) && item.questionId !== "" && isStr(item.question) &&
-        isStr(item.optionValue) && isStr(item.optionLabel) && isStr(item.comment);
+        isStr(item.optionValue) && isStr(item.optionLabel) && isStr(item.comment) &&
+        ownAnswerFits(item.optionValue, item.ownAnswer);
     }
     return false;
+  }
+
+  // An own answer carries the owner's words; no other answer carries ownAnswer at all.
+  function ownAnswerFits(optionValue, ownAnswer) {
+    if (optionValue === OWN_ANSWER_VALUE) return isStr(ownAnswer) && ownAnswer.trim() !== "";
+    return ownAnswer === undefined;
   }
 
   // A queued item may be waiting for the host to confirm it (pending), or carry the host's words for why it
@@ -439,7 +464,8 @@
   }
 
   function validAnswerDraft(d) {
-    return isPlainObject(d) && isStr(d.questionId) && d.questionId !== "" && isStr(d.optionValue) && isStr(d.comment);
+    return isPlainObject(d) && isStr(d.questionId) && d.questionId !== "" && isStr(d.optionValue) && isStr(d.comment) &&
+      isOptStr(d.ownAnswer);
   }
 
   function everyValid(list, check) {
@@ -482,7 +508,19 @@
     // something the app asks this page to do. "pick" arms picking, "selection" opens a note on the text the
     // reader has selected, "off" cancels. Anything else is not a note-mode message.
     if (data.type === "note-mode") return NOTE_MODES.indexOf(p.mode) >= 0 ? { type: "note-mode", payload: p } : null;
+    // dictation (Report Answers by Voice): where the host's recording for one of this page's boxes stands.
+    if (data.type === "dictation") return validDictation(p) ? { type: "dictation", payload: p } : null;
     return null;
+  }
+
+  function validDictation(p) {
+    if (typeof p.fieldId !== "string" || p.fieldId === "" || p.fieldId.length > MAX_FIELD_ID) return false;
+    if (DICTATION_PHASES.indexOf(p.phase) < 0) return false;
+    if (p.seconds !== undefined && !(isFiniteNumber(p.seconds) && p.seconds >= 0)) return false;
+    if (p.level !== undefined && !(isFiniteNumber(p.level) && p.level >= 0 && p.level <= 1)) return false;
+    if (!isOptStr(p.reason)) return false;
+    if (p.phase === "done") return isStr(p.text);
+    return p.text === undefined;
   }
 
   function envelope(type, payload) {
@@ -558,6 +596,7 @@
           optionLabel: String(answer.optionLabel || ""),
           comment: String(answer.comment || "").trim()
         };
+        if (answer.ownAnswer !== undefined) item.ownAnswer = String(answer.ownAnswer).trim();
         var latest = -1;
         for (var i = 0; i < state.queued.length; i++) {
           if (state.queued[i].kind === "answer" && state.queued[i].questionId === item.questionId) latest = i;
@@ -639,8 +678,9 @@
       clearAnswerDraft: function (questionId) {
         state.answerDrafts = state.answerDrafts.filter(function (d) { return d.questionId !== questionId; });
       },
-      setAnswerDraft: function (questionId, optionValue, comment) {
+      setAnswerDraft: function (questionId, optionValue, comment, ownAnswer) {
         var draft = { questionId: String(questionId), optionValue: String(optionValue), comment: String(comment) };
+        if (ownAnswer !== undefined) draft.ownAnswer = String(ownAnswer);
         if (!validAnswerDraft(draft)) throw new Error("setAnswerDraft: the draft is not valid");
         state.answerDrafts = state.answerDrafts.filter(function (d) { return d.questionId !== draft.questionId; });
         state.answerDrafts.push(draft);
@@ -703,12 +743,22 @@
       // their own surface rather than relying on the page behind them.
       ".drn-q-state { font-size: 13px; margin-left: 8px; padding: 4px 8px; border-radius: 6px; background: " + t.surface + "; color: " + t.text + "; }",
       ".drn-q-state:empty { display: none; }",
-      ".drn-mic-container { display: inline-block; margin-left: 4px; }",
-      ".drn-mic-btn { padding: 4px 6px; font-size: 12px; min-width: 32px; }",
-      ".drn-mic-icon { display: inline-block; width: 14px; height: 14px; }",
-      ".drn-mic-recording { background-color: " + t.accent + " !important; animation: drn-pulse 1s infinite; }",
-      ".drn-mic-timer { font-size: 11px; margin-left: 4px; color: " + t.accent + "; }",
-      "@keyframes drn-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }",
+      // The owner's own answer: its box opens under "Something else" when that option is picked.
+      ".drn-own { font-family: " + t.font + "; font-size: 14px; line-height: 1.4; color: " + t.text + "; margin: 4px 0 6px; }",
+      ".drn-own[hidden] { display: none; }",
+      ".drn-own textarea { min-height: 56px; }",
+      // A microphone row under a box. One box records at a time; the others' buttons are disabled meanwhile.
+      ".drn-mic { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-family: " + t.font + "; font-size: 13px; line-height: 1.4; color: " + t.text + "; }",
+      ".drn-mic[hidden] { display: none; }",
+      ".drn-mic-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; }",
+      ".drn-mic-btn svg { width: 16px; height: 16px; fill: currentColor; }",
+      ".drn-mic.drn-live .drn-mic-btn { background: #dc2626; border-color: #dc2626; color: #ffffff; }",
+      ".drn-mic-level { display: none; align-items: flex-end; gap: 2px; height: 16px; }",
+      ".drn-mic.drn-live .drn-mic-level { display: inline-flex; }",
+      ".drn-mic-level span { display: inline-block; width: 3px; min-height: 2px; background: #dc2626; border-radius: 1px; }",
+      ".drn-mic-state { padding: 2px 6px; border-radius: 6px; background: " + t.surface + "; }",
+      ".drn-mic-state:empty { display: none; }",
+      ".drn-mic.drn-failed .drn-mic-state { color: #dc2626; }",
       "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
     ].join("\n");
   }
@@ -727,11 +777,17 @@
     return "\"" + anchor.quote.slice(0, 80) + "\"";
   }
 
+  // What an answer says, in one line: the option's label, or for the owner's own answer the label and their words.
+  function answerWords(item) {
+    if (item.optionValue === OWN_ANSWER_VALUE) return item.optionLabel + ": \"" + item.ownAnswer + "\"";
+    return item.optionLabel;
+  }
+
   function describeItem(item) {
     if (item.kind === "answer") {
       return {
         head: "Answer: " + item.question,
-        body: item.optionLabel + (item.comment ? " - " + item.comment : "")
+        body: answerWords(item) + (item.comment ? " - " + item.comment : "")
       };
     }
     return { head: describeAnchor(item.anchor), body: item.text };
@@ -903,53 +959,168 @@
       post("state-changed", { state: model.snapshot() });
     }
 
-    var activeDictationField = null;
-    var micButtons = new Map();
+    // --- dictation ------------------------------------------------------------------------------
+    // REPORT ANSWERS BY VOICE. This frame cannot open the microphone (no same-origin access), so a microphone
+    // button under a box asks the host: the first tap posts dictation-start, the red square posts dictation-stop.
+    // The host records and transcribes with the session prompt's own recorder and Gateway transcription, and says
+    // where it stands with dictation messages. When the words come back they are ADDED TO THE END of what the box
+    // holds - never sent: the owner reads and corrects them, then queues. A failure says so and leaves the box as
+    // it was. One box records at a time. The buttons are drawn only when the host's restore says it records
+    // (dictation: true); a plain file with no host never shows one.
+    var dictationOffered = false;
+    var mics = new Map();
+    var activeMic = null;
+    var SVG_NS = "http://www.w3.org/2000/svg";
+    var LEVEL_BARS = 5;
 
-    function createMicrophoneButton(fieldId) {
-      var container = el(doc, "div", { "class": "drn-mic-container" });
-      var btn = el(doc, "button", { type: "button", "class": "drn-mic-btn", "data-drn-mic-field": fieldId }, "");
-      btn.setAttribute("aria-label", "Record and transcribe");
-      var icon = el(doc, "span", { "class": "drn-mic-icon" }, "M");
-      btn.appendChild(icon);
-      btn.addEventListener("click", function (e) {
-        e.preventDefault();
-        startDictation(fieldId, btn);
-      });
-      container.appendChild(btn);
-      micButtons.set(fieldId, { btn: btn, container: container });
-      return container;
-    }
-
-    function startDictation(fieldId, btn) {
-      if (activeDictationField) return;
-      activeDictationField = fieldId;
-      btn.classList.add("drn-mic-recording");
-      btn.disabled = true;
-      var timer = el(doc, "span", { "class": "drn-mic-timer" }, "0s");
-      btn.appendChild(timer);
-      var seconds = 0;
-      var timerInterval = root.setInterval(function () {
-        seconds++;
-        timer.textContent = seconds + "s";
-      }, 1000);
-      micButtons.get(fieldId).timerInterval = timerInterval;
-      post("dictation-start", { fieldId: fieldId });
-    }
-
-    function endDictation(fieldId) {
-      if (activeDictationField !== fieldId) return;
-      activeDictationField = null;
-      var mic = micButtons.get(fieldId);
-      if (!mic) return;
-      if (mic.timerInterval) {
-        root.clearInterval(mic.timerInterval);
-        mic.timerInterval = null;
+    function micIcon(stop) {
+      var svg = doc.createElementNS(SVG_NS, "svg");
+      svg.setAttribute("viewBox", "0 0 16 16");
+      svg.setAttribute("aria-hidden", "true");
+      if (stop) {
+        var square = doc.createElementNS(SVG_NS, "rect");
+        square.setAttribute("x", "3");
+        square.setAttribute("y", "3");
+        square.setAttribute("width", "10");
+        square.setAttribute("height", "10");
+        square.setAttribute("rx", "1.5");
+        svg.appendChild(square);
+      } else {
+        var shape = doc.createElementNS(SVG_NS, "path");
+        shape.setAttribute("d", "M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1zm-5 6.5h1.2a3.8 3.8 0 0 0 7.6 0H13a5 5 0 0 1-4.4 5V15H7.4v-2.5A5 5 0 0 1 3 7.5z");
+        svg.appendChild(shape);
       }
-      var timer = mic.btn.querySelector(".drn-mic-timer");
-      if (timer && timer.parentNode) timer.parentNode.removeChild(timer);
-      mic.btn.classList.remove("drn-mic-recording");
-      mic.btn.disabled = false;
+      return svg;
+    }
+
+    function clock(seconds) {
+      var whole = Math.floor(seconds || 0);
+      var rest = whole % 60;
+      return Math.floor(whole / 60) + ":" + (rest < 10 ? "0" : "") + rest;
+    }
+
+    // A microphone row for one box. `target` answers the box the words go into, or null when it is gone (a note box
+    // that was closed).
+    function addMicrophone(fieldId, target) {
+      var row = el(doc, "div", { "class": "drn-mic", "data-drn": "mic", "data-field-id": fieldId, hidden: "" });
+      var button = el(doc, "button", { type: "button", "class": "drn-mic-btn", "data-drn": "mic-button" });
+      var level = el(doc, "span", { "class": "drn-mic-level", "aria-hidden": "true" });
+      var bars = [];
+      for (var i = 0; i < LEVEL_BARS; i++) {
+        var bar = el(doc, "span", null);
+        bars.push(bar);
+        level.appendChild(bar);
+      }
+      var stateText = el(doc, "span", { "class": "drn-mic-state", "data-drn": "mic-state", role: "status" }, "");
+      row.appendChild(button);
+      row.appendChild(level);
+      row.appendChild(stateText);
+      var mic = { fieldId: fieldId, row: row, button: button, bars: bars, stateText: stateText, target: target,
+        phase: "idle", seconds: 0, level: 0, reason: "", icon: null };
+      mics.set(fieldId, mic);
+      button.addEventListener("click", function () { onMicClick(mic); });
+      drawMic(mic);
+      return row;
+    }
+
+    function onMicClick(mic) {
+      if (!dictationOffered) return;
+      if (mic.phase === "recording") {
+        // Feedback at once; the host confirms with its own "transcribing".
+        mic.phase = "transcribing";
+        drawMics();
+        post("dictation-stop", { fieldId: mic.fieldId });
+        return;
+      }
+      if (activeMic !== null || mic.phase === "starting" || mic.phase === "transcribing") return;
+      if (!mic.target()) return;
+      activeMic = mic.fieldId;
+      mic.phase = "starting";
+      mic.reason = "";
+      drawMics();
+      post("dictation-start", { fieldId: mic.fieldId });
+    }
+
+    function micStateText(mic) {
+      if (mic.phase === "starting") return "Starting the microphone...";
+      if (mic.phase === "recording") return "Recording " + clock(mic.seconds) + " - tap the square to stop";
+      if (mic.phase === "transcribing") return "Transcribing...";
+      if (mic.phase === "done") return "Added what you said. Read it before you queue." + (mic.reason ? " " + mic.reason : "");
+      if (mic.phase === "failed") return "Not added: " + mic.reason + " What was in the box is unchanged.";
+      return "";
+    }
+
+    function drawMic(mic) {
+      if (dictationOffered) mic.row.removeAttribute("hidden");
+      else mic.row.setAttribute("hidden", "");
+      var live = mic.phase === "starting" || mic.phase === "recording";
+      if (live) mic.row.classList.add("drn-live");
+      else mic.row.classList.remove("drn-live");
+      if (mic.phase === "failed") mic.row.classList.add("drn-failed");
+      else mic.row.classList.remove("drn-failed");
+      if (mic.icon !== live) {
+        while (mic.button.firstChild) mic.button.removeChild(mic.button.firstChild);
+        mic.button.appendChild(micIcon(live));
+        mic.icon = live;
+      }
+      mic.button.setAttribute("aria-label", mic.phase === "recording" ? "Stop recording" : "Dictate into this box");
+      mic.button.setAttribute("data-phase", mic.phase);
+      var busyElsewhere = activeMic !== null && activeMic !== mic.fieldId;
+      if (busyElsewhere || mic.phase === "starting" || mic.phase === "transcribing") mic.button.setAttribute("disabled", "");
+      else mic.button.removeAttribute("disabled");
+      for (var i = 0; i < mic.bars.length; i++) {
+        // The bars rise left to right with the level, so a voice reads as a growing meter and silence as a flat one.
+        var share = Math.max(0, Math.min(1, mic.level * LEVEL_BARS - i));
+        mic.bars[i].style.height = Math.round(2 + share * 14) + "px";
+      }
+      mic.stateText.textContent = micStateText(mic);
+    }
+
+    function drawMics() {
+      mics.forEach(drawMic);
+    }
+
+    function onDictation(update) {
+      var mic = mics.get(update.fieldId);
+      if (!mic) return;
+      if (update.phase === "starting" || update.phase === "recording" || update.phase === "transcribing") {
+        // The owner already pressed stop; a recording tick that was on its way must not put the square back.
+        if (!(update.phase === "recording" && mic.phase === "transcribing")) mic.phase = update.phase;
+        mic.seconds = update.seconds || 0;
+        mic.level = update.level || 0;
+        activeMic = mic.fieldId;
+      } else if (update.phase === "done") {
+        if (activeMic === mic.fieldId) activeMic = null;
+        mic.level = 0;
+        var box = mic.target();
+        if (!box) {
+          mic.phase = "failed";
+          mic.reason = "the box was closed before your words arrived.";
+        } else {
+          box.value = joinText(box.value, update.text);
+          box.dispatchEvent(new win.Event("input", { bubbles: true }));
+          mic.phase = "done";
+          mic.reason = update.reason || "";
+        }
+      } else {
+        if (activeMic === mic.fieldId) activeMic = null;
+        mic.level = 0;
+        mic.phase = "failed";
+        mic.reason = update.reason || "the recording did not work.";
+      }
+      drawMics();
+    }
+
+    // A new connection: whatever was recording belonged to the last one, and the host has let it go.
+    function resetDictation(offered) {
+      dictationOffered = offered;
+      activeMic = null;
+      mics.forEach(function (mic) {
+        mic.phase = "idle";
+        mic.level = 0;
+        mic.reason = "";
+      });
+      drawMics();
     }
 
     // --- tray -----------------------------------------------------------------------------------
@@ -984,6 +1155,7 @@
     composerRow.appendChild(composerCancel);
     composer.appendChild(composerWhere);
     composer.appendChild(composerText);
+    composer.appendChild(addMicrophone(NOTE_FIELD_ID, function () { return model.snapshot().draft ? composerText : null; }));
     composer.appendChild(composerRow);
 
     var queuedList = el(doc, "ul", { "class": "drn-list", "data-drn": "queued" });
@@ -1305,22 +1477,76 @@
     // --- questions ------------------------------------------------------------------------------
     var questions = Array.prototype.slice.call(doc.querySelectorAll("[data-dev-report-question]"));
     var questionStates = new Map();
+    // Per question id: the owner's own answer box and the function that redraws it, for a restore.
+    var ownAnswers = new Map();
 
-    questions.forEach(function (q) {
-      var id = q.getAttribute("data-dev-report-question");
-
-      // Add "Something else" option if not already present
-      var ownAnswerRadio = q.querySelector("input[type=radio][value='own-answer']");
-      if (!ownAnswerRadio && radiosIn(q).length > 0) {
-        var firstRadio = radiosIn(q)[0];
-        var name = firstRadio.getAttribute("name");
-        var label = el(doc, "label", {}, null);
-        var radio = el(doc, "input", { type: "radio", name: name, value: "own-answer" });
-        label.appendChild(radio);
-        label.appendChild(doc.createTextNode("Something else"));
-        q.appendChild(label);
+    // The element an option's markup ends with: its label when the label comes after the radio, else the radio.
+    function optionEnd(radio) {
+      var label = radio.closest("label");
+      if (!label && radio.id) {
+        var labels = doc.getElementsByTagName("label");
+        for (var i = 0; i < labels.length; i++) {
+          if (labels[i].htmlFor === radio.id) {
+            label = labels[i];
+            break;
+          }
+        }
       }
+      if (!label) return radio;
+      if (label.contains(radio)) return label;
+      return radio.compareDocumentPosition(label) & 4 ? label : radio;
+    }
 
+    // SOMETHING ELSE: added as the question's last option, after the author's last one, so the author writes
+    // nothing. Its own box (and microphone) sits under it in a shadow root, shown only while it is picked. A
+    // question whose author already used the reserved value gets none - the Gateway refuses such a report, so this
+    // only meets one published before that check.
+    function addOwnAnswer(q, index) {
+      var radios = radiosIn(q);
+      if (!radios.length) return null;
+      for (var i = 0; i < radios.length; i++) {
+        if (String(radios[i].value) === OWN_ANSWER_VALUE) {
+          console.warn("[dev-report-notes] question " + q.getAttribute("data-dev-report-question") +
+            " uses the reserved value " + OWN_ANSWER_VALUE + "; no Something else option is added to it");
+          return null;
+        }
+      }
+      var after = optionEnd(radios[radios.length - 1]);
+      var radio = el(doc, "input", { type: "radio", value: OWN_ANSWER_VALUE, "data-drn-own-answer": "" });
+      var name = radios[0].getAttribute("name");
+      if (name) radio.setAttribute("name", name);
+      var label = el(doc, "label", { "data-drn-own-answer-option": "" });
+      label.appendChild(radio);
+      label.appendChild(doc.createTextNode(" " + OWN_ANSWER_LABEL));
+      var boxRoot = shadowHost(doc);
+      uiRoots.push(boxRoot.host);
+      var wrap = el(doc, "div", { "class": "drn-own", "data-drn": "own-answer-box", hidden: "" });
+      var text = el(doc, "textarea", {
+        "data-drn": "own-answer",
+        "aria-label": "Your own answer",
+        placeholder: "Your own answer - type it, or tap the microphone and say it",
+        maxlength: String(MAX_STRING)
+      });
+      wrap.appendChild(text);
+      wrap.appendChild(addMicrophone("q" + index + ":own", function () { return text; }));
+      boxRoot.shadow.appendChild(wrap);
+      // An option that sits in a list item gets a list item of its own, so the list stays a list.
+      var item = after.parentElement && after.parentElement.tagName === "LI" ? after.parentElement : null;
+      if (item) {
+        var li = doc.createElement("li");
+        li.appendChild(label);
+        li.appendChild(boxRoot.host);
+        item.parentNode.insertBefore(li, item.nextSibling);
+      } else {
+        after.parentNode.insertBefore(label, after.nextSibling);
+        label.parentNode.insertBefore(boxRoot.host, label.nextSibling);
+      }
+      return { radio: radio, wrap: wrap, text: text };
+    }
+
+    questions.forEach(function (q, index) {
+      var id = q.getAttribute("data-dev-report-question");
+      var own = addOwnAnswer(q, index);
       var radios = radiosIn(q);
       // One answer per question, whatever the radio names say. The shape check requires one shared name, but
       // a page with two names lets the browser keep two options checked, and then the answer queued would be
@@ -1336,32 +1562,10 @@
         r.addEventListener("change", function () {
           if (!r.checked) return;
           radios.forEach(function (other) { if (other !== r) other.checked = false; });
-          var ownAnswerBox = q.querySelector("[data-drn-own-answer-box]");
-          if (r.value === "own-answer" && ownAnswerBox) {
-            ownAnswerBox.removeAttribute("hidden");
-            ownAnswerBox.focus();
-          } else if (ownAnswerBox) {
-            ownAnswerBox.setAttribute("hidden", "");
-          }
+          updateOwnAnswer();
+          if (own && r === own.radio) own.text.focus();
         });
       });
-
-      // Create "Something else" text box if "Something else" option exists
-      var ownAnswerRadio = q.querySelector("input[type=radio][value='own-answer']");
-      if (ownAnswerRadio) {
-        var ownAnswerBoxId = "drn-field-" + id + "-own-answer-" + String(Math.random()).slice(2);
-        var ownAnswerBox = el(doc, "textarea", {
-          "data-drn-own-answer-box": "",
-          "data-drn-field-id": ownAnswerBoxId,
-          hidden: "",
-          maxlength: String(MAX_STRING),
-          placeholder: "Your answer"
-        });
-        var ownAnswerMicBtn = createMicrophoneButton(doc, ownAnswerBoxId);
-        q.appendChild(ownAnswerBox);
-        if (ownAnswerMicBtn) q.appendChild(ownAnswerMicBtn);
-      }
-
       var rowRoot = shadowHost(doc);
       uiRoots.push(rowRoot.host);
       var row = el(doc, "div", { "class": "drn-row" });
@@ -1375,23 +1579,44 @@
       var comment = commentIn(q);
       if (comment) {
         comment.setAttribute("maxlength", String(MAX_STRING));
-        var commentFieldId = "drn-field-" + id + "-comment-" + String(Math.random()).slice(2);
-        comment.setAttribute("data-drn-field-id", commentFieldId);
-        var commentMicBtn = createMicrophoneButton(commentFieldId);
-        if (commentMicBtn && comment.parentNode) {
-          comment.parentNode.insertBefore(commentMicBtn, comment.nextSibling);
-        }
+        var micRoot = shadowHost(doc);
+        uiRoots.push(micRoot.host);
+        micRoot.shadow.appendChild(addMicrophone("q" + index + ":comment", function () { return comment; }));
+        comment.parentNode.insertBefore(micRoot.host, comment.nextSibling);
       }
+
+      function ownPicked() {
+        return own !== null && checkedIn(q) === own.radio;
+      }
+
+      // The own answer's box shows while "Something else" is picked, and Queue answer waits for words in it.
+      function updateOwnAnswer() {
+        if (!own) return;
+        if (ownPicked()) own.wrap.removeAttribute("hidden");
+        else own.wrap.setAttribute("hidden", "");
+        if (ownPicked() && !own.text.value.trim()) queueBtn.setAttribute("disabled", "");
+        else queueBtn.removeAttribute("disabled");
+      }
+      ownAnswers.set(id, { own: own, update: updateOwnAnswer });
 
       function saveAnswerDraft() {
         var chosen = checkedIn(q);
         var text = comment ? comment.value : "";
+        var ownText = own && own.text.value !== "" ? own.text.value : undefined;
         if (text.length > MAX_STRING || (chosen && String(chosen.value).length > MAX_STRING)) return;
-        model.setAnswerDraft(id, chosen ? String(chosen.value) : "", text);
+        if (ownText !== undefined && ownText.length > MAX_STRING) return;
+        model.setAnswerDraft(id, chosen ? String(chosen.value) : "", text, ownText);
         emitState();
       }
       radiosIn(q).forEach(function (r) { r.addEventListener("change", saveAnswerDraft); });
       if (comment) comment.addEventListener("input", saveAnswerDraft);
+      if (own) {
+        own.text.addEventListener("input", function () {
+          updateOwnAnswer();
+          saveAnswerDraft();
+        });
+      }
+      updateOwnAnswer();
 
       queueBtn.addEventListener("click", function () {
         var chosen = checkedIn(q);
@@ -1399,23 +1624,23 @@
           stateText.textContent = "Pick an option first.";
           return;
         }
-        var ownAnswerBox = q.querySelector("[data-drn-own-answer-box]");
-        var commentText = comment ? comment.value.trim() : "";
-        if (String(chosen.value) === "own-answer") {
-          if (!ownAnswerBox || !ownAnswerBox.value.trim()) {
-            stateText.textContent = "Type your answer first.";
-            return;
-          }
-          commentText = ownAnswerBox.value.trim();
-        }
         var answer = {
           questionId: id,
           question: questionText(q),
           optionValue: String(chosen.value),
           optionLabel: optionLabel(chosen),
-          comment: commentText
+          comment: comment ? comment.value.trim() : ""
         };
+        if (own && chosen === own.radio) {
+          answer.optionLabel = OWN_ANSWER_LABEL;
+          answer.ownAnswer = own.text.value.trim();
+          if (!answer.ownAnswer) {
+            stateText.textContent = "Write or say your own answer first.";
+            return;
+          }
+        }
         var tooLong = [];
+        if (answer.ownAnswer !== undefined && answer.ownAnswer.length > MAX_STRING) tooLong.push("your own answer");
         if (answer.comment.length > MAX_STRING) tooLong.push("the comment");
         if (answer.question.length > MAX_STRING) tooLong.push("the question text");
         if (answer.optionValue.length > MAX_STRING) tooLong.push("the option's value");
@@ -1443,10 +1668,10 @@
         var sent = null;
         for (var i = 0; i < s.queued.length; i++) if (s.queued[i].questionId === id) queued = s.queued[i];
         for (var j = 0; j < s.sent.length; j++) if (s.sent[j].questionId === id) sent = s.sent[j];
-        if (queued && queued.pending) stateText.textContent = "Sent: " + queued.optionLabel + " - waiting for the app to confirm it has this.";
-        else if (queued && queued.statusLabel) stateText.textContent = "Not sent: " + queued.optionLabel + " - " + queued.statusLabel;
-        else if (queued) stateText.textContent = "Queued: " + queued.optionLabel + " - " + sendHint();
-        else if (sent) stateText.textContent = "Sent: " + sent.optionLabel + " - " + sent.statusLabel;
+        if (queued && queued.pending) stateText.textContent = "Sent: " + answerWords(queued) + " - waiting for the app to confirm it has this.";
+        else if (queued && queued.statusLabel) stateText.textContent = "Not sent: " + answerWords(queued) + " - " + queued.statusLabel;
+        else if (queued) stateText.textContent = "Queued: " + answerWords(queued) + " - " + sendHint();
+        else if (sent) stateText.textContent = "Sent: " + answerWords(sent) + " - " + sent.statusLabel;
         else stateText.textContent = "";
       });
     }
@@ -1464,6 +1689,11 @@
         if (!fill) return;
         if (fill.optionValue !== "") radiosIn(q).forEach(function (r) { r.checked = String(r.value) === fill.optionValue; });
         if (comment) comment.value = fill.comment;
+        var ownAnswer = ownAnswers.get(id);
+        if (ownAnswer && ownAnswer.own) {
+          ownAnswer.own.text.value = fill.ownAnswer !== undefined ? fill.ownAnswer : "";
+          ownAnswer.update();
+        }
       });
     }
 
@@ -1483,6 +1713,7 @@
       if (!message) return;
       if (message.type === "restore") {
         setHosted(true);
+        resetDictation(message.payload.dictation === true);
         payloadBox.setAttribute("hidden", "");
         model.restore(message.payload.state);
         applyAnswersToInputs();
@@ -1508,18 +1739,8 @@
         if (message.payload.mode === "pick") setPicking(true);
         else if (message.payload.mode === "off") setPicking(false);
         else noteOnSelection();
-      } else if (message.type === "dictation-result") {
-        var field = doc.querySelector("[data-drn-field-id='" + CSS.escape(message.payload.fieldId) + "']");
-        if (field && field.focus) {
-          field.value = (field.value || "") + message.payload.transcript;
-          field.dispatchEvent(new Event("input", { bubbles: true }));
-          field.focus();
-        }
-        endDictation(message.payload.fieldId);
-      } else if (message.type === "dictation-failed") {
-        var field = doc.querySelector("[data-drn-field-id='" + CSS.escape(message.payload.fieldId) + "']");
-        if (field && field.focus) field.focus();
-        endDictation(message.payload.fieldId);
+      } else if (message.type === "dictation") {
+        onDictation(message.payload);
       }
     }
 

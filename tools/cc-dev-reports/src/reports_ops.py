@@ -481,8 +481,14 @@ def _answer_blocks(result: Dict[str, Any]) -> List[str]:
             if not q.get("answered"):
                 blocks.append("      answer: not answered yet")
                 continue
-            blocks.append(f"      answer: {axi_output.format_value(q.get('optionLabel'))} "
-                          f"(value {axi_output.format_value(q.get('optionValue'))})")
+            if q.get("ownAnswer") is not None:
+                # The owner answered in their own words, not with one of the report's options. The Gateway decides
+                # how that is told (answerLabel); the words follow on their own line, verbatim.
+                blocks.append(f"      answer: {_ascii(str(q.get('answerLabel')))}")
+                blocks.append(f"      said: {axi_output.format_value(q.get('ownAnswer'))}")
+            else:
+                blocks.append(f"      answer: {axi_output.format_value(q.get('optionLabel'))} "
+                              f"(value {axi_output.format_value(q.get('optionValue'))})")
             if q.get("comment"):
                 blocks.append(f"      comment: {axi_output.format_value(q.get('comment'))}")
             blocks.append(f"      answeredAt: {axi_output.format_value(q.get('answeredAtUtc'))}")

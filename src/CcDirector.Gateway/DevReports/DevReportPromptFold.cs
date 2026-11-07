@@ -123,8 +123,11 @@ internal static class DevReportPromptFold
             sb.Append(i + 1).Append(". ");
             if (report.Items[i].FromTeamMember)
             {
-                sb.Append("An answer from a person this report was sent to, to ").Append(Page(item.Question)).Append(": ")
-                  .Append(Page(item.OptionLabel)).Append(" (value ").Append(Page(item.OptionValue)).Append(").");
+                sb.Append("An answer from a person this report was sent to, to ").Append(Page(item.Question)).Append(": ");
+                if (item.IsOwnAnswer)
+                    sb.Append("their own answer, not one of your options. Their words went to the person who sent the report, not to this session.");
+                else
+                    sb.Append(Page(item.OptionLabel)).Append(" (value ").Append(Page(item.OptionValue)).Append(").");
                 if (changes) sb.Append(" This changes that person's earlier answer to this question.");
                 sb.Append('\n');
             }
@@ -132,6 +135,20 @@ internal static class DevReportPromptFold
             {
                 sb.Append("A note ").Append(Where(item.Anchor!)).Append(". The owner wrote:\n");
                 AppendWords(sb, item.Text, boundary);
+            }
+            else if (item.IsOwnAnswer)
+            {
+                // THE OWNER'S OWN ANSWER: never one of the report's options, so it is never written as one.
+                sb.Append("An answer to ").Append(Page(item.Question))
+                  .Append(": the owner's own answer, not one of your options.");
+                if (changes) sb.Append(" This changes the owner's earlier answer to this question.");
+                sb.Append(" The owner wrote:\n");
+                AppendWords(sb, item.Text, boundary);
+                if (item.Comment.Length > 0)
+                {
+                    sb.Append("The owner's comment:\n");
+                    AppendWords(sb, item.Comment, boundary);
+                }
             }
             else
             {
