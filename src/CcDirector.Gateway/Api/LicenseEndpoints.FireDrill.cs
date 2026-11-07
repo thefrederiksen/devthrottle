@@ -92,7 +92,7 @@ public static partial class LicenseEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LicenseEndpoints] PUT {LicenseFireDrillRoutes.Machine} FAILED: {ex.Message}");
+            FileLog.Write($"[LicenseEndpoints] PUT /gateway/licenses/fire-drill/machine FAILED: {ex.Message}");
             throw;
         }
     }
@@ -117,7 +117,7 @@ public static partial class LicenseEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LicenseEndpoints] POST {LicenseFireDrillRoutes.Run} FAILED: {ex.Message}");
+            FileLog.Write($"[LicenseEndpoints] POST /gateway/licenses/fire-drill/run FAILED: {ex.Message}");
             throw;
         }
     }
