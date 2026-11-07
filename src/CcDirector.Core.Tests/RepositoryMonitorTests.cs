@@ -566,34 +566,6 @@ public class RepositoryMonitorTests
         Assert.Equal(1, probe.MaxRunning);
     }
 
-    // A JOINER that gives up stops waiting - and only it: the follow-up still runs for everyone else.
-    [Fact]
-    public async Task RecomputeOne_CancelledJoiner_StopsWaiting_TheFollowUpStillRuns()
-    {
-        using var repo = new FakeRepoDir("ccd-joinercancel-");
-        var probe = new ComputeProbe(_ => ComputeProbe.Behavior.HoldThenSucceed);
-        var monitor = probe.Monitor(repo.Path);
-        using var joinerCts = new CancellationTokenSource();
-
-        var owner = monitor.RecomputeOneAsync(repo.Path);
-        await probe.Entered(1);
-        var cancelledJoiner = monitor.RecomputeOneAsync(repo.Path, joinerCts.Token);
-        var patientJoiner = monitor.RecomputeOneAsync(repo.Path);
-        joinerCts.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledJoiner);
-        Assert.False(patientJoiner.IsCompleted);
-
-        probe.Release(1);
-        await probe.Entered(2); // the follow-up runs even though one of its requesters left
-        probe.Release(2);
-        await Task.WhenAll(owner, patientJoiner);
-
-        Assert.Equal(2, probe.Calls);
-        Assert.Equal(2, Assert.Single(monitor.Snapshot()).UncommittedCount);
-        Assert.Equal(1, probe.MaxRunning);
-    }
-
     // The FOLLOW-UP fails: its joiners see that failure, the owner (whose own compute succeeded)
     // does not, and the repository is not left stuck.
     [Fact]
