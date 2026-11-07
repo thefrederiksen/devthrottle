@@ -261,6 +261,109 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         Assert.Null(capacity.Why);
     }
 
+    // ---- Issue #4678: the "now" figures take the newest start group the same way the hour does. ----
+
+    /// <summary>
+    /// THE STRONGEST ARRANGEMENT, because no single row can satisfy it. At the newest start one Director read the
+    /// processor and not memory, the other read memory and not the processor. Picking ONE row for the whole machine
+    /// therefore had to show "cannot read" for one of the two resources whichever row it picked, while the hour -
+    /// which already groups by start - counted that start as covered for both. The two halves of this fold disagreed
+    /// about what a same-start pair means.
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereEachDirectorReadADifferentResource_ShowsBothFigures()
+    {
+        // director-2: memory read at 8 GB, the processor not read.
+        var memoryOnly = Steady(W0.AddMinutes(25), 0, 8 * Gb);
+        memoryOnly.Machine.ProcessorCouldRead = false;
+        memoryOnly.Machine.ProcessorUnreadableReason = "the processor counters did not answer";
+        _store.Store(Tenant, "director-2", Batch(memoryOnly));
+
+        // director-1: the processor read at 28%, memory not read.
+        var processorOnly = Steady(W0.AddMinutes(25), 28, 8 * Gb);
+        processorOnly.Machine.MemoryCouldRead = false;
+        processorOnly.Machine.MemoryUnreadableReason = "/proc/meminfo could not be opened";
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(processorOnly), Now);
+
+        Assert.Equal("28%", capacity.ProcessorLabel);
+        Assert.Equal("50%", capacity.MemoryLabel);
+        Assert.Equal("8.0 / 16 GB", capacity.MemoryDetail);
+        // Both resources were covered at every start in the hour, so nothing is unknown and nothing needs explaining.
+        Assert.Null(capacity.Why);
+    }
+
+    /// <summary>
+    /// One Director's REFUSED figures must not hide another's good reading of the same machine. The refused row is
+    /// given the higher sample count, which is exactly what the old tie-break preferred, so this fails deterministically
+    /// without it rather than depending on the order the store happens to return.
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereOneDirectorWasRefusedAndAnotherRead_ShowsTheReading()
+    {
+        var refused = Steady(W0.AddMinutes(25), 30, 15 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+        refused.SampleCount = 61;
+        _store.Store(Tenant, "director-2", Batch(refused));
+
+        var capacity = ResourceCapacityFold.Fold(
+            directorRunning: true, Stored(Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.Equal("28%", capacity.ProcessorLabel);
+        Assert.Equal("50%", capacity.MemoryLabel);
+        Assert.NotEqual("Figures refused", capacity.StatusLabel);
+        Assert.Null(capacity.Why);
+    }
+
+    /// <summary>
+    /// And the refusal still reaches the machine when EVERY row at the newest start was refused - the point of the
+    /// change is that one reading rescues the start, not that a refusal stops being reported. This one also passes
+    /// before the change: it guards against the fix going too far, not against the defect.
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereEveryDirectorWasRefused_StillSaysFiguresRefused()
+    {
+        var second = Steady(W0.AddMinutes(25), 30, 15 * Gb);
+        second.Machine.ProcessorPeakPercent = 400;
+        _store.Store(Tenant, "director-2", Batch(second));
+
+        var first = Steady(W0.AddMinutes(25), 28, 8 * Gb);
+        first.Machine.MemoryPeakUsedBytes = 99 * Gb;
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(first), Now);
+
+        Assert.True(capacity.Reporting);
+        Assert.Equal("Figures refused", capacity.StatusLabel);
+        Assert.Equal("cannot read", capacity.ProcessorLabel);
+        Assert.Equal("cannot read", capacity.MemoryLabel);
+        Assert.Equal("cannot read", capacity.SpareLabel);
+    }
+
+    /// <summary>
+    /// Silence is a question about the MACHINE, so the newest start's end is now the group's LONGEST window rather
+    /// than the chosen row's, and the figure comes from the fuller row.
+    ///
+    /// WHAT THIS TEST IS, SAID PLAINLY: a pin, not a guard. It passes on the code before this change too, and I could
+    /// not build an arrangement where the group's end changes the verdict without contriving the sample counts - a
+    /// shorter window at one start always ends before a longer one, and the longer one is normally the fuller one,
+    /// which the old tie-break already preferred. It is here so the rule cannot be quietly reverted, and it is
+    /// labelled so it is not read as evidence that the rule was needed. The two tests above are the guards.
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereOneRowIsShorterThanAnother_IsNotSilentAndUsesTheFullerRow()
+    {
+        var shortWindow = Steady(W0.AddMinutes(25), 30, 8 * Gb);
+        shortWindow.WindowSeconds = 5;
+        shortWindow.SampleCount = 1;
+        _store.Store(Tenant, "director-2", Batch(shortWindow));
+
+        var capacity = ResourceCapacityFold.Fold(
+            directorRunning: true, Stored(Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.True(capacity.Reporting);
+        Assert.Equal("28%", capacity.ProcessorLabel);
+    }
+
     // ---- Issue #4679: an hour that was not measured whole has no peak, only a highest reading. ----
 
     [Fact]
