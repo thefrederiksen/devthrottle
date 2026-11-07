@@ -184,8 +184,68 @@ public class ResourceLoadProofChecksTests
         Assert.True(verdict.Met);
         Assert.True(verdict.ClockStepped);
 
-        // The marked line is not a member: its stamp is before the change.
+        // And the arrangement really does demonstrate it: the marked line's RAW stamp is before the change,
+        // so a selection that read stamps would have dropped the one line the run owes its reader.
         Assert.False(ProofChecks.TakenAfterTheChange(change, window[1].TakenAtUtc));
+    }
+
+    /// <summary>
+    /// REVIEW ARRANGEMENT C: a backward step larger than the gap between the change and the next sample
+    /// must not hide that sample AND its own mark at once.
+    ///
+    /// The clock goes back eight seconds half a second after the change, so the sample taken at
+    /// recordingSeconds 10 is stamped before the change and every later stamp is eight seconds early.
+    /// Selecting on raw stamps dropped the samples at 10 and 15, took 20 as the baseline, measured 65
+    /// instead of the true 75 - a PASS where the product failed - and reported no clock step, because the
+    /// mark sat below the scan's lower bound. The mark on that line is now what rescues it.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_ABackwardStepBiggerThanTheGapToTheFirstSample_DoesNotHideItOrItsMark()
+    {
+        var change = Noon.AddSeconds(9);
+        var window = new List<MeterObservation>
+        {
+            At(2, MeterLevel.Normal, recordingSeconds: 10, clockStepSeconds: -8),
+            At(7, MeterLevel.Normal, recordingSeconds: 15),
+            At(12, MeterLevel.Normal, recordingSeconds: 20),
+            At(77, MeterLevel.Critical, recordingSeconds: 85),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        Assert.Equal(10, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // The arrangement really does hide the line from a raw-stamp selection, and the line after it too.
+        Assert.False(ProofChecks.TakenAfterTheChange(change, window[0].TakenAtUtc));
+        Assert.False(ProofChecks.TakenAfterTheChange(change, window[1].TakenAtUtc));
+    }
+
+    /// <summary>
+    /// The mark corrects only the line that carries it, and a line whose CORRECTED stamp is still before the
+    /// change stays out. A step that is old news - the clock moved before the change - must not drag a line
+    /// taken before the change into the span and start the measurement there.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AMarkedLineStillBeforeTheChangeOnceCorrected_IsNotTheBaseline()
+    {
+        var change = Noon.AddSeconds(9);
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 5, clockStepSeconds: -8),
+            At(10, MeterLevel.Normal, recordingSeconds: 15),
+            At(30, MeterLevel.Critical, recordingSeconds: 35),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        // 12:00:00 corrected by its own minus-eight mark is 12:00:08, which is still before 12:00:09.
+        Assert.Equal(8, ProofChecks.StampCorrectedByItsOwnStep(window[0]).Second);
+        Assert.Equal(15, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(20, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
     }
 
     /// <summary>

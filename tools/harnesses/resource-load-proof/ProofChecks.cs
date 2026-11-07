@@ -132,23 +132,34 @@ public static class ProofChecks
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(condition);
 
-        // THE STAMP DECIDES MEMBERSHIP; THE RECORDING'S OWN TIMELINE DECIDES ORDER. Ordering by the stamp
-        // would hand a backward clock step the power to choose which two lines get subtracted: a line
-        // stamped earlier sorts first even though the recorder wrote it later, so the baseline could be a
-        // line that is not the earliest after the change. The measurement would still be monotonic and the
-        // CHOICE of what to measure would not - which is the same defect one level up, and it produced a
-        // false pass in review.
-        var after = window
-            .Where(sample => TakenAfterTheChange(changeUtc, sample.TakenAtUtc))
-            .OrderBy(sample => sample.RecordingSeconds)
-            .ToList();
-        if (after.Count == 0) return WarningVerdict.NothingRecorded;
+        // THE RECORDING'S OWN TIMELINE DECIDES ORDER, AND - ONCE THE BASELINE IS KNOWN - MEMBERSHIP TOO.
+        // Ordering by the stamp would hand a backward clock step the power to choose which two lines get
+        // subtracted: a line stamped earlier sorts first even though the recorder wrote it later, so the
+        // baseline could be a line that is not the earliest after the change. The measurement would still
+        // be monotonic and the CHOICE of what to measure would not - the same defect one level up, and it
+        // produced a false pass in review.
+        var onTheTimeline = window.OrderBy(sample => sample.RecordingSeconds).ToList();
 
-        var baseline = after[0];
+        // THE BASELINE IS THE EARLIEST LINE WHOSE STAMP, CORRECTED BY ITS OWN STEP MARK, IS AT OR AFTER
+        // THE CHANGE. The mark is the only thing that can rescue the line a backward step hides. A step
+        // LARGER than the gap between the change and the next sample used to push that sample out of the
+        // selection and put its mark below the scan at the same time, so a 75-second warning was measured
+        // as 65 and passed with no caveat: review arrangement C.
+        var baseline = onTheTimeline.FirstOrDefault(
+            sample => TakenAfterTheChange(changeUtc, StampCorrectedByItsOwnStep(sample)));
+        if (baseline is null) return WarningVerdict.NothingRecorded;
+
+        // FROM THE BASELINE ON, THE STAMPS ARE NOT CONSULTED AT ALL. Every line at or after it on the
+        // recording's timeline is a member, so a line the step left stamped early still counts, and the
+        // qualifying sample is the TRUE first one rather than a later line whose stamp happened to climb
+        // back past the change.
+        var members = onTheTimeline
+            .Where(sample => sample.RecordingSeconds >= baseline.RecordingSeconds)
+            .ToList();
 
         // The condition is never reached when nothing was recorded after the change: a safety check must
         // not live inside it and quietly stop running.
-        var met = after.FirstOrDefault(condition);
+        var met = members.FirstOrDefault(condition);
         if (met is null) return WarningVerdict.NotSeen(baseline);
 
         // Across a Director restart the recorder bridges the gap with the WALL clock, so a span containing
@@ -156,14 +167,13 @@ public static class ProofChecks
         // two ends is equivalent to looking for a run start inside the span.
         var restarted = !string.Equals(baseline.RunId, met.RunId, StringComparison.Ordinal);
 
-        // SCANNED OVER THE WHOLE WINDOW, not over `after`. A line stamped BEFORE the change can still sit
-        // inside the span on the recording's timeline - that is exactly what a backward step produces - and
-        // it is the line that carries the mark. Inclusive of both ends: a step between the change and the
-        // baseline is written on the baseline's own line.
-        var stepped = window.Any(sample =>
-            sample.RecordingSeconds >= baseline.RecordingSeconds
-            && sample.RecordingSeconds <= met.RecordingSeconds
-            && sample.ClockStepSeconds is not null);
+        // SCANNED OVER THE MEMBERS, both ends inclusive. Because membership is taken from the timeline and
+        // not from the stamps, this is the same set as "every line inside the span", so a line a backward
+        // step left stamped before the change - which is the line carrying the mark - is scanned like any
+        // other. That equivalence is the point of the membership rule above; the two scans used to differ,
+        // and the mark could fall in the gap between them.
+        var stepped = members.Any(sample =>
+            sample.RecordingSeconds <= met.RecordingSeconds && sample.ClockStepSeconds is not null);
 
         var elapsed = TimeSpan.FromSeconds(met.RecordingSeconds - baseline.RecordingSeconds);
         return new WarningVerdict(
@@ -189,15 +199,35 @@ public static class ProofChecks
     /// for ORDER against a single reference, which is selection, not measurement - the distinction the rest
     /// of this file turns on.
     ///
-    /// Safe under a clock step, with one bounded exception. A backward step larger than the time since the
-    /// change makes after-change samples carry stamps before it, and they are skipped until the stamps climb
-    /// back past the change: the harness then either measures from a later sample, which overstates, or sees
-    /// nothing and says so. Neither is a false pass. The exception is a step inside the few seconds between
-    /// the change and the first sample after it, which <see cref="MeterObservation.ClockStepSeconds"/> on
-    /// that line exposes.
+    /// IT IS NEVER GIVEN A RAW STAMP BY <see cref="JudgeWarning"/>. A backward step leaves the lines after
+    /// it stamped before the change, and a raw comparison skips them until the stamps climb back past it -
+    /// which either overstates or, when the step is larger than the gap to the first sample, UNDERSTATES by
+    /// starting from a later line while hiding the mark that would have said so. So the caller passes
+    /// <see cref="StampCorrectedByItsOwnStep"/>, and only to pick the baseline.
     /// </summary>
     public static bool TakenAfterTheChange(DateTime changeUtc, DateTime sampleTakenAtUtc) =>
         sampleTakenAtUtc >= changeUtc;
+
+    /// <summary>
+    /// A line's stamp read on the clock the CHANGE was stamped on: its own step mark undone. The recorder
+    /// writes <c>clockStepSeconds</c> on the first line at which it saw the wall clock jump, so a backward
+    /// step of eight seconds leaves minus eight on that line; subtracting the mark puts the line back where
+    /// the pre-step clock would have stamped it. An unmarked line is its own stamp.
+    ///
+    /// WHAT IT DOES NOT COVER, SAID PLAINLY. It corrects only the line CARRYING the mark - the later lines
+    /// need no correction, because membership after the baseline is read off the recording's timeline. When
+    /// the step happened BEFORE the change rather than after it, the change is already stamped on the
+    /// stepped clock and the correction is not wanted; it can then pick a baseline a few seconds too early,
+    /// which OVERSTATES the elapsed time. That direction is safe - it can turn a pass into a failure, never
+    /// a failure into a pass - and such a window always reports <c>ClockStepped</c>, because the marked line
+    /// is then the baseline itself. A step under the recorder's roughly two-second tolerance carries no mark
+    /// and is bounded by that tolerance, and two steps inside one sample interval are not handled.
+    /// </summary>
+    public static DateTime StampCorrectedByItsOwnStep(MeterObservation sample)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        return sample.TakenAtUtc - TimeSpan.FromSeconds(sample.ClockStepSeconds ?? 0);
+    }
 
     /// <summary>
     /// Reads the Gateway rows command's output: a JSON array of window start times. Each must carry its offset

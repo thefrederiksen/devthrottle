@@ -44,12 +44,22 @@ correct product passing a few runs in a hundred. An instrument that fails a prod
 criterion is worse than one that measures with the wrong clock, because its failures look like the
 product's.
 
-*Order comes from the recording too, not from the stamps.* A sample's stamp decides whether it belongs -
-taken at or after the change - and `recordingSeconds` decides what order the members are in. Ordering by
-the stamp would hand a backward step the power to choose which two lines get subtracted, which is the same
-defect one level up: the measurement monotonic, the choice of what to measure not. For the same reason the
-scan for a clock step covers every line in the window between the two ends, including lines stamped before
-the change, because that is exactly where a backward step puts its own mark.
+*Order comes from the recording too, and so does membership once the baseline is known.* The baseline is
+the earliest line on the recording's timeline whose stamp, **corrected by its own step mark**, is at or
+after the change; from there on, every line at or after it on that timeline is a member and the stamps are
+not consulted again. Ordering or selecting by the stamp would hand a backward step the power to choose
+which two lines get subtracted, which is the same defect one level up: the measurement monotonic, the
+choice of what to measure not. Review found that twice. A step bigger than the gap between the change and
+the next sample was the second and worse case, because it hid the sample AND the mark that would have said
+so: a 75-second warning measured as 65 and passed clean. Undoing the mark on the one line that carries it
+is what rescues that line.
+
+*Where that rule is still imprecise, and in which direction.* When the clock stepped BEFORE the change
+rather than after it, the correction is not wanted and can pick a baseline a few seconds too early, which
+OVERSTATES the wait - it can turn a pass into a failure, never a failure into a pass - and such a window
+always reports the clock step, because the marked line is then the baseline itself. A step under the
+recorder's roughly two-second tolerance carries no mark and is bounded by that tolerance. Two steps inside
+one five-second sample interval are not handled.
 
 *What the measurement costs.* It overstates by at most one five-second sample interval, because the
 baseline is the first sample at or after the change rather than the change itself. That is the safe
