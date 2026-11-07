@@ -176,7 +176,7 @@ public sealed class FactorySeatPromptsTests
     private const string UndefinedRunNoSeat = """
         Do the morning run. When done, run cc-devthrottle session done.
 
-        When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+        Your run is not finished until you report it. The very last command you run is `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong. Reporting ok closes this session for you, so do NOT run `cc-devthrottle session done`. A journal entry (`cc-devthrottle factory record`) is not a report. Any instruction above to close the session another way is replaced by this one.
         """;
 
     private const string UndefinedRunBriefVersion = """
@@ -190,7 +190,7 @@ public sealed class FactorySeatPromptsTests
 
         Do the morning run. When done, run cc-devthrottle session done.
 
-        When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+        Your run is not finished until you report it. The very last command you run is `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong. Reporting ok closes this session for you, so do NOT run `cc-devthrottle session done`. A journal entry (`cc-devthrottle factory record`) is not a report. Any instruction above to close the session another way is replaced by this one.
 
         THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the owner can always approve.
         """;
@@ -256,7 +256,7 @@ public sealed class FactorySeatPromptsTests
 
         Do the morning run. When done, run cc-devthrottle session done.
 
-        When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+        Your run is not finished until you report it. The very last command you run is `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong. Reporting ok closes this session for you, so do NOT run `cc-devthrottle session done`. A journal entry (`cc-devthrottle factory record`) is not a report. Any instruction above to close the session another way is replaced by this one.
 
         THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the owner can always approve.
         """;
