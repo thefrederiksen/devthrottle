@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { holdPillLabel } from "@devthrottle/client-core/sessions/snoozeAction";
 import type { SessionManage } from "./useSessionManage";
 import { NotDeliveredIndicator } from "@devthrottle/client-core/sessions/NotDeliveredIndicator";
+import { MissionButton } from "@devthrottle/client-core/sessions/MissionButton";
 import { AppBarAlerts } from "./AppBarAlerts";
 
 // The ONE app bar shared by every per-session screen: Chat, Terminal and Voice mode (owner design
@@ -171,6 +172,11 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
             spacers with the network status pill centred between them; the pill is gone (see
             ConnectionBanner) and row 1 is now just Back and the menu button. */}
         <div className="session-bar-spacer" />
+
+        {/* The session's Mission (the Mission Button on the Web mission): the Gateway's verdict, drawn by the ONE
+            shared component the Cockpit header also mounts. Row 1 has the room a Mission's name needs, where the
+            title row is the name's alone. Renders nothing when the live row carries no verdict. */}
+        <MissionButton display={manage.session?.missionButton} sessionId={sessionId} />
 
         {/* The alerts bell, the same one every phone app bar carries (AppBarAlerts). */}
         <AppBarAlerts />

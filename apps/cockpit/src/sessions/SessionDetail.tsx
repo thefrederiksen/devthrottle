@@ -20,6 +20,7 @@ import { ScreenshotsPanel } from "./ScreenshotsPanel";
 import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
 import { NotDeliveredIndicator } from "@devthrottle/client-core/sessions/NotDeliveredIndicator";
+import { MissionButton } from "@devthrottle/client-core/sessions/MissionButton";
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
 import { sendingButtonFor, wingmanNowActions } from "./wingmanNowActions";
 import { useStopSession } from "./StopSessionProvider";
@@ -255,6 +256,14 @@ export function SessionDetail() {
               the tooltip are the Gateway's fold, read through the same shared reader the roster and the
               Fleet Map use. */}
           {selected && <SessionModelChip session={selected} />}
+          {/* The session's Mission (the Mission Button on the Web mission): the Gateway's verdict, drawn by the ONE
+              shared component the phone's session app bar also mounts, beside the session's actions. Renders
+              nothing when the row carries no verdict. */}
+          {selected && (
+            <span className="session-mission">
+              <MissionButton display={selected.missionButton} sessionId={selected.sessionId} />
+            </span>
+          )}
           {/* This session asked to talk to another (issue #3631): a chip whose popover approves or denies it. */}
           {sessionId && <LinkRequestChip sessionId={sessionId} />}
           {/* This session asked for a secret from another machine (issue #2943): a chip whose popover approves or

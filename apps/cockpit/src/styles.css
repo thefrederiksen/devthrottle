@@ -2122,6 +2122,18 @@ body {
 }
 
 /* The agent half - context for the model beside it, so it is held back rather than competing with it. */
+/* The session's Mission button (the shared MissionButton), beside the model chip and the session menu. It takes
+   the push to the right itself only when there is no model chip before it to do so. */
+.session-mission {
+  margin-left: auto;
+  align-self: center;
+  margin-bottom: 6px;
+  display: inline-flex;
+}
+.session-model ~ .session-mission {
+  margin-left: 8px;
+}
+
 .session-model-agent {
   color: var(--text-dim);
   font-weight: 500;

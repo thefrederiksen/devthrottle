@@ -56,7 +56,27 @@ export type SessionDto = components["schemas"]["SessionDto"] & {
    *  driven in API mode, null on every terminal session and from an older Gateway. Rendered verbatim; a client never
    *  reads `connectionMode` to decide whether to draw it. */
   connectionTag?: string | null;
+  /** The Missions First-Class mission: the Mission button's verdict, folded on the Gateway by MissionButtonFold and
+   *  rendered verbatim by the shared MissionButton. Null when the fold was given no missions to read, and absent
+   *  from an older Gateway; both mean no button. */
+  missionButton?: MissionButtonDisplay | null;
 };
+
+/** The Mission button's verdict for one session (see the C# MissionButtonDisplay). Hand-written for the reason
+ *  `modelDisplay` is: the committed `schema.ts` predates the field. Rendered verbatim - a client reads `colorKey`
+ *  only to pick how to draw it, and never reads `verdict` to decide anything. */
+export interface MissionButtonDisplay {
+  /** `mission-with-document` | `mission-without-document` | `no-mission`. Carried for the record; never branched on. */
+  verdict: string;
+  /** The words on the button: the Mission's name, or "No mission". */
+  label: string;
+  /** `mission` | `mission-outline` | `warning`. Any other key is a broken contract and draws a problem note. */
+  colorKey: string;
+  /** The words shown on hover, finished. May hold line breaks. */
+  tooltip: string;
+  /** The Gateway-relative address of the Mission's document (`/r/<report id>`), or null when there is none. */
+  documentAddress?: string | null;
+}
 
 /** The "factory agent" chip on a session (see the C# SessionFactoryAgentDto). Rendered verbatim. */
 export interface SessionFactoryAgentChip {

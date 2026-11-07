@@ -3200,6 +3200,17 @@ a.banner-btn {
   flex: 0 0 auto;
 }
 
+/* The session's Mission button (the shared MissionButton) on row 1, between the spacer and the alerts bell. Capped
+   so a long Mission name shortens with an ellipsis and never pushes the menu button out of its corner. */
+.session-app-bar .mb-root {
+  margin-right: 6px;
+}
+.session-app-bar .mb-btn {
+  max-width: 46vw;
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+
 .session-menu-btn {
   display: inline-flex;
   align-items: center;
