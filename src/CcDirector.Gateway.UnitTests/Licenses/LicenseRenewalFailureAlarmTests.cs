@@ -235,6 +235,23 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     }
 
     [Fact]
+    public async Task RaiseAsync_ARenewalReportedBeforeTheEmailCheckEndsTheStreak_ClosesTheAlarmAtOnce()
+    {
+        // The full gate of pull request 4721: the email check and the alarm raise of one minute run side by side. When the
+        // raise ran first it still found the streak row open and kept the alarm open a minute after the renewal worked.
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5)));
+        await MinuteCheck();
+        Assert.Single(Open());
+
+        _now = _now.AddMinutes(1);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Fine(B, TimeSpan.FromDays(30)));
+        await Raise();                               // the raise first, the streak row still open
+
+        Assert.Empty(Open());
+        Assert.Single(_log.ListOpen(Tenant));         // the email check ends the row on its own turn
+    }
+
+    [Fact]
     public async Task RaiseAsync_NoMachineHasReported_ReadsAndWritesNothing()
     {
         Assert.Null(await Raise());
