@@ -7,8 +7,9 @@ Mission fb77e0c6-2fc8-4cd8-beb0-5be020b6fe32, `docs/factory-inbox/MISSION-FINISH
 All times below are Coordinated Universal Time. The screens print local time on devlinux, which is five hours behind
 (a thread line "16:13" is 21:13 here).
 
-**This report covers steps 1 to 5, 7 and 8. Step 6 (the Summary button and the morning message) and the "no email is
-sent" checks wait for the email-off change (pull request 4664) to be deployed; they will be added to this file.**
+Steps 1 to 5, 7 and 8 ran on 6 November against commit `4264a9e`. Step 6 and the re-taken thread screenshots ran from
+00:09 on 7 November against commit `b3e7ead` (main after the deploy of `de1bb56`, which carries email off, pull request
+4664, and the thread fix, pull request 4690; read from `/healthz`).
 
 ## Result in one paragraph
 
@@ -22,12 +23,22 @@ the factory inbox and was delegated. A session's `cc-devthrottle inbox send` rea
 the reason, raised the stuck alert at exactly 15 minutes, and the message went through within seconds of the
 Director reconnecting; a Secretary stopped mid-claim was replaced within seconds and its claimed messages were handed
 on; a silent recording left nothing and said so; an archived factory refused a message in words.
-**One real defect stops the thread screen from working on the live service: reading one factory's thread takes 70 to
-90 seconds, so the screen never shows it (defect 1 below).**
+On 6 November one real defect stopped the thread screen from working (defect 1 below); **pull request 4690 fixed it:
+on 7 November the thread route answers in 0.15 to 0.24 seconds and the thread shows on both shells with no test
+script.** The Summary button works on both shells (step 6).
 
 ## Defects found (each reported to the Delivery Lead as it was found)
 
-1. **The thread screen cannot show a thread on the live service (serious).** `GET /gateway/factory/{factory}/inbox`
+1. **FIXED by pull request 4690 (deployed 7 November 00:04).** Re-measured at 00:09 to 00:20 on 7 November with no
+   test script in either tab: `GET /gateway/factory/factory-inbox-test/inbox` 0.20, 0.21 and 0.24 seconds, mail-desk
+   0.15, 0.16 and 0.17 seconds (curl); in the browser the thread showed 0.8 seconds after the Cockpit page was opened
+   and 1.3 seconds after the phone page was opened, and each re-read took 75 to 230 milliseconds
+   (`08a-cockpit-thread-no-timer-script.png`, `08c-phone-thread-no-timer-script.png`). Both stayed on the thread through
+   two further re-reads with no error. One aside: from about 00:15 to 00:18, while two deploy runs were still in
+   progress, the whole Gateway answered slowly (`/healthz` 11 to 21 seconds, the time all spent waiting for the first
+   byte, name lookup 0.01 seconds), and the Cockpit's re-reads in that window were cut off at 15 seconds; it recovered
+   by itself at 00:18 and the screen came back without a reload. The original finding, as reported on 6 November:
+   **The thread screen cannot show a thread on the live service (serious).** `GET /gateway/factory/{factory}/inbox`
    takes about 76 seconds for EVERY factory, even one with no messages (mail-desk 75.8 seconds, factory-inbox-test
    77.5 seconds at 21:20; 70 and 71 seconds at 21:22 and 21:23; 90 seconds for both at 22:38 and 22:46). The same
    Gateway answers `/healthz` in 0.2 seconds, the list of factories in 1.6 seconds and a factory's summary in 0.3
@@ -67,7 +78,7 @@ on; a silent recording left nothing and said so; an archived factory refused a m
 6. **Small: while a message waits for a Director, the list row says only "1 waiting for a decision" with the badge
    "Sent".** The reason ("Waiting - no Director is running on the Boss's computer, fi-inbox-test; it goes on when one
    connects there") is in the Gateway's answer (the message's state label, and `cc-devthrottle factory inbox list`
-   prints it) but on screen only in the thread, which defect 1 keeps from loading.
+   prints it) but on screen only in the thread, which defect 1 kept from loading on 6 November.
 7. **Small, outside the inbox: `cc-devthrottle session keys` is refused to a session key even for a session the
    caller owns** ("a session key may not call POST /sessions/{id}/keys"), while its help offers it for a session you
    own. Found when the step 5 seat stopped at the agent's "trust this folder" question.
@@ -243,7 +254,32 @@ waits for the email-off deployment.
 
 ## Step 6 - the factory summary and the morning message
 
-Waiting for the Delivery Lead's word (email off, pull request 4664). Not run yet.
+Run after the Delivery Lead's word that commit `de1bb56` (email off, pull request 4664, and the thread fix, pull request
+4690) was live. No timer script was in either tab: both were new tabs, and the page reported that no test script had
+run (`window.__qaRefreshLengthened` undefined).
+
+### The Summary button, on both shells
+
+| Phone | Cockpit |
+|---|---|
+| ![](08c-phone-thread-no-timer-script.png) The thread, no test script, 1.3 seconds after opening the page. | ![](08a-cockpit-thread-no-timer-script.png) The thread, no test script, 0.8 seconds after opening the page. |
+| ![](08d-phone-summary-open.png) Summary pressed: answered in 0.2 seconds. | ![](08b-cockpit-summary-open.png) Summary pressed: answered in 0.4 seconds. |
+
+Both say "12 messages came in; 12 decisions made (Delegated 7, Noted 4, Declined 1)." with "Since 5 Nov 19:13" (the
+Cockpit) and "Since 5 Nov 19:18" (the phone): the window is the 24 hours before the press, printed in devlinux's local
+time. The count is right: the Gateway's summary (`GET /gateway/factory/factory-inbox-test/inbox/summary`, 0.25 seconds)
+lists the twelve messages of steps 1 to 4 and 7, and their decisions are seven Delegated (steps 1, 2, both tries of
+step 3 twice, and the step 4 reply), four Noted (the three mid-claim notes and the Director-stopped message) and one
+Declined (step 4). For a factory with nothing in the window, mail-desk, the summary says "Nothing came in and nothing
+was decided."
+
+### The morning message
+
+Not yet run. The morning run is the Gateway's own sweep at 08:00 in the account's time zone (America/New_York, so 13:05
+Coordinated Universal Time on 7 November, after its five-minute settle); there is no route that runs it by hand. Moving
+the account to a time zone where it is 08:00 now was considered and not done: the kept run is keyed by the local date
+and hour (`2026-11-07T08`), so it would have used up the owner's real morning run for the day. The test factory stays
+active until that run, so it can be one of the factories with news.
 
 ## Step 7 - failure cases
 
@@ -344,10 +380,9 @@ every reply re-reads. No money figure is given: the price per token was not chec
 
 ## Evidence: what this run did NOT prove
 
-- **Step 6** (the Summary button, the morning message carrying it) and **every "no email is sent" check**: waiting for
-  the email-off deployment.
-- **The thread on screen at its normal re-read.** Every thread screenshot needed the lengthened re-read timer in my
-  own test tabs (defect 1). Without it the owner's screens show "Loading..." or "Can't reach the Gateway".
+- **The morning message** and the **"no email is sent" checks**: waiting for the 13:05 morning run.
+- **The thread screenshots of steps 1 to 7** needed the lengthened re-read timer in my own test tabs (defect 1, since
+  fixed). The thread at its normal re-read is proven only by the step 6 screenshots of 7 November.
 - **"Sent from the phone".** No message in this run came from a device signed in as a phone (defect 3), so the phone's
   surface label was never seen.
 - **A real phone and a real microphone.** The phone was the mobile web app at phone size in a desktop browser; the
