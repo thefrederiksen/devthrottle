@@ -273,11 +273,16 @@ alerts, and the website's daily account report. The first is this repository's w
 ### After the morning check (7 November)
 
 Pull request 4737 moved the Gateway's "Schedule failed" notice from email to Your inbox; proven live at 15:54 (step 9
-of the QA report). Its first deploy (15:01) overlapped another session's deploy of `4317292` started 90 seconds later;
-the two restarts left the service unreliable from 15:04 to 15:13 (the workflow measured 468 seconds), so it was rolled
-back to `7c1019b` at 15:13, as the five-minute rule says. `7c1019b` was just as unsteady for three minutes after its
-own restart, so the code was not the cause. Main (`4317292`, which holds 4737) was deployed again alone at 15:30: 117
-seconds measured, inside the 120-second budget, and a clean 15-minute watch.
+of the end-to-end quality assurance report). Its first deploy (run 42383776188, 15:01) overlapped another session's
+deploy of `4317292` started 90 seconds later. The deploy workflow measured the outage from 15:02:16: its longest
+stretch 468 seconds, 670 seconds unavailable in all, from about 15:02 to 15:19 (the window includes the rollback's own
+restart). The Delivery Lead's 15-second probe saw the first failed answer at 15:04:55 and then separate stalls of 33,
+69 and 21 seconds with slow answers between, and rolled back to `7c1019b` at 15:13 - about 11 minutes after the
+outage the workflow measured had begun, so later than the five-minute rule asks. `7c1019b` was just as unsteady for
+about three minutes after its own restart, so the code was not the cause. Main (`4317292`, which holds 4737) was then
+deployed alone (run 42386678204, 15:30): the workflow measured 117 seconds, inside the 120-second budget, beginning
+15:38:48; the Delivery Lead's probe saw `4317292` on `/healthz` at 15:38:34 and one stall of 87 seconds (15:39:06 to
+15:40:45), then nothing wrong to the end of a 15-minute watch at 15:53:41.
 
 **Status now:** the Gateway no longer emails the owner about factories. Still emailing him: the `devthrottle_internal`
 seat briefs (`owner-emails.md` section 6), the kept system alerts, and the website's daily account report.

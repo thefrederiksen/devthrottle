@@ -416,7 +416,8 @@ every reply re-reads. No money figure is given: the price per token was not chec
 ## Step 9 - a failed schedule tells the owner in Your inbox, not by email (7 November)
 
 Run by the Delivery Lead after pull request 4737 ("a failed schedule tells its owner in Your inbox, never by email")
-was deployed in commit `4317292` (live 15:38:34 Coordinated Universal Time, read from `/healthz`).
+was deployed in commit `4317292` (first served at 15:38:34 Coordinated Universal Time, read from `/healthz` by the
+Delivery Lead's probe).
 
 **Done:** at 15:54 a test schedule in no factory, "Factory Inbox test - schedule failure proof" (`cj_3852a3`), aimed at
 a machine that does not exist (`fi-no-such-machine`), was fired by hand (`cc-devthrottle schedule run`). Its run ended
