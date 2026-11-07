@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Anchor = { type: string; selector: string; quote: string; rowLabel?: string; columnLabel?: string; label?: string };
 type Item = Record<string, unknown> & { id: string; kind: string };
@@ -511,7 +511,8 @@ describe("the page", () => {
       </div>`;
     api.start({ window });
     const checked = Array.from(document.querySelectorAll<HTMLInputElement>("input[type=radio]")).map((r) => r.checked);
-    expect(checked).toEqual([false, true]);
+    // After init, B (recommended) is checked, A is unchecked, and the auto-added "Something else" option is unchecked
+    expect(checked).toEqual([false, true, false]);
   });
 
   it("says an overlong question text is too long and does not queue a shortened copy", () => {
@@ -1032,5 +1033,107 @@ describe("placing the note box", () => {
     expect(at.top).toBeGreaterThan(anchorAfter.bottom);
     // What the note is about is still on screen - the page never scrolls it away to make room.
     expect(anchorAfter.bottom).toBeGreaterThan(0);
+  });
+});
+
+describe("Something else option", () => {
+  it("auto-adds a Something else option to every question", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+
+    const ownAnswerRadios = Array.from(document.querySelectorAll("input[type=radio][value='own-answer']"));
+    expect(ownAnswerRadios.length).toBeGreaterThan(0);
+    ownAnswerRadios.forEach((radio) => {
+      const label = radio.closest("label");
+      expect(label?.textContent).toContain("Something else");
+    });
+  });
+
+  it("shows the Something else text box only when that option is selected", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+
+    const ownAnswerRadio = document.querySelector("input[type=radio][value='own-answer']") as HTMLInputElement;
+    const ownAnswerBox = ownAnswerRadio?.closest("[data-dev-report-question]")?.querySelector("[data-drn-own-answer-box]") as HTMLTextAreaElement;
+
+    expect(ownAnswerBox?.hasAttribute("hidden")).toBe(true);
+
+    ownAnswerRadio.checked = true;
+    ownAnswerRadio.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(ownAnswerBox?.hasAttribute("hidden")).toBe(false);
+
+    const firstRadio = document.querySelector("input[type=radio]") as HTMLInputElement;
+    firstRadio.checked = true;
+    firstRadio.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(ownAnswerBox?.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("requires Something else box to have text before queuing", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+
+    const ownAnswerRadio = document.querySelector("input[type=radio][value='own-answer']") as HTMLInputElement;
+    ownAnswerRadio.checked = true;
+    ownAnswerRadio.dispatchEvent(new Event("change", { bubbles: true }));
+
+    const queueBtn = ui("[data-drn=queue-answer]");
+    clickOn(queueBtn!);
+
+    const stateText = ui("[data-drn=question-state]");
+    expect(stateText?.textContent).toContain("Type your answer first");
+  });
+
+  it("uses Something else text as the comment when queuing own-answer", () => {
+    document.body.innerHTML = pageReport;
+    const page = api.start({ window });
+
+    const ownAnswerRadio = document.querySelector("input[type=radio][value='own-answer']") as HTMLInputElement;
+    const ownAnswerBox = ownAnswerRadio?.closest("[data-dev-report-question]")?.querySelector("[data-drn-own-answer-box]") as HTMLTextAreaElement;
+
+    ownAnswerRadio.checked = true;
+    ownAnswerRadio.dispatchEvent(new Event("change", { bubbles: true }));
+
+    ownAnswerBox.value = "My custom answer";
+    ownAnswerBox.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const queueBtn = ui("[data-drn=queue-answer]");
+    clickOn(queueBtn!);
+
+    const queued = page.model.snapshot().queued;
+    expect(queued.length).toBe(1);
+    expect(queued[0]).toMatchObject({
+      optionValue: "own-answer",
+      comment: "My custom answer",
+    });
+  });
+});
+
+describe("dictation support", () => {
+  it("creates microphone buttons for questions with comment fields", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+
+    const micBtns = Array.from(document.querySelectorAll("button[data-drn-mic-field]"));
+    expect(micBtns.length).toBeGreaterThan(0);
+
+    micBtns.forEach((btn) => {
+      const fieldId = btn.getAttribute("data-drn-mic-field");
+      expect(fieldId).toBeTruthy();
+      expect(typeof fieldId).toBe("string");
+    });
+  });
+
+  it("assigns unique field IDs to questions", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+
+    const fields = Array.from(document.querySelectorAll("[data-drn-field-id]")) as HTMLTextAreaElement[];
+    expect(fields.length).toBeGreaterThan(0);
+
+    const fieldIds = fields.map((f) => f.getAttribute("data-drn-field-id"));
+    const uniqueIds = new Set(fieldIds);
+    expect(uniqueIds.size).toBe(fieldIds.length);
   });
 });

@@ -703,6 +703,12 @@
       // their own surface rather than relying on the page behind them.
       ".drn-q-state { font-size: 13px; margin-left: 8px; padding: 4px 8px; border-radius: 6px; background: " + t.surface + "; color: " + t.text + "; }",
       ".drn-q-state:empty { display: none; }",
+      ".drn-mic-container { display: inline-block; margin-left: 4px; }",
+      ".drn-mic-btn { padding: 4px 6px; font-size: 12px; min-width: 32px; }",
+      ".drn-mic-icon { display: inline-block; width: 14px; height: 14px; }",
+      ".drn-mic-recording { background-color: " + t.accent + " !important; animation: drn-pulse 1s infinite; }",
+      ".drn-mic-timer { font-size: 11px; margin-left: 4px; color: " + t.accent + "; }",
+      "@keyframes drn-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }",
       "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
     ].join("\n");
   }
@@ -895,6 +901,55 @@
 
     function emitState() {
       post("state-changed", { state: model.snapshot() });
+    }
+
+    var activeDictationField = null;
+    var micButtons = new Map();
+
+    function createMicrophoneButton(fieldId) {
+      var container = el(doc, "div", { "class": "drn-mic-container" });
+      var btn = el(doc, "button", { type: "button", "class": "drn-mic-btn", "data-drn-mic-field": fieldId }, "");
+      btn.setAttribute("aria-label", "Record and transcribe");
+      var icon = el(doc, "span", { "class": "drn-mic-icon" }, "M");
+      btn.appendChild(icon);
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        startDictation(fieldId, btn);
+      });
+      container.appendChild(btn);
+      micButtons.set(fieldId, { btn: btn, container: container });
+      return container;
+    }
+
+    function startDictation(fieldId, btn) {
+      if (activeDictationField) return;
+      activeDictationField = fieldId;
+      btn.classList.add("drn-mic-recording");
+      btn.disabled = true;
+      var timer = el(doc, "span", { "class": "drn-mic-timer" }, "0s");
+      btn.appendChild(timer);
+      var seconds = 0;
+      var timerInterval = root.setInterval(function () {
+        seconds++;
+        timer.textContent = seconds + "s";
+      }, 1000);
+      micButtons.get(fieldId).timerInterval = timerInterval;
+      post("dictation-start", { fieldId: fieldId });
+    }
+
+    function endDictation(fieldId) {
+      if (activeDictationField !== fieldId) return;
+      activeDictationField = null;
+      var mic = micButtons.get(fieldId);
+      if (!mic) return;
+      if (mic.timerInterval) {
+        root.clearInterval(mic.timerInterval);
+        mic.timerInterval = null;
+      }
+      var timer = mic.btn.querySelector(".drn-mic-timer");
+      if (timer && timer.parentNode) timer.parentNode.removeChild(timer);
+      mic.btn.classList.remove("drn-mic-recording");
+      mic.btn.disabled = false;
     }
 
     // --- tray -----------------------------------------------------------------------------------
@@ -1294,8 +1349,17 @@
       // Create "Something else" text box if "Something else" option exists
       var ownAnswerRadio = q.querySelector("input[type=radio][value='own-answer']");
       if (ownAnswerRadio) {
-        var ownAnswerBox = el(doc, "textarea", { "data-drn-own-answer-box": "", hidden: "", maxlength: String(MAX_STRING), placeholder: "Your answer" });
+        var ownAnswerBoxId = "drn-field-" + id + "-own-answer-" + String(Math.random()).slice(2);
+        var ownAnswerBox = el(doc, "textarea", {
+          "data-drn-own-answer-box": "",
+          "data-drn-field-id": ownAnswerBoxId,
+          hidden: "",
+          maxlength: String(MAX_STRING),
+          placeholder: "Your answer"
+        });
+        var ownAnswerMicBtn = createMicrophoneButton(doc, ownAnswerBoxId);
         q.appendChild(ownAnswerBox);
+        if (ownAnswerMicBtn) q.appendChild(ownAnswerMicBtn);
       }
 
       var rowRoot = shadowHost(doc);
@@ -1309,7 +1373,15 @@
       q.appendChild(rowRoot.host);
       questionStates.set(id, stateText);
       var comment = commentIn(q);
-      if (comment) comment.setAttribute("maxlength", String(MAX_STRING));
+      if (comment) {
+        comment.setAttribute("maxlength", String(MAX_STRING));
+        var commentFieldId = "drn-field-" + id + "-comment-" + String(Math.random()).slice(2);
+        comment.setAttribute("data-drn-field-id", commentFieldId);
+        var commentMicBtn = createMicrophoneButton(commentFieldId);
+        if (commentMicBtn && comment.parentNode) {
+          comment.parentNode.insertBefore(commentMicBtn, comment.nextSibling);
+        }
+      }
 
       function saveAnswerDraft() {
         var chosen = checkedIn(q);
@@ -1441,10 +1513,13 @@
         if (field && field.focus) {
           field.value = (field.value || "") + message.payload.transcript;
           field.dispatchEvent(new Event("input", { bubbles: true }));
+          field.focus();
         }
+        endDictation(message.payload.fieldId);
       } else if (message.type === "dictation-failed") {
         var field = doc.querySelector("[data-drn-field-id='" + CSS.escape(message.payload.fieldId) + "']");
         if (field && field.focus) field.focus();
+        endDictation(message.payload.fieldId);
       }
     }
 
