@@ -882,7 +882,7 @@ public static class LicenseDecisionEngine
     private static string WindowLabel(string window) =>
         window == LicenseWindowNames.FiveHour ? "5-hour window" : "weekly limit";
 
-    private static string Percent(double value) => value.ToString("0.#", CultureInfo.InvariantCulture) + "%";
+    internal static string Percent(double value) => value.ToString("0.#", CultureInfo.InvariantCulture) + "%";
 
     private static string Time(DateTime utc) => utc.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 

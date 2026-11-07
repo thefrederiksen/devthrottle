@@ -39,7 +39,7 @@ public sealed class LicenseSignInNotKeptTests : IDisposable
         _alarms = new LicenseAlarmService(db,
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
             (_, opened, _) => { lock (_pushed) _pushed.AddRange(opened); return Task.CompletedTask; },
-            () => _now);
+            () => _now, NeverNight);
         _alarm = new LicenseMachineHealthAlarm(_store, new LicenseReadModel(_store), _alarms, () => _now);
     }
 

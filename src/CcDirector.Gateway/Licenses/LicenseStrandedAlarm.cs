@@ -191,7 +191,7 @@ public static class LicenseStrandedAlarm
 
     // The forecast expects the account to reach the threshold within the window (and has not passed it yet).
     private static bool ExpectedWithin(LicenseSnapshot snapshot, string account, Func<string, DateTime?> expectedAtLimit, TimeSpan within)
-        => within > TimeSpan.Zero && expectedAtLimit(account) is { } at && at - snapshot.NowUtc < within;
+        => within > TimeSpan.Zero && expectedAtLimit(account) is { } at && at > snapshot.NowUtc && at - snapshot.NowUtc < within;
 
     /// <summary>The use above which a cannot-switch alarm is pushed during the owner's night: 90% (the owner, 6 November
     /// 2026: "also at night once the account is past 90%").</summary>
@@ -209,7 +209,8 @@ public static class LicenseStrandedAlarm
     /// The owner email's subject for a machine that cannot switch, naming the machine and the hours left (the owner,
     /// 6 November 2026: "an email whose SUBJECT names the machine and the hours left"): "machine-a cannot switch - at its
     /// limit" when a window is at the threshold, "machine-a cannot switch - about 9 hours to its limit" from the forecast,
-    /// or "machine-a cannot switch" when there is no forecast.
+    /// and "machine-a cannot switch - at 85%" (the fuller window) when there is no fresh forecast, as after a restart
+    /// before the forecaster has history. Only an account with no reading at all gives "machine-a cannot switch".
     /// </summary>
     internal static string Subject(string label, LicenseSnapshot snapshot, string account, DateTime? expectedAtLimit)
     {
@@ -223,7 +224,12 @@ public static class LicenseStrandedAlarm
             var hours = Math.Max(1, (int)Math.Round((at - snapshot.NowUtc).TotalHours, MidpointRounding.AwayFromZero));
             return $"{label} cannot switch - about {hours} hour{(hours == 1 ? "" : "s")} to its limit";
         }
-        return $"{label} cannot switch";
+        var fullest = reading is null
+            ? null
+            : new[] { reading.FiveHour, reading.SevenDay }.Where(w => w is not null).Select(w => (double?)w!.Utilization).Max();
+        return fullest is { } used
+            ? $"{label} cannot switch - at {LicenseDecisionEngine.Percent(used)}"
+            : $"{label} cannot switch";
     }
 
     // An open alarm whose machine is still on the account, on an account still at the level (or still forecast to reach

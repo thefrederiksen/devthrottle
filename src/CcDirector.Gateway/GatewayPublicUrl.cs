@@ -90,6 +90,9 @@ public static class GatewayPublicUrl
     /// <exception cref="ArgumentException">The session id is missing or blank. There is no session screen
     /// without a session, and silently handing back the front door instead would send the caller somewhere
     /// it did not ask for.</exception>
+    public static string? ResolveCockpitSession(bool hosted, string sessionId)
+        => ResolveCockpitSession(hosted, sessionId, TailscaleIdentity.TryGetFrontDoorBaseUrl);
+
     /// <summary>
     /// Resolve the full public URL of the Cockpit's Licenses page (<c>{base}/licenses</c>) against the live environment
     /// (mission "Licenses - Always Ready, Loud When Not", step 2): the Director's license banner opens it verbatim, so the
@@ -102,9 +105,6 @@ public static class GatewayPublicUrl
     /// <summary>Licenses page resolver with the self-host front-door source injected, for tests.</summary>
     internal static string? ResolveCockpitLicenses(bool hosted, Func<string?> frontDoorProvider)
         => Resolve(hosted, LicensesPath, frontDoorProvider);
-
-    public static string? ResolveCockpitSession(bool hosted, string sessionId)
-        => ResolveCockpitSession(hosted, sessionId, TailscaleIdentity.TryGetFrontDoorBaseUrl);
 
     /// <summary>
     /// Session-screen resolver with the self-host front-door source injected, so the self-host branch can

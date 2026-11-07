@@ -458,9 +458,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
     }
 
-    // The progression the owner asked for (D1): at 80% of the five-hour window the 80% warning tells him once; at 97%
-    // its line closes and the stranded alarm is the "again" - two emails and two pushes in all, in that order, and never
-    // two banner lines at once.
+    // The hand-over from the yellow warning to the red alarm: at 80% of the five-hour window the warning opens; at 97% its
+    // line closes and the stranded alarm opens in its place, each told when it opens and again every hour it stays open
+    // (the owner, 6 November 2026: "repeat until fixed"), and never two banner lines at once.
     [Fact]
     public async Task Tick_From80To97OfTheFiveHourWindow_TheWarningHandsOverToTheStrandedAlarm()
     {

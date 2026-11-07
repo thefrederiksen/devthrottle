@@ -550,6 +550,35 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Contains($"expected to reach its limit in about {hoursLeft} hours", warning.Problem);
     }
 
+    // With no fresh forecast (after a restart, before the forecaster has history), the subject still says how full the
+    // account is: the fuller window, "at 85%".
+    [Fact]
+    public void Conditions_At80WithNoForecast_TheSubjectNamesTheUse()
+    {
+        _aWeekly = 85;
+        Report();
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var judged = Readiness().Judge(One, picture, _now);
+
+        var warning = Assert.Single(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+            _log.ListOpen(One), _alarms.ListOpen(One), _ => null));
+
+        Assert.Equal("machine-a cannot switch - at 85%", warning.Subject);
+    }
+
+    // A forecast time already in the past is not "within 12 hours": below 80% it raises nothing.
+    [Fact]
+    public void Conditions_Below80_AForecastTimeAlreadyPassed_RaisesNothing()
+    {
+        _aWeekly = 50;
+        Report();
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var judged = Readiness().Judge(One, picture, _now);
+
+        Assert.Empty(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+            _log.ListOpen(One), _alarms.ListOpen(One), account => account == A ? _now.AddHours(-1) : null));
+    }
+
     // A gap below 80% with no forecast is not loud: no alarm, no push, no email - one quiet line of the daily report.
     [Fact]
     public async Task Tick_AGapBelow80_RaisesNothing_AndIsOneQuietLineOfTheDailyReport()
