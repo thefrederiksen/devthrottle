@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Missions First-Class - every session shows its mission and goal</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; color: #1f2328; line-height: 1.5; }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d0d7de; padding-bottom: 4px; }
+  h3 { font-size: 15px; margin-bottom: 6px; }
+  .sub { color: #57606a; }
+  .q { border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 14px; margin: 14px 0; background: #f6f8fa; }
+  .q label { display: block; margin: 6px 0; }
+  .q textarea { width: 100%; min-height: 44px; margin-top: 6px; }
+  .ctx { color: #57606a; font-size: 14px; margin: 0 0 6px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #d0d7de; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  .mock { background: #1e1e1e; border-radius: 8px; padding: 14px; color: #ccc; font-size: 12px; font-family: Segoe UI, Arial, sans-serif; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #252526; border-radius: 4px; margin-bottom: 10px; }
+  .tab { padding: 4px 10px; color: #bbb; }
+  .sp { flex: 1; }
+  .btn { padding: 4px 10px; border-radius: 5px; color: #fff; font-weight: 600; font-size: 11px; border: 1px solid; }
+  .cockpit { background: #0D9488; border-color: #14B8A6; }
+  .mission { background: #4338CA; border-color: #6366F1; }
+  .nomission { background: #CA8A04; border-color: #EAB308; color: #1f1f1f; }
+  .tb { padding: 3px 9px; border-radius: 4px; background: #333; color: #ddd; }
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
+  code { background: #eaeef2; padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<section data-dev-report="header" data-dev-report-status="agent-working">
+  <h1>Missions First-Class - every session shows its mission and goal</h1>
+  <p class="sub">Mission document, 6 November 2026. The owner said go. The Delivery Lead, session 113 ("Missions First-Class - Delivery Lead - drive the three phases to done"), is driving the build. The Architect, session 106, has closed its seat.</p>
+</section>
+
+<section data-dev-report="summary">
+  <p><strong>What you asked for:</strong> every session you start has a clear Mission, and you can see it in one click. Each session gets a Mission button beside its Cockpit button, and the Director gets one in its top corner. The button opens the Mission's dev report, the mission document. A Mission's goal is visible. A session with no Mission shows a yellow "No mission" warning on that button, but nothing forces you to set one.</p>
+  <p><strong>What is true today:</strong> a Mission is a Gateway record with a name, a why and a state. Its goal already has a home: section 3 of the mission document, as the method defines it. But nothing ties a Mission to its document. A dev report belongs to the session that published it, and nothing in its record says which Mission it describes. The Director shows no Mission anywhere. 18 of your 36 sessions have no Mission at all.</p>
+  <p><strong>Where it stands:</strong> you have answered all five design questions. The Mission links its document explicitly, the goal and why are read from the document, the button is indigo, the corner button follows the selected session, and session 103 handles the sessions with no Mission. You said go on 6 November 2026. Session 113, the Delivery Lead, is driving the three phases and will come back to you once, with the screenshots.</p>
+</section>
+
+<section data-dev-report="questions">
+  <h2>Questions</h2>
+  <p data-dev-report-no-questions>No questions - nothing needed from you. You said go on 6 November 2026.</p>
+</section>
+
+<section data-dev-report="why">
+  <h2>The why</h2>
+  <p>In your words: "I have too many sessions that are floundering and keep asking me for stuff." A session that cannot point to a goal drifts and keeps coming back to you. If every session shows its Mission and goal, you can tell at a glance what any session is doing, an Implementation Lead included, and a session with none stands out in yellow before it starts asking you things.</p>
+</section>
+
+<section data-dev-report="goal">
+  <h2>The goal</h2>
+  <p>Every session shows its Mission on a button beside its Cockpit button, and the button opens the Mission's document and shows its goal. In a real Director, screenshotted:</p>
+  <ul>
+    <li>A session attached to a Mission that has a document shows the Mission button, in the agreed colour, beside its Cockpit button. Clicking it opens that Mission's dev report. Hovering over it shows the Mission's name and goal.</li>
+    <li>A session with no Mission shows the same button in yellow, saying "No mission". Nothing stops it from working.</li>
+    <li>The Director's corner button shows the selected session's Mission name, or yellow "No mission", and opens that Mission's document.</li>
+    <li>This Mission's own document, this report, is linked to this Mission, and its button opens it.</li>
+    <li>All of it is merged to origin/main and reviewed by a separate review session.</li>
+  </ul>
+</section>
+
+<section data-dev-report="detail">
+  <h2>1. The mission</h2>
+  <p>Make a Mission something you can see on every session: a Mission button beside the Cockpit button that opens the Mission's document and shows its goal, and a yellow "No mission" warning when there is none. The why (section 2) and the goal (section 3) are the two marked sections above, so the Gateway reads them onto the Mission.</p>
+
+  <h2>4. Decisions</h2>
+  <ul>
+    <li>A Mission is not forced. No Mission means a yellow warning, never a refusal. (Your words: "We don't want to force a mission.")</li>
+    <li>The mission document is a dev report stored on the Gateway. (Your words: "Mission is a dev report that's stored on the gateway.")</li>
+    <li>The goal is the one the mission document already describes, not a new idea. (Your words: "the goal is already described in our reports.")</li>
+    <li>With a Mission the colour is calm, not the Cockpit green, not orange.</li>
+    <li><strong>Answered 6 November 2026, all as recommended. Go given the same day.</strong></li>
+    <li>The document link: the Mission record holds its document's report id, set by publishing with <code>cc-dev-reports open mission.html --mission-document</code>. Republishing updates the same link. One document per Mission, and the link outlives the Architect's session.</li>
+    <li>The goal: read from the document itself. A mission document marks its why and goal sections (<code>data-dev-report="why"</code>, <code>data-dev-report="goal"</code>). On publish, the Gateway reads them and stamps them on the Mission.</li>
+    <li>The colour: indigo, #4338CA. No mission: yellow.</li>
+    <li>The corner button: shows the selected session's Mission, beside the toolbar Cockpit button. It shows the Mission name and opens its document, or yellow "No mission". The session tab bar gets the plain Mission button beside its own Cockpit button.</li>
+    <li>The 18 sessions with no Mission: left to session 103. This mission builds the buttons; it does not audit sessions.</li>
+  </ul>
+
+  <h2>5. Design</h2>
+  <p><strong>Mockup</strong> (session tab bar, then the top toolbar):</p>
+  <div class="mock">
+    <div class="bar"><span class="tab">Terminal</span><span class="tab">Source Control</span><span class="sp"></span><span class="btn mission" title="Goal: ...">Mission</span><span class="btn cockpit">Cockpit</span></div>
+    <div class="bar"><span class="tab">Terminal</span><span class="tab">Source Control</span><span class="sp"></span><span class="btn nomission">No mission</span><span class="btn cockpit">Cockpit</span></div>
+    <div class="bar"><span class="tb">Director: SOREN_NORTH</span><span class="sp"></span><span class="btn mission">Mission: Missions First-Class</span><span class="tb">Cockpit</span></div>
+  </div>
+  <p><strong>The pieces</strong>, as decided:</p>
+  <ul>
+    <li><strong>Gateway - the Mission record</strong> gains the id of its mission document, plus its goal, read from the document. The why it already has is filled the same way. The Gateway works out the button's verdict once, from the session's state: "has a Mission with a document", "has a Mission but no document yet", or "no Mission". It also works out the button's label, colour key and tooltip. Clients render that verdict and decide nothing, as the client-is-dumb rule requires.</li>
+    <li><strong>Gateway - dev reports</strong> learn the two new section markers, why and goal. They are optional for an ordinary report and expected in a mission document. Publishing with <code>--mission-document</code> links the report to the publishing session's Mission.</li>
+    <li><strong>The command line</strong>: <code>cc-dev-reports open --mission-document</code>. <code>cc-devthrottle mission list</code> shows whether each Mission has a document.</li>
+    <li><strong>Director</strong>: the Mission button beside <code>TabBarCockpitButton</code>, and the corner button beside <code>BtnCockpit</code>. Both open the report's <code>/r/&lt;id&gt;</code> address.</li>
+    <li><strong>Skills</strong>: the dev-reports skill and the method's Architect section learn to publish the mission document with <code>--mission-document</code>, so every new Mission gets its link from the start. Both are built-in skills, so this ships with a Gateway deploy.</li>
+  </ul>
+  <p><strong>Out of scope:</strong> forcing a Mission on spawn. Changes to the Cockpit's missions board beyond showing whether a Mission has a document. Rewriting the documents of old Missions.</p>
+  <p><strong>A question for a later phase, not now:</strong> the third verdict, "has a Mission but no document yet", probably wants its own look. I plan to draw it as the Mission colour with an outline only, and will show it in the phase 2 screenshot.</p>
+
+  <h2>6. Phases</h2>
+  <table>
+    <tr><th>Phase</th><th>What</th><th>Tech Lead?</th></tr>
+    <tr><td>1</td><td>Gateway: the document link, the why and goal markers, the button verdict on the session, and the <code>--mission-document</code> flag. Unit tests for the verdict.</td><td>No - one Developer</td></tr>
+    <tr><td>2</td><td>Director: the two buttons, rendering the Gateway's verdict, and a screenshot of all three states in a slot-5 test Director.</td><td>No - one Developer, after phase 1 merges</td></tr>
+    <tr><td>3</td><td>Skills: dev-reports and the method teach the flag. Gateway deploy. This report is republished as the first linked mission document.</td><td>No</td></tr>
+  </table>
+  <p>The phases run in sequence, because each one needs the one before. A Delivery Lead drives all three.</p>
+
+  <h2>7. The check</h2>
+  <ul>
+    <li><code>.\scripts\test-local.ps1 -Parked</code> green, because phase 1 touches the Gateway.</li>
+    <li>In a slot-5 Director pointed at a Gateway with this change: open one session with a linked Mission, one with a Mission but no document, and one with none. Screenshot each, click each Mission button, and screenshot what opens.</li>
+    <li><code>cc-devthrottle mission list</code> shows this Mission with a document.</li>
+  </ul>
+
+  <h2>8. Merge plan</h2>
+  <p>One pull request per phase, each merged on a green local run and a separate review session's pass. The Gateway change only adds things, so a Director that predates it shows no button, which does no harm. That makes each phase safe to merge on its own.</p>
+
+  <h2>9. Where it ends</h2>
+  <p>Merged to origin/main, the Gateway deployed so the skills and the verdict are live, and the screenshots attached here.</p>
+
+  <h2>10. Questions</h2>
+  <p>All answered; see Decisions.</p>
+
+  <h2>Your sessions with no Mission (36 open, 18 without one)</h2>
+  <table>
+    <tr><th>Number</th><th>Name</th></tr>
+    <tr><td>973</td><td>Fleet Manager</td></tr>
+    <tr><td>100</td><td>mindzie Coordinator</td></tr>
+    <tr><td>102</td><td>Center Consulting Tax - Accountant - Sunday: print 2022-2023 and mail</td></tr>
+    <tr><td>103</td><td>Fleet Cleanup - Auditor - which sessions have a mission, which to close</td></tr>
+    <tr><td>109</td><td>mindzie Ops - Researcher - find James user deletion request</td></tr>
+    <tr><td>110</td><td>mindzieWeb - BDO error</td></tr>
+    <tr><td>111</td><td>Factory Inbox - Delivery Lead - drive to done (its Developers are attached, it is not)</td></tr>
+    <tr><td>113</td><td>DevThrottle hosted factories</td></tr>
+    <tr><td>117</td><td>Factory Boss Publish - Developer - fix 4598 boss cannot publish</td></tr>
+    <tr><td>118</td><td>DevThrottle Marketing - Producer - a tracked signup link on every video</td></tr>
+    <tr><td>122</td><td>Private - Boss - job search follow-up gap</td></tr>
+    <tr><td>123</td><td>BDO Argentina Cube - Reviewer - Gigantic size PR 4423</td></tr>
+    <tr><td>126</td><td>devthrottle_internal - calendar</td></tr>
+    <tr><td>127</td><td>Factory Speech - Architect - design</td></tr>
+    <tr><td>135</td><td>Repeat Events - Tech Lead - phases 1-2 measure and build</td></tr>
+    <tr><td>137</td><td>Repeat Events - Developer - phase 1 measure</td></tr>
+    <tr><td>138</td><td>Repeat Events - Delivery Lead - drive to the dev QA report</td></tr>
+    <tr><td>149</td><td>BDO XL Cube - Reviewer - PR 4421 decimal-comma separator tie</td></tr>
+  </table>
+  <p>Of the 166 active Missions on the Gateway, none has a linked document, because the link does not exist yet. Many of them look finished, for example "Release 2.0.1" and "Gateway down - 2 September". Session 103's audit is the natural place to close them.</p>
+</section>
+
+<section data-dev-report="evidence">
+  <h2>What this rests on, and what I have not checked</h2>
+  <ul>
+    <li>Read from origin/main at ac758857b: the Mission model (<code>src/CcDirector.Core/Sessions/Mission.cs</code>), which has a name, a why and a state, and no goal or document. The dev report record (<code>src/CcDirector.Gateway/Data/Entities/DevReportEntity.cs</code>), which holds a session id and nothing about a Mission. The tab bar Cockpit button and the toolbar Cockpit button in <code>MainWindow.axaml</code>.</li>
+    <li>The goal as section 3 of the mission document comes from the method skill, section 5.</li>
+    <li>The 18 sessions come from <code>cc-devthrottle session list</code>, read today. That list changes by the hour.</li>
+    <li>Not checked: how the Cockpit's missions board would show a document link, whether the session data the Director already receives carries the Mission id or only its name, and whether publishing a report as a Mission's document needs a permission rule about who may link it.</li>
+  </ul>
+</section>
+
+</body>
+</html>
