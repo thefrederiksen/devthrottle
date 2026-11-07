@@ -3,6 +3,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Inbox;
 
 namespace CcDirector.Gateway.Running;
 
@@ -88,9 +89,8 @@ public sealed class CronFailureNoticeStore
 /// <summary>Pushes one schedule failure notice to the account's phones. Never throws.</summary>
 public delegate Task ScheduleFailurePusher(TenantId tenant, CronRunCompletedPayload notice, CancellationToken ct);
 
-/// <summary>Emails one schedule failure notice to the account's owner, where the account has one. Never throws for a
-/// send that did not happen; returns a sentence saying why it was not sent, or null when it was.</summary>
-public delegate Task<string?> ScheduleFailureMailer(TenantId tenant, string subject, string body, CancellationToken ct);
+/// <summary>Writes one schedule failure notice into the account owner's Your inbox (<see cref="YourInboxStore.Add"/>).</summary>
+public delegate void ScheduleFailureInboxWriter(TenantId tenant, YourInboxMessageEntity message);
 
 /// <summary>
 /// A FAILED SCHEDULE TELLS ITS OWNER (issue #4436). Before this a schedule's notifications were off unless its owner
@@ -108,8 +108,12 @@ public delegate Task<string?> ScheduleFailureMailer(TenantId tenant, string subj
 /// machine, what to do - and the run's own reason rides along as the detail.
 ///
 /// ON WHICH CHANNELS. The fleet notification channel (the per-Director doorbell event ring) and the schedule's webhook,
-/// through <see cref="ICronNotifier"/>; the account's phones (<see cref="ScheduleFailurePusher"/>); and an email to the
-/// account owner where the account has one - the hosted Gateway (<see cref="ScheduleFailureMailer"/>).
+/// through <see cref="ICronNotifier"/>; the account's phones (<see cref="ScheduleFailurePusher"/>); and a message in the
+/// account owner's Your inbox (<see cref="ScheduleFailureInboxWriter"/>, <see cref="InboxMessage"/>) - from the
+/// schedule's factory when it has one, so a reply is left in that factory's Factory inbox, and from the Gateway when it
+/// has none. NOTHING IS EMAILED (Factory Inbox mission: "factories stop emailing; the owner hears back only in Your
+/// inbox"). Until 7 November 2026 this sent the owner a "Schedule failed" email; this class now holds no mail sender of
+/// any kind, so it cannot send one.
 ///
 /// HOW OFTEN. At most once an hour for each cause of each schedule (<see cref="CronFailureNoticeStore"/>), so a broken
 /// schedule firing every five minutes sends one notice an hour, which says how many failures it stands for.
@@ -132,7 +136,7 @@ public sealed class ScheduleFailureNotifier : IDisposable
     private readonly Func<TenantId, string, string?> _machineOsOf;
     private readonly ICronNotifier _fleet;
     private readonly ScheduleFailurePusher _push;
-    private readonly ScheduleFailureMailer _mail;
+    private readonly ScheduleFailureInboxWriter _inbox;
     private readonly Func<TenantId, IDisposable> _enterScope;
     private readonly Func<DateTime> _clock;
     private readonly SemaphoreSlim _scanGate = new(1, 1);
@@ -146,10 +150,11 @@ public sealed class ScheduleFailureNotifier : IDisposable
     /// <param name="jobOf">The schedule, read in the given account; null when it no longer exists.</param>
     /// <param name="machineOsOf">The system a machine of the account last reported, or null: the folder sentences name it.</param>
     /// <param name="fleet">The fleet notification channel and the schedule's webhook.</param>
+    /// <param name="inbox">Writes the notice into the account owner's Your inbox.</param>
     /// <param name="enterScope">Enters one account's scope, so the fleet channel files the notice under that account.</param>
     public ScheduleFailureNotifier(CronRunHistoryStore runs, CronFailureNoticeStore notices,
         Func<TenantId, string, CronJobDto?> jobOf, Func<TenantId, string, string?> machineOsOf, ICronNotifier fleet,
-        ScheduleFailurePusher push, ScheduleFailureMailer mail, Func<TenantId, IDisposable> enterScope,
+        ScheduleFailurePusher push, ScheduleFailureInboxWriter inbox, Func<TenantId, IDisposable> enterScope,
         Func<DateTime>? clock = null)
     {
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
@@ -158,7 +163,7 @@ public sealed class ScheduleFailureNotifier : IDisposable
         _machineOsOf = machineOsOf ?? throw new ArgumentNullException(nameof(machineOsOf));
         _fleet = fleet ?? throw new ArgumentNullException(nameof(fleet));
         _push = push ?? throw new ArgumentNullException(nameof(push));
-        _mail = mail ?? throw new ArgumentNullException(nameof(mail));
+        _inbox = inbox ?? throw new ArgumentNullException(nameof(inbox));
         _enterScope = enterScope ?? throw new ArgumentNullException(nameof(enterScope));
         _clock = clock ?? (() => DateTime.UtcNow);
         _since = _clock() - RestartLookback;
@@ -265,11 +270,16 @@ public sealed class ScheduleFailureNotifier : IDisposable
                 FileLog.Write($"[ScheduleFailureNotifier] fleet notice FAILED: job={job.Id}: {ex.Message}");
             }
             await _push(tenant, notice, ct).ConfigureAwait(false);
-            var (subject, body) = Email(job, notice);
-            var notSent = await _mail(tenant, subject, body, ct).ConfigureAwait(false);
-            FileLog.Write(notSent is null
-                ? $"[ScheduleFailureNotifier] emailed the account owner: job={job.Id}"
-                : $"[ScheduleFailureNotifier] email not sent: job={job.Id}: {notSent}");
+            try
+            {
+                var written = InboxMessage(tenant, job, notice, now);
+                _inbox(tenant, written);
+                FileLog.Write($"[ScheduleFailureNotifier] wrote to Your inbox: job={job.Id}, message={written.Id}, from={written.FromKind}, factory={written.Factory ?? "(none)"}");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FileLog.Write($"[ScheduleFailureNotifier] Your inbox message FAILED: job={job.Id}: {ex.Message}");
+            }
         }
         return true;
     }
@@ -305,8 +315,15 @@ public sealed class ScheduleFailureNotifier : IDisposable
         return ($"Schedule failed: {notice.JobName}", notice.Reason + Times(notice.Occurrences));
     }
 
-    /// <summary>The email's subject and plain-text body: the headline first, the run's own words last, as the detail.</summary>
-    public static (string Subject, string Body) Email(CronJobDto job, CronRunCompletedPayload notice)
+    /// <summary>The last line of a notice from a factory: what a reply does.</summary>
+    public const string FactoryReplyLine = "Reply to this message to leave a message in this factory's inbox.";
+
+    /// <summary>The longest the run's own words are quoted, so the notice always fits in one Your inbox message.</summary>
+    public const int MaxDetailLength = 4000;
+
+    /// <summary>The Your inbox message's subject and plain-text body: the headline first, the run's own words last, as
+    /// the detail. A schedule in a factory ends with what a reply does.</summary>
+    public static (string Subject, string Body) InboxWords(CronJobDto job, CronRunCompletedPayload notice)
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(notice);
@@ -318,14 +335,28 @@ public sealed class ScheduleFailureNotifier : IDisposable
             "",
             $"When: {DateTime.SpecifyKind(notice.FiredUtc, DateTimeKind.Utc):yyyy-MM-dd HH:mm} UTC",
             "See every run on the Schedule page of DevThrottle.",
-            $"You are told at most once an hour for each kind of failure of this schedule. To stop these emails, set the schedule's Notify to Off.",
+            "You are told at most once an hour for each kind of failure of this schedule. To stop these messages, set the schedule's Notify to Off.",
         };
         if (!string.IsNullOrWhiteSpace(notice.Detail))
         {
+            var detail = notice.Detail.Length <= MaxDetailLength ? notice.Detail : notice.Detail[..(MaxDetailLength - 3)] + "...";
             lines.Add("");
-            lines.Add($"Details: {notice.Detail}");
+            lines.Add($"Details: {detail}");
+        }
+        if (!string.IsNullOrWhiteSpace(job.Factory))
+        {
+            lines.Add("");
+            lines.Add(FactoryReplyLine);
         }
         return ($"Schedule failed: {job.Name}", string.Join("\n", lines));
+    }
+
+    /// <summary>The Your inbox message of one notice: from the schedule's factory when it has one, from the Gateway when
+    /// it has none (<see cref="YourInboxStore.ForScheduleFailure"/>).</summary>
+    public static YourInboxMessageEntity InboxMessage(TenantId tenant, CronJobDto job, CronRunCompletedPayload notice, DateTime nowUtc)
+    {
+        var (subject, body) = InboxWords(job, notice);
+        return YourInboxStore.ForScheduleFailure(tenant, job.Factory, subject, body, nowUtc);
     }
 
     private static string Times(int occurrences) =>

@@ -5003,8 +5003,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Beside the error store, on the durable root a deploy does not touch.
             checkpointPath: Path.Combine(failureStore.Root, "schedule-failure-checkpoint.txt"));
         _cronRunFailures.Start();
-        // Issue #4436: a failed schedule tells its owner - the fleet channel and webhook, the phones, and the owner's
-        // email where the account has one - at most once an hour for each cause of each schedule.
+        // Issue #4436: a failed schedule tells its owner - the fleet channel and webhook, the phones, and a message in the
+        // owner's Your inbox (never an email: the Factory Inbox mission) - at most once an hour for each cause of each schedule.
         var noticeOs = new Running.ScheduleFolderCheck(t => Registry.ListDirectors(t),
             (t, directorId) => PushedSessions.GetActiveConnectionId(t, directorId) is not null, SendCommandAsync);
         _scheduleFailureNotices = new Running.ScheduleFailureNotifier(_cronRuns, new Running.CronFailureNoticeStore(_gatewayDb),
@@ -5016,11 +5016,7 @@ public sealed class GatewayHost : IAsyncDisposable
             machineOsOf: (tenant, machine) => noticeOs.OsOf(tenant, machine),
             fleet: _cronNotifier,
             push: _scheduleFailurePush.NotifyAsync,
-            mail: async (tenant, subject, body, ct) =>
-            {
-                var sent = await LicenseOwnerMail(tenant, new Licenses.LicenseOwnerEmail("", subject, body), ct).ConfigureAwait(false);
-                return sent.Outcome == Licenses.LicenseOwnerEmailOutcome.Sent ? null : sent.Detail ?? sent.Outcome.ToString();
-            },
+            inbox: (tenant, message) => YourInbox.Add(tenant, message),
             enterScope: tenant => _tenantBoundary.EnterScope(tenant));
         _scheduleFailureNotices.Start();
 
