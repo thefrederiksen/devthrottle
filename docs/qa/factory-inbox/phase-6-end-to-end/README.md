@@ -7,7 +7,7 @@ Mission fb77e0c6-2fc8-4cd8-beb0-5be020b6fe32, `docs/factory-inbox/MISSION-FINISH
 All times below are Coordinated Universal Time. The screens print local time on devlinux, which is five hours behind
 (a thread line "16:13" is 21:13 here).
 
-Steps 1 to 5, 7 and 8 ran on 6 November against commit `4264a9e`. Step 6 and the re-taken thread screenshots ran from
+Steps 1 to 5, 7 and 8 ran on 6 November against commit `4264a9e`. The Summary button of step 6 and the re-taken thread screenshots ran from
 00:09 on 7 November against commit `b3e7ead` (main after the deploy of `de1bb56`, which carries email off, pull request
 4664, and the thread fix, pull request 4690; read from `/healthz`).
 
@@ -273,13 +273,50 @@ step 3 twice, and the step 4 reply), four Noted (the three mid-claim notes and t
 Declined (step 4). For a factory with nothing in the window, mail-desk, the summary says "Nothing came in and nothing
 was decided."
 
-### The morning message
+### The morning message - a check list for the Delivery Lead (not run by me)
 
-Not yet run. The morning run is the Gateway's own sweep at 08:00 in the account's time zone (America/New_York, so 13:05
-Coordinated Universal Time on 7 November, after its five-minute settle); there is no route that runs it by hand. Moving
-the account to a time zone where it is 08:00 now was considered and not done: the kept run is keyed by the local date
-and hour (`2026-11-07T08`), so it would have used up the owner's real morning run for the day. The test factory stays
-active until that run, so it can be one of the factories with news.
+The morning message comes only from the Gateway's own sweep at 08:00 in the account's time zone, America/New_York:
+**13:05 Coordinated Universal Time on 7 November** (08:00 plus its five-minute settle; the kept runs of the last week all
+went out at 13:05 or 13:06). There is no route that runs it by hand. Moving the account to a time zone where it is
+08:00 now was not done, by the Delivery Lead's ruling: the kept run is keyed by the local date and hour
+(`2026-11-07T08`), so it would have used up the owner's real morning run. At hand-back (00:30) the test factory is
+**active** (it must be, or it gets no morning message: archived factories are skipped) and the test Director is
+**stopped** (the sweep needs no Director). The morning summary switch is on (`cc-devthrottle factory email status`:
+"factory email: on").
+
+**What the test factory's message should hold.** Its window is 13:00 on 6 November to 13:00 on 7 November, which holds
+all twelve test messages, so it has news. Subject: `Morning summary: Factory Inbox test - Saturday 7 November`. Body:
+the summary line `12 messages came in; 12 decisions made (Delegated 7, Noted 4, Declined 1).`, one line per message,
+then the factory's part of the 08:00 report (likely empty: it has no schedules), then the reply line. It comes from
+the factory, so it offers Reply. Every other factory with news gets one too, and open problems in no factory get one
+more message, "Schedules in no factory: ... still open - Saturday 7 November", with no Reply.
+
+**Check, after 13:06:**
+
+1. **Cockpit:** `https://gateway.devthrottle.com/inbox?tab=yours` (Inbox, the "Your inbox" tab). Expect an unread
+   "Morning summary: Factory Inbox test - Saturday 7 November"; open it and check the body above. Screenshot the list
+   and the open message.
+2. **Phone:** `https://gateway.devthrottle.com/mobile/inbox?tab=yours`. The same message; screenshot the list and the
+   open message.
+3. **Exactly one per factory:** in either list, one "Morning summary" per factory with news and no second one for the
+   test factory. By the Gateway: `GET /gateway/inbox` (the owner's token) lists them.
+4. **The kept row:** `cc-devthrottle factory email list` - the newest row is slot `2026-11-07T08`, state `sent`, sent
+   about 13:05. Then `cc-devthrottle factory email show <that id>`: its detail must read "Written to Your inbox as N
+   morning messages: one per factory with news, and one for open problems in no factory when there are any. No email
+   was sent." (`FactoryEmailSweep.DeliveredDetail`). A state `nothing-to-send` or `failed` is a defect.
+5. **No email was sent:** the owner's mailbox for 7 November has no "Factories: ... problems still open" email (every
+   day to 6 November had one, sent at 13:05). On the Gateway side the sender is gone: `FactoryEmailSender.cs` is deleted
+   and the sweep holds no mail sender (`docs/factory-inbox/owner-emails.md`, section 1), so the kept row's words and the
+   empty mailbox are the two pieces of evidence. The step 5 message (a session's `inbox send`) also sent no email: it
+   only writes a Your inbox row (`POST /sessions/{sid}/inbox`); check the mailbox shows nothing for 6 November at
+   about 22:21 either.
+6. **Archive the test factory afterwards:** Cockpit, `https://gateway.devthrottle.com/factories/factory-inbox-test`,
+   "Archive factory", confirm. Expect it to leave the Factories list and the Factory inbox list on both shells. It is
+   only `factory-inbox-test`, never an owner factory. The test Director is already stopped; if it was started again,
+   stop it with its own stop request (an ISO time written to
+   `/home/soren/ReposFred/fi-test-director/root/config/lifecycle-signals/cc-director-shutdown-abe5577d-14a2-44b0-a9d5-b8b7a747f87f.request`),
+   then check `readlink ~/.local/bin/cc-devthrottle` still points at
+   `/home/soren/.local/share/cc-director/pyenv/bin/cc-devthrottle`.
 
 ## Step 7 - failure cases
 
@@ -380,7 +417,8 @@ every reply re-reads. No money figure is given: the price per token was not chec
 
 ## Evidence: what this run did NOT prove
 
-- **The morning message** and the **"no email is sent" checks**: waiting for the 13:05 morning run.
+- **The morning message** and the **"no email is sent" checks**: not run by me. They need the product's own 08:00 run
+  at 13:05 on 7 November; the Delivery Lead runs the check list in step 6 and adds its screenshots.
 - **The thread screenshots of steps 1 to 7** needed the lengthened re-read timer in my own test tabs (defect 1, since
   fixed). The thread at its normal re-read is proven only by the step 6 screenshots of 7 November.
 - **"Sent from the phone".** No message in this run came from a device signed in as a phone (defect 3), so the phone's
