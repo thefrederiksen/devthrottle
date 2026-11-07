@@ -94,17 +94,19 @@ public sealed class LicenseReadinessService
         IReadOnlyList<Data.Entities.LicenseSwitchLogEntity> openSignIns, DateTime nowUtc)
         => Judge(tenant, picture, openSignIns, Outlook(tenant, picture, nowUtc).RunsOut, nowUtc);
 
+    /// <summary>Every machine now and its next-license verdict, both from ONE fresh picture at one clock: the same verdict
+    /// the Licenses page, the warning and the daily check read. The renewal failure alarm asks it whether a failing spare
+    /// matters, and takes the machines from the same picture so the two cannot describe different minutes.</summary>
+    public LicenseNextLicenseReading NextLicensesNow(TenantId tenant)
+    {
+        var now = _nowUtc();
+        var picture = _snapshots.ReadPicture(tenant, now, NoExhaustions);
+        return new LicenseNextLicenseReading(now, picture.Overview.Machines, NextLicenses(tenant, picture, now));
+    }
+
     /// <summary>Every machine of <paramref name="picture"/> on a license, judged for a READY next license
     /// (<see cref="LicenseNextLicenseFold.Judge"/>) at today's pace from the kept readings. What the Licenses page, the
     /// coverage grid and the daily check show, and what <see cref="TickAsync"/> warns on.</summary>
-    /// <summary>Every machine's next-license verdict now, on a fresh picture: the same verdict the Licenses page, the
-    /// warning and the daily check read. The renewal failure alarm asks it whether a failing spare matters.</summary>
-    public IReadOnlyList<LicenseNextLicense> NextLicensesNow(TenantId tenant)
-    {
-        var now = _nowUtc();
-        return NextLicenses(tenant, _snapshots.ReadPicture(tenant, now, NoExhaustions), now);
-    }
-
     public IReadOnlyList<LicenseNextLicense> NextLicenses(TenantId tenant, LicensePicture picture, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
@@ -299,3 +301,7 @@ public sealed class LicenseReadinessService
         }
     }
 }
+
+/// <summary>One picture's machines and their next-license verdicts, read at <paramref name="NowUtc"/>.</summary>
+public sealed record LicenseNextLicenseReading(DateTime NowUtc, IReadOnlyList<LicenseMachineView> Machines,
+    IReadOnlyList<LicenseNextLicense> Next);

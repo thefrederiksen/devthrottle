@@ -28,7 +28,8 @@ namespace CcDirector.Gateway.Licenses;
 /// machine holds but is not on - shows on the Licenses page only, and raises only when the machine would then have no
 /// READY next license (<see cref="SpareMatters"/>): its next-license verdict is already a problem, or this spare is the
 /// only ready next license it has. Under the warning level the machine needs no next license at all, so a spare failing
-/// there is no problem to put on the bar. The verdict is the one every other license surface reads
+/// there is no problem to put on the bar. A machine the verdict cannot judge now (mid-switch, a stale reading), or one on
+/// no license at all, stays loud: only a verdict that vouches for the machine quiets a spare. The verdict is the one every other license surface reads
 /// (<see cref="LicenseNextLicenseFold"/>), so the bar never disagrees with the page about a machine.
 ///
 /// ONE ALARM FOR EACH SIGN-IN: keyed on the machine and the account, raised once a minute through
@@ -42,20 +43,19 @@ public sealed class LicenseRenewalFailureAlarm
 
     private readonly LicenseStore _store;
     private readonly LicenseRenewalFailureLog _log;
-    private readonly LicenseReadModel _reads;
     private readonly LicenseAlarmService _alarms;
-    private readonly Func<DateTime> _nowUtc;
-    private readonly Func<TenantId, IReadOnlyList<LicenseNextLicense>> _judge;
+    private readonly Func<TenantId, LicenseNextLicenseReading> _judge;
     private readonly ConcurrentDictionary<TenantId, SemaphoreSlim> _raising = new();
 
-    public LicenseRenewalFailureAlarm(LicenseStore store, LicenseRenewalFailureLog log, LicenseReadModel reads, LicenseAlarmService alarms,
-        Func<DateTime> nowUtc, Func<TenantId, IReadOnlyList<LicenseNextLicense>> judge)
+    /// <param name="judge">The machines and their next-license verdicts, read from ONE picture at one clock
+    /// (<see cref="LicenseReadinessService.NextLicensesNow"/>), so the holdings and the verdict never describe two different
+    /// minutes.</param>
+    public LicenseRenewalFailureAlarm(LicenseStore store, LicenseRenewalFailureLog log, LicenseAlarmService alarms,
+        Func<TenantId, LicenseNextLicenseReading> judge)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _log = log ?? throw new ArgumentNullException(nameof(log));
-        _reads = reads ?? throw new ArgumentNullException(nameof(reads));
         _alarms = alarms ?? throw new ArgumentNullException(nameof(alarms));
-        _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
         _judge = judge ?? throw new ArgumentNullException(nameof(judge));
     }
 
@@ -94,21 +94,24 @@ public sealed class LicenseRenewalFailureAlarm
     }
 
     /// <summary>
-    /// Whether a failing renewal of the spare <paramref name="account"/> would leave its machine with no READY next license:
-    /// the machine's verdict is already a problem (it needs one, or its switch keeps failing), or it is ready only through
-    /// this spare. No verdict - a machine on no license - and every other state (under the warning level, no license with
-    /// room, not judged, ready through another license) is the Licenses page's alone.
+    /// Whether a failing renewal of the spare <paramref name="account"/> belongs on the bar. It is QUIET in exactly three
+    /// states the verdict can vouch for: under the warning level (no next license is needed yet), no other license has
+    /// room (the page's status alone), or ready through a license other than this one. Everything else is LOUD: a verdict
+    /// that is already a problem, ready only through this spare, a machine that cannot be judged now (mid-switch, a stale
+    /// reading, not reporting), and a machine on no license at all, which has no verdict - with no license it is on, every
+    /// sign-in it holds is the one it would have to use. A state the verdict cannot judge never silences the alarm: a
+    /// switch in progress must not close an alarm and reopen it a minute later as one that came back.
     /// </summary>
     public static bool SpareMatters(LicenseNextLicense? verdict, string account)
     {
         ArgumentNullException.ThrowIfNull(account);
         if (verdict is null)
-            return false;
-        if (verdict.IsProblem)
             return true;
-        return verdict.State == LicenseNextLicenseStates.Ready
-               && verdict.ReadyAccounts.Count > 0
-               && verdict.ReadyAccounts.All(a => string.Equals(a, account, StringComparison.OrdinalIgnoreCase));
+        if (verdict.State == LicenseNextLicenseStates.NotNeeded || verdict.State == LicenseNextLicenseStates.NoRoom)
+            return false;
+        if (verdict.State == LicenseNextLicenseStates.Ready)
+            return !verdict.ReadyAccounts.Any(a => !string.Equals(a, account, StringComparison.OrdinalIgnoreCase));
+        return true;
     }
 
     private static LicenseAlarmCondition Condition(IReadOnlyList<LicenseMachineView> machines, LicenseMachineView machine,
@@ -145,8 +148,8 @@ public sealed class LicenseRenewalFailureAlarm
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var now = _nowUtc();
-            var conditions = Conditions(_reads.Read(tenant, now).Machines, _log.ListOpen(tenant), _judge(tenant), now);
+            var reading = _judge(tenant);
+            var conditions = Conditions(reading.Machines, _log.ListOpen(tenant), reading.Next, reading.NowUtc);
             var raised = await _alarms.RaiseAsync(tenant, Kind, conditions, ct).ConfigureAwait(false);
             if (conditions.Count > 0 || raised.Closed > 0)
                 FileLog.Write($"[LicenseRenewalFailureAlarm] RaiseAsync: tenant={tenant.ToLogString()}, failing={conditions.Count}, opened={raised.Opened}, closed={raised.Closed}");

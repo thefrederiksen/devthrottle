@@ -55,7 +55,7 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
             directors.IsConnected, () => _now);
         _readiness = new LicenseReadinessService(_store, new LicenseSnapshotSource(_store, reads), signInLog, signIns,
             approvers.WhyNotReady, directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now);
-        _alarm = new LicenseRenewalFailureAlarm(_store, _log, reads, _alarms, () => _now, _readiness.NextLicensesNow);
+        _alarm = new LicenseRenewalFailureAlarm(_store, _log, _alarms, _readiness.NextLicensesNow);
         _emails = new LicenseRenewalEmailService(_store, _log, new LicenseReadModel(_store),
             (_, email, _) => { lock (_mailed) _mailed.Add(email); return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)); },
             () => _now);
@@ -352,4 +352,59 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
         Assert.Equal(B, alarm.AccountEmail);
         Assert.Single(_pushed);
     }
+
+    [Fact]
+    public async Task MinuteCheck_AMachineOnNoLicense_RaisesForAFailingSignIn()
+    {
+        // No license it is on: the sign-in it holds is the one it would have to use, so its failure is loud.
+        Reports(Failing(B, TimeSpan.FromDays(5)));
+
+        await MinuteCheck();
+
+        var alarm = Assert.Single(Open());
+        Assert.Equal(B, alarm.AccountEmail);
+    }
+
+    [Fact]
+    public async Task MinuteCheck_ASpareFails_WhileTheMachineCannotBeJudged_StillRaises()
+    {
+        // The reading of the license it is on is too old to judge: a state the verdict cannot vouch for never silences it,
+        // even with another ready spare held.
+        var active = Fine(A, TimeSpan.FromDays(20), active: true);
+        active.ReadAtUtc = _now - LicenseContract.ActiveHoldingStaleAfter - TimeSpan.FromMinutes(5);
+        Reports(active, Failing(B, TimeSpan.FromDays(5)), Fine(C, TimeSpan.FromDays(30)));
+
+        await MinuteCheck();
+
+        var alarm = Assert.Single(Open());
+        Assert.Equal(B, alarm.AccountEmail);
+    }
+
+    private static LicenseNextLicense Verdict(string state, params string[] ready)
+        => new(Guid.NewGuid(), Mac, "u", Mac, A, state, null, false, null, ready, null, null, null, "", LicenseTones.Neutral);
+
+    [Theory]
+    [InlineData(LicenseNextLicenseStates.NotNeeded, false)]
+    [InlineData(LicenseNextLicenseStates.NoRoom, false)]
+    [InlineData(LicenseNextLicenseStates.Needed, true)]
+    [InlineData(LicenseNextLicenseStates.SwitchFailing, true)]
+    [InlineData(LicenseNextLicenseStates.NotJudged, true)]
+    public void SpareMatters_ByVerdictState(string state, bool matters)
+        => Assert.Equal(matters, LicenseRenewalFailureAlarm.SpareMatters(Verdict(state), B));
+
+    [Fact]
+    public void SpareMatters_NoVerdict_AMachineOnNoLicense_Matters()
+        => Assert.True(LicenseRenewalFailureAlarm.SpareMatters(null, B));
+
+    [Fact]
+    public void SpareMatters_ReadyOnlyThroughThisSpare_Matters_InAnyCase()
+        => Assert.True(LicenseRenewalFailureAlarm.SpareMatters(Verdict(LicenseNextLicenseStates.Ready, B.ToUpperInvariant()), B));
+
+    [Fact]
+    public void SpareMatters_ReadyThroughAnotherLicenseToo_IsQuiet()
+        => Assert.False(LicenseRenewalFailureAlarm.SpareMatters(Verdict(LicenseNextLicenseStates.Ready, B, C), B));
+
+    [Fact]
+    public void SpareMatters_ReadyWithNoAccountNamed_Matters()
+        => Assert.True(LicenseRenewalFailureAlarm.SpareMatters(Verdict(LicenseNextLicenseStates.Ready), B));
 }

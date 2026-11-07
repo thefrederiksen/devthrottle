@@ -3251,7 +3251,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // A failing spare raises only when its machine would have no ready next license: the readiness check's verdict,
         // built below.
         LicenseRenewalFailureAlarm = new Licenses.LicenseRenewalFailureAlarm(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
-            LicenseReads, LicenseAlarms, LicenseNow.UtcNow,
+            LicenseAlarms,
             tenant => (LicenseReadiness ?? throw new InvalidOperationException("The readiness check is built before any renewal alarm is raised."))
                 .NextLicensesNow(tenant));
         // The daily license check: every machine under the ready-next-license rule, one log row and the daily report's
