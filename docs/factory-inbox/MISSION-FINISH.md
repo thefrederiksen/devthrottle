@@ -250,8 +250,21 @@ read on Linux) and reviewed by a separate session; every review file is under `r
 | 4690 | The thread took 70 seconds (4630's held lookup walked every upload); now an indexed lookup, warmed at start-up. | 00:04 UTC, 7 November |
 | 4664 | Email off: each factory's morning summary goes to Your inbox; the sweep has no mail sender. | 00:04 UTC, 7 November |
 | 4703 | Small defects from the end-to-end proof, and reads that cannot hang a screen. | 00:49 UTC, 7 November |
-| 4699 | The end-to-end QA report and this record. | - |
+| 4699 | The end-to-end QA report and this record, with the morning check of 7 November. | - (documents only) |
 
 Issues filed for what is outside this mission: 4701 (two Directors on one computer), 4702 (session keys refused for an
 owned session). Deploys cost between no failed answer and an 8-minute stall (17:06 UTC); the rule to roll back after
 five minutes was missed once and is recorded in the owner's report.
+
+### The morning check (7 November, 13:17 UTC) and the status
+
+The product's own 08:00 New York run (kept row `2026-11-07T08`, 13:06:16) wrote ten morning messages to Your inbox,
+one for the test factory, and its detail says "No email was sent"; the owner's mailbox has no morning email for
+7 November. Seen on the phone and the Cockpit (step 6 of the QA report). The test factory `factory-inbox-test` is
+archived; the test Director is stopped.
+
+**Status: the Factory inbox and Your inbox are done and live; "factories stop emailing" is not done.** Still
+emailing the owner: the Gateway's "Schedule failed" notices (`ScheduleFailureNotifier`, missed by
+`owner-emails.md`), the `devthrottle_internal` seat briefs listed in `owner-emails.md` section 6, the kept system
+alerts, and the website's daily account report. The first is this repository's work; the second needs
+`devthrottle_internal`; the last two are the owner's decisions.
