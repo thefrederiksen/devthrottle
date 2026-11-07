@@ -104,9 +104,38 @@ public sealed class ResourceMonitorHost : IDisposable
         var recorded = sessions is null
             ? Array.Empty<RecordedSession>()
             : sessions.Select(s => new RecordedSession(s.Usage, s.Label)).ToArray();
-        _recording.Record(new ResourceMoment(sample, recorded, state.Verdict, Diagnosis: null));
+        // THE DIAGNOSIS IS COMPUTED HERE, which until issue #4719 nothing anywhere did: the diagnoser was a
+        // tested pure function with no caller, and every moment went to disk with Diagnosis: null. A recording
+        // with a hole where the verdict belongs cannot be replayed to show what the product would have said,
+        // which is the only way the platform thresholds - still proposals, measured on one Mac - can ever be
+        // confirmed against real machines.
+        //
+        // THE TIMELINE COMES FROM THE SAMPLER, NEVER FROM THE STAMPS. TimelineHistory is the monotonic
+        // position of each sample, kept by the thing that owns the clock. Building one here by subtracting
+        // ResourceSample.TakenAtUtc values is the defect of #4686, and this is exactly the caller that issue
+        // predicted would be tempted to do it. TimelineGuardTests trips on the obvious spelling of that
+        // mistake - it is a net, not a proof, and its own summary says what it cannot see.
+        //
+        // Cost: the history is at most ResourceSampling.HistoryCapacity (720, one hour), so this is a sort and
+        // a scan of 720 items every five seconds - measured against the mission's 0.5 per cent of one core
+        // before it was added here.
+        var diagnosis = SlownessDiagnoser.Diagnose(_sampler.TimelineHistory, _membership, NamesById(sessions));
+        _recording.Record(new ResourceMoment(sample, recorded, state.Verdict, diagnosis));
 
         Updated?.Invoke(this, update);
+    }
+
+    /// <summary>
+    /// Each session's display name by its identifier, so the diagnosis can name the culprit's session in words
+    /// rather than by an identifier nobody recognises. Null when the sessions are not known - which is not the
+    /// same as empty, and the diagnosis then names no session rather than claiming there are none.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string>? NamesById(IReadOnlyList<ResourceSessionInput>? sessions)
+    {
+        if (sessions is null) return null;
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var session in sessions) names[session.Usage.SessionId] = session.Label;
+        return names;
     }
 
     // What each session's process tree costs at this read. Null when the process list could not be read: then
