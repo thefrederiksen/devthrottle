@@ -13,11 +13,14 @@ namespace CcDirector.Gateway.Api;
 ///
 /// THE RULES, in one place (the hour's peak and Spare also say how much of the hour they rest on - see
 /// <see cref="MeasuredMinutes"/>):
-///  - "Now" is the newest five-minute window from any Director on the machine; the peak is the highest five-second
-///    reading in the last hour's windows.
+///  - "Now" is the newest five-minute window start on the machine, and each figure is taken from whichever Director's
+///    row at that start READ it - two Directors both measure the whole machine, so one that could not read a figure
+///    does not hide the other's reading. The peak is the highest five-second reading in the last hour's windows, by
+///    the same rule.
 ///  - Spare is total memory minus the HIGHEST memory in use in the last hour - free memory at the hour's peak, not
 ///    right now - so a machine that spikes is not advertised as roomy.
-///  - A tone comes from the newest window's crossings: red is bad, amber is warn, none is ok. A figure the machine
+///  - A tone comes from the crossings of THE ROW THAT SUPPLIED THAT RESOURCE'S FIGURE: red is bad, amber is warn,
+///    none is ok. The figure and its colour always come from the same reading. A figure the machine
 ///    could not read says "cannot read" in the idle tone, with the reason in <see cref="FleetMachineCapacityDto.Why"/>.
 ///  - An offline machine (no running Director) and a silent one (no window in the last 15 minutes) show dashes, never
 ///    zeros, and no status of their own - reachability is the reach line's. Offline is not idle.
@@ -64,12 +67,28 @@ internal static class ResourceCapacityFold
         var recent = windows
             .Where(w => w.WindowStartUtc.AddSeconds(w.WindowSeconds > 0 ? w.WindowSeconds : ResourceSummaryContract.WindowSeconds) > nowUtc - PeakSpan)
             .ToList();
-        var newest = recent
-            .OrderByDescending(w => w.WindowStartUtc)
-            .ThenByDescending(w => w.SampleCount)
-            .FirstOrDefault();
+        // THE "NOW" FIGURES COME PER RESOURCE FROM THE NEWEST START GROUP, the same way the hour's peak does
+        // (issue #4678). Two Directors on one machine both measure the WHOLE machine, so a figure one of them could
+        // not read is there when the other read it. Choosing a single row - by start, then by sample count, ties
+        // broken by whatever order the store happened to return - made the two halves of this fold disagree about
+        // what a same-start pair means: the hour counted that start as covered, while "now" showed "cannot read" or
+        // "Figures refused" for the whole machine depending on which row came back first.
+        var newestStart = recent.Count == 0 ? (DateTime?)null : recent.Max(w => w.WindowStartUtc);
+        var atNewest = recent
+            .Where(w => w.WindowStartUtc == newestStart)
+            .OrderByDescending(w => w.SampleCount)
+            .ToList();
+        var newest = atNewest.FirstOrDefault();
+        // The GROUP's end, not the chosen row's, because silence is a question about the machine rather than about one
+        // Director's row. TODAY THIS IS EQUIVALENT, and the comment says so rather than implying a case it prevents:
+        // ResourceSummaryStore.StructuralRefusalFor refuses outright any window that is not exactly
+        // ResourceSummaryContract.WindowSeconds long, so every stored row at a start has the same length and the
+        // group's longest always equals the chosen row's. The rule is kept because it is the correct question to ask
+        // of a group, not because it changes an answer the store allows.
+        var newestEnd = newestStart?.AddSeconds(
+            atNewest.Max(w => w.WindowSeconds > 0 ? w.WindowSeconds : ResourceSummaryContract.WindowSeconds));
         var newestReceived = windows.Count == 0 ? (DateTime?)null : windows.Max(w => w.ReceivedUtc);
-        if (newest is null || newest.WindowStartUtc.AddSeconds(newest.WindowSeconds) < nowUtc - SilentAfter)
+        if (newest is null || newestEnd < nowUtc - SilentAfter)
         {
             // A Director whose CLOCK is behind sends on time but stamps its windows in the past: received recently, timed
             // long ago. That is a clock problem, and naming the connection would send someone to the wrong place.
@@ -80,8 +99,12 @@ internal static class ResourceCapacityFold
                                       + "older than the resource monitor, or its connection to the Gateway may be down.");
         }
 
-        // A REFUSED newest window is neither a reading nor silence: the machine sent figures no machine can produce.
-        if (newest.RefusedReason is { } refused)
+        // A REFUSED window is neither a reading nor silence: the machine sent figures no machine can produce. The
+        // machine says so only when EVERY row at the newest start was refused - one Director's refusal must not hide
+        // another Director's good reading of the same machine (issue #4678).
+        if (atNewest.TrueForAll(w => w.RefusedReason is not null))
+        {
+            var refused = RefusalsAt(atNewest)!;
             return new FleetMachineCapacityDto
             {
                 Reporting = true,
@@ -94,6 +117,7 @@ internal static class ResourceCapacityFold
                 Why = $"The Gateway refused this machine's newest figures because {refused}. That is a fault in how the "
                       + "Director measured, not an idle machine.",
             };
+        }
 
         // Whether the hour's peak is known is decided PER RESOURCE, and by every window in the hour - not by whether one
         // was refused. A window can be unread for the processor and read for memory, and Max over a nullable figure skips
@@ -108,15 +132,20 @@ internal static class ResourceCapacityFold
         var memoryMeasured = MeasuredMinutes(windows, nowUtc, w => w.MemorySamples);
         var processorPeakPartial = false;
         var sparePartial = false;
-        var crossings = ResourceSummaryStore.CrossingsOf(newest);
+        // PER RESOURCE, THE ROW AT THE NEWEST START THAT READ IT, and "cannot read" only when none of them did.
+        var processorRow = atNewest.Find(w => w.ProcessorAveragePercent is not null);
+        var memoryRow = atNewest.Find(w => w.MemoryAverageUsedBytes is not null && w.MemoryTotalBytes > 0);
+        var survivedRefusal = RefusalsAt(atNewest);
         var dto = new FleetMachineCapacityDto { Reporting = true, ReadingWindowStartUtc = newest.WindowStartUtc };
         var why = new List<string>();
 
         // ---- the processor ----
-        if (newest.ProcessorAveragePercent is { } cpuNow)
+        if (processorRow?.ProcessorAveragePercent is { } cpuNow)
         {
             dto.ProcessorLabel = Percent(cpuNow);
-            dto.ProcessorTone = ToneOf(crossings, ResourceSummaryContract.Processor);
+            // THE TONE COMES FROM THE ROW THAT GAVE THE FIGURE. Reading the figure from the Director that measured it
+            // and the crossing from another would show one Director's 95 per cent beside the other's "no crossing".
+            dto.ProcessorTone = ToneOf(ResourceSummaryStore.CrossingsOf(processorRow), ResourceSummaryContract.Processor);
             if (processorGap is not null)
             {
                 dto.ProcessorDetail = "peak not known";
@@ -136,15 +165,15 @@ internal static class ResourceCapacityFold
         {
             dto.ProcessorLabel = "cannot read";
             dto.ProcessorTone = FleetTone.Idle;
-            why.Add($"The processor could not be read: {newest.ProcessorUnreadableReason}");
+            why.Add($"The processor could not be read: {NoRowCouldRead(atNewest, w => w.ProcessorUnreadableReason)}");
         }
 
         // ---- memory, and spare ----
-        if (newest.MemoryAverageUsedBytes is { } usedNow && newest.MemoryTotalBytes is { } total && total > 0)
+        if (memoryRow?.MemoryAverageUsedBytes is { } usedNow && memoryRow.MemoryTotalBytes is { } total && total > 0)
         {
             dto.MemoryLabel = Percent(usedNow * 100.0 / total);
             dto.MemoryDetail = $"{Gigabytes(usedNow)} / {Gigabytes(total)} GB";
-            dto.MemoryTone = ToneOf(crossings, ResourceSummaryContract.Memory);
+            dto.MemoryTone = ToneOf(ResourceSummaryStore.CrossingsOf(memoryRow), ResourceSummaryContract.Memory);
             // A window in the hour whose memory was not read may have held the hour's peak, so Spare is not known: computed
             // from the readable windows alone it would advertise room the machine did not have, and Spare's only reader is
             // the decision about where the next factory goes (issue #4670).
@@ -185,8 +214,8 @@ internal static class ResourceCapacityFold
         {
             dto.MemoryLabel = "cannot read";
             dto.MemoryTone = FleetTone.Idle;
-            why.Add(newest.MemoryUnreadableReason is { } reason
-                ? $"Memory could not be read: {reason}"
+            why.Add(atNewest.Exists(w => w.MemoryUnreadableReason is not null)
+                ? $"Memory could not be read: {NoRowCouldRead(atNewest, w => w.MemoryUnreadableReason)}"
                 : "Memory was read but the machine's total was not, so no share or spare capacity can be given.");
         }
 
@@ -216,9 +245,64 @@ internal static class ResourceCapacityFold
                         + "so the spare capacity is at most what is shown.");
         }
 
+        // A REFUSAL THAT WAS SURVIVED IS STILL REPORTED (review of #4678, finding 2). One Director's refusal says
+        // nothing about the machine - every refusal rule is about one row's own figures being impossible - so the other
+        // Director's reading is the right thing to SHOW. But it used to appear whenever the refused row won the
+        // tie-break, and saying nothing at all would make a Director that is refused every window invisible here, in
+        // HourGap (the start is covered) and everywhere else, on a machine whose second Director is healthy. Only when
+        // both figures were supplied: otherwise the resource's own reason already names the refusal, and this would say
+        // it twice.
+        if (survivedRefusal is not null && processorRow is not null && memoryRow is not null)
+            why.Add($"One of this machine's Directors sent figures the Gateway refused for that window because "
+                    + $"{survivedRefusal}. The figures shown are from another Director on the same machine.");
+
         (dto.StatusLabel, dto.StatusTone) = StatusOf(dto);
         dto.Why = why.Count == 0 ? null : string.Join(" ", why);
         return dto;
+    }
+
+    /// <summary>
+    /// Why NO row at the newest start could supply a resource. It prefers the reason of a Director that genuinely
+    /// could not read it over the words of a REFUSAL, and names both when both happened - the same rule
+    /// <see cref="HourGap"/> uses for the hour.
+    ///
+    /// THE REASON MUST NOT BE PICKED BY ROW ORDER (review of #4678, finding 1). A refused row's unreadable reason is
+    /// set by the store to the REFUSAL's words, so quoting the first non-null reason in sample-count order could tell
+    /// the reader the processor "could not be read: the Gateway refused this window's figures because ..." while never
+    /// naming the Director whose counters actually did not answer - and which of the two sentences appeared depended on
+    /// the order the store happened to return. That is the defect this file was just changed to remove from the
+    /// figures; leaving it in the explanation sends someone to the wrong machine instead of showing them a wrong number.
+    /// </summary>
+    private static string NoRowCouldRead(List<ResourceWindowEntity> atNewest, Func<ResourceWindowEntity, string?> unreadReason)
+    {
+        var unread = atNewest
+            .Where(w => w.RefusedReason is null)
+            .Select(unreadReason)
+            .FirstOrDefault(r => r is not null);
+        var refusals = RefusalsAt(atNewest);
+        if (unread is null)
+            return refusals is null
+                ? "the Director gave no reason"
+                : $"the Gateway refused this machine's figures for that window because {refusals}";
+        return refusals is null
+            ? unread
+            : $"{unread}; and the Gateway refused another Director's figures for the same window because {refusals}";
+    }
+
+    /// <summary>
+    /// Every DISTINCT refusal reason among a start's rows, in a fixed order, or null when none was refused. Ordered by
+    /// the text rather than by the rows, so two Directors refused for different reasons do not produce a sentence that
+    /// depends on which row the store returned first - and both are named rather than only the first.
+    /// </summary>
+    private static string? RefusalsAt(List<ResourceWindowEntity> atNewest)
+    {
+        var reasons = atNewest
+            .Select(w => w.RefusedReason)
+            .Where(r => r is not null)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(r => r, StringComparer.Ordinal)
+            .ToList();
+        return reasons.Count == 0 ? null : string.Join("; and ", reasons);
     }
 
     /// <summary>A full window's samples: one every five seconds for the window's five minutes.</summary>

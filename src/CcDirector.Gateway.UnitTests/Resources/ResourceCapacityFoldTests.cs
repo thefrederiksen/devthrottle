@@ -261,6 +261,150 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         Assert.Null(capacity.Why);
     }
 
+    // ---- Issue #4678: the "now" figures take the newest start group the same way the hour does. ----
+
+    /// <summary>
+    /// THE STRONGEST ARRANGEMENT, because no single row can satisfy it. At the newest start one Director read the
+    /// processor and not memory, the other read memory and not the processor. Picking ONE row for the whole machine
+    /// therefore had to show "cannot read" for one of the two resources whichever row it picked, while the hour -
+    /// which already groups by start - counted that start as covered for both. The two halves of this fold disagreed
+    /// about what a same-start pair means.
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereEachDirectorReadADifferentResource_ShowsBothFigures()
+    {
+        // director-2: memory read at 8 GB, the processor not read.
+        var memoryOnly = Steady(W0.AddMinutes(25), 0, 8 * Gb);
+        memoryOnly.Machine.ProcessorCouldRead = false;
+        memoryOnly.Machine.ProcessorUnreadableReason = "the processor counters did not answer";
+        _store.Store(Tenant, "director-2", Batch(memoryOnly));
+
+        // director-1: the processor read at 28%, memory not read.
+        var processorOnly = Steady(W0.AddMinutes(25), 28, 8 * Gb);
+        processorOnly.Machine.MemoryCouldRead = false;
+        processorOnly.Machine.MemoryUnreadableReason = "/proc/meminfo could not be opened";
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(processorOnly), Now);
+
+        Assert.Equal("28%", capacity.ProcessorLabel);
+        Assert.Equal("50%", capacity.MemoryLabel);
+        Assert.Equal("8.0 / 16 GB", capacity.MemoryDetail);
+        // Both resources were covered at every start in the hour, so nothing is unknown and nothing needs explaining.
+        Assert.Null(capacity.Why);
+    }
+
+    /// <summary>
+    /// One Director's REFUSED figures must not hide another's good reading of the same machine. The refused row is
+    /// given the higher sample count, which is exactly what the old tie-break preferred, so this fails deterministically
+    /// without it rather than depending on the order the store happens to return.
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereOneDirectorWasRefusedAndAnotherRead_ShowsTheReading()
+    {
+        var refused = Steady(W0.AddMinutes(25), 30, 15 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+        refused.SampleCount = 61;
+        _store.Store(Tenant, "director-2", Batch(refused));
+
+        var capacity = ResourceCapacityFold.Fold(
+            directorRunning: true, Stored(Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.Equal("28%", capacity.ProcessorLabel);
+        Assert.Equal("50%", capacity.MemoryLabel);
+        Assert.NotEqual("Figures refused", capacity.StatusLabel);
+
+        // AND THE REFUSAL IS STILL NAMED. This assertion was Assert.Null(capacity.Why) when the test was written,
+        // which pinned the defect the change had just introduced: the refusal appeared nowhere at all, so a Director
+        // refused every window was invisible on a machine whose second Director was healthy (review finding 2).
+        Assert.Contains("One of this machine's Directors sent figures the Gateway refused for that window because",
+            capacity.Why);
+        Assert.Contains("The figures shown are from another Director on the same machine.", capacity.Why);
+    }
+
+    /// <summary>
+    /// When NO row at the newest start could supply a resource and one of them was refused, the explanation must name
+    /// the Director whose counters did not answer - not quote the refusal's words as if they were that Director's
+    /// reason, and not depend on which row the store returned first.
+    ///
+    /// A refused row's unreadable reason is set by the store to the REFUSAL's words, so the first non-null reason in
+    /// row order could read "The processor could not be read: the Gateway refused this window's figures because ...".
+    /// That sends the reader to the wrong machine, which is worse than showing them a wrong number (review finding 1).
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereOneWasRefusedAndTheOtherCouldNotRead_NamesBothCausesInThatOrder()
+    {
+        var refused = Steady(W0.AddMinutes(25), 30, 15 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+        refused.SampleCount = 61;
+        _store.Store(Tenant, "director-2", Batch(refused));
+
+        var unread = Steady(W0.AddMinutes(25), 0, 8 * Gb);
+        unread.Machine.ProcessorCouldRead = false;
+        unread.Machine.ProcessorUnreadableReason = "the processor counters did not answer";
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(unread), Now);
+
+        Assert.Equal("cannot read", capacity.ProcessorLabel);
+        Assert.Contains("The processor could not be read: the processor counters did not answer; and the Gateway "
+                        + "refused another Director's figures for the same window because", capacity.Why);
+        // The refusal's own words must never be presented as the reason the processor could not be read.
+        Assert.DoesNotContain("could not be read: the Gateway refused", capacity.Why);
+        // Memory was read by the Director that could not read the processor, so it is unaffected.
+        Assert.Equal("50%", capacity.MemoryLabel);
+    }
+
+    /// <summary>
+    /// And the refusal still reaches the machine when EVERY row at the newest start was refused - the point of the
+    /// change is that one reading rescues the start, not that a refusal stops being reported. This one also passes
+    /// before the change: it guards against the fix going too far, not against the defect.
+    /// </summary>
+    [Fact]
+    public void Fold_TheNewestStartWhereEveryDirectorWasRefused_StillSaysFiguresRefused()
+    {
+        var second = Steady(W0.AddMinutes(25), 30, 15 * Gb);
+        second.Machine.ProcessorPeakPercent = 400;
+        _store.Store(Tenant, "director-2", Batch(second));
+
+        var first = Steady(W0.AddMinutes(25), 28, 8 * Gb);
+        first.Machine.MemoryPeakUsedBytes = 99 * Gb;
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(first), Now);
+
+        Assert.True(capacity.Reporting);
+        Assert.Equal("Figures refused", capacity.StatusLabel);
+        Assert.Equal("cannot read", capacity.ProcessorLabel);
+        Assert.Equal("cannot read", capacity.MemoryLabel);
+        Assert.Equal("cannot read", capacity.SpareLabel);
+    }
+
+    /// <summary>
+    /// WHY THE GROUP'S-END RULE CANNOT BE EXERCISED, asserted rather than asserted-about. The fold now takes the
+    /// newest start's end from the group's longest window rather than the chosen row's, which is the correct question
+    /// to ask of a group - but the store refuses outright any window that is not exactly five minutes long, so every
+    /// stored row at a start has the same length and the rule can never change an answer.
+    ///
+    /// This test replaces one that tried to exercise it by storing a five-second row. That row was REFUSED and never
+    /// stored, so the fold ran on a single row and the test pinned nothing while its own summary claimed it was a pin
+    /// (review finding 3). A test that cannot fail guards nothing, so it now asserts the store's guarantee - which is
+    /// the real reason the rule is a no-op, and the thing that would have to change first.
+    /// </summary>
+    [Fact]
+    public void Store_AWindowShorterThanFiveMinutes_IsRefusedOutright_SoEveryRowAtAStartIsTheSameLength()
+    {
+        var shortWindow = Steady(W0.AddMinutes(25), 30, 8 * Gb);
+        shortWindow.WindowSeconds = 5;
+
+        Assert.Equal("it is 5 seconds long, not 300",
+            ResourceSummaryStore.StructuralRefusalFor(shortWindow, Now));
+
+        _store.Store(Tenant, "director-2", Batch(shortWindow));
+        var windows = Stored(Steady(W0.AddMinutes(25), 28, 8 * Gb));
+
+        var atNewest = windows.Where(w => w.WindowStartUtc == W0.AddMinutes(25)).ToList();
+        Assert.Single(atNewest);
+        Assert.Equal(300, atNewest[0].WindowSeconds);
+    }
+
     // ---- Issue #4679: an hour that was not measured whole has no peak, only a highest reading. ----
 
     [Fact]
