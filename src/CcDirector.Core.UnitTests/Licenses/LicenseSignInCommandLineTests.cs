@@ -238,6 +238,33 @@ public sealed class LicenseSignInCommandLineTests
     }
 
     [Fact]
+    public void ReadReauthAnswer_SignedInAgain_CarriesTheCheckThatConfirmedIt()
+    {
+        var answer = CcDevthrottleLicenseCommandLine.ReadReauthAnswer(
+            "{\"accountEmail\": \"account-a@example.com\", \"result\": \"signed-in-again\", \"check\": {\"browserProfile\": \"work-chrome\", "
+            + "\"accountEmail\": \"account-a@example.com\", \"shownAccount\": \"account-a@example.com\", \"state\": \"can-approve\", \"detail\": \"x\"}}",
+            "account-a@example.com");
+
+        Assert.True(answer.SignedInAgain);
+        Assert.Equal(("can-approve", "account-a@example.com"), (answer.Check!.State, answer.Check.AccountEmail!));
+    }
+
+    [Theory]
+    [InlineData("{\"result\": \"failed\", \"reason\": \"reauth-failed\", \"step\": \"code\"}", "reauth-failed", "code")]
+    [InlineData("{\"result\": \"failed\", \"reason\": \"no-mailbox\", \"step\": null}", "no-mailbox", null)]
+    [InlineData("{\"result\": \"failed\", \"reason\": \"something new\", \"step\": \"elsewhere\"}", "no-answer", null)]
+    [InlineData("{\"result\": \"signed-in-again\", \"check\": {\"state\": \"needs-fresh-sign-in\", \"accountEmail\": \"account-a@example.com\"}}", "no-answer", "confirm")]
+    [InlineData("{\"result\": \"signed-in-again\"}", "no-answer", null)]
+    [InlineData("not json", "no-answer", null)]
+    public void ReadReauthAnswer_AnythingButAConfirmedSignIn_IsAFailure_InTheContractsWords(string output, string reason, string? step)
+    {
+        var answer = CcDevthrottleLicenseCommandLine.ReadReauthAnswer(output, "account-a@example.com");
+
+        Assert.False(answer.SignedInAgain);
+        Assert.Equal((reason, step), (answer.Reason, answer.Step));
+    }
+
+    [Fact]
     public void ReadRecordedBrowsers_NoneSet_IsAnEmptyList() =>
         Assert.Empty(CcDevthrottleLicenseCommandLine.ReadRecordedBrowsers("{\"count\": 0, \"accounts\": []}"));
 

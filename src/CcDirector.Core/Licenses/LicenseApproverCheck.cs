@@ -54,6 +54,20 @@ public static class LicenseApproverCheckSentences
         _ => "The license tool gave no readable answer to the check on this machine.",
     };
 
+    /// <summary>The sentence for a profile that still needs a fresh sign-in because signing in again from the mailbox
+    /// failed: which step, and the tool's reason word - this Director's own words, never the tool's sentence.</summary>
+    public static string ReauthFailed(LicenseReauthAnswer reauth)
+    {
+        ArgumentNullException.ThrowIfNull(reauth);
+        var why = reauth.Reason switch
+        {
+            "prefilled-other-account" => "the sign-in page keeps another account in its email field, so nothing was sent",
+            "reauth-failed" => reauth.Step is { } step ? $"it failed at the {step} step" : "it failed",
+            _ => "the license tool gave no readable answer",
+        };
+        return Fit($"The approval page asks for a fresh claude.ai sign-in, and signing in again from the account's mailbox did not work: {why}.")!;
+    }
+
     /// <summary><paramref name="text"/> as the Gateway takes a detail: one line of readable characters, at most
     /// <see cref="LicenseApproverContract.MaxDetailLength"/>, shortened with "..." past it; null when nothing is left.</summary>
     internal static string? Fit(string? text)
@@ -126,7 +140,7 @@ public sealed class LicenseApproverCheck
     private BackgroundJob? _job;
 
     /// <param name="enabled">The license switching setting. Off: no check ever runs.</param>
-    /// <param name="offersApprovers">The offer setting: whether this Director's own profiles are checked too.</param>
+    /// <param name="offersApprovers">The offer setting: whether the profiles recorded here for an account (<c>license set-browser</c>) are checked too, each with that account - never every profile on the machine.</param>
     public LicenseApproverCheck(ILicenseCommandLine tool, LicenseKeyHolderLock holder, LicenseBrowserLane lane,
         ILicenseBrowserProfiles profiles, Func<DateTime> utcNow, bool enabled, bool offersApprovers)
     {
@@ -312,7 +326,7 @@ public sealed class LicenseApproverCheck
         return assignments.Rows.Where(a => a.CheckDue && !_checkedWhenDue.Contains(Key(a))).ToList();
     }
 
-    /// <summary>Checks only the records the Gateway marks due, each with its account; this Director's own profiles wait
+    /// <summary>Checks only the records the Gateway marks due, each with its account; the profiles recorded here wait
     /// for the daily run.</summary>
     private async Task<LicenseApproverCheckReport> CheckDueAsync(IReadOnlyList<LicenseApproverAssignment> due, CancellationToken cancellationToken)
     {
@@ -344,6 +358,21 @@ public sealed class LicenseApproverCheck
             LicenseApproverToolAnswer answer;
             using (await _lane.EnterCheckAsync(cancellationToken))
                 answer = await _tool.CheckApproverAsync(profile, email, cancellationToken);
+            string? reauthFailed = null;
+            if (answer.State == LicenseApproverStates.NeedsFreshSignIn && answer.AccountEmail is { } account)
+            {
+                // Mission "Licenses - Always Ready, Loud When Not", step 4: the fresh sign-in claude.ai asks for is done
+                // from the account's own mailbox, in a lane turn of its own so an approval waiting can go in between.
+                LicenseReauthAnswer reauth;
+                using (await _lane.EnterCheckAsync(cancellationToken))
+                    reauth = await _tool.ReauthAsync(profile, account, cancellationToken);
+                if (reauth.SignedInAgain)
+                    answer = reauth.Check!;
+                else if (reauth.Reason == LicenseReauthAnswer.NoMailbox)
+                    FileLog.Write($"[LicenseApproverCheck] profile={profile}, account={account} needs a fresh sign-in and no mailbox is set for it here; reported as it is");
+                else
+                    reauthFailed = LicenseApproverCheckSentences.ReauthFailed(reauth);
+            }
             names.TryGetValue(profile, out var name);
             report.Rows.Add(new LicenseApproverCheckRow
             {
@@ -355,8 +384,10 @@ public sealed class LicenseApproverCheck
                 ShownAccount = answer.ShownAccount,
                 State = answer.State,
                 CheckedAtUtc = _utcNow(),
-                Detail = LicenseApproverCheckSentences.For(answer),
+                Detail = reauthFailed ?? LicenseApproverCheckSentences.For(answer),
             });
+            if (reauthFailed is not null)
+                FileLog.Write($"[LicenseApproverCheck] signing in again FAILED: profile={profile}, account={answer.AccountEmail}, detail={reauthFailed}");
             FileLog.Write($"[LicenseApproverCheck] checked profile={profile}, account={answer.AccountEmail ?? "-"}, state={answer.State}"
                           + (answer.State == LicenseApproverStates.CheckFailed ? $", detail={report.Rows[^1].Detail}" : ""));
         }

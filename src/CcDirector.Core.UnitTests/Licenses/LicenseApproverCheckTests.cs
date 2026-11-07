@@ -169,6 +169,81 @@ public sealed class LicenseApproverCheckTests : IDisposable
         Assert.Equal(0, _channel.AssignmentCalls);
     }
 
+    // ----- a profile that needs a fresh sign-in is signed in again from the mailbox (mission step 4) -----
+
+    [Fact]
+    public async Task TickAsync_NeedsAFreshSignIn_SignsInAgainFromTheMailbox_AndReportsTheCheckThatConfirmedIt()
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        Answers("work-chrome", AccountA, LicenseApproverStates.NeedsFreshSignIn, shown: AccountA);
+        _tool.Reauths[("work-chrome", AccountA)] = new LicenseReauthAnswer
+        {
+            SignedInAgain = true,
+            Check = new LicenseApproverToolAnswer { State = LicenseApproverStates.CanApprove, AccountEmail = AccountA, ShownAccount = AccountA, ToolAnswered = true },
+        };
+
+        var report = await Check().TickAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { ("work-chrome", AccountA) }, _tool.ReauthCalls);
+        var row = Assert.Single(report!.Rows);
+        Assert.Equal((LicenseApproverStates.CanApprove, AccountA), (row.State, row.AccountEmail!));
+    }
+
+    [Fact]
+    public async Task TickAsync_SigningInAgainFails_TheRowStillNeedsAFreshSignIn_AndSaysTheStep()
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        Answers("work-chrome", AccountA, LicenseApproverStates.NeedsFreshSignIn, shown: AccountA);
+        _tool.Reauths[("work-chrome", AccountA)] = LicenseReauthAnswer.Failed("reauth-failed", "mail");
+
+        var report = await Check().TickAsync(CancellationToken.None);
+
+        var row = Assert.Single(report!.Rows);
+        Assert.Equal(LicenseApproverStates.NeedsFreshSignIn, row.State);
+        Assert.Equal("The approval page asks for a fresh claude.ai sign-in, and signing in again from the account's mailbox did not work: it failed at the mail step.", row.Detail);
+        Assert.True(row.Detail!.Length <= LicenseApproverContract.MaxDetailLength);
+    }
+
+    [Fact]
+    public async Task TickAsync_ThePagePrefillsAnotherAccount_TheDetailSaysNothingWasSent()
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        Answers("work-chrome", AccountA, LicenseApproverStates.NeedsFreshSignIn, shown: AccountA);
+        _tool.Reauths[("work-chrome", AccountA)] = LicenseReauthAnswer.Failed("prefilled-other-account", "request");
+
+        var report = await Check().TickAsync(CancellationToken.None);
+
+        Assert.Contains("keeps another account in its email field, so nothing was sent", Assert.Single(report!.Rows).Detail);
+        Assert.True(report.Rows[0].Detail!.Length <= LicenseApproverContract.MaxDetailLength);
+    }
+
+    [Fact]
+    public async Task TickAsync_NoMailboxSetForTheAccount_TheRowIsReportedAsTheCheckRead()
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        Answers("work-chrome", AccountA, LicenseApproverStates.NeedsFreshSignIn, shown: AccountA);
+
+        var report = await Check().TickAsync(CancellationToken.None);
+
+        var row = Assert.Single(report!.Rows);
+        Assert.Equal(LicenseApproverStates.NeedsFreshSignIn, row.State);
+        Assert.Equal("The approval page asks for a fresh claude.ai sign-in before it will approve.", row.Detail);
+    }
+
+    [Theory]
+    [InlineData(LicenseApproverStates.CanApprove)]
+    [InlineData(LicenseApproverStates.SignedOut)]
+    [InlineData(LicenseApproverStates.WrongAccount)]
+    public async Task TickAsync_AnyOtherState_SignsNothingInAgain(string state)
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        Answers("work-chrome", AccountA, state, shown: state == LicenseApproverStates.WrongAccount ? AccountB : AccountA);
+
+        await Check().TickAsync(CancellationToken.None);
+
+        Assert.Empty(_tool.ReauthCalls);
+    }
+
     [Fact]
     public async Task TickAsync_ToolGaveNoAnswer_IsReportedCheckFailed_NeverLeftOut()
     {

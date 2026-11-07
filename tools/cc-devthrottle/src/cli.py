@@ -2551,6 +2551,38 @@ def license_set_browser(
     license_signin_ops.set_browser(account, browser, default_config_dir, store_dir, json_output)
 
 
+@license_app.command("reauth")
+def license_reauth_command(
+    account: str = typer.Argument(..., help="The Claude account's email."),
+    browser: Optional[str] = typer.Option(
+        None, "--browser", help="The browser profile to sign in again. Default: the one set with license set-browser."
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help="Output JSON: {accountEmail, browserProfile, result, check} or, failed, {accountEmail, result, reason, step}.",
+    ),
+) -> None:
+    """Sign a browser profile in to claude.ai again from the account's mailbox."""
+    license_signin_ops.reauth(account, browser, default_config_dir, store_dir, json_output)
+
+
+@license_app.command("set-mailbox")
+def license_set_mailbox(
+    account: str = typer.Argument(..., help="The Claude account's email."),
+    kind: str = typer.Option(..., "--kind", help="The mailbox kind: gmail or outlook."),
+    mail_account: str = typer.Option(
+        ..., "--mail-account", help="The name the mail tool (cc-gmail or cc-outlook) takes with -a for that mailbox."
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Record which mailbox receives an account's claude.ai sign-in mail here."""
+    license_signin_ops.set_mailbox(account, kind, mail_account, default_config_dir, store_dir, json_output)
+
+
 @license_app.command("list-browsers")
 def license_list_browsers(
     default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),

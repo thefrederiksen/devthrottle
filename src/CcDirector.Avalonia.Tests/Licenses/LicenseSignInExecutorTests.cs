@@ -251,5 +251,8 @@ public sealed class LicenseSignInExecutorTests : IDisposable
 
         public Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<LicenseReauthAnswer> ReauthAsync(string browserProfile, string accountEmail, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

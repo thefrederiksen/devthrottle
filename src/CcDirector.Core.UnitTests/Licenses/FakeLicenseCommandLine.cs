@@ -234,6 +234,20 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         return Task.FromResult<IReadOnlyList<LicenseRecordedBrowser>>(RecordedBrowsers.ToList());
     }
 
+    /// <summary>What signing in again answers for (profile, account); with no entry it answers no mailbox set.</summary>
+    public Dictionary<(string Profile, string Email), LicenseReauthAnswer> Reauths { get; } = new();
+
+    /// <summary>Every re-sign-in asked for, in order.</summary>
+    public List<(string Profile, string Email)> ReauthCalls { get; } = new();
+
+    public Task<LicenseReauthAnswer> ReauthAsync(string browserProfile, string accountEmail, CancellationToken cancellationToken)
+    {
+        ReauthCalls.Add((browserProfile, accountEmail));
+        return Task.FromResult(Reauths.TryGetValue((browserProfile, accountEmail), out var answer)
+            ? answer
+            : LicenseReauthAnswer.Failed(LicenseReauthAnswer.NoMailbox));
+    }
+
     private void ThrowIfFailing()
     {
         if (!IsInstalled) throw new LicenseCommandLineException("cc-devthrottle is not installed in this machine's Python tool environment (the fake's).");

@@ -90,6 +90,11 @@ public interface ILicenseCommandLine
     /// this machine offers as approvers, each with the account it signs in. Throws
     /// <see cref="LicenseCommandLineException"/> when the tool gave no readable answer.</summary>
     Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken);
+
+    /// <summary>Signs the browser profile <paramref name="browserProfile"/> in to claude.ai again as
+    /// <paramref name="accountEmail"/> from the account's own mailbox (<c>license reauth</c>), and confirms it with the
+    /// approver check. Never throws for a run that gave no readable answer: that is a failed answer.</summary>
+    Task<LicenseReauthAnswer> ReauthAsync(string browserProfile, string accountEmail, CancellationToken cancellationToken);
 }
 
 /// <summary>What <c>license switch --json</c> answered. Its words are the contract's (section 3.3).</summary>
