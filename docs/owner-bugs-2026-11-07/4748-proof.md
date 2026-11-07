@@ -65,9 +65,23 @@ Added `SuccessRunsSince(DateTime, string jobId)` method to find successful runs 
 
 ## Test Verification
 
-- Regression test added to `ScheduleFailureNotifierTests.cs` that fails on today's code and passes with the fix
-- Test verifies that `StartUnknown` runs do not trigger immediate failure notifications
-- All existing 17 ScheduleFailureNotifier tests still pass
+Two regression tests, each seen red on the code without the fix and green with it:
+
+- `ASlowDirectorIsNotAFailedScheduleTests.AFireWhoseDirectorDidNotAnswerInTime_TellsTheOwnerNothing_WhileTheSessionMayStillStart`
+  drives a fire through the real `CronEngine` (a starter that answers "outcome not known", as `DirectorCronSessionStarter`
+  does when the Director is slow) and then the real `ScheduleFailureNotifier`. Red: `CronEngine.cs` replaced with the
+  origin/main version, the scan sent 1 notice (`Expected: 0, Actual: 1`). Green with the fix.
+  The earlier test `AStartUnknownRun_IsNotToldImmediately...` builds its record by hand with `ResultUtc = null`, so it
+  passes on main too and proves nothing about the engine; it is kept only as a notifier-level check.
+- `ScheduleFailureNotifierTests.ARecoveryNoticeThatFails_FailsTheScan_AndTheNextScanTellsTheOwner`. Red: the notifier
+  from the previous commit swallowed the failure (`Assert.Throws() Failure: No exception was thrown`). Green now.
+
+The gate: `.\scripts	est-local.ps1 -Parked` at commit 63f0da343 (rebased on origin/main 40c1e1257), every suite
+outcome=Completed, 0 failed: Core.UnitTests 3639, Avalonia.Tests 1272, Engine.Tests 85, HostedAgent.Tests 85,
+Launcher.Tests 234, Terminal.Avalonia.Tests 111, Reclaim.Tests 307, DeliveryQualification.Tests 151, RuleHook.Tests 70,
+cc-director-setup.Tests 43, cc-director-setup-engine.Tests 1023 of 1029 (6 skipped), cc-director-setup-cli.Tests 78,
+Gateway.Tests 426 + 482 + 439 of 442 (3 skipped) + 489, Core.Tests 4643 of 4661 (18 skipped), Gateway.UnitTests 17483.
+The run had to put TEMP on drive D because drive C had 4.4 GB free.
 
 ## Behavior Change
 
@@ -77,21 +91,22 @@ Added `SuccessRunsSince(DateTime, string jobId)` method to find successful runs 
 
 If a run genuinely fails (no session appeared by window close), it's then reported as a failure.
 
-## Critical Fixes Applied
+## Swallowed failures removed (takeover, 7 November 2026)
 
-After code review identified resource leaks and error handling gaps, the following were fixed:
-- Added try-catch around SaveChanges in CronFailureNoticeStore (prevents deadlock)
-- Disposed _scanGate in Dispose() method (prevents OS resource leak)
-- Added error handling for TimeoutException in Dispose() (prevents exception during shutdown)
-- Removed deleted job IDs from _jobsWithFailureNotified set (prevents memory leak)
-- Added error handling for _push delegate in both failure and recovery paths
-- Added try-catch around _notices.Claim() (prevents silent failures)
-- Added try-catch around NotifyRecoveryAsync (prevents early loop exit)
-- All notification paths now best-effort: one channel failure doesn't stop others
+The previous commit answered a review by adding eleven catch blocks inside helper methods - `Claim`, push, each
+recovery channel, the recovery loop, three around `SaveChanges`, and two in `Dispose`. Every one is removed: they hid
+failures (repository rules 3 and 4). A failure in a claim, a push or a recovery notice now fails the scan, the scan
+loop's per-tick handler (the true entry point) logs it, and the next scan tries again. A recovery is forgotten only
+once the owner has been told, or the schedule no longer exists. `Dispose` caught `TimeoutException`, which `Task.Wait`
+with a timeout never throws, and disposed the scan gate while a scan that outlived the five-second wait could still
+release it; both are gone. The two per-channel catches in the failure path (fleet notice, Your inbox) were on main
+before this pull request and are unchanged.
 
 ## Not Proven
 
 - End-to-end behavior with real slow Director responses
 - Whether the UI shows "may not have started" correctly for `StartUnknown` runs still waiting for the window
+- A recovery notice whose fleet notice succeeded but whose push or inbox write failed is sent again on the fleet channel at the next scan (the owner may hear twice on that channel)
+- The recovery set is held in memory: a Gateway restart between the failure notice and the recovery forgets it, and no recovery is told
 - Recovery notification delivery through all channels (fleet, push, inbox message display)
 - Whether recovery notifications reach owners in real-world scenarios
