@@ -33,7 +33,18 @@ public sealed record ResourceMeterView(
     ResourceBarView Cpu,
     ResourceBarView Memory,
     string NarrowText,
-    IReadOnlyList<string> TooltipLines);
+    IReadOnlyList<string> TooltipLines)
+{
+    /// <summary>
+    /// The level the meter's frame takes: the worse of the two bars. Unknown only when both are unknown, so one
+    /// bar that cannot be read never hides the other bar's warning (the same rule as
+    /// <see cref="ResourcePressureVerdict.Worst"/>).
+    /// </summary>
+    public ResourceLevel FrameLevel => Cpu.Level > Memory.Level ? Cpu.Level : Memory.Level;
+
+    /// <summary>What a screen reader says for the whole meter, for example "Resources: CPU 28%, memory 55%".</summary>
+    public string AccessibleName => $"Resources: CPU {Cpu.PercentText}, memory {Memory.PercentText}";
+}
 
 /// <summary>The figures and words every Resource Monitor view shares, so the meter and the detail screen cannot disagree.</summary>
 public static class ResourceViewText
@@ -48,8 +59,28 @@ public static class ResourceViewText
     public const string CannotReadText = "-";
 
     /// <summary>The whole-machine processor busy figure as a 0-to-1 fraction, or null when unreadable.</summary>
-    public static double? CpuFraction(CpuReading cpu) =>
-        cpu.CouldRead ? Math.Clamp(cpu.TotalBusyPercent / 100.0, 0, 1) : null;
+    ///
+    /// NEVER CLAMPED. A busy figure outside 0 to 100 cannot be true - <see cref="ResourceRate"/> already turns
+    /// an overshoot into null - so one that arrives here is a defect upstream. Clamping it would draw a tidy
+    /// full bar and hide the very per-core-against-machine mistake the probe contract exists to catch. It is
+    /// null instead, and <see cref="CpuOutOfRangeReason"/> says why.
+    public static double? CpuFraction(CpuReading cpu)
+    {
+        if (!cpu.CouldRead) return null;
+        var percent = cpu.TotalBusyPercent;
+        if (double.IsNaN(percent) || percent < 0 || percent > 100) return null;
+        return percent / 100.0;
+    }
+
+    /// <summary>
+    /// Why a processor reading that the probe called readable still shows a dash: its figure was outside 0 to
+    /// 100. Null when the figure is in range or the reading failed for its own stated reason.
+    /// </summary>
+    public static string? CpuOutOfRangeReason(CpuReading cpu) =>
+        cpu.CouldRead && CpuFraction(cpu) is null
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"the processor figure was {cpu.TotalBusyPercent:F1}%, which cannot be true")
+            : null;
 
     /// <summary>
     /// The share of memory in USE, 0 to 1: one minus the available fraction, the figure the operating
@@ -115,13 +146,17 @@ public static class ResourceMeterFold
     /// What this Director's own sessions cost together, summed over their process trees; null when not
     /// known yet. Its <see cref="SessionUsage.SessionId"/> is ignored.
     /// </param>
-    /// <param name="nowUtc">Now, for "updated 3 seconds ago". Passed in so the fold reads no clock.</param>
+    /// <param name="latestAge">
+    /// How long ago the latest sample was taken, measured by the sampler on the monotonic clock
+    /// (<see cref="ResourceSampler.LatestAge"/>). Never worked out from the sample's wall-clock stamp, which a
+    /// stepped clock would make read as "just now" or "40 minutes ago". Null before the first read.
+    /// </param>
     public static ResourceMeterView Build(
         ResourceSamplerState state,
         string machineName,
         int runningSessions,
         SessionUsage? directorSessions,
-        DateTime nowUtc)
+        TimeSpan? latestAge)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
@@ -149,7 +184,9 @@ public static class ResourceMeterFold
                 lines.Add($"This Director's sessions {memoryPrefix}{ResourceViewText.Bytes(own.MemoryBytes)} and {cpuPrefix}{ResourceViewText.PercentOf100(own.CpuPercent)} CPU");
             }
 
-            lines.Add($"Updated {Age(nowUtc - sample.TakenAtUtc)} - click for detail");
+            lines.Add(latestAge is { } age
+                ? $"Updated {Age(age)} - click for detail"
+                : "Updated - click for detail");
         }
         else
         {
@@ -157,6 +194,42 @@ public static class ResourceMeterFold
         }
 
         return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}", lines);
+    }
+
+    /// <summary>
+    /// The meter when the resource monitor never started: both bars cannot be read, and say why. Never "not read
+    /// yet", which would promise a reading that is not coming.
+    /// </summary>
+    public static ResourceMeterView NotStarted(string machineName, string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        var why = $"the resource monitor did not start: {reason}";
+        var cpu = Unreadable(ResourceKind.Cpu, "CPU", why);
+        var memory = Unreadable(ResourceKind.Memory, "MEM", why);
+        return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}",
+            [machineName, cpu.Tooltip, memory.Tooltip]);
+    }
+
+    /// <summary>
+    /// What this Director's sessions cost together - the tooltip's "This Director's sessions" line. Each figure
+    /// is the sum over the sessions, and each lower-bound count is the sum of theirs, so the total is a floor
+    /// exactly when any session's figure was. Null when there are no sessions or they are not known, so the
+    /// tooltip leaves the line out rather than claiming the sessions cost nothing.
+    /// </summary>
+    public static SessionUsage? Combine(IReadOnlyList<ResourceSessionInput>? sessions)
+    {
+        if (sessions is null || sessions.Count == 0) return null;
+        ulong memory = 0;
+        foreach (var session in sessions) memory += session.Usage.MemoryBytes;
+        return new SessionUsage(
+            "all",
+            0,
+            sessions.Sum(s => s.Usage.CpuPercent),
+            memory,
+            sessions.SelectMany(s => s.Usage.Pids).ToList(),
+            sessions.Sum(s => s.Usage.ProcessesWithUnknownProcessor),
+            sessions.Sum(s => s.Usage.ProcessesWithUnknownMemory));
     }
 
     private static ResourceBarView CpuBar(ResourceSamplerState state)
@@ -170,9 +243,18 @@ public static class ResourceMeterFold
             return Unreadable(ResourceKind.Cpu, "CPU", cpu.UnreadableReason);
 
         var fraction = ResourceViewText.CpuFraction(cpu);
+        if (fraction is null)
+        {
+            var reason = ResourceViewText.CpuOutOfRangeReason(cpu);
+            CcDirector.Core.Utilities.FileLog.Write($"[ResourceMeterFold] CpuBar: shown as cannot read - {reason}");
+            return Unreadable(ResourceKind.Cpu, "CPU", reason);
+        }
+
         var text = ResourceViewText.Percent(fraction);
-        var tooltip = string.Create(CultureInfo.InvariantCulture,
-            $"CPU {text} of {cpu.LogicalCoreCount} cores - busiest core {ResourceViewText.PercentOf100(cpu.BusiestCorePercent)}");
+        var cores = cpu.LogicalCoreCount is { } count
+            ? string.Create(CultureInfo.InvariantCulture, $" of {count} cores")
+            : string.Empty;
+        var tooltip = $"CPU {text}{cores} - busiest core {ResourceViewText.PercentOf100(cpu.BusiestCorePercent)}";
         return new ResourceBarView(ResourceKind.Cpu, "CPU", CouldRead: true, fraction, text, level, tooltip);
     }
 

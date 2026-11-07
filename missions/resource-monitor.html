@@ -196,7 +196,7 @@
     <tr><td>Memory available</td><td colspan="2">The existing <code>MemoryPressure</code> Tight and Critical levels, unchanged and already unit-tested on all three platforms</td></tr>
     <tr><td>Swap / page file</td><td>grows more than 1 GB in 5 minutes</td><td>above 75% used</td></tr>
   </table></div>
-  <p class="cap">A resource must stay over its limit for 60 seconds to count, so a build that spikes the processor for ten seconds raises no banner. <b>The processor limits are proposals until the live load check has run them on all three platforms.</b> Memory's are the existing tested ones and are not proposals. The disk-activity and disk-free limits that v3 carried are gone with the disk meter.</p>
+  <p class="cap">A resource must stay over its limit for 60 seconds to count, so a build that spikes the processor for ten seconds raises no banner. <b>The processor limits are proposals until the live load check has run them on all three platforms.</b> Memory's are the existing tested ones and are not proposals. <b>Memory is held the other way round, on purpose:</b> it raises on the current reading with no window, and clears only after 60 seconds continuously below the line. A machine running out of memory is urgent in a way a busy processor is not, so a late raise costs the user and a late clear costs nobody; and a machine sitting on the line must not blink a banner every five seconds (the Implementation Lead's ruling of 2026-11-06). Do not make the two symmetrical. The disk-activity and disk-free limits that v3 carried are gone with the disk meter.</p>
 
   <h3>5c-i. The ruling on what the diagnosis may read, and what it may claim</h3>
   <p><b>Decided by the Implementation Lead on 2026-11-06, inside the owner's instruction, not referred

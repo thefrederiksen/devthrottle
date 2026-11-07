@@ -511,6 +511,9 @@ public partial class App : Application
 
         UpdateSplashStatus(splash, "Starting control API...");
         StartControlApi(log);
+
+        // The Resource Monitor (issue #2811): after the control services, whose outbox carries the summary.
+        StartResourceMonitor(log);
     }
 
     /// <summary>
@@ -1029,6 +1032,10 @@ public partial class App : Application
         }
         try
         {
+            // The resource monitor stops before anything else: its sampler writes the 24-hour recording on its own
+            // thread, and the recording must not be written while it is closed (issue #2811).
+            StopResourceMonitor(log);
+
             // Issue #2194: the work-history farewell, FIRST - before the sessions are killed - so the
             // Gateway rules every session this shutdown takes with it "Director stopped" (a
             // per-session remove arriving during the kill keeps that first ruling). Time-boxed inside

@@ -149,7 +149,7 @@
                 Padding="8,4">
             <DockPanel>
                 <!-- Right group: this Director's identity + global destinations + Settings -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                <StackPanel x:Name="ToolbarRightGroup" DockPanel.Dock="Right" Orientation="Horizontal"
                             Spacing="2" VerticalAlignment="Center">
                     <!-- WHICH Director this is: its own name, plus a Copy that hands another
                          agent the command to open a session on it. This identifies the WHOLE
@@ -180,6 +180,15 @@
                                 Cursor="Hand"
                                 ToolTip.Tip="Copy this Director's name, id, and machine - paste it to an agent so it can reach this Director" />
                     </StackPanel>
+
+                    <Border Width="1" Height="18" Background="#3C3C3C"
+                            Margin="6,0" VerticalAlignment="Center" />
+
+                    <!-- The resource meter (Resource Monitor mission, issue #2811): CPU and MEM, each coloured
+                         on its own reading, one click target that opens the detail screen. Between the
+                         Director's name and Cockpit by the owner's placement decision of 2026-10-15. On a
+                         narrow window it drops its bars and keeps the percentages (issue #2812). -->
+                    <controls:ResourceMeter x:Name="ResourceMeterControl" />
 
                     <Border Width="1" Height="18" Background="#3C3C3C"
                             Margin="6,0" VerticalAlignment="Center" />
@@ -242,7 +251,7 @@
                 </StackPanel>
 
                 <!-- Left group: primary session actions -->
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <StackPanel x:Name="ToolbarLeftGroup" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button x:Name="BtnNewSession"
                             Click="BtnNewSession_Click"
                             Background="{DynamicResource AccentBrush}"
@@ -265,6 +274,10 @@
                 </StackPanel>
             </DockPanel>
         </Border>
+
+        <!-- The resource warning banners: at most one per resource, up when it crosses into amber or red
+             and down when the load goes away. Collapsed when there are none. -->
+        <controls:ResourceBannerStrip x:Name="ResourceBanners" DockPanel.Dock="Top" />
 
     <Grid x:Name="MainLayoutGrid" ColumnDefinitions="264,Auto,*" RowDefinitions="Auto,*">
 

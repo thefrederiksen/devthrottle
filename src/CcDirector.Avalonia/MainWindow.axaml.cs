@@ -219,6 +219,10 @@ public partial class MainWindow : Window
         Loaded += MainWindow_Loaded;
         Activated += MainWindow_Activated;
 
+        // The resource meter drops its bars on a narrow toolbar (issue #2812) - from the first layout, whether
+        // or not a sampler has been attached yet.
+        WireResourceMeterFit();
+
         // Register KeyDown as tunnel so it fires before AcceptsReturn consumes Ctrl+Enter
         PromptInput.AddHandler(KeyDownEvent, PromptInput_KeyDown, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
         // Every change to the box's text - typing, a paste, a session switch, the clear after a send - passes
@@ -404,6 +408,17 @@ public partial class MainWindow : Window
 
         var app = (App)global::Avalonia.Application.Current!;
         _sessionManager = app.SessionManager;
+
+        // The resource meter and banners (issue #2811). Started with the Director's services; when it failed to
+        // start the reason is in the log and the meter stays on its dashes.
+        if (app.ResourceMonitor is { } resourceMonitor)
+            AttachResourceMonitor(resourceMonitor, () => _sessions.Count, OpenResourceDetail);
+        else
+        {
+            var why = app.ResourceMonitorFailure ?? "it was not started";
+            FileLog.Write($"[MainWindow] MainWindow_Loaded: no resource monitor to attach - {why}");
+            ResourceMeterControl.Render(CcDirector.Core.Machine.ResourceMeterFold.NotStarted(Environment.MachineName, why));
+        }
 
         BindSessionRail();
         QueueItemsList.ItemsSource = _queueItems;

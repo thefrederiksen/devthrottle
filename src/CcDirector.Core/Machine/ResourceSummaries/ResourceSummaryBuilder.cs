@@ -58,6 +58,8 @@ public static class ResourceSummaryBuilder
             MachineName = machineName.Trim(),
             SampleCount = inWindow.Count,
             Machine = MachineFigures(inWindow, machineCrossings.Select(c => c.Crossing).ToList()),
+            SamplesWithUnknownSessions = inWindow.Count(s => s.SessionsUnreadableReason is not null),
+            SessionsUnreadableReason = inWindow.LastOrDefault(s => s.SessionsUnreadableReason is not null)?.SessionsUnreadableReason,
         };
 
         // Sessions in first-seen order, so the same samples always give the same row order.

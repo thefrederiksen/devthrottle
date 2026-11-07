@@ -65,6 +65,20 @@ public interface IResourceSampler : IDisposable
     /// </summary>
     IReadOnlyList<ResourceSample> History { get; }
 
+    /// <summary>
+    /// How long ago the latest sample was taken, on the monotonic clock; null before the first read. The meter's
+    /// "updated N seconds ago" reads this and never the sample's wall-clock stamp, which a stepped clock would
+    /// make read as "just now" or "40 minutes ago". Added by phase 2a; see the pull request for the reason.
+    /// </summary>
+    TimeSpan? LatestAge { get; }
+
+    /// <summary>
+    /// The same ring buffer as <see cref="History"/>, oldest first, with each sample's place on the sampler's
+    /// monotonic timeline. A chart of the last hour draws its time axis from this, never from
+    /// <see cref="ResourceSample.TakenAtUtc"/>, so a clock step mid-hour cannot fold or stretch the line.
+    /// </summary>
+    IReadOnlyList<TimelineSample> TimelineHistory { get; }
+
     /// <summary>Raised after every read, carrying the new <see cref="Current"/>.</summary>
     event EventHandler<ResourceSamplerState>? Sampled;
 

@@ -17,6 +17,7 @@
          OnboardingWizardDialog Skip seam. -->
     <PackageReference Include="Avalonia.Headless.XUnit" Version="11.*" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.*" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.*" />
     <!-- Issue #3675 step 4a: ShownErrorSourceScanTests reads the desktop source as a syntax tree, so a display
          site split over lines, or a string with a brace in it, cannot hide from the scan. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
@@ -24,6 +25,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Avalonia\CcDirector.Avalonia.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The resource monitor's fake probe, shared with the Core unit tests, so the window tests drive the real
+         meter from the same samples (issue #2811). -->
+    <Compile Include="..\CcDirector.Core.Tests\Machine\FakeResourceProbe.cs" Link="Machine/FakeResourceProbe.cs" />
     <!-- Mission "Session State Truth", phase 5: the cross-surface agreement check's comparison, so every
          fault it claims to catch is injected and it is WATCHED reporting it. A check nobody has seen fail
          is the thing this mission exists to end. -->

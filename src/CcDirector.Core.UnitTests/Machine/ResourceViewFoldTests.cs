@@ -24,7 +24,7 @@ public class ResourceViewFoldTests
         ]));
 
     private static ResourceMeterView Meter(ResourceSamplerState state, SessionUsage? own = null) =>
-        ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4, own, At.AddSeconds(3));
+        ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4, own, TimeSpan.FromSeconds(3));
 
     // ---- the toolbar meter ----
 
@@ -160,7 +160,7 @@ public class ResourceViewFoldTests
     [InlineData(120, "Updated 2 minutes ago - click for detail")]
     public void Meter_Updated_SaysHowOldTheReadingIs(int ageSeconds, string expected)
     {
-        var meter = ResourceMeterFold.Build(State(new FakeSampleBuilder().Build()), "m", 1, null, At.AddSeconds(ageSeconds));
+        var meter = ResourceMeterFold.Build(State(new FakeSampleBuilder().Build()), "m", 1, null, TimeSpan.FromSeconds(ageSeconds));
 
         Assert.Equal(expected, meter.TooltipLines[^1]);
     }
