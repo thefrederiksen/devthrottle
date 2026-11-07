@@ -82,16 +82,19 @@ class FakeBrowser:
         self.closed = []
         self.runs = 0
         self.printed = []
+        self.secret = []
 
-    def run(self, script, env, timeout):
+    def run(self, script, env, timeout, secret=False):
         self.runs += 1
+        self.secret.append(secret)
         out = io.StringIO()
         try:
             with contextlib.redirect_stdout(out):
                 exec(compile(script, "<browser step>", "exec"), self._helpers())
         except Exception:
+            # A traceback quotes the script's lines, so a failing step's words can hold anything in its script.
             raise SignInError(license_signin.APPROVAL_FAILED, "browser-harness failed (exit 1): "
-                              + license_signin.harness_reason(traceback.format_exc())) from None
+                              + license_signin.harness_reason(traceback.format_exc()) + " in: " + script) from None
         self.printed.append(out.getvalue())
         return out.getvalue()
 
@@ -336,6 +339,54 @@ def test_reauth_TheBrowserStepCrashes_SaysTheStepAndTheReason_AndPutsTheProfileB
     assert profile.stopped == 1
 
 
+def test_reauth_TheCodeStepCrashes_TheErrorNeverCarriesTheLink_AndTheStepIsRunAsSecret(clock, caplog):
+    # The review of 4716, finding 5: the code step's script holds the link, and a harness error can quote its script.
+    caplog.set_level(logging.DEBUG)
+    page = SignInPage(remembered=ALICE)
+    browser = FakeBrowser(page)
+    helpers = browser._helpers
+
+    def crashing_on_the_link_page():
+        found = helpers()
+        opened = found["new_tab"]
+
+        def new_tab(url):
+            if url.startswith("https://claude.ai/magic-link#"):
+                raise RuntimeError(f"Page.navigate failed for {url}")
+            return opened(url)
+
+        found["new_tab"] = new_tab
+        return found
+
+    browser._helpers = crashing_on_the_link_page
+
+    with pytest.raises(ReauthError) as failed:
+        _reauth(browser, FakeMailbox(clock, [(0, START, LINK)]), clock)
+
+    assert failed.value.step == "code"
+    assert LINK not in str(failed.value) and LINK not in caplog.text
+    assert "not shown because it holds the sign-in link" in str(failed.value)
+    assert browser.secret == [False, True], "only the code step holds the link"
+
+
+def test_runHarness_ASecretStepFails_NeitherLogsNorQuotesItsOutput(monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(license_signin.shutil, "which", lambda name: "browser-harness")
+
+    def harness(args, **kwargs):
+        if args[1:] == ["--reload"]:
+            return license_signin.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return license_signin.subprocess.CompletedProcess(args, 1, stdout="", stderr=f"RuntimeError: failed at {LINK}")
+
+    monkeypatch.setattr(license_signin.subprocess, "run", harness)
+
+    with pytest.raises(SignInError) as failed:
+        license_signin._run_harness("print(1)", {"BU_NAME": "alice-chrome", "BU_CDP_URL": "http://127.0.0.1:1"}, 30,
+                                    secret=True)
+
+    assert LINK not in str(failed.value) and LINK not in caplog.text
+
+
 def test_loginUrl_NamesTheAccountItAsksFor():
     assert license_reauth.login_url(" Alice@Example.com ") == \
         "https://claude.ai/login?reauth=1&email=alice%40example.com"
@@ -379,19 +430,18 @@ def test_gmailMailbox_TakesTheNewestSecureLinkMailForTheAccountSinceTheRequest()
     assert tool.asked[1] == ["cc-gmail", "-a", "alice-mail", "read", "new", "--json"]
 
 
-def test_gmailMailbox_TheJsonBodyCutsTheLink_ItIsTakenFromTheRawMail():
+def test_gmailMailbox_TheJsonBodyHoldsNoLink_FailsAtTheMailStep_AndNeverReadsTheFoldedRawMail():
+    # The review of 4716, finding 1: `cc-gmail read --raw` prints the same body folded at 80 columns, so a link read
+    # from it is cut. The JSON body is the whole decoded text: without a link there, the mail has none.
     since = dt.datetime(2026, 11, 7, 1, 0, 0, tzinfo=dt.timezone.utc)
     rows = [_gmail_row("new", "Your secure link to Claude is here", "Fri, 06 Nov 2026 17:00:30 -0800")]
-    asked = []
+    tool = FakeTool({"list": json.dumps(rows), "read": json.dumps({"id": "new", "body": "Sign in below."})})
 
-    def tool(args, timeout):
-        asked.append(args[-1])
-        if args[3] == "list":
-            return json.dumps(rows)
-        return json.dumps({"body": "Sign in: https://claude.ai/magic-"}) if args[-1] == "--json" else f"raw {LINK}"
+    with pytest.raises(ReauthError) as failed:
+        license_reauth.GmailMailbox("alice-mail", tool).sign_in_link(ALICE, since)
 
-    assert license_reauth.GmailMailbox("alice-mail", tool).sign_in_link(ALICE, since) == LINK
-    assert asked == ["--json", "--json", "--raw"]
+    assert failed.value.step == "mail"
+    assert all("--raw" not in args for args in tool.asked)
 
 
 def test_gmailMailbox_NothingSinceTheRequest_IsNone_AndNothingIsRead():
@@ -422,14 +472,43 @@ M8FakeSecondLineOfTheIdForTestsOnly_AAAAqAAA=
 """
 
 
-def test_outlookMailbox_ReadsTheWrappedIdOfTheSecureLinkMail_AndItsRawBody():
+SECURE_ID = ("AAMkAFAKEFAKEFAKEMADEUPMESSAGEIDFORTESTSONLYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+             "M8FakeSecondLineOfTheIdForTestsOnly_AAAAqAAA=")
+
+
+def _outlook_mail(to, body):
+    """What `cc-outlook read --raw` prints: the message as JSON, with its recipients as a list of addresses."""
+    return json.dumps({"id": "x", "subject": "Your secure link to Claude is here", "to": to, "body": body})
+
+
+def test_outlookMailbox_ReadsTheWrappedIdOfTheSecureLinkMail_AndTakesTheLinkFromItsBody():
     since = dt.datetime(2026, 11, 6, 21, 45, 0, tzinfo=dt.timezone.utc)
-    tool = FakeTool({"list": OUTLOOK_LIST, "read": f"<a href=\"{LINK}\">Sign in</a>"})
+    tool = FakeTool({"list": OUTLOOK_LIST, "read": _outlook_mail([ALICE], f"<a href=\"{LINK}\">Sign in</a>")})
 
     assert license_reauth.OutlookMailbox("alice-mail", tool).sign_in_link(ALICE, since) == LINK
-    assert tool.asked[1] == ["cc-outlook", "-a", "alice-mail", "read",
-                             "AAMkAFAKEFAKEFAKEMADEUPMESSAGEIDFORTESTSONLYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxM8FakeSecondLineOfTheIdForTestsOnly_AAAAqAAA=",
-                             "--raw"]
+    assert tool.asked[1] == ["cc-outlook", "-a", "alice-mail", "read", SECURE_ID, "--raw"]
+
+
+def test_outlookMailbox_AMailAddressedToAnotherAccount_IsPassedOver_AndItsLinkNeverTaken():
+    # The review of 4716, finding 2 (reproduced): a shared mailbox that receives bob's sign-in mail must not hand
+    # bob's link to alice's profile.
+    since = dt.datetime(2026, 11, 6, 21, 45, 0, tzinfo=dt.timezone.utc)
+    tool = FakeTool({"list": OUTLOOK_LIST, "read": _outlook_mail([BOB], f"Sign in: {LINK}")})
+
+    assert license_reauth.OutlookMailbox("alice-mail", tool).sign_in_link(ALICE, since) is None
+
+
+def test_outlookMailbox_AMailAlreadyMarkedRead_IsStillTaken_AndItsIndicatorsAreNotPartOfTheId():
+    # The review of 4716, findings 3 and 6: a phone can mark the mail read first ("[ ]"), and cc-outlook prints
+    # FLAG, ATT or ! after the id.
+    since = dt.datetime(2026, 11, 6, 21, 45, 0, tzinfo=dt.timezone.utc)
+    listed = OUTLOOK_LIST.replace("[*]\nAAMkAFAKE", "[*]\nAAMkAFAKE", 1)
+    listed = listed[:listed.rindex("[*]")] + "[ ]" + listed[listed.rindex("[*]") + 3:]
+    listed = listed.replace("_AAAAqAAA=", "_AAAAqAAA= ATT !")
+    tool = FakeTool({"list": listed, "read": _outlook_mail([ALICE], f"Sign in: {LINK}")})
+
+    assert license_reauth.OutlookMailbox("alice-mail", tool).sign_in_link(ALICE, since) == LINK
+    assert tool.asked[1][4] == SECURE_ID
 
 
 def test_outlookMailbox_TheSecureLinkMailIsFromBeforeTheRequest_IsNone():
@@ -439,9 +518,20 @@ def test_outlookMailbox_TheSecureLinkMailIsFromBeforeTheRequest_IsNone():
     assert license_reauth.OutlookMailbox("alice-mail", tool).sign_in_link(ALICE, since) is None
 
 
+@pytest.mark.parametrize("link", [
+    "https://claude.ai/magic-link#aa@bb~cc!dd*ee(ff)gg?hh&ii",
+    "https://claude.ai/magic-link#" + "x" * 154,
+])
+def test_linkIn_ALinkWithAnyCharacter_IsTakenWhole_UpToWhitespaceOrAQuote(link):
+    # The review of 4716, finding 4: a list of allowed characters cut a real link silently at one it forgot.
+    assert license_reauth._link_in(f"Sign in: {link} now") == link
+    assert license_reauth._link_in(f"<a href=\"{link}\">Sign in</a>") == link
+    assert license_reauth._link_in(f"<a href=\"{link.replace('&', '&amp;')}\">") == link
+
+
 def test_mailbox_TheMailHoldsNoLink_FailsAtTheMailStep():
     since = dt.datetime(2026, 11, 6, 21, 45, 0, tzinfo=dt.timezone.utc)
-    tool = FakeTool({"list": OUTLOOK_LIST, "read": "no link here"})
+    tool = FakeTool({"list": OUTLOOK_LIST, "read": _outlook_mail([ALICE], "no link here")})
 
     with pytest.raises(ReauthError) as failed:
         license_reauth.OutlookMailbox("alice-mail", tool).sign_in_link(ALICE, since)

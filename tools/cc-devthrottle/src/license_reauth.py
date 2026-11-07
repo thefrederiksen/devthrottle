@@ -12,9 +12,10 @@ THE FLOW, as done by hand on 17 and 21 October and 6 November 2026, in four step
    holds exactly that account. THE TRAP, seen 6 November: the page pre-filled a DIFFERENT account the browser
    remembered and ignored ``email=``, so the code went to the wrong mailbox. Then press "Continue with email". The
    time is noted BEFORE the page is opened, so any mail dated earlier answers an earlier request.
-2. ``mail``: read the newest "Your secure link to Claude" mail that arrived after that time, from the mailbox the
-   machine's owner configured for the account (``license set-mailbox``; never in this repository), and take the
-   ``claude.ai/magic-link#...`` address from the mail's full body - its plain text wraps and cuts the address.
+2. ``mail``: read the newest "Your secure link to Claude" mail that arrived after that time and is ADDRESSED TO the
+   account, from the mailbox the machine's owner configured for it (``license set-mailbox``; never in this
+   repository), and take the ``claude.ai/magic-link#...`` address from the mail's body as the mail tool answers it in
+   JSON - whole, never from text a console printed, which folds it at 80 columns and cuts the address.
 3. ``code``: open the link in a SECOND tab of the same profile, read the 6-digit code it shows, type it into the
    first tab's verification field and press "Verify email address" with real clicks (focus emulation on, or the click
    does nothing). Nothing is evaluated while the page navigates after that click.
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import email.utils
+import html
 import json
 import logging
 import os
@@ -84,7 +86,9 @@ MAIL_TOOL_SECONDS = 60
 STEP_SECONDS = 180
 
 SECURE_LINK_SUBJECT = "secure link to Claude"
-MAGIC_LINK = re.compile(r"https://claude\.ai/magic-link#[A-Za-z0-9_\-:.%=+/]+")
+#: The link runs to the first whitespace, quote, "<" or backslash: never cut at a character a list of allowed ones
+#: forgot (the review of pull request 4716, finding 4).
+MAGIC_LINK = re.compile(r"https://claude\.ai/magic-link#[^\s\"'<>\\]+")
 
 
 class ReauthError(SignInError):
@@ -217,12 +221,31 @@ def _parse_outlook_date(text: str) -> Optional[_dt.datetime]:
 
 def _link_in(text: str) -> Optional[str]:
     found = MAGIC_LINK.search(text or "")
-    return found.group(0) if found else None
+    # A link inside an HTML body is written with its "&" as "&amp;"; the browser must be given the link itself.
+    return html.unescape(found.group(0)) if found else None
+
+
+def _read_json(text: str, what: str) -> dict:
+    try:
+        answer = json.loads(text)
+    except ValueError:
+        raise ReauthError(REAUTH_FAILED, STEP_MAIL, f"{what} did not answer JSON") from None
+    if not isinstance(answer, dict):
+        raise ReauthError(REAUTH_FAILED, STEP_MAIL, f"{what} did not answer a JSON object")
+    return answer
+
+
+def _addressed_to(recipients: object, account: str) -> bool:
+    """Whether ``recipients`` - a header string or a list of addresses - names ``account``."""
+    listed = recipients if isinstance(recipients, list) else [recipients]
+    return any(account.lower() in str(r).lower() for r in listed)
 
 
 class GmailMailbox:
     """The account's Gmail, through ``cc-gmail -a <mail account>``: ``list --json``, then ``read --json`` of the
-    newest secure-link mail, and ``read --raw`` when the JSON body does not hold the whole link."""
+    newest secure-link mail addressed to the account. The JSON body is the decoded text part, whole; ``read --raw``
+    is NOT read, because it prints that same body through a console that folds it at 80 columns and so cuts the link
+    (the review of pull request 4716, finding 1)."""
 
     def __init__(self, mail_account: str, run_tool: RunTool = _run_tool):
         self._account = mail_account
@@ -243,32 +266,38 @@ class GmailMailbox:
             sent = _parse_gmail_date(str(row.get("date", "")))
             if sent is None or sent < since:
                 continue
-            if account.lower() not in str(row.get("to", "")).lower():
+            if not _addressed_to(row.get("to", ""), account):
                 continue
             candidates.append((sent, str(row.get("id", ""))))
         if not candidates:
             return None
         _, message_id = max(candidates)
-        body = self._run(["cc-gmail", "-a", self._account, "read", message_id, "--json"], MAIL_TOOL_SECONDS)
-        try:
-            text = str(json.loads(body).get("body", ""))
-        except (ValueError, AttributeError):
-            text = ""
-        link = _link_in(text) or _link_in(self._run(["cc-gmail", "-a", self._account, "read", message_id, "--raw"],
-                                                    MAIL_TOOL_SECONDS))
+        mail = _read_json(self._run(["cc-gmail", "-a", self._account, "read", message_id, "--json"],
+                                    MAIL_TOOL_SECONDS), "cc-gmail read --json")
+        link = _link_in(str(mail.get("body", "")))
         if link is None:
             raise ReauthError(REAUTH_FAILED, STEP_MAIL, "the newest sign-in mail holds no claude.ai sign-in link")
         return link
 
 
-#: One message in ``cc-outlook list``: its id (which wraps over lines) after "[*]", then From, Subject and Date.
-_OUTLOOK_BLOCK = re.compile(r"\[\*\]\s*(?P<id>.*?)\s*From:.*?Subject:\s*(?P<subject>[^\n]*)\n\s*Date:\s*(?P<date>\S+)",
-                            re.S)
+#: One message in ``cc-outlook list``: "[*]" (unread) or "[ ]" (read), its id - which the console wraps over lines,
+#: and which can be followed by FLAG, ATT or ! - then From, Subject and Date.
+_OUTLOOK_BLOCK = re.compile(
+    r"\[[* ]\]\s*(?P<id>.*?)\s*From:.*?Subject:\s*(?P<subject>[^\n]*)\n\s*Date:\s*(?P<date>\S+)", re.S)
+_OUTLOOK_INDICATORS = {"FLAG", "ATT", "!"}
+
+
+def _outlook_id(text: str) -> str:
+    """The message id from the text between the read marker and "From:": its wrapped pieces joined, without the
+    indicators cc-outlook prints after it."""
+    return "".join(piece for piece in text.split() if piece not in _OUTLOOK_INDICATORS)
 
 
 class OutlookMailbox:
-    """The account's Outlook, through ``cc-outlook -a <mail account>``: ``list``, then ``read --raw`` of the newest
-    secure-link mail. ``list`` has no JSON form, so its blocks are read by their labels."""
+    """The account's Outlook, through ``cc-outlook -a <mail account>``: ``list``, then ``read --raw`` - the message as
+    JSON - of each secure-link mail since the request, newest first, until one is addressed to the account. ``list``
+    has no JSON form, so its blocks are read by their labels; a mail is taken whether it was read already or not
+    (a phone can mark it read first)."""
 
     def __init__(self, mail_account: str, run_tool: RunTool = _run_tool):
         self._account = mail_account
@@ -283,15 +312,19 @@ class OutlookMailbox:
             sent = _parse_outlook_date(block.group("date"))
             if sent is None or sent < since:
                 continue
-            candidates.append((sent, "".join(block.group("id").split())))
-        if not candidates:
-            return None
-        _, message_id = max(candidates)
-        link = _link_in(self._run(["cc-outlook", "-a", self._account, "read", message_id, "--raw"],
-                                  MAIL_TOOL_SECONDS))
-        if link is None:
-            raise ReauthError(REAUTH_FAILED, STEP_MAIL, "the newest sign-in mail holds no claude.ai sign-in link")
-        return link
+            candidates.append((sent, _outlook_id(block.group("id"))))
+        for _, message_id in sorted(candidates, reverse=True):
+            mail = _read_json(self._run(["cc-outlook", "-a", self._account, "read", message_id, "--raw"],
+                                        MAIL_TOOL_SECONDS), "cc-outlook read --raw")
+            # A shared mailbox can receive another account's sign-in mail: its link would sign that account in here.
+            if not _addressed_to(mail.get("to", []), account):
+                log.info("reauth %s: a sign-in mail addressed to another account was passed over", account)
+                continue
+            link = _link_in(str(mail.get("body", "")))
+            if link is None:
+                raise ReauthError(REAUTH_FAILED, STEP_MAIL, "the newest sign-in mail holds no claude.ai sign-in link")
+            return link
+        return None
 
 
 def open_mailbox(setting: MailboxSetting, run_tool: RunTool = _run_tool) -> Mailbox:
@@ -491,7 +524,8 @@ def reauth(account: str, profile: str, mailbox: Mailbox, *,
                               _REQUEST_STATES.get(state, f"the request step answered {state!r}"))
         log.info("reauth %s: the sign-in mail was asked for", account)
         link = _wait_for_link(mailbox, account, asked, now, sleep)
-        answer = _step(run_harness, _step_script(_CODE_SCRIPT, link=link, tab=answer["tab"]), env, STEP_CODE)
+        answer = _step(run_harness, _step_script(_CODE_SCRIPT, link=link, tab=answer["tab"]), env, STEP_CODE,
+                       secret=True)
         state = answer.get("state")
         if state != "verified":
             raise ReauthError(REAUTH_FAILED, STEP_CODE, _CODE_STATES.get(state, f"the code step answered {state!r}"))
@@ -506,12 +540,20 @@ def reauth(account: str, profile: str, mailbox: Mailbox, *,
     return ReauthResult(account, profile_id, profile_name, confirmed)
 
 
-def _step(run_harness: RunHarness, script: str, env: Dict[str, str], step: str) -> dict:
+def _step(run_harness: RunHarness, script: str, env: Dict[str, str], step: str, secret: bool = False) -> dict:
+    """One browser step's result. A ``secret`` step holds the sign-in link in its script: it is run with the harness's
+    ``secret`` flag, and its failure is said in a fixed sentence - never the harness's words, which could quote the
+    script (the review of pull request 4716, finding 5)."""
     try:
-        return _result(run_harness(script, env, STEP_SECONDS))
+        out = run_harness(script, env, STEP_SECONDS, secret=True) if secret else run_harness(script, env, STEP_SECONDS)
+        return _result(out)
     except ReauthError:
         raise
     except SignInError as ex:
+        if secret:
+            raise ReauthError(REAUTH_FAILED, step, "the browser step that types the code in failed; its output is not "
+                                                   "shown because it holds the sign-in link",
+                              ["browser-harness --doctor"]) from None
         raise ReauthError(REAUTH_FAILED, step, str(ex), ex.next_steps) from None
 
 

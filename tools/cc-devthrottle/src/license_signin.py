@@ -743,7 +743,9 @@ def run_daemon_name(profile_daemon: str, pid: Optional[int] = None) -> str:
     return f"{profile_daemon[:DAEMON_NAME_LIMIT - len(suffix) - len(digest) - 1]}-{digest}{suffix}"
 
 
-def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> str:
+def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float, secret: bool = False) -> str:
+    """Run one browser step. With ``secret`` the step's script holds something that must never be shown (the
+    re-sign-in's link): its output is then neither logged nor quoted in the error, which says only that it failed."""
     exe = shutil.which("browser-harness")
     if not exe:
         raise SignInError(APPROVAL_FAILED, "browser-harness is not on this machine's PATH.",
@@ -769,6 +771,12 @@ def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> st
         if stopped.returncode != 0:
             log.warning("browser-harness --reload exited %d for %s: %s", stopped.returncode, full_env["BU_NAME"],
                         " / ".join((stopped.stderr or stopped.stdout).strip().splitlines()[-2:]))
+    if done.returncode != 0 and secret:
+        # A traceback can quote the script's lines, and this script holds the link: not a word of the output leaves.
+        log.warning("browser-harness exited %d on a step whose output is not shown", done.returncode)
+        raise SignInError(APPROVAL_FAILED, f"browser-harness failed (exit {done.returncode}) on a step whose output "
+                                           "is not shown, because it holds the sign-in link",
+                          ["browser-harness --doctor"])
     if done.returncode != 0:
         # browser-harness's own error text names the page or the connection; the code is never in it, because a
         # run that found the code printed it only on the RESULT line and exited 0.
