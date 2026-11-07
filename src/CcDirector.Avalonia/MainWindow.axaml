@@ -49,7 +49,7 @@
         </Style>
         <!-- Styles/ButtonStyles.axaml keeps a button's own background under the pointer but not its border or its text
              colour, which the Fluent theme repaints - so the outline look lost its indigo border on hover and the
-             yellow look would turn its dark text white. Keep the button's own border and text colour, as that policy
+             light text and the document icon drawn in it would change colour. Keep the button's own border and text colour, as that policy
              keeps the background; opacity still carries the hover feedback. -->
         <Style Selector="Button.missionBtn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="BorderBrush" Value="{Binding $parent[Button].BorderBrush}" />
@@ -238,14 +238,14 @@
                             <Viewbox x:Name="BtnMissionDocumentIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
                                 <Path Width="16" Height="16" StrokeThickness="1.5" Fill="Transparent"
                                       Stroke="{Binding $parent[Button].Foreground}"
-                                      Data="M4,1.5 H9.5 L12.5,4.5 V14.5 H4 Z M9.5,1.5 V4.5 H12.5 M6,8 H10.5 M6,10.5 H10.5" />
+                                      Data="{StaticResource MissionDocumentIconGeometry}" />
                             </Viewbox>
                             <!-- The icon key "warning": a small yellow warning triangle. -->
                             <Viewbox x:Name="BtnMissionWarningIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
                                 <Canvas Width="16" Height="16">
                                     <Path StrokeThickness="1.6" StrokeJoin="Round" Fill="Transparent"
                                           Stroke="{DynamicResource MissionWarningIcon}"
-                                          Data="M8,1.8 L15,14 H1 Z M8,6.2 V10" />
+                                          Data="{StaticResource MissionWarningIconGeometry}" />
                                     <Ellipse Canvas.Left="7.3" Canvas.Top="11.3" Width="1.4" Height="1.4"
                                              Fill="{DynamicResource MissionWarningIcon}" />
                                 </Canvas>
@@ -1391,14 +1391,14 @@
                                     <Viewbox x:Name="TabBarMissionDocumentIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
                                         <Path Width="16" Height="16" StrokeThickness="1.5" Fill="Transparent"
                                               Stroke="{Binding $parent[Button].Foreground}"
-                                              Data="M4,1.5 H9.5 L12.5,4.5 V14.5 H4 Z M9.5,1.5 V4.5 H12.5 M6,8 H10.5 M6,10.5 H10.5" />
+                                              Data="{StaticResource MissionDocumentIconGeometry}" />
                                     </Viewbox>
                                     <!-- The icon key "warning": a small yellow warning triangle. -->
                                     <Viewbox x:Name="TabBarMissionWarningIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
                                         <Canvas Width="16" Height="16">
                                             <Path StrokeThickness="1.6" StrokeJoin="Round" Fill="Transparent"
                                                   Stroke="{DynamicResource MissionWarningIcon}"
-                                                  Data="M8,1.8 L15,14 H1 Z M8,6.2 V10" />
+                                                  Data="{StaticResource MissionWarningIconGeometry}" />
                                             <Ellipse Canvas.Left="7.3" Canvas.Top="11.3" Width="1.4" Height="1.4"
                                                      Fill="{DynamicResource MissionWarningIcon}" />
                                         </Canvas>

@@ -120,4 +120,24 @@ Gateway was created or changed. The web screenshots are the Delivery Lead's, aft
 
 A separate review session reads the change; every finding is answered below.
 
-(pending)
+The review ran on commit 3afeca16b. The first review seat did not survive the Director restart of 7 November, so a
+new one was started; Codex refused its model, so the next seat in the order reviewed. Seven findings, none high.
+
+1. MEDIUM - `docs/VisualStyle.md` still listed the old Mission colours. FIXED: both Mission tables now carry the
+   shipped values (border `#6366F1`, outline text `#C7D2FE`, no-mission border `#CA8A04`, text `#FDE68A`, triangle
+   `#EAB308`) and the two new brushes `MissionBorderBrush` and `MissionWarningIcon`.
+2. LOW - the hover-style comment in `MainWindow.axaml` gave a stale reason (dark text on yellow). FIXED: it now names
+   what the style protects today, the light text and the document icon drawn in it.
+3. LOW - `clientWidth || window.innerWidth` in `MissionButton.tsx` was a fallback. FIXED: one measure,
+   `document.documentElement.clientWidth`.
+4. LOW - the bubble was re-measured only when it opened, so a tooltip that changed while it was open could cross the
+   edge. FIXED: the tooltip text is a dependency of the measuring effect. New test
+   `MissionButton_TooltipChangesWhileBubbleOpen_IsMeasuredAgain`; it fails with the old dependency list
+   (`expected '' to be 'translateX(32px)'`) and passes with the fix.
+5. LOW - the two icons' path data was written twice in `MainWindow.axaml`. FIXED: the shapes are
+   `MissionDocumentIconGeometry` and `MissionWarningIconGeometry` in `App.axaml`, next to the Mission colours, and
+   both buttons use them.
+6. LOW - the with-document tooltip says "Click to open the mission document.", which the phone also shows in its
+   long-press bubble. NOT CHANGED: it is the approved mockup's wording. Left for the Delivery Lead.
+7. LOW - `docs/mission-button-web/mission.html` still describes a yellow "No mission" button. NOT CHANGED here: the
+   mission document is the Delivery Lead's to update when the record is landed.

@@ -204,6 +204,28 @@ describe("MissionButton bubble stays inside the screen", () => {
       rect.mockRestore();
     }
   });
+
+  it("MissionButton_TooltipChangesWhileBubbleOpen_IsMeasuredAgain", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document.documentElement, "clientWidth", { value: 360, configurable: true });
+    let tipLeft = 40;
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return (this.className === "mb-tip" ? { left: tipLeft, right: 296 } : { left: 0, right: 0 }) as DOMRect;
+    });
+    try {
+      const { rerender } = render(<MissionButton display={WITH_DOCUMENT} />);
+      touch(screen.getByRole("link", { name: "Mission" }), "pointerdown");
+      act(() => {
+        vi.advanceTimersByTime(LONG_PRESS_MS);
+      });
+      expect(screen.getByRole("tooltip").style.transform).toBe("");
+      tipLeft = -24;
+      rerender(<MissionButton display={{ ...WITH_DOCUMENT, tooltip: `${WITH_DOCUMENT.tooltip} A much longer name.` }} />);
+      expect(screen.getByRole("tooltip").style.transform).toBe("translateX(32px)");
+    } finally {
+      rect.mockRestore();
+    }
+  });
 });
 
 describe("MissionButton absences and problems", () => {

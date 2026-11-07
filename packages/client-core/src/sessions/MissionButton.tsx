@@ -175,9 +175,10 @@ export function MissionButton({ display, sessionId }: MissionButtonProps) {
     if (!tipOpen || tip === null) return;
     tip.style.transform = "";
     const box = tip.getBoundingClientRect();
-    const shift = bubbleShift(box.left, box.right, document.documentElement.clientWidth || window.innerWidth);
+    const shift = bubbleShift(box.left, box.right, document.documentElement.clientWidth);
     if (shift !== 0) tip.style.transform = `translateX(${shift}px)`;
-  }, [tipOpen]);
+    // The tooltip text is a dependency too: a poll that renames the Mission while the bubble is open changes its width.
+  }, [tipOpen, display?.tooltip]);
 
   if (display === null || display === undefined) return null;
 
