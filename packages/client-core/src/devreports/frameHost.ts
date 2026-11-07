@@ -59,6 +59,8 @@ export interface DevReportFrameHostOptions {
   /** Where note-taking stands in the page, whenever it changes (issue #3077). */
   onNoteModeChanged?: (noteMode: DevReportNoteMode) => void;
   onConnectedChange?: (connected: boolean) => void;
+  /** Called when the page requests dictation for a field. The host should record and transcribe. */
+  onDictationStart?: (fieldId: string) => Promise<{ transcript: string } | { error: string }>;
   /** Told about every message the host refused, for tests and diagnostics. */
   onRefused?: (why: string) => void;
   /** A fresh random string per call. Defaults to 128 random bits as hexadecimal. */
@@ -209,10 +211,26 @@ export class DevReportFrameHost {
     if (!message) return this.refuse("a port message that is not a well-formed send or state-changed");
     if (message.type === "state-changed") this.options.onStateChanged(message.state);
     else if (message.type === "note-mode-changed") this.options.onNoteModeChanged?.(message.noteMode);
+    else if (message.type === "dictation-start") {
+      const handler = this.options.onDictationStart;
+      if (!handler) return this.refuse("dictation was requested but the host provides no handler");
+      handler(message.fieldId).then((result) => {
+        if (!this.port || port !== this.port) return;
+        if ("transcript" in result) {
+          this.post("dictation-result", { fieldId: message.fieldId, transcript: result.transcript });
+        } else {
+          this.post("dictation-failed", { fieldId: message.fieldId, reason: result.error });
+        }
+      }).catch((err) => {
+        if (!this.port || port !== this.port) return;
+        const reason = err && typeof err === "object" && "message" in err ? String(err.message) : "Recording failed";
+        this.post("dictation-failed", { fieldId: message.fieldId, reason });
+      });
+    }
     else this.options.onSend(message.items);
   }
 
-  private post(type: "restore" | "status" | "reply" | "note-mode", payload: unknown): boolean {
+  private post(type: "restore" | "status" | "reply" | "note-mode" | "dictation-result" | "dictation-failed", payload: unknown): boolean {
     if (!this.port) return false;
     this.port.postMessage(hostEnvelope(type, payload));
     return true;

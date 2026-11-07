@@ -98,13 +98,14 @@ the wrong shape. What stops a report acting for the owner is the host's policy i
   itself, so the answer it queues is always the option the owner last picked. **Every option has a
   `value` of its own** - not empty, not only spaces, and used by no other option in the question - because
   an answer names its option by value (a radio with no value reads as `on` in a browser). The option's label
-  is the text of its `<label>` (wrapping, or pointed at by `for=`); without a label, its `value`.
+  is the text of its `<label>` (wrapping, or pointed at by `for=`); without a label, its `value`. **The reserved value `own-answer` is never to be used by an author** - the script adds this option automatically, and its value must not collide. The shape check refuses a report with `own-answer` as an option value.
 - **The recommendation** is `data-recommended` on exactly one option. The script checks it when the page
   loads, so the recommendation is preselected.
 - **The question text** is `data-dev-report-question-text` if present, otherwise the text of the first
   heading (`h1`-`h6`) inside the question, otherwise the id.
 - **A comment box** is optional: a `<textarea data-dev-report-comment>` inside the question.
 - **The Queue button** is added by the script, one per question. An author never writes it.
+- **Something else** is always added as the last option, named "Something else", with value `own-answer`. Picking it shows a text box where the owner can type or dictate their own answer. The Queue button is disabled until that box has text. When queued, the answer is sent with `optionValue: "own-answer"` and the owner's text in `comment`.
 
 The shape check enforces: at least two options, exactly one `data-recommended`, a non-empty `value` on
 every option and no value used twice in one question, one shared `name` per question used by no other
@@ -188,6 +189,7 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | `send` | `{ "items": [ item, ... ] }` | the owner pressed the UNHOSTED page's own Send; every item still in the queue, in order. A hosted page draws no Send and never posts this: the app sends the queue it already holds from `state-changed`, and tells the page what happened with `status`. |
 | `state-changed` | `{ "state": state }` | anything in the state changed - including a status or reply the host pushed |
 | `note-mode-changed` | `{ "picking": true, "selectionQuote": null }` | where note-taking stands: whether the page is waiting for a click, and what text is selected in the report. Sent on the first `restore`, whenever either changes, and whenever the host asks for a `note-mode`. Hosted only - unhosted the page draws those controls itself |
+| `dictation-start` | `{ "fieldId": "comment-q1" }` | the owner tapped a microphone button; the host records, transcribes, and posts the result as `dictation-result` or `dictation-failed` |
 
 ### Host to page
 
@@ -197,6 +199,8 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | `status` | `{ "updates": [ { "id": "n3", "status": "held", "statusLabel": "Delivered when the agent finishes" } ] }` | the host's word on items, by id; an unknown id is skipped |
 | `reply` | `{ "reply": { "id": "r1", "text": "Fixed - see section 2", "at": "2026-09-16T10:00:00Z" } }` | adds the agent's reply to the page (same id replaces) |
 | `note-mode` | `{ "mode": "pick" }`, `{ "mode": "selection" }` or `{ "mode": "off" }` | starts a note: `pick` waits for the reader to click what the note is about, `selection` opens one on the text they have selected, `off` cancels. Any other mode is ignored |
+| `dictation-result` | `{ "fieldId": "comment-q1", "transcript": "Email me after 3 days" }` | the recording and transcription succeeded; the text is placed in the named field |
+| `dictation-failed` | `{ "fieldId": "comment-q1", "reason": "Microphone not available" }` | the recording or transcription failed; the field stays unchanged and shows the reason |
 
 ### Send, and when an item counts as sent
 

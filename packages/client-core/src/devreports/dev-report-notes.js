@@ -1253,6 +1253,19 @@
 
     questions.forEach(function (q) {
       var id = q.getAttribute("data-dev-report-question");
+
+      // Add "Something else" option if not already present
+      var ownAnswerRadio = q.querySelector("input[type=radio][value='own-answer']");
+      if (!ownAnswerRadio && radiosIn(q).length > 0) {
+        var firstRadio = radiosIn(q)[0];
+        var name = firstRadio.getAttribute("name");
+        var label = el(doc, "label", {}, null);
+        var radio = el(doc, "input", { type: "radio", name: name, value: "own-answer" });
+        label.appendChild(radio);
+        label.appendChild(doc.createTextNode("Something else"));
+        q.appendChild(label);
+      }
+
       var radios = radiosIn(q);
       // One answer per question, whatever the radio names say. The shape check requires one shared name, but
       // a page with two names lets the browser keep two options checked, and then the answer queued would be
@@ -1268,8 +1281,23 @@
         r.addEventListener("change", function () {
           if (!r.checked) return;
           radios.forEach(function (other) { if (other !== r) other.checked = false; });
+          var ownAnswerBox = q.querySelector("[data-drn-own-answer-box]");
+          if (r.value === "own-answer" && ownAnswerBox) {
+            ownAnswerBox.removeAttribute("hidden");
+            ownAnswerBox.focus();
+          } else if (ownAnswerBox) {
+            ownAnswerBox.setAttribute("hidden", "");
+          }
         });
       });
+
+      // Create "Something else" text box if "Something else" option exists
+      var ownAnswerRadio = q.querySelector("input[type=radio][value='own-answer']");
+      if (ownAnswerRadio) {
+        var ownAnswerBox = el(doc, "textarea", { "data-drn-own-answer-box": "", hidden: "", maxlength: String(MAX_STRING), placeholder: "Your answer" });
+        q.appendChild(ownAnswerBox);
+      }
+
       var rowRoot = shadowHost(doc);
       uiRoots.push(rowRoot.host);
       var row = el(doc, "div", { "class": "drn-row" });
@@ -1299,12 +1327,21 @@
           stateText.textContent = "Pick an option first.";
           return;
         }
+        var ownAnswerBox = q.querySelector("[data-drn-own-answer-box]");
+        var commentText = comment ? comment.value.trim() : "";
+        if (String(chosen.value) === "own-answer") {
+          if (!ownAnswerBox || !ownAnswerBox.value.trim()) {
+            stateText.textContent = "Type your answer first.";
+            return;
+          }
+          commentText = ownAnswerBox.value.trim();
+        }
         var answer = {
           questionId: id,
           question: questionText(q),
           optionValue: String(chosen.value),
           optionLabel: optionLabel(chosen),
-          comment: comment ? comment.value.trim() : ""
+          comment: commentText
         };
         var tooLong = [];
         if (answer.comment.length > MAX_STRING) tooLong.push("the comment");
@@ -1399,6 +1436,15 @@
         if (message.payload.mode === "pick") setPicking(true);
         else if (message.payload.mode === "off") setPicking(false);
         else noteOnSelection();
+      } else if (message.type === "dictation-result") {
+        var field = doc.querySelector("[data-drn-field-id='" + CSS.escape(message.payload.fieldId) + "']");
+        if (field && field.focus) {
+          field.value = (field.value || "") + message.payload.transcript;
+          field.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      } else if (message.type === "dictation-failed") {
+        var field = doc.querySelector("[data-drn-field-id='" + CSS.escape(message.payload.fieldId) + "']");
+        if (field && field.focus) field.focus();
       }
     }
 

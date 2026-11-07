@@ -6,6 +6,7 @@
 
 export const DEV_REPORT_CHANNEL = "devthrottle.dev-report";
 export const DEV_REPORT_PROTOCOL_VERSION = 1;
+export const OWN_ANSWER_VALUE = "own-answer";
 const MAX_STRING = 20000;
 const ANCHOR_TYPES = ["element", "text", "table-cell", "svg-part"];
 
@@ -167,12 +168,30 @@ export interface DevReportNoteMode {
 /** What the host asks the page to do about a note. "off" cancels picking. */
 export type DevReportNoteModeRequest = "pick" | "selection" | "off";
 
+/** A request from the page to the host to record and transcribe speech for a field. */
+export interface DevReportDictationRequest {
+  fieldId: string;
+}
+
+/** The host's response to a dictation request: the transcribed text. */
+export interface DevReportDictationResult {
+  fieldId: string;
+  transcript: string;
+}
+
+/** The host's failure response to a dictation request. */
+export interface DevReportDictationFailed {
+  fieldId: string;
+  reason: string;
+}
+
 /** A message from the page, as the host acts on it. */
 export type PageMessage =
   | { type: "ready"; token: string; questionIds: string[] }
   | { type: "send"; items: DevReportItem[] }
   | { type: "state-changed"; state: DevReportPageState }
-  | { type: "note-mode-changed"; noteMode: DevReportNoteMode };
+  | { type: "note-mode-changed"; noteMode: DevReportNoteMode }
+  | { type: "dictation-start"; fieldId: string };
 
 function envelopeOk(data: unknown): data is Record<string, unknown> {
   return isPlainObject(data) && data.channel === DEV_REPORT_CHANNEL && data.version === DEV_REPORT_PROTOCOL_VERSION;
@@ -189,7 +208,7 @@ export function parseReady(data: unknown): Extract<PageMessage, { type: "ready" 
 /** Returns a port message from the page when its shape is exactly right, else null. */
 export function parsePortMessage(
   data: unknown,
-): Extract<PageMessage, { type: "send" | "state-changed" | "note-mode-changed" }> | null {
+): Extract<PageMessage, { type: "send" | "state-changed" | "note-mode-changed" | "dictation-start" }> | null {
   if (!envelopeOk(data)) return null;
   const p = data.payload;
   if (!isPlainObject(p)) return null;
@@ -204,9 +223,13 @@ export function parsePortMessage(
     if (p.selectionQuote !== null && !isStr(p.selectionQuote)) return null;
     return { type: "note-mode-changed", noteMode: { picking: p.picking, selectionQuote: p.selectionQuote } };
   }
+  if (data.type === "dictation-start") {
+    if (!isStr(p.fieldId)) return null;
+    return { type: "dictation-start", fieldId: p.fieldId };
+  }
   return null;
 }
 
-export function hostEnvelope(type: "restore" | "status" | "reply" | "note-mode", payload: unknown) {
+export function hostEnvelope(type: "restore" | "status" | "reply" | "note-mode" | "dictation-result" | "dictation-failed", payload: unknown) {
   return { channel: DEV_REPORT_CHANNEL, version: DEV_REPORT_PROTOCOL_VERSION, type, payload };
 }
