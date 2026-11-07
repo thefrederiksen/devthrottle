@@ -101,6 +101,7 @@ public sealed class MorningReportWindowDto
 [JsonDerivedType(typeof(UsageLimitStopsAttentionDto))]
 [JsonDerivedType(typeof(OutdatedDirectorsAttentionDto))]
 [JsonDerivedType(typeof(LicenseCoverageGapsAttentionDto))]
+[JsonDerivedType(typeof(LicenseFireDrillAttentionDto))]
 public abstract class MorningAttentionItemDto
 {
     /// <summary>The item's discriminator: "waiting-session", "stale-worktrees", "unmerged-branches",
@@ -118,6 +119,7 @@ public static class MorningAttentionTypes
     public const string UsageLimitStops = "usage-limit-stops";
     public const string OutdatedDirectors = "outdated-directors";
     public const string LicenseCoverageGaps = "license-coverage-gaps";
+    public const string LicenseFireDrill = "license-fire-drill";
 }
 
 /// <summary>
@@ -136,6 +138,30 @@ public sealed class LicenseCoverageGapsAttentionDto : MorningAttentionItemDto
 
     /// <summary>The row's detail: each machine and what it is missing, then what to do.</summary>
     public string Text { get; set; } = "";
+}
+
+/// <summary>
+/// The daily license fire drill (mission "Licenses - Always Ready, Loud When Not", step 7): ONE item per account whose
+/// machines report licenses, every day, green or not - a drill that passed is the line that says the licenses are
+/// ready, and the run of passes is how the mission is closed. Folded on the Gateway
+/// (<c>LicenseFireDrillFold.ReportLine</c>); the renderer shows <see cref="Text"/> as given, in the tone
+/// <see cref="Passed"/> says.
+/// </summary>
+public sealed class LicenseFireDrillAttentionDto : MorningAttentionItemDto
+{
+    public override string Type => MorningAttentionTypes.LicenseFireDrill;
+
+    /// <summary>The newest drill passed. False also when it has not run, or is not set up.</summary>
+    public bool Passed { get; set; }
+
+    /// <summary>The finished line: when, on which machine, and what it found.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>When the newest drill finished; null when none has.</summary>
+    public DateTime? RanAtUtc { get; set; }
+
+    /// <summary>How many drills in a row have passed, the newest included; 0 when it did not pass.</summary>
+    public int PassedInARow { get; set; }
 }
 
 /// <summary>

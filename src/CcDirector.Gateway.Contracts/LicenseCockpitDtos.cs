@@ -1110,3 +1110,36 @@ public sealed class LicenseAlarmDto
     /// <summary><c>warning</c> (yellow) or <c>critical</c> (red), the tone of its kind.</summary>
     public string Tone { get; set; } = "";
 }
+
+// ---- the daily license fire drill ----
+
+/// <summary>The routes of the daily license fire drill (mission "Licenses - Always Ready, Loud When Not", step 7).</summary>
+public static class LicenseFireDrillRoutes
+{
+    /// <summary>GET: the drill machine and the drill's newest line (<see cref="LicenseFireDrillResponse"/>).</summary>
+    public const string FireDrill = "/gateway/licenses/fire-drill";
+
+    /// <summary>PUT: choose the drill machine, or clear it (<see cref="LicenseFireDrillMachineRequest"/>). The owner's own.</summary>
+    public const string Machine = "/gateway/licenses/fire-drill/machine";
+
+    /// <summary>POST: run the drill now, whether or not it is due. The owner's own: it switches a machine out and back.</summary>
+    public const string Run = "/gateway/licenses/fire-drill/run";
+}
+
+/// <summary>The body of <see cref="LicenseFireDrillRoutes.Machine"/>: the machine's identifier as the Licenses page gives
+/// it (<see cref="LicenseMachineDto.MachineId"/>), or null to clear the choice.</summary>
+public sealed class LicenseFireDrillMachineRequest
+{
+    public string? MachineId { get; set; }
+}
+
+/// <summary>The answer of every fire drill route: the drill machine chosen, and the drill's newest line as the daily
+/// report shows it. Folded on the Gateway; shown as given.</summary>
+public sealed class LicenseFireDrillResponse
+{
+    /// <summary>The drill machine's identifier; null when none is chosen.</summary>
+    public string? MachineId { get; set; }
+
+    /// <summary>The drill's line; null when no machine of the account reports.</summary>
+    public LicenseFireDrillAttentionDto? Line { get; set; }
+}

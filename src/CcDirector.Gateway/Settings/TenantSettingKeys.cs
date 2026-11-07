@@ -375,6 +375,13 @@ public static class TenantSettingKeys
     /// </summary>
     public const string LicenseApproverFailedChecks = "license_approver_failed_checks";
 
+    /// <summary>
+    /// The machine the daily license fire drill switches out to a spare and back (mission "Licenses - Always Ready, Loud
+    /// When Not", step 7): the machine's identifier on the Licenses page, never its name. Unset means the drill does not
+    /// run, and the daily report says so. Read and written only by <c>Licenses.LicenseFireDrillService</c>.
+    /// </summary>
+    public const string LicenseFireDrillMachine = "license_fire_drill_machine";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -398,5 +405,6 @@ public static class TenantSettingKeys
         DemoMode,
         FactoryEmailEnabled,
         LicenseApprovers, LicenseApproverRemovals, LicenseApproverFailedChecks,
+        LicenseFireDrillMachine,
     };
 }

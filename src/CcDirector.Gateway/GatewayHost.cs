@@ -686,6 +686,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>A sign-in whose renewal failed is a license alarm from the first failure until a renewal works (issue 4697).</summary>
     internal Licenses.LicenseRenewalFailureAlarm LicenseRenewalFailureAlarm { get; }
 
+    /// <summary>The daily license fire drill (mission "Licenses - Always Ready, Loud When Not", step 7): run on the minute
+    /// check when it is due, beside the switch pass and never behind it.</summary>
+    internal Licenses.LicenseFireDrillService LicenseFireDrills { get; }
+
     /// <summary>License Switching phase 6: readiness on every minute - each machine against the account it would switch
     /// to next, the automatic sign-in that fixes a gap, and the 80% alarm. The Licenses page reads its judgement.</summary>
     internal Licenses.LicenseReadinessService LicenseReadiness { get; }
@@ -2516,7 +2520,10 @@ public sealed class GatewayHost : IAsyncDisposable
             licenseCoverage: (tenant, now) => Licenses.LicenseCoverageFold.Judge(
                 (LicenseSnapshots ?? throw new InvalidOperationException("The license snapshot source is built before any morning report is."))
                     .ReadPicture(tenant, now, Array.Empty<Licenses.LicenseExhaustion>())),
-            newestRelease: () => _newestRelease.Current().Version);
+            newestRelease: () => _newestRelease.Current().Version,
+            // The license fire drill's line (step 7 of "Licenses - Always Ready, Loud When Not"), from the drill's own
+            // rows. A lambda: the drill is built after this report.
+            licenseFireDrill: tenant => (LicenseFireDrills ?? throw new InvalidOperationException("The fire drill is built before any report.")).ReportLine(tenant));
         // Snooze Length mission: the persisted snooze registry (sessionId -> SnoozeUntilUtc), now in the
         // snoozes table of the EF data layer - a Gateway restart re-arms every pending snooze from the
         // database; an entry already past its time simply fires on the first sweep. The path argument is the
@@ -3243,6 +3250,10 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseMachineHealthAlarm = new Licenses.LicenseMachineHealthAlarm(LicenseStore, LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
         LicenseRenewalFailureAlarm = new Licenses.LicenseRenewalFailureAlarm(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
             LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
+        // The daily fire drill (step 7): coverage held to a fresh usage read, one real switch out and back on the drill
+        // machine the account chose, one log row and the daily report's line; its findings are license alarms.
+        LicenseFireDrills = new Licenses.LicenseFireDrillService(LicenseStore, LicenseSnapshots, LicenseSwitches, LicenseAlarms,
+            new Licenses.LicenseFireDrillLog(_gatewayDb), _tenantSettings, LicenseNow.UtcNow);
         LicenseApproverAlarm = new Licenses.LicenseApproverAlarm(LicenseApprovers, LicenseReads, LicenseAlarms, IsDirectorConnected,
             tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token,
             // Which machines need an account whose approver cannot approve: the readiness check's judgement, built below.
@@ -6449,6 +6460,14 @@ public sealed class GatewayHost : IAsyncDisposable
             alarms: LicenseAlarms,
             nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
+        // The daily license fire drill (step 7): which machine it switches, and running it now. Both writes are the owner's
+        // own, like Switch now; the read is not in SessionKeyGuard's allow list either.
+        Api.LicenseEndpoints.MapFireDrill(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            tenantInScope: () => _tenantPass.Current,
+            drills: LicenseFireDrills,
+            drillLifetime: _licenseSwitchLifetime.Token);
+
         Api.LicenseSignInEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             approvers: LicenseApprovers,
@@ -7777,7 +7796,27 @@ public sealed class GatewayHost : IAsyncDisposable
     /// failed-renewal emails. The two run at the same time, each on its own try: the switch pass waits up to a minute
     /// for a Director that does not answer, and no account's renewal email waits behind that.</summary>
     internal Task RunLicenseSwitchCheckAsync()
-        => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync(), RunSessionUsageRecordAsync());
+        => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync(), RunSessionUsageRecordAsync(),
+            RunLicenseFireDrillAsync());
+
+    /// <summary>The daily license fire drill, when one is due: beside the switch pass, because a drill waits up to two
+    /// switch answers and no account's minute check waits behind that.</summary>
+    internal async Task RunLicenseFireDrillAsync()
+    {
+        await Task.Yield();
+        try
+        {
+            await LicenseFireDrills.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
+        {
+            FileLog.Write("[GatewayHost] license fire drill stopped: the Gateway is stopping");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] license fire drill FAILED: {ex.Message}");
+        }
+    }
 
     /// <summary>One minute's record of what is using the license, beside the license check and never behind it.</summary>
     internal async Task RunSessionUsageRecordAsync()
