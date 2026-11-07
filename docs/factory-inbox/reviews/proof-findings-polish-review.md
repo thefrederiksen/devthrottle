@@ -134,3 +134,75 @@ New tests. All four fail on e4cd3a1f5, the commit reviewed, and pass now:
   the thread's tests.
 
 The observations need no change, and none was made for them.
+
+## Re-review after the answer (6 November 2026)
+
+Reviewer: a separate review session (Factory Inbox - Reviewer - small defects re-review (4703)), in the detached
+worktree `/home/soren/ReposFred/devthrottle-fi-review-4703` at commit 95755b1d6, the newest commit on the pull
+request. Nothing was pushed; every file changed for a proof was restored with `git checkout HEAD --` in the same
+command, and the tree was clean after each one.
+
+**Verdict: APPROVE.** Finding 1 is closed for both screens. No new finding.
+
+### Scope
+
+- Read only the newest commit (`git show 95755b1d6`): `oneReadAtATime.ts`, the two views, the two reads in
+  `factoryInboxClient.ts`, the two test files, and the answer in this file. Read the transport's `gatewayFetch` and
+  `gatewayErrorMessage` in `packages/client-core/src/api/client.ts` and `describeAndReport` in
+  `reportClientError.ts` as the code the commit calls, not as code under review.
+- Ran, on devlinux with node 22.20.0: the two touched test files, every client-core factory inbox test, the
+  Cockpit's `InboxView.test.tsx` and the phone's `Inbox.test.tsx` (both mount these views), the client-core type
+  check (`tsc --noEmit`) and eslint on the six changed files.
+- Ran two revert proofs and one scratch test of my own (deleted afterwards; it is described below).
+- Not done: no run on a real Gateway or a real phone network; no run of the whole client-core suite; no review of
+  the earlier commits on the pull request beyond what the first review covered.
+
+### Test runs
+
+| run | result |
+|---|---|
+| `factoryInboxReadLimit.test.tsx` and `factoryInboxScreens.test.tsx` at the commit | 25 passed |
+| every test under `packages/client-core/src/factoryinbox` | 35 passed |
+| Cockpit `InboxView.test.tsx`; phone `Inbox.test.tsx` | 7 passed; 10 passed |
+| client-core type check; eslint on the six changed files | clean; clean |
+| Revert proof A: both views put back to the parent commit 47d602dfe, `oneReadAtATime.ts` and the tests kept | 3 failed, 22 passed: the list's hung-read test and the list's two re-reading tests. The thread's hung-read test still passed, which is right: the parent commit's thread view already had the loop, and the client's new limit alone ends its hung read |
+| Revert proof B: the limit no longer passed by `getFactoryInboxList` and `getFactoryInboxThread`, the constant kept so the test file still imports | 2 failed, 1 passed: both hung-read tests fail, for the thread and for the list |
+| Scratch test, real transport, fetch stood in for: each view mounted onto a hanging read, 60 seconds of fake time, unmounted | the read's signal was aborted, `vi.getTimerCount()` was 0 after the unmount, and ten more minutes of fake time made no further read, for both views. The list unmounted during its 15-second wait also left no timer |
+
+### What was checked, point by point
+
+- **The finding is closed for both views.** Each of the two reads passes `FACTORY_INBOX_READ_TIMEOUT_MS` (120
+  seconds) to `gatewayFetch`. At the limit the transport aborts its own controller, `timedOut` is set, and it throws
+  a `GatewayError` with the code `client_timeout`. The view's error handler runs, and the loop's `ended` runs from
+  the rejection, so the next read is made 15 seconds later. The two hung-read tests check exactly this for the
+  thread and for the list, and the revert proofs show each test fails without its part of the change.
+- **The loop still shows the latest answer, and a read asked for mid-read runs when it ends.** `readNow` while a
+  read runs sets `wanted`; `ended` calls `readNow` again at once. Both views hand the composer's `onLeft` to the
+  loop's `readNow` through a stable ref. The list's two new re-reading tests, and the thread's existing ones, check
+  it, and the list's fail with the old list view.
+- **The error is shown in the transport's words.** `describeAndReport` passes the error to `gatewayErrorMessage`.
+  For the first read (foreground) that gives "DevThrottle could not read the factory's messages - the Gateway took
+  too long to answer. Try again."; for a background read it gives "The Gateway took too long to answer." Both are
+  the transport's own sentences; neither view writes a word of its own. The next good read clears the error
+  (`setError(null)`), which the thread's test asserts.
+- **Nothing leaks a timer after the view unmounts.** `stop()` aborts the loop's controller and clears the 15-second
+  timer. The abort reaches the transport's controller through the listener `gatewayFetch` adds, the fetch rejects,
+  and the transport's `finally` clears its own timer and removes the listener. The view's handlers and the loop's
+  `ended` both return early on an aborted signal, so no state is set and no new timer is made. `readNow` after
+  `stop()` returns at once. The scratch test above proves it for both views, with the real transport.
+- **The tests fail without the change.** Shown by the two revert proofs. The third test in the new file, which
+  holds the constant at 120 seconds or more, can only fail by lowering the constant.
+
+### Observations that need no change
+
+- The answer says "all four fail on e4cd3a1f5". The new file holds three tests and the screens file two, so five
+  new tests; the constant test cannot run on that commit at all, because the constant did not exist to import. The
+  four behavioural tests are the ones that matter, and each is shown to fail without its part of the change.
+- A first open onto a read that hangs shows "Loading..." for two minutes before the sentence appears, and a message
+  left during a hanging read shows in the thread only after the limit runs out and the next read answers. That is
+  the limit the first review asked for, set well above a slow but honest read so defect 1's pile-up does not come
+  back; it is a deliberate trade, not a defect.
+- The list's hung-read test does not assert the error line is cleared after the next good read; the thread's does,
+  and both views clear it on the same line of the same shared success path.
+- `Answer` in the new test file is typed `"hang" | unknown`, which is just `unknown`; it does not affect what the
+  test checks.
