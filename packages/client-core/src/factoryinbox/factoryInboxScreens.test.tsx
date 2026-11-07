@@ -9,13 +9,13 @@ import { oddList, oddMessage, oddSummary, oddThread } from "./factoryInboxFixtur
 // Gateway client is stood in for; what is under test is what the screens print, send and report.
 
 const gw = vi.hoisted(() => ({
-  list: null as (() => Promise<FactoryInboxList>) | null,
+  list: null as ((signal?: AbortSignal) => Promise<FactoryInboxList>) | null,
   thread: null as ((factory?: string, signal?: AbortSignal) => Promise<FactoryInboxThread>) | null,
   summary: null as (() => Promise<FactoryInboxSummary>) | null,
   send: null as ((factory: string, text: string, note: string) => Promise<FactoryInboxMessage>) | null,
 }));
 vi.mock("./factoryInboxClient", () => ({
-  getFactoryInboxList: vi.fn(() => gw.list!()),
+  getFactoryInboxList: vi.fn((signal?: AbortSignal) => gw.list!(signal)),
   getFactoryInboxThread: vi.fn((factory: string, signal?: AbortSignal) => gw.thread!(factory, signal)),
   getFactoryInboxSummary: vi.fn(() => gw.summary!()),
   sendFactoryInboxMessage: vi.fn((factory: string, text: string, note: string) => gw.send!(factory, text, note)),
@@ -39,7 +39,7 @@ vi.mock("../errors/reportClientError", async (importActual) => {
 });
 
 import { describeAndReport } from "../errors/reportClientError";
-import { getFactoryInboxThread, sendFactoryInboxMessage } from "./factoryInboxClient";
+import { getFactoryInboxList, getFactoryInboxThread, sendFactoryInboxMessage } from "./factoryInboxClient";
 import { FactoryInboxListView } from "./FactoryInboxListView";
 import { FactoryInboxThreadView } from "./FactoryInboxThreadView";
 import { FactoryComposer } from "./FactoryComposer";
@@ -53,6 +53,7 @@ beforeEach(() => {
   vi.mocked(describeAndReport).mockClear();
   vi.mocked(sendFactoryInboxMessage).mockClear();
   vi.mocked(getFactoryInboxThread).mockClear();
+  vi.mocked(getFactoryInboxList).mockClear();
 });
 
 afterEach(() => {
@@ -81,6 +82,59 @@ describe("FactoryInboxListView (mockup A)", () => {
     const reason = within(rows[0]).getByText("Held up because the burrow is unlit (gateway)");
     expect(reason.className).toBe("fi-row-reason");
     expect(rows[1].querySelector(".fi-row-reason")).toBeNull();
+  });
+
+  // The review of pull request 4703: the list had the thread's old loop, aborting its read every 15 seconds.
+  describe("re-reading", () => {
+    type Pending = { signal?: AbortSignal; resolve: (l: FactoryInboxList) => void };
+    let pending: Pending[];
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      pending = [];
+      gw.list = (signal) => new Promise<FactoryInboxList>((resolve) => pending.push({ signal, resolve }));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const settle = async () => {
+      for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(0);
+    };
+
+    it("FactoryInboxListView_SlowRead_IsNeverAbortedOrJoinedByAnother_ThenReadsAgain15SecondsAfterItEnds", async () => {
+      render(<FactoryInboxListView surface="mobile" onOpen={() => {}} />);
+      await settle();
+
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(1);
+      expect(pending[0].signal?.aborted).toBe(false);
+
+      pending[0].resolve(oddList());
+      await settle();
+      expect(screen.getAllByTestId("fi-row")).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(2);
+    });
+
+    it("FactoryInboxListView_MessageLeftWhileAReadRuns_ReadsAgainWhenThatReadEnds_NotBefore", async () => {
+      render(<FactoryInboxListView surface="mobile" onOpen={() => {}} />);
+      await settle();
+      pending[0].resolve(oddList());
+      await settle();
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(2);
+
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "One more thing" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await settle();
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(2);
+      expect(pending[1].signal?.aborted).toBe(false);
+
+      pending[1].resolve(oddList());
+      await settle();
+      expect(getFactoryInboxList).toHaveBeenCalledTimes(3);
+    });
   });
 
   it("FactoryInboxListView_RowPressed_OpensThatFactory", async () => {

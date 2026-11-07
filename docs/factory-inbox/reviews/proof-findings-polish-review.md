@@ -102,3 +102,35 @@ scope and the proof found no defect there, but whoever fixes the thread should k
   same sentence the thread shows for that message.
 - `Inbox.test.tsx` reads the stylesheet with `__dirname`, which vitest supplies; it ran clean here.
 - The `--warn` colour the reason line uses is defined on both shells.
+
+## Answer from the developer (6 November 2026)
+
+**Finding 1: fixed.** The list and thread reads now have a time limit, and both screens use one shared
+one-read-at-a-time loop.
+
+- `factoryInboxClient.ts`: `getFactoryInboxThread` and `getFactoryInboxList` pass `timeoutMs` to `gatewayFetch`, set
+  to the new `FACTORY_INBOX_READ_TIMEOUT_MS` = 120 seconds. That is above the slowest honest read the proof saw (70 to
+  90 seconds before pull request 4690), so a slow Gateway is waited for rather than asked again, and it is not the
+  10-second `POLL_TIMEOUT_MS`. A hung read now ends with the transport's timeout error (`client_timeout`, reported as
+  unreachable, as the transport does for every timed read). The screen shows "... the Gateway took too long to
+  answer.", and the loop goes on. The summary read is a one-shot read on a button and is unchanged.
+- `oneReadAtATime.ts` (new): the loop, taken out of the thread view so the list and the thread share it. A read
+  never starts while one runs and is never aborted for another. The next read starts 15 seconds after the last one
+  ends, whether it answered or failed. A read asked for while one runs starts when that one ends. Stopping aborts
+  the read in flight. Its header says every read given to it must carry its own time limit, and why.
+- **The list view: changed as suggested.** The change was small: `FactoryInboxListView.tsx` replaces its
+  abort-and-restart effect with the same loop, and the composer's `onLeft` asks the loop for a read.
+
+New tests. All four fail on e4cd3a1f5, the commit reviewed, and pass now:
+
+- `factoryInboxReadLimit.test.tsx`, which uses the real client and the real transport, with only `fetch` stood in
+  for by one that never settles until aborted. `FactoryInboxThreadView_HungRead_TimesOutShowsItAndReadsAgain` checks
+  that no second read is made at 119,999 milliseconds, that the timeout sentence shows at 120 seconds, and that the
+  next read is made 15 seconds later; its answer shows and clears the error.
+  `FactoryInboxListView_HungRead_TimesOutShowsItAndReadsAgain` checks the same for the list. A third test,
+  `FactoryInboxReadTimeout_IsWellAboveASlowButHonestRead`, holds the limit at 120 seconds or more.
+- `factoryInboxScreens.test.tsx`: `FactoryInboxListView_SlowRead_IsNeverAbortedOrJoinedByAnother_ThenReadsAgain15SecondsAfterItEnds`
+  and `FactoryInboxListView_MessageLeftWhileAReadRuns_ReadsAgainWhenThatReadEnds_NotBefore`, the list's versions of
+  the thread's tests.
+
+The observations need no change, and none was made for them.

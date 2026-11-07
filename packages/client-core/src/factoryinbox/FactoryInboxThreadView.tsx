@@ -10,6 +10,7 @@ import {
 } from "./factoryInboxClient";
 import { FACTORY_INBOX_SURFACE, FactoryComposer } from "./FactoryComposer";
 import { formatInboxTime } from "./formatInboxTime";
+import { startOneReadAtATime } from "./oneReadAtATime";
 import "./factoryInbox.css";
 
 // ONE FACTORY'S THREAD (Factory Inbox mission, phase 4; mockup B, and the Cockpit's reading pane in mockup D). Each
@@ -17,11 +18,7 @@ import "./factoryInbox.css";
 // glance. Every word under a message, and the tone it is coloured by, is the Gateway's; this view prints them.
 //
 // The decision arrives minutes later, from the Boss, so the thread is read again 15 seconds after each read ends while
-// it is open. ONE READ AT A TIME (the end-to-end proof of 6 November 2026, defect 1): the next read never starts while one
-// is still running, and a running read is never aborted to make room for it - an aborted read keeps running on the
-// Gateway, so a slow thread re-read every 15 seconds piled reads up there and never showed an answer. A read asked for
-// while one runs (the composer left a message) starts as soon as that one ends, so the screen still shows the latest
-// answer. The read in flight is aborted only when the screen leaves this factory.
+// it is open - one read at a time, each with its own time limit (oneReadAtATime.ts; the end-to-end proof's defect 1).
 
 const REFRESH_MS = 15_000;
 
@@ -58,50 +55,27 @@ export function FactoryInboxThreadView({ factory, surface, actions, showTitle = 
   }, [factory]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    let running = false;
-    let wanted = false;
-    let reads = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const read = () => {
-      clearTimeout(timer);
-      timer = undefined;
-      if (running) {
-        wanted = true;
-        return;
-      }
-      running = true;
-      wanted = false;
-      const background = reads > 0;
-      reads += 1;
-      const ended = () => {
-        if (controller.signal.aborted) return;
-        running = false;
-        if (wanted) read();
-        else timer = setTimeout(read, REFRESH_MS);
-      };
-      getFactoryInboxThread(factory, controller.signal)
-        .then(
+    const loop = startOneReadAtATime(
+      (signal, background) =>
+        getFactoryInboxThread(factory, signal).then(
           (t) => {
-            if (controller.signal.aborted) return;
+            if (signal.aborted) return;
             setThread(t);
             setError(null);
             onTitleRef.current?.(t.title);
             backgroundRecovered(FACTORY_INBOX_SURFACE, "read the factory's messages");
           },
           (err: unknown) => {
-            if (controller.signal.aborted) return;
+            if (signal.aborted) return;
             setError(describeAndReport(FACTORY_INBOX_SURFACE, "read the factory's messages", err, background ? { background: true } : undefined));
           },
-        )
-        .finally(ended);
-    };
-    readNowRef.current = read;
-    read();
+        ),
+      REFRESH_MS,
+    );
+    readNowRef.current = loop.readNow;
     return () => {
       readNowRef.current = () => {};
-      controller.abort();
-      clearTimeout(timer);
+      loop.stop();
     };
   }, [factory]);
 
