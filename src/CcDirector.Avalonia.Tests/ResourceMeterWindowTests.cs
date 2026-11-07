@@ -222,24 +222,106 @@ public sealed class ResourceMeterWindowTests
     ///
     /// This is deliberately a measurement and not an absence. Asserting "no banner control exists" would pass
     /// for the wrong reason the moment someone renames the control, and an absence certifies nothing; measuring
-    /// where the body actually sits catches ANY new strip, whoever adds it and whatever they call it.
+    /// where the window's content actually sits catches ANY new strip, whoever adds it and whatever they call
+    /// it. The reviewer of pull request 4732 confirmed it is a real measurement by adding this test to main,
+    /// where the banner still existed, and watching it fail with the body at 125 instead of 71.
+    ///
+    /// TWO PLACES ARE MEASURED, because the same review showed one was not enough:
+    /// <list type="bullet">
+    /// <item>the layout grid's own top, which catches a strip between the toolbar and the body - where the
+    /// deleted one lived;</item>
+    /// <item>the session view INSIDE the grid, which catches a strip added to the grid's header row. That one
+    /// pushes the user's work down without moving the grid's top-left at all, and the first version of this
+    /// test would have stayed green through it.</item>
+    /// </list>
+    ///
+    /// WHAT IT STILL DOES NOT COVER: it measures the vertical only. A strip docked to the left or right would
+    /// not fail it. That is a deliberate choice - the owner's complaint was about height - and not an oversight.
     /// </summary>
     [AvaloniaFact]
     public void GoingRed_MovesNothingInTheWindow()
     {
         using var rig = new Rig();
         rig.Read(Machine(28, (ulong)(7.14 * Gb)).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
-        var quiet = rig.Window.MainLayoutGrid.TranslatePoint(new Point(0, 0), rig.Window);
-        Assert.NotNull(quiet);
+        var quietGrid = rig.Window.MainLayoutGrid.TranslatePoint(new Point(0, 0), rig.Window);
+        var quietBody = rig.Window.SessionViewGrid.TranslatePoint(new Point(0, 0), rig.Window);
+        Assert.NotNull(quietGrid);
+        Assert.NotNull(quietBody);
 
         rig.Read(Machine(98, (ulong)(0.95 * Gb)).Build(), ResourceLevel.Critical, ResourceLevel.Critical);
 
         // It really did go red - otherwise this test would pass on a machine that never warned at all.
         Assert.Equal(ResourceLevel.Critical, rig.Meter.View!.FrameLevel);
 
-        var red = rig.Window.MainLayoutGrid.TranslatePoint(new Point(0, 0), rig.Window);
-        Assert.NotNull(red);
-        Assert.Equal(quiet!.Value.Y, red!.Value.Y);
+        var redGrid = rig.Window.MainLayoutGrid.TranslatePoint(new Point(0, 0), rig.Window);
+        var redBody = rig.Window.SessionViewGrid.TranslatePoint(new Point(0, 0), rig.Window);
+        Assert.NotNull(redGrid);
+        Assert.NotNull(redBody);
+        Assert.Equal(quietGrid!.Value.Y, redGrid!.Value.Y);
+        Assert.Equal(quietBody!.Value.Y, redBody!.Value.Y);
+    }
+
+    /// <summary>
+    /// SWAP KEEPS A SURFACE. Swap has no bar - the mission allows exactly two - and until the banner was deleted
+    /// the banner was the only thing that read its level. Review of pull request 4732 found that removing the
+    /// banner left a machine paging hard showing two green bars and saying nothing.
+    ///
+    /// So swap colours the meter's FRAME and speaks in the tooltip. Both halves are asserted here, with the two
+    /// bars deliberately Normal so the frame's colour can only have come from swap.
+    /// </summary>
+    [AvaloniaFact]
+    public void SwapNearlyFull_ColoursTheFrameAndSaysSo_EvenThoughBothBarsAreGreen()
+    {
+        using var rig = new Rig();
+        rig.Verdict = new ResourcePressureVerdict(
+        [
+            new ResourceVerdict(ResourceKind.Cpu, ResourceLevel.Normal, "the processor is 28% busy"),
+            new ResourceVerdict(ResourceKind.Memory, ResourceLevel.Normal, "7.14 GB of memory is available"),
+            new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Critical, "swap is 81% full"),
+        ]);
+        rig.Probe.Set(Machine(28, (ulong)(7.14 * Gb)).Build());
+        rig.Sampler.Tick();
+        Pump();
+
+        var view = rig.Meter.View!;
+        Assert.Equal(ResourceLevel.Normal, view.Cpu.Level);
+        Assert.Equal(ResourceLevel.Normal, view.Memory.Level);
+        Assert.Equal(ResourceLevel.Critical, view.FrameLevel);
+        Assert.Contains(view.TooltipLines, line => line.StartsWith("Swap", StringComparison.Ordinal)
+            && line.Contains("swap is 81% full", StringComparison.Ordinal));
+        Assert.Contains("swap is maxed out", view.AccessibleName, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A WARNING BAR SAYS WHY. The memory verdict holds its level for sixty seconds after the load eases, so a
+    /// red bar can sit beside figures that read as healthy. The deleted banner printed the reason; review of
+    /// pull request 4732 found the tooltip never did, and that my claim it already carried the evidence was
+    /// wrong. Without this, the first bug report is "the bar is red and the numbers say it is fine".
+    /// </summary>
+    [AvaloniaFact]
+    public void ARedBarCarriesTheVerdictsReason_SoItIsNeverRedWithoutSayingWhy()
+    {
+        using var rig = new Rig();
+        rig.Verdict = new ResourcePressureVerdict(
+        [
+            new ResourceVerdict(ResourceKind.Cpu, ResourceLevel.Normal, "the processor is 28% busy"),
+            new ResourceVerdict(ResourceKind.Memory, ResourceLevel.Critical,
+                "only 600 MB was available 20 seconds ago, and a memory warning clears only after 60 seconds below the line"),
+            new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Normal, "swap is fine"),
+        ]);
+        // The figures themselves look healthy - that is the whole point of the case.
+        rig.Probe.Set(Machine(28, (ulong)(7.14 * Gb)).Build());
+        rig.Sampler.Tick();
+        Pump();
+
+        var view = rig.Meter.View!;
+        Assert.Equal(ResourceLevel.Critical, view.Memory.Level);
+        Assert.Contains("7.14 GB available", view.Memory.Tooltip, StringComparison.Ordinal);
+        Assert.Contains("a memory warning clears only after 60 seconds below the line", view.Memory.Tooltip,
+            StringComparison.Ordinal);
+        // The healthy bar says only its figures; the evidence is for a bar that is actually warning.
+        Assert.DoesNotContain("the processor is 28% busy", view.Cpu.Tooltip, StringComparison.Ordinal);
+        Assert.Contains("memory is maxed out", view.AccessibleName, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

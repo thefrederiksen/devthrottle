@@ -75,7 +75,7 @@ public sealed class ResourceMonitorHost : IDisposable
         FileLog.Write("[ResourceMonitorHost] subscribed to the sampler");
     }
 
-    /// <summary>The sampler this host drives - for the meter and the banner to subscribe to.</summary>
+    /// <summary>The sampler this host drives - for the meter to subscribe to.</summary>
     public IResourceSampler Sampler => _sampler;
 
     /// <summary>The latest read with its session figures. Null before the first read.</summary>

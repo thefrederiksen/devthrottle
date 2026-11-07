@@ -6,7 +6,7 @@ namespace CcDirector.Avalonia;
 
 /// <summary>
 /// The window's part of the Resource Monitor (issue #2811): attaching the sampler to the toolbar meter and the
-/// banners, and keeping the meter from pushing Cockpit and Settings off a narrow toolbar (issue #2812).
+/// and keeping the meter from pushing Cockpit and Settings off a narrow toolbar (issue #2812).
 /// </summary>
 public partial class MainWindow
 {
@@ -22,7 +22,7 @@ public partial class MainWindow
     internal (double Needed, double Available) LastResourceMeterFit { get; private set; }
 
     /// <summary>
-    /// Attaches the resource sampler to the meter and the banners. Called once, by the start-up wiring once the
+    /// Attaches the resource sampler to the meter. Called once, by the start-up wiring once the
     /// platform probe and ResourcePressure exist, and by the headless tests with a fake probe.
     /// </summary>
     internal void AttachResourceMonitor(
@@ -41,7 +41,8 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// What clicking the meter, or a banner's "Show resources", does. THE ONE SEAM FOR THE DETAIL SCREEN: phase 2b
+    /// What clicking the meter does - the only way in now that the banner and its "Show resources" link are gone.
+    /// THE ONE SEAM FOR THE DETAIL SCREEN: phase 2b
     /// replaces this body with opening its window, which must show at once even while empty (CLAUDE.md rule 1).
     /// Until then the click opens the meter's own figures in place, so it still answers within 100 milliseconds
     /// and never does nothing.

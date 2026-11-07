@@ -293,7 +293,7 @@
              Mission "Licenses - Always Ready, Loud When Not", step 2: while a license alarm is open it is shown across
              the top of every Cockpit, Director and phone screen. The words and the tone are the Gateway's
              (GET /gateway/licenses/alarms); the link opens the Cockpit's Licenses page at the address the Gateway
-             hands back. Hidden while no alarm is open. Above the resource banners: a machine that cannot
+             hands back. Hidden while no alarm is open. A machine that cannot
              switch stops its sessions, which outranks a busy machine. -->
         <Border x:Name="LicenseAlarmBar"
                 DockPanel.Dock="Top"

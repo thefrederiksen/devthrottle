@@ -26,7 +26,7 @@ public static class ResourceSampling
 
 /// <summary>
 /// The Director's resource sampler: the one background job that reads the machine and tells the meter,
-/// the banner and the detail screen what it found (the Resource Monitor mission, issue #2811).
+/// the meter and the detail screen what it found (the Resource Monitor mission, issue #2811).
 ///
 /// THE CONTRACT EVERY IMPLEMENTATION KEEPS:
 /// <list type="bullet">
@@ -84,7 +84,7 @@ public interface IResourceSampler : IDisposable
 
     /// <summary>
     /// Raised when a resource crosses into amber or red, moves between them, or comes back to normal.
-    /// What each crossing means for the banner is already decided on the event - see
+    /// What each crossing means is already decided on the event - see
     /// <see cref="ResourceCrossing.IsNewWarning"/> and <see cref="ResourceCrossing.EndsWarning"/>.
     /// </summary>
     event EventHandler<ResourceCrossingEventArgs>? Crossed;
@@ -134,7 +134,7 @@ public sealed class ResourceCrossingEventArgs(ResourceCrossing crossing, Resourc
     public ResourceCrossing Crossing { get; } = crossing;
 
     /// <summary>
-    /// The sampler's state at the read that produced the crossing, so the banner names the biggest user
+    /// The sampler's state at the read that produced the crossing, so a reader names the biggest user
     /// from the same sample that caused it rather than from a later one.
     /// </summary>
     public ResourceSamplerState State { get; } = state;

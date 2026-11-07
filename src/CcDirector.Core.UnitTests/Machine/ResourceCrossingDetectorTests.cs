@@ -4,7 +4,7 @@ using Xunit;
 namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
-/// When a resource has crossed a limit, and what that means for the banner (issue #2811, phase 2). Both
+/// When a resource has crossed a limit, and what that means (issue #2811, phase 2). Both
 /// halves matter: a warning that fires and never clears is a defect, and so is an unreadable reading that
 /// quietly clears one.
 /// </summary>

@@ -3,7 +3,7 @@ namespace CcDirector.Core.Machine;
 /// <summary>
 /// Reads the whole machine - the processor, memory, swap, the stall readings, each disk's evidence for
 /// the slowness diagnosis, and the processes - in one call (the Resource Monitor mission, issue #2811).
-/// The one shape the meter, the warning banner, the detail screen, the Gateway summary and the slowness
+/// The one shape the meter, the detail screen, the Gateway summary and the slowness
 /// diagnosis all read from, so none of them knows which operating system it is on.
 ///
 /// It reads no disk meter, no per-volume free space and no network throughput, and the disk survives only

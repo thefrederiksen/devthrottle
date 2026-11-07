@@ -409,7 +409,7 @@ public partial class MainWindow : Window
         var app = (App)global::Avalonia.Application.Current!;
         _sessionManager = app.SessionManager;
 
-        // The resource meter and banners (issue #2811). Started with the Director's services; when it failed to
+        // The resource meter (issue #2811). Started with the Director's services; when it failed to
         // start the reason is in the log and the meter stays on its dashes.
         if (app.ResourceMonitor is { } resourceMonitor)
             AttachResourceMonitor(resourceMonitor, () => _sessions.Count, OpenResourceDetail);
