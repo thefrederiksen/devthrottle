@@ -32,6 +32,7 @@
     "./sessions/WingmanNow": "./src/sessions/WingmanNow.tsx",
     "./sessions/WingmanErrorLine": "./src/sessions/WingmanErrorLine.tsx",
     "./sessions/NotDeliveredIndicator": "./src/sessions/NotDeliveredIndicator.tsx",
+    "./sessions/MissionButton": "./src/sessions/MissionButton.tsx",
     "./sessions/TerminalWheelButton": "./src/sessions/TerminalWheelButton.tsx",
     "./sessions/ConnectionChoiceRow": "./src/sessions/ConnectionChoiceRow.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",

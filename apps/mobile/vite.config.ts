@@ -68,6 +68,9 @@ const devProxy = proxyTarget
       "/vault": { target: proxyTarget, changeOrigin: true },
       // Dev reports (dev reports mission, phase 3): the four owner routes the Reports view calls.
       "/dev-reports": { target: proxyTarget, changeOrigin: true },
+      // A report's printed address (/r/{report id}), which the Mission button opens. The slash is part of the key:
+      // a bare "/r" would also catch this app's own pages that start with r.
+      "/r/": { target: proxyTarget, changeOrigin: true },
       "/push": { target: proxyTarget, changeOrigin: true },
       // The client error channel: on-screen and uncaught errors report to the Gateway log.
       "/client-errors": { target: proxyTarget, changeOrigin: true },

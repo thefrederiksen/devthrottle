@@ -86,6 +86,9 @@ const devProxy = proxyTarget
       "/vault": { target: proxyTarget, changeOrigin: true },
       // Dev reports (dev reports mission, phase 3): the four owner routes the Reports view calls.
       "/dev-reports": { target: proxyTarget, changeOrigin: true },
+      // A report's printed address (/r/{report id}), which the Mission button opens. The slash is part of the key:
+      // a bare "/r" would also catch this app's own pages that start with r.
+      "/r/": { target: proxyTarget, changeOrigin: true },
       // A factory's memory (Factory Memory mission, phase 3b): the factory page's Memory tab.
       "/factory-memory": { target: proxyTarget, changeOrigin: true },
       // A seat's brief (Factory Seats mission, phase 2b): what the seat page's brief panel saves, publishes and
