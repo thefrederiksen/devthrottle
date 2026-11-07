@@ -61,7 +61,15 @@ public sealed class CronFailureNoticeStore
                     LastCountedUtc = failedAt,
                     LastCountedRunId = runId,
                 });
-                ctx.SaveChanges();
+                try
+                {
+                    ctx.SaveChanges();
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    FileLog.Write($"[CronFailureNoticeStore] SaveChanges FAILED: job={jobId}, cause={cause}: {ex.Message}");
+                    throw;
+                }
                 return new CronFailureNoticeClaim(true, 1);
             }
             // Older than the last one counted, or that very run: read again. At the same instant but another run: new -
@@ -74,13 +82,29 @@ public sealed class CronFailureNoticeStore
             if (nowUtc - DateTime.SpecifyKind(row.LastSentUtc, DateTimeKind.Utc) < Window)
             {
                 row.HeldBack++;
-                ctx.SaveChanges();
+                try
+                {
+                    ctx.SaveChanges();
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    FileLog.Write($"[CronFailureNoticeStore] SaveChanges FAILED: job={jobId}, cause={cause}: {ex.Message}");
+                    throw;
+                }
                 return new CronFailureNoticeClaim(false, 0);
             }
             var occurrences = row.HeldBack + 1;
             row.LastSentUtc = nowUtc;
             row.HeldBack = 0;
-            ctx.SaveChanges();
+            try
+            {
+                ctx.SaveChanges();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FileLog.Write($"[CronFailureNoticeStore] SaveChanges FAILED: job={jobId}, cause={cause}: {ex.Message}");
+                throw;
+            }
             return new CronFailureNoticeClaim(true, occurrences);
         }
     }
@@ -245,9 +269,23 @@ public sealed class ScheduleFailureNotifier : IDisposable
             var successRuns = _runs.SuccessRunsSince(_since - Overlap, jobId);
             foreach (var s in successRuns)
             {
-                if (await NotifyRecoveryAsync(jobId, s, now, ct).ConfigureAwait(false))
+                try
                 {
-                    sent++;
+                    if (await NotifyRecoveryAsync(jobId, s, now, ct).ConfigureAwait(false))
+                    {
+                        sent++;
+                        _jobsWithFailureNotified.Remove(jobId);
+                        break;
+                    }
+                    else
+                    {
+                        _jobsWithFailureNotified.Remove(jobId);
+                        break;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    FileLog.Write($"[ScheduleFailureNotifier] recovery notification FAILED: job={jobId}: {ex.Message}");
                     _jobsWithFailureNotified.Remove(jobId);
                     break;
                 }
@@ -291,7 +329,14 @@ public sealed class ScheduleFailureNotifier : IDisposable
             {
                 FileLog.Write($"[ScheduleFailureNotifier] recovery notice FAILED: job={job.Id}: {ex.Message}");
             }
-            await _push(tenant, notice, ct).ConfigureAwait(false);
+            try
+            {
+                await _push(tenant, notice, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FileLog.Write($"[ScheduleFailureNotifier] recovery push FAILED: job={job.Id}: {ex.Message}");
+            }
             try
             {
                 var (subject, body) = RecoveryInboxWords(job, notice);
@@ -343,7 +388,17 @@ public sealed class ScheduleFailureNotifier : IDisposable
         if (failure is null)
             return false;
 
-        var claim = _notices.Claim(tenant, job.Id, failure.Cause, run.ResultUtc ?? run.FiredUtc, now, run.RunId);
+        CronFailureNoticeClaim claim;
+        try
+        {
+            claim = _notices.Claim(tenant, job.Id, failure.Cause, run.ResultUtc ?? run.FiredUtc, now, run.RunId);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            FileLog.Write($"[ScheduleFailureNotifier] Claim FAILED: run={run.RunId}, job={job.Id}: {ex.Message}");
+            return false;
+        }
+
         if (!claim.Send)
         {
             FileLog.Write(claim.AlreadyCounted
@@ -365,7 +420,14 @@ public sealed class ScheduleFailureNotifier : IDisposable
             {
                 FileLog.Write($"[ScheduleFailureNotifier] fleet notice FAILED: job={job.Id}: {ex.Message}");
             }
-            await _push(tenant, notice, ct).ConfigureAwait(false);
+            try
+            {
+                await _push(tenant, notice, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FileLog.Write($"[ScheduleFailureNotifier] push FAILED: job={job.Id}: {ex.Message}");
+            }
             try
             {
                 var written = InboxMessage(tenant, job, notice, now);
@@ -498,7 +560,16 @@ public sealed class ScheduleFailureNotifier : IDisposable
         {
             FileLog.Write($"[ScheduleFailureNotifier] the scan loop ended with {ex.InnerException?.GetType().Name}: {ex.InnerException?.Message}");
         }
+        catch (TimeoutException)
+        {
+            FileLog.Write("[ScheduleFailureNotifier] scan loop did not stop within 5 seconds");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ScheduleFailureNotifier] dispose cleanup failed: {ex.GetType().Name}: {ex.Message}");
+        }
         _stop.Dispose();
+        _scanGate.Dispose();
         FileLog.Write("[ScheduleFailureNotifier] stopped");
     }
 }
