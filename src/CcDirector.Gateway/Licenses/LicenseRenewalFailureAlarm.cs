@@ -63,7 +63,9 @@ public sealed class LicenseRenewalFailureAlarm
         {
             foreach (var holding in machine.Holdings.OrderBy(h => h.AccountEmail, StringComparer.Ordinal))
             {
-                var streak = openStreaks.Any(r => r.Kind == LicenseRenewalFailureLog.Kind && r.MachineId == machine.MachineId
+                // A failure older than the sign-in held now is over (LicenseRenewalFailure): its row is ended by the
+                // email check, and the alarm does not wait for that.
+                var streak = !holding.RenewalFailureOver && openStreaks.Any(r => r.Kind == LicenseRenewalFailureLog.Kind && r.MachineId == machine.MachineId
                                                    && r.ToAccountEmail == holding.AccountEmail);
                 if (holding.RenewalFailedAtUtc is null && !streak)
                     continue;

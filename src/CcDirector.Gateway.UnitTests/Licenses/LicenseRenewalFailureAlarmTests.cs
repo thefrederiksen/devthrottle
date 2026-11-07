@@ -168,6 +168,72 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
         Assert.Single(_log.ListOpen(Tenant));
     }
 
+    /// <summary>The live sequence of 6 and 7 November 2026: the Director's renewal of B failed at 14:27, the sign-in was
+    /// made again by hand at 19:07, and the Director went on reporting the 14:27 failure under the new sign-in.</summary>
+    private LicenseHolding RenewedByHandButStillReportingTheOldFailure(DateTime failedAt, DateTime signedInByHandAt)
+    {
+        var holding = Holding(B, false, readAt: _now);
+        holding.SignedInAtUtc = signedInByHandAt;
+        holding.SignInExpiresAtUtc = signedInByHandAt.AddDays(30);
+        holding.RenewalFailedAtUtc = failedAt;
+        holding.RenewalError = LicenseRenewalErrors.NeedsFreshSignIn;
+        return holding;
+    }
+
+    [Fact]
+    public async Task MinuteCheck_AFailureOlderThanTheSignInMadeByHandSince_OpensNoAlarmAndNoStreak()
+    {
+        var failedAt = new DateTime(2026, 11, 6, 14, 27, 0, DateTimeKind.Utc);
+        var signedInByHandAt = new DateTime(2026, 11, 6, 19, 7, 0, DateTimeKind.Utc);
+        _now = new DateTime(2026, 11, 7, 7, 7, 0, DateTimeKind.Utc);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), RenewedByHandButStillReportingTheOldFailure(failedAt, signedInByHandAt));
+
+        await MinuteCheck();
+
+        Assert.Empty(Open());
+        Assert.Empty(_log.ListOpen(Tenant));
+        Assert.Empty(_pushed);
+        var holding = new LicenseReadModel(_store).Read(Tenant, _now).Machines.Single().Holdings.Single(h => h.AccountEmail == B);
+        Assert.Equal(((DateTime?)null, (string?)null, true), (holding.RenewalFailedAtUtc, holding.RenewalError, holding.RenewalFailureOver));
+    }
+
+    [Fact]
+    public async Task MinuteCheck_AnAlarmAndStreakOpenedForAFailureOlderThanTheSignIn_AreClosed()
+    {
+        // The rows the deploy of 7 November left: a streak opened at 07:07 under the 19:07 sign-in, and its alarm.
+        var failedAt = new DateTime(2026, 11, 6, 14, 27, 0, DateTimeKind.Utc);
+        var signedInByHandAt = new DateTime(2026, 11, 6, 19, 7, 0, DateTimeKind.Utc);
+        _now = new DateTime(2026, 11, 7, 7, 7, 0, DateTimeKind.Utc);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), RenewedByHandButStillReportingTheOldFailure(failedAt, signedInByHandAt));
+        var machine = new LicenseReadModel(_store).Read(Tenant, _now).Machines.Single();
+        _log.Open(Tenant, machine, B, signedInByHandAt.AddDays(30), signedInByHandAt, "Renewing failed.", _now);
+        await _alarms.RaiseAsync(Tenant, LicenseRenewalFailureAlarm.Kind,
+            new[] { new LicenseAlarmCondition(machine.MachineId, Mac, B, "Renewing the sign-in failed.", "Put it right.") }, CancellationToken.None);
+        Assert.Single(Open());
+
+        _now = _now.AddMinutes(1);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), RenewedByHandButStillReportingTheOldFailure(failedAt, signedInByHandAt));
+        await MinuteCheck();
+
+        Assert.Empty(Open());
+        Assert.Empty(_log.ListOpen(Tenant));
+    }
+
+    [Fact]
+    public async Task MinuteCheck_AFailureNewerThanTheSignIn_StillOpensTheAlarm()
+    {
+        var signedInAt = new DateTime(2026, 10, 10, 9, 0, 0, DateTimeKind.Utc);
+        _now = new DateTime(2026, 11, 7, 7, 7, 0, DateTimeKind.Utc);
+        var holding = RenewedByHandButStillReportingTheOldFailure(_now.AddHours(-1), signedInAt);
+        holding.SignInExpiresAtUtc = _now.AddDays(5);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), holding);
+
+        await MinuteCheck();
+
+        Assert.Single(Open());
+        Assert.Single(_log.ListOpen(Tenant));
+    }
+
     [Fact]
     public async Task RaiseAsync_NoMachineHasReported_ReadsAndWritesNothing()
     {

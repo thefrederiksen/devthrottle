@@ -163,7 +163,9 @@ public sealed class LicenseRenewalEmailService
             {
                 var holding = machines.FirstOrDefault(m => m.MachineId == row.MachineId)
                     ?.Holdings.FirstOrDefault(h => h.AccountEmail == row.ToAccountEmail);
-                if (holding is not null && !IsNewerSignIn(row, holding))
+                // A failure older than the sign-in held now is over too (LicenseRenewalFailure), even when the Director
+                // still reports it and the row was opened under the newer sign-in.
+                if (holding is not null && !IsNewerSignIn(row, holding) && !holding.RenewalFailureOver)
                     continue;
                 _log.Close(tenant, row.Id, EndedMessage(Label(machines, row.MachineName, row.OsUser), row.ToAccountEmail, holding is not null), now);
                 ForgetEmailWait(tenant, row.Id);
