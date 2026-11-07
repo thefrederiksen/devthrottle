@@ -93,6 +93,28 @@ public sealed class LicenseApproverToolAnswer
         new() { State = LicenseApproverStates.CheckFailed, AccountEmail = accountEmail, ToolAnswered = false, Detail = detail };
 }
 
+/// <summary>What <c>license reauth --json</c> answered: signed in again, with the approver check that confirmed it, or
+/// failed with its reason word and the step it failed at. Never the tool's sentence, the link or the code.</summary>
+public sealed class LicenseReauthAnswer
+{
+    /// <summary>The tool's reason word when no mailbox is set for the account here: nothing was tried.</summary>
+    public const string NoMailbox = "no-mailbox";
+
+    public bool SignedInAgain { get; init; }
+
+    /// <summary>The check run after signing in again; set exactly when <see cref="SignedInAgain"/>.</summary>
+    public LicenseApproverToolAnswer? Check { get; init; }
+
+    /// <summary>The tool's reason word when it failed (<see cref="NoMailbox"/>, "prefilled-other-account",
+    /// "reauth-failed"), or this Director's "no-answer" when the tool gave no readable answer.</summary>
+    public string? Reason { get; init; }
+
+    /// <summary>The step it failed at (request, mail, code, confirm), or null.</summary>
+    public string? Step { get; init; }
+
+    public static LicenseReauthAnswer Failed(string reason, string? step = null) => new() { Reason = reason, Step = step };
+}
+
 /// <summary>One account a browser profile is set for on this machine (<c>license set-browser</c>), as
 /// <c>license list-browsers --json</c> answers it: the account, and the profile's name or identifier as the owner typed it.</summary>
 public sealed record LicenseRecordedBrowser(string AccountEmail, string BrowserProfile);
@@ -238,6 +260,57 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         var answer = ReadApproverCheck(output, accountEmail);
         FileLog.Write($"[CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile={browserProfile}, account={answer.AccountEmail ?? "-"}, state={answer.State}, answered={answer.ToolAnswered}, detail={answer.Detail ?? "-"}");
         return answer;
+    }
+
+    /// <summary>How long one <c>license reauth</c> may take: two browser steps (three minutes each), the wait for the mail
+    /// (two and a half minutes) and the approver check that confirms it (<see cref="ApproverCheckToolTimeout"/>), plus room.</summary>
+    public static readonly TimeSpan ReauthToolTimeout = TimeSpan.FromMinutes(20);
+
+    public async Task<LicenseReauthAnswer> ReauthAsync(string browserProfile, string accountEmail, CancellationToken cancellationToken)
+    {
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] ReauthAsync: profile={browserProfile}, account={accountEmail}");
+        string output;
+        try
+        {
+            await using var browser = await _browsers.OpenAsync(browserProfile, cancellationToken);
+            output = await RunForJsonAsync(new[] { "license", "reauth", accountEmail, "--browser", browser.Id },
+                cancellationToken, ReauthToolTimeout, isolated: true, browser);
+        }
+        catch (LicenseCommandLineException ex)
+        {
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] ReauthAsync FAILED: {ex.Message}");
+            return LicenseReauthAnswer.Failed("no-answer");
+        }
+        var answer = ReadReauthAnswer(output, accountEmail);
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] ReauthAsync: profile={browserProfile}, account={accountEmail}, signedInAgain={answer.SignedInAgain}, reason={answer.Reason ?? "-"}, step={answer.Step ?? "-"}");
+        return answer;
+    }
+
+    /// <summary>The <c>reauth --json</c> answer: <c>{result: signed-in-again, check}</c> or <c>{result: failed, reason,
+    /// step}</c>. A success whose check does not say can-approve for that account is no success.</summary>
+    internal static LicenseReauthAnswer ReadReauthAnswer(string? output, string accountEmail)
+    {
+        using var document = FirstObject(output);
+        if (document is null) return LicenseReauthAnswer.Failed("no-answer");
+        var root = document.RootElement;
+        switch (Text(root, "result"))
+        {
+            case "signed-in-again":
+                if (!root.TryGetProperty("check", out var check) || check.ValueKind != JsonValueKind.Object)
+                    return LicenseReauthAnswer.Failed("no-answer");
+                var confirmed = ReadApproverCheck(check.GetRawText(), accountEmail);
+                return confirmed.State == LicenseApproverStates.CanApprove
+                    ? new LicenseReauthAnswer { SignedInAgain = true, Check = confirmed }
+                    : LicenseReauthAnswer.Failed("no-answer", "confirm");
+            case "failed":
+                var reason = Text(root, "reason");
+                var step = Text(root, "step");
+                return LicenseReauthAnswer.Failed(
+                    reason is LicenseReauthAnswer.NoMailbox or "prefilled-other-account" or "reauth-failed" ? reason : "no-answer",
+                    step is "request" or "mail" or "code" or "confirm" ? step : null);
+            default:
+                return LicenseReauthAnswer.Failed("no-answer");
+        }
     }
 
     public async Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken)

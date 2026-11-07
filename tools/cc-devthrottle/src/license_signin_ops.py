@@ -30,6 +30,12 @@ in the AXI shape (docs/axi-standard.md).
 - `license list-browsers` lists every account a profile is set for here (`license set-browser`), and that profile.
   The Director's daily approver check checks exactly these, with their account, and the approver records the
   Gateway names - never every profile on the machine.
+- `license reauth <email> [--browser <profile>]` signs a browser profile in to claude.ai again from the account's own
+  mailbox, when the approval page asks for a fresh sign-in (`license_reauth`): it asks for the sign-in mail, reads the
+  link from the mailbox set with `license set-mailbox`, types the code in, and confirms with the approver check. It
+  never prints the link or the code; a failure names its step and exits 1, still answering under `--json`.
+- `license set-mailbox <email> --kind gmail|outlook --mail-account <name>` records which mailbox receives an account's
+  sign-in mail on this machine.
 - `license get-browser <email>` says which profile is set for an account on this machine, or that none is; exit 0
   either way.
 - A caller that CLOSES standard input while a sign-in waits for its code has called the sign-in off: the approval
@@ -50,7 +56,7 @@ import typer
 
 from cc_shared import axi_output
 
-from . import axi_cli, license_ops, license_signin, usage_errors
+from . import axi_cli, license_ops, license_reauth, license_signin, usage_errors
 from .license_signin import SignInError
 
 RENEW_FIELDS = ["account", "role", "result", "sign-in-expires", "signed-in", "browser", "detail"]
@@ -223,6 +229,48 @@ def list_browsers(default_config_dir: Optional[str], store_dir: Optional[str], j
     blocks.append(axi_output.format_help(['cc-devthrottle license set-browser <account> "<profile name>"',
                                           "cc-devthrottle license list-browsers --json"]))
     axi_output.write_blocks(sys.stdout, *blocks)
+
+
+def reauth(email: str, browser: Optional[str], default_config_dir: Optional[str], store_dir: Optional[str],
+           json_output: bool) -> None:
+    """Sign a profile in to claude.ai again from the account's mailbox. Exit 0 only when the approver check after it
+    answers can-approve."""
+    account = email.strip().lower()
+    store = license_ops._open(default_config_dir, store_dir)
+    try:
+        profile = browser or license_signin.browser_for(store, account)
+        mailbox = license_reauth.open_mailbox(license_reauth.mailbox_for(store, account))
+        result = license_reauth.reauth(account, profile, mailbox)
+    except SignInError as ex:
+        step = getattr(ex, "step", None)
+        if json_output:
+            print(json.dumps({"accountEmail": account, "result": "failed", "reason": ex.kind, "step": step},
+                             indent=2), flush=True)
+        where = f" at the {step} step" if step else ""
+        axi_cli.fail(f"Not signed in again{where}: {ex} (reason: {ex.kind})", ex.next_steps or [_LIST])
+    if json_output:
+        print(json.dumps(result.to_json(), indent=2), flush=True)
+        return
+    axi_cli.write_lines(f"Signed in again: the browser profile \"{result.browser_profile_name or result.browser_profile}\" "
+                        f"can approve sign-ins for {account}.")
+    axi_cli.print_next([f"cc-devthrottle license check-approver --browser \"{result.browser_profile}\" --email {account}"])
+
+
+def set_mailbox(email: str, kind: str, mail_account: str, default_config_dir: Optional[str], store_dir: Optional[str],
+                json_output: bool) -> None:
+    store = license_ops._open(default_config_dir, store_dir)
+    account = email.strip().lower()
+    try:
+        path = license_reauth.set_mailbox(store, account, kind.strip().lower(), mail_account)
+    except SignInError as ex:
+        _fail(ex)
+    if json_output:
+        print(json.dumps({"accountEmail": account, "kind": kind.strip().lower(), "mailAccount": mail_account.strip(),
+                          "file": path}, indent=2))
+        return
+    axi_cli.write_lines(f"Set: {account}'s sign-in mail is read from the {kind.strip().lower()} mailbox "
+                        f"\"{mail_account.strip()}\" (kept in {path}).")
+    axi_cli.print_next([f"cc-devthrottle license reauth {account}"])
 
 
 def renew(account: Optional[str], force: bool, json_output: bool, fields: Optional[str],
