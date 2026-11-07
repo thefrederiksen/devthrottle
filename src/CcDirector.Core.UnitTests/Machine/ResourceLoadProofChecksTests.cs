@@ -36,16 +36,378 @@ public class ResourceLoadProofChecksTests
         Assert.Contains("could not read", result.Summary);
     }
 
-    // ---- the warning limit, judged on the recorded sample's own time ----
+    // ---- the warning limit, judged on the recording's own monotonic timeline ----
 
     [Theory]
     [InlineData(0, true)]
     [InlineData(70, true)]
     [InlineData(71, false)]
-    [InlineData(-1, false)]
-    public void WithinWarningDeadline_CountsOnlySamplesTakenAfterTheChange(int sampleSecondsAfter, bool expected)
+    public void WithinWarningDeadline_IsMeasuredTimeAgainstTheLimit(int seconds, bool expected)
     {
-        Assert.Equal(expected, ProofChecks.WithinWarningDeadline(Noon, Noon.AddSeconds(sampleSecondsAfter)));
+        Assert.Equal(expected, ProofChecks.WithinWarningDeadline(TimeSpan.FromSeconds(seconds)));
+    }
+
+    [Fact]
+    public void WithinWarningDeadline_ANegativeMeasurement_IsRefusedRatherThanClampedToZero()
+    {
+        // The recording going backwards is a broken instrument. Zero would be a believable figure for it,
+        // and a believable figure for a broken instrument is this mission's whole defect class.
+        Assert.False(ProofChecks.WithinWarningDeadline(TimeSpan.FromSeconds(-1)));
+    }
+
+    /// <summary>
+    /// THE DEFECT THESE TESTS EXIST FOR, and they drive the real decision rather than arithmetic on
+    /// constants. The harness decides whether the product met its 70-second criterion. Judged by
+    /// subtracting two WALL-clock stamps, a time synchronisation step during the run changes the answer.
+    ///
+    /// Here the recording's own timeline says the warning came 65 seconds after the baseline - a pass -
+    /// while the wall stamps have been moved 20 seconds forward by a step, so they say 85, a failure. The
+    /// verdict must follow the recording.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AForwardClockStep_DoesNotTurnAPassIntoAFailure()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0),
+            At(5, MeterLevel.Normal, recordingSeconds: 5),
+            // The clock jumped 20 seconds here; the recorder marks the line and keeps its own count true.
+            At(45, MeterLevel.Normal, recordingSeconds: 25, clockStepSeconds: 20),
+            At(85, MeterLevel.Critical, recordingSeconds: 65),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Seen);
+        Assert.Equal(65, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // And the arrangement really does demonstrate the defect: on the stamps it would have failed.
+        Assert.True(window[^1].TakenAtUtc - Noon > ProofChecks.WarningDeadline);
+    }
+
+    [Fact]
+    public void JudgeWarning_ABackwardClockStep_DoesNotTurnAFailureIntoAPass()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0),
+            At(10, MeterLevel.Normal, recordingSeconds: 60, clockStepSeconds: -50),
+            At(25, MeterLevel.Critical, recordingSeconds: 75),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Seen);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // On the stamps this would have read 25 seconds and passed.
+        Assert.True(window[^1].TakenAtUtc - Noon < ProofChecks.WarningDeadline);
+    }
+
+    /// <summary>
+    /// The harness must not judge on how long IT took to look. The recorder writes a minute of lines at
+    /// once, so a product that turned red at 65 seconds is first VISIBLE up to a minute later. Judged on
+    /// the observation, a correct product fails; judged on the recording, it passes. This is the finding
+    /// that sent the first version of this change back.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AWarningSeenLateBecauseTheRecorderFlushedLate_StillPasses()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0),
+            At(65, MeterLevel.Critical, recordingSeconds: 65),
+        };
+
+        // Whatever the harness's own stopwatch said - it may have polled at 140 seconds - the answer is 65.
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Met);
+        Assert.Equal(65, verdict.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>
+    /// REVIEW ARRANGEMENT B: a backward step must not be able to CHOOSE the baseline.
+    ///
+    /// The measurement was always monotonic; selecting and ordering the lines was not. Ordered by the
+    /// stamp, the line the recorder wrote at recordingSeconds 15 sorts BEFORE the one at 10, because the
+    /// clock went back eight seconds between them - so it became the baseline, and 85 minus 15 is 70, a
+    /// pass, where the true latency from the first sample after the change is 85 minus 10, a failure.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_ABackwardStepReorderingTheStamps_DoesNotChooseTheBaseline()
+    {
+        var change = Noon.AddSeconds(6);
+        var window = new List<MeterObservation>
+        {
+            At(10, MeterLevel.Normal, recordingSeconds: 10),
+            At(7, MeterLevel.Normal, recordingSeconds: 15, clockStepSeconds: -8),
+            At(77, MeterLevel.Critical, recordingSeconds: 85),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        // The earliest line ON THE RECORDING'S TIMELINE is the baseline, whatever the stamps say.
+        Assert.Equal(10, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+
+        // And the arrangement really does demonstrate it: in stamp order the step line sorts first.
+        Assert.True(window[1].TakenAtUtc < window[0].TakenAtUtc);
+    }
+
+    /// <summary>
+    /// REVIEW ARRANGEMENT A: the step mark must be found even on a line the stamp selection excludes.
+    ///
+    /// The line carrying the step is stamped BEFORE the change - that is what a backward step does - so it
+    /// is not a member, yet it sits inside the span on the recording's timeline. Scanning only the members
+    /// loses the one mark the run owes its reader.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AStepOnALineStampedBeforeTheChange_IsStillFound()
+    {
+        var change = Noon.AddSeconds(9);
+        var window = new List<MeterObservation>
+        {
+            At(10, MeterLevel.Normal, recordingSeconds: 10),
+            At(7, MeterLevel.Normal, recordingSeconds: 15, clockStepSeconds: -8),
+            At(12, MeterLevel.Critical, recordingSeconds: 20),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        Assert.Equal(10, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // And the arrangement really does demonstrate it: the marked line's RAW stamp is before the change,
+        // so a selection that read stamps would have dropped the one line the run owes its reader.
+        Assert.False(ProofChecks.TakenAfterTheChange(change, window[1].TakenAtUtc));
+    }
+
+    /// <summary>
+    /// REVIEW ARRANGEMENT C: a backward step larger than the gap between the change and the next sample
+    /// must not hide that sample AND its own mark at once.
+    ///
+    /// The clock goes back eight seconds half a second after the change, so the sample taken at
+    /// recordingSeconds 10 is stamped before the change and every later stamp is eight seconds early.
+    /// Selecting on raw stamps dropped the samples at 10 and 15, took 20 as the baseline, measured 65
+    /// instead of the true 75 - a PASS where the product failed - and reported no clock step, because the
+    /// mark sat below the scan's lower bound. The mark on that line is now what rescues it.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_ABackwardStepBiggerThanTheGapToTheFirstSample_DoesNotHideItOrItsMark()
+    {
+        var change = Noon.AddSeconds(9);
+        var window = new List<MeterObservation>
+        {
+            At(2, MeterLevel.Normal, recordingSeconds: 10, clockStepSeconds: -8),
+            At(7, MeterLevel.Normal, recordingSeconds: 15),
+            At(12, MeterLevel.Normal, recordingSeconds: 20),
+            At(77, MeterLevel.Critical, recordingSeconds: 85),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        Assert.Equal(10, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // The arrangement really does hide the line from a raw-stamp selection, and the line after it too.
+        Assert.False(ProofChecks.TakenAfterTheChange(change, window[0].TakenAtUtc));
+        Assert.False(ProofChecks.TakenAfterTheChange(change, window[1].TakenAtUtc));
+    }
+
+    /// <summary>
+    /// REVIEW PROBE D: a FORWARD step just before the change must not exclude the line that should be the
+    /// baseline. This is the other half of arrangement C and it fails the other way - as a false PASS.
+    ///
+    /// The clock jumps forward eight seconds just before the change, so the change is stamped eight seconds
+    /// ahead of the clock the first sample's CORRECTED stamp is read on. Judging on the corrected stamp
+    /// alone threw that sample out, took the next one as the baseline, measured 70 instead of the true 75
+    /// and reported no clock step: a 75-second warning inside the limit with no caveat. The RAW stamp is the
+    /// exact comparison here, because the change and the line were stamped on the same clock.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AForwardStepJustBeforeTheChange_DoesNotExcludeTheRealBaseline()
+    {
+        var change = Noon.AddSeconds(17);
+        var window = new List<MeterObservation>
+        {
+            At(18, MeterLevel.Normal, recordingSeconds: 10, clockStepSeconds: 8),
+            At(23, MeterLevel.Normal, recordingSeconds: 15),
+            At(28, MeterLevel.Normal, recordingSeconds: 20),
+            At(93, MeterLevel.Critical, recordingSeconds: 85),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        Assert.Equal(10, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // The arrangement really does need the RAW stamp: corrected, that line reads 12:00:10, which is
+        // before the change, so a corrected-only rule drops it and the measurement starts five seconds late.
+        Assert.True(ProofChecks.StampCorrectedByItsOwnStep(window[0]) < change);
+        Assert.True(ProofChecks.TakenAfterTheChange(change, window[0].TakenAtUtc));
+    }
+
+    /// <summary>
+    /// THE RESIDUAL, PINNED SO THAT IT CANNOT QUIETLY CHANGE DIRECTION. A backward step shortly BEFORE the
+    /// change pulls the change's own stamp back, so unmarked lines taken before the step qualify on their
+    /// raw stamps and the earliest of them becomes the baseline. The measurement then starts up to the size
+    /// of the step too early.
+    ///
+    /// This is left uncovered deliberately, and this test is what makes that honest: the error OVERSTATES,
+    /// which can only turn a pass into a failure, and the window reports the clock step - because the marked
+    /// line sits inside the span, not because it is the baseline. Both are asserted. If a later change ever
+    /// makes this case understate, or go unflagged, this test fails.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_ABackwardStepShortlyBeforeTheChange_OverstatesAndSaysSo()
+    {
+        var change = Noon.AddSeconds(1);
+        var window = new List<MeterObservation>
+        {
+            At(5, MeterLevel.Normal, recordingSeconds: 5),
+            At(2, MeterLevel.Normal, recordingSeconds: 10, clockStepSeconds: -8),
+            At(7, MeterLevel.Normal, recordingSeconds: 15),
+            At(12, MeterLevel.Critical, recordingSeconds: 20),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        // The baseline is five seconds earlier on the timeline than the true first sample after the change,
+        // which is the line at 10 - so the figure is 15 where the truth is 10.
+        Assert.Equal(5, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(15, verdict.Elapsed.TotalSeconds);
+
+        // OVERSTATED, never understated, and bounded by the size of the step.
+        Assert.True(verdict.Elapsed.TotalSeconds > 10);
+        Assert.True(verdict.Elapsed.TotalSeconds - 10 <= 8);
+
+        // And the run says so: the marked line is a member of the span, though it is not the baseline.
+        Assert.True(verdict.ClockStepped);
+        Assert.NotEqual(verdict.Baseline!.RecordingSeconds, window[1].RecordingSeconds);
+    }
+
+    /// <summary>
+    /// The mark corrects only the line that carries it, and a line whose CORRECTED stamp is still before the
+    /// change stays out. A step that is old news - the clock moved before the change - must not drag a line
+    /// taken before the change into the span and start the measurement there.
+    ///
+    /// WHAT THIS TEST DOES NOT GUARD, so it is not read as stronger than it is: its marked line is excluded
+    /// on BOTH stamps, so it passes whether or not the correction runs at all. It guards against
+    /// over-correcting and nothing else. The overstatement geometry is pinned by
+    /// <see cref="JudgeWarning_ABackwardStepShortlyBeforeTheChange_OverstatesAndSaysSo"/>.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AMarkedLineStillBeforeTheChangeOnceCorrected_IsNotTheBaseline()
+    {
+        var change = Noon.AddSeconds(9);
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 5, clockStepSeconds: -8),
+            At(10, MeterLevel.Normal, recordingSeconds: 15),
+            At(30, MeterLevel.Critical, recordingSeconds: 35),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        // 12:00:00 corrected by its own minus-eight mark is 12:00:08, which is still before 12:00:09.
+        Assert.Equal(8, ProofChecks.StampCorrectedByItsOwnStep(window[0]).Second);
+        Assert.Equal(15, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(20, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
+    }
+
+    /// <summary>
+    /// Inherited from the deleted FirstMeeting, which pinned this and JudgeWarning did not: the condition
+    /// is a pure judgement of samples and MUST NOT be a place to hang a safety check, because it does not
+    /// run when nothing was recorded after the change.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_NothingRecordedAfterTheChange_NeverCallsTheCondition()
+    {
+        var called = false;
+        var window = new List<MeterObservation> { At(-30, MeterLevel.Critical, recordingSeconds: -30) };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, o => { called = true; return Red(o); });
+
+        Assert.False(verdict.Seen);
+        Assert.False(called);
+    }
+
+    [Fact]
+    public void JudgeWarning_ARestartInsideTheSpan_NeverCountsAsMet_BecauseTheGapIsWallClock()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0, run: "run-a"),
+            At(30, MeterLevel.Critical, recordingSeconds: 30, run: "run-b"),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Seen);
+        Assert.True(verdict.DirectorRestarted);
+        Assert.False(verdict.Met);
+    }
+
+    [Fact]
+    public void JudgeWarning_TheBatchWhoseNewestIsLate_IsJudgedOnItsEarliestRedLine()
+    {
+        // The recorder appended T+55 to T+110 at once; red was first recorded at T+65. Judging the newest
+        // line would report a 65-second warning as 110.
+        var batch = Enumerable.Range(11, 12)
+            .Select(i => At(i * 5, i * 5 >= 65 ? MeterLevel.Critical : MeterLevel.Normal))
+            .ToList();
+
+        var verdict = ProofChecks.JudgeWarning(batch, Noon, Red);
+
+        Assert.Equal(Noon.AddSeconds(65), verdict.Sample!.TakenAtUtc);
+        // Measured from the first sample at or after the change (T+55), not from the change itself: the
+        // baseline is a real sample, so this overstates by at most one interval and never understates.
+        Assert.Equal(10, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
+    }
+
+    [Fact]
+    public void JudgeWarning_NothingRecordedAfterTheChange_IsNotSeen_AStoppedDirectorNeverPasses()
+    {
+        var window = new List<MeterObservation> { At(-30, MeterLevel.Critical, recordingSeconds: -30) };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.False(verdict.Seen);
+        Assert.False(verdict.Met);
+    }
+
+    [Fact]
+    public void JudgeWarning_SamplesButNoneMeetTheCondition_IsNotSeen()
+    {
+        var window = new List<MeterObservation> { At(0, MeterLevel.Normal), At(80, MeterLevel.Normal) };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.False(verdict.Seen);
+        Assert.False(verdict.Met);
+        Assert.NotNull(verdict.Baseline);
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(70, true)]
+    [InlineData(-1, false)]
+    public void TakenAfterTheChange_SelectsBySampleStamp_WhichIsSelectionNotMeasurement(int sampleSecondsAfter, bool expected)
+    {
+        Assert.Equal(expected, ProofChecks.TakenAfterTheChange(Noon, Noon.AddSeconds(sampleSecondsAfter)));
     }
 
     [Fact]
@@ -54,39 +416,20 @@ public class ResourceLoadProofChecksTests
         Assert.True(ProofChecks.PollDeadline >= ProofChecks.WarningDeadline + CcDirector.Core.Machine.ResourceRecorder.WriteEvery);
     }
 
-    private static MeterObservation At(int secondsAfterNoon, MeterLevel cpu) =>
-        new(new MeterBar(true, 50, cpu), new MeterBar(true, 50, MeterLevel.Normal), true, false, "None", Noon.AddSeconds(secondsAfterNoon), "{}");
+    private const string OneRun = "run-a";
 
-    [Fact]
-    public void FirstMeeting_ABatchWhoseNewestIsLate_IsJudgedOnItsEarliestRedLine()
-    {
-        // The recorder appended T+55 to T+110 at once; red was first recorded at T+65.
-        var batch = Enumerable.Range(11, 12).Select(i => At(i * 5, i * 5 >= 65 ? MeterLevel.Critical : MeterLevel.Normal)).ToList();
+    /// <summary>
+    /// A recorded sample. <paramref name="recordingSeconds"/> defaults to the wall offset, which is what an
+    /// undisturbed run looks like; a test that wants the two timelines to DISAGREE - which is what a clock
+    /// step does - passes it explicitly.
+    /// </summary>
+    private static MeterObservation At(
+        int secondsAfterNoon, MeterLevel cpu, double? recordingSeconds = null,
+        string run = OneRun, double? clockStepSeconds = null) =>
+        new(new MeterBar(true, 50, cpu), new MeterBar(true, 50, MeterLevel.Normal), true, false, "None",
+            Noon.AddSeconds(secondsAfterNoon), recordingSeconds ?? secondsAfterNoon, run, clockStepSeconds, "{}");
 
-        var first = ProofChecks.FirstMeeting(batch, Noon, o => o.Cpu.Level == MeterLevel.Critical);
-
-        Assert.Equal(Noon.AddSeconds(65), first!.TakenAtUtc);
-        Assert.True(ProofChecks.WithinWarningDeadline(Noon, first.TakenAtUtc));
-        Assert.False(ProofChecks.WithinWarningDeadline(Noon, batch[^1].TakenAtUtc));
-    }
-
-    [Fact]
-    public void FirstMeeting_OnlyLinesBeforeTheChangeMatch_IsNull_AStoppedDirectorNeverPasses()
-    {
-        var old = new[] { At(-30, MeterLevel.Critical), At(-25, MeterLevel.Critical) };
-
-        Assert.Null(ProofChecks.FirstMeeting(old, Noon, o => o.Cpu.Level == MeterLevel.Critical));
-    }
-
-    [Fact]
-    public void FirstMeeting_NoFreshSample_NeverCallsTheCondition_SoNoSafetyCheckMayLiveInIt()
-    {
-        var calls = 0;
-
-        ProofChecks.FirstMeeting([At(-10, MeterLevel.Normal)], Noon, _ => { calls++; return true; });
-
-        Assert.Equal(0, calls);
-    }
+    private static bool Red(MeterObservation o) => o.Cpu.Level == MeterLevel.Critical;
 
     [Fact]
     public void ParseDiagnoseSamples_ReadsEveryLineOldestFirst()
@@ -235,7 +578,7 @@ public class ResourceLoadProofChecksTests
     // ---- the diagnosis ----
 
     private static MeterObservation Diagnosis(bool couldDiagnose, bool isSlow, string cause) =>
-        new(new MeterBar(true, 50, MeterLevel.Normal), new MeterBar(true, 50, MeterLevel.Normal), couldDiagnose, isSlow, cause, Noon, "{}");
+        new(new MeterBar(true, 50, MeterLevel.Normal), new MeterBar(true, 50, MeterLevel.Normal), couldDiagnose, isSlow, cause, Noon, 0, OneRun, null, "{}");
 
     [Theory]
     [InlineData("Cpu", "Cpu", true)]
@@ -312,6 +655,9 @@ public class ResourceLoadProofChecksTests
     private const string Healthy = """
         { "newest": {
             "takenAtUtc": "2026-11-06T12:00:05Z",
+            "recordingSeconds": 5.0,
+            "run": "11111111-1111-1111-1111-111111111111",
+            "clockStepSeconds": null,
             "cpu": { "couldRead": true, "unreadableReason": null, "totalBusyPercent": 28.0 },
             "memory": { "couldRead": true, "unreadableReason": null, "totalBytes": 1000, "availableBytes": 450 },
             "verdict": { "worst": "Tight", "resources": [

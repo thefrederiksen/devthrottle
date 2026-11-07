@@ -32,8 +32,42 @@ public sealed record MeterBar(bool CouldRead, double? Percent, MeterLevel Level)
 /// <param name="IsSlow">The diagnosis: is the machine slow.</param>
 /// <param name="Cause">The diagnosis's cause, as the Director names it, for example "Cpu" or "Cpu, Disk".</param>
 /// <param name="Raw">The JSON the figures were read from, kept for the report.</param>
-/// <param name="TakenAtUtc">When the Director took the sample. The recording is written once a minute, so this - never the moment the harness read it - is the time a check is judged on.</param>
-public sealed record MeterObservation(MeterBar Cpu, MeterBar Memory, bool CouldDiagnose, bool IsSlow, string Cause, DateTime TakenAtUtc, string Raw);
+/// <summary>
+/// What the recorded window says about one wait. <see cref="Elapsed"/> is measured on the recording's own
+/// monotonic timeline; see <see cref="ProofChecks.JudgeWarning"/> for why nothing here is measured on the
+/// wall clock or on how long the harness took to look.
+/// </summary>
+/// <param name="Seen">A sample meeting the condition was recorded at or after the change.</param>
+/// <param name="Met">It was seen, within the limit, and the span is a sound measurement.</param>
+/// <param name="Elapsed">From the first sample at or after the change to the one that met it.</param>
+/// <param name="Sample">The sample that met the condition, or null when none did.</param>
+/// <param name="Baseline">The first sample at or after the change, which the elapsed time is measured from.</param>
+/// <param name="ClockStepped">The recorder marked a wall-clock step on a line inside the span. The figure is a monotonic measurement of the span it reports, but when the step fell BEFORE the change the span itself can start too early, so the figure can OVERSTATE - see <see cref="ProofChecks.StampCorrectedByItsOwnStep"/> for the bound. Never a second look worth skipping.</param>
+/// <param name="DirectorRestarted">The span crosses a Director restart, where the recorder bridges the gap with the WALL clock. The figure is then NOT a monotonic measurement, so it never counts as met.</param>
+public sealed record WarningVerdict(
+    bool Seen, bool Met, TimeSpan Elapsed, MeterObservation? Sample, MeterObservation? Baseline,
+    bool ClockStepped, bool DirectorRestarted)
+{
+    /// <summary>Not one sample was recorded at or after the change: a stopped or stuck Director.</summary>
+    public static readonly WarningVerdict NothingRecorded =
+        new(Seen: false, Met: false, TimeSpan.Zero, null, null, ClockStepped: false, DirectorRestarted: false);
+
+    /// <summary>Samples were recorded, none met the condition.</summary>
+    public static WarningVerdict NotSeen(MeterObservation baseline) =>
+        new(Seen: false, Met: false, TimeSpan.Zero, null, baseline, ClockStepped: false, DirectorRestarted: false);
+}
+
+/// <param name="TakenAtUtc">When the Director took the sample, on the WALL clock. Used to SELECT samples and to print them, never to measure an interval - see <see cref="RecordingSeconds"/>.</param>
+/// <param name="RecordingSeconds">
+/// The sample's position on the RECORDING'S OWN TIMELINE, which the recorder advances with the monotonic
+/// clock inside one run. This is what every time limit is measured on: a wall-clock step during a run
+/// cannot stretch, shrink or reorder it.
+/// </param>
+/// <param name="RunId">The Director run the sample belongs to. <see cref="RecordingSeconds"/> only advances monotonically WITHIN one run; across a restart the recorder bridges the gap with the wall clock.</param>
+/// <param name="ClockStepSeconds">Non-null when the recorder saw the wall clock move by more than its tolerance ON THIS LINE. The recorder detects a step of about two seconds, so this is the honest clock-step detector.</param>
+public sealed record MeterObservation(
+    MeterBar Cpu, MeterBar Memory, bool CouldDiagnose, bool IsSlow, string Cause,
+    DateTime TakenAtUtc, double RecordingSeconds, string RunId, double? ClockStepSeconds, string Raw);
 
 /// <summary>The operating system's own figure for one resource, and where it came from.</summary>
 /// <param name="Percent">The figure, 0 to 100.</param>
@@ -55,16 +89,168 @@ public static class ProofChecks
     /// <summary>
     /// How long the harness polls for a recorded sample before giving up: the 70-second limit, plus the recorder's
     /// one-minute write interval (the sample that proves it may be written up to a minute after it was taken), plus
-    /// three polls. The pass itself is still judged on the sample's own time against <see cref="WarningDeadline"/>.
+    /// three polls. This budget bounds how long the harness WAITS and decides nothing: the pass is judged
+    /// on the recording's own timeline by <see cref="JudgeWarning"/>, so a sample the product recorded in
+    /// time still passes however late the harness managed to see it.
     /// </summary>
     public static readonly TimeSpan PollDeadline = TimeSpan.FromSeconds(70 + 60 + 15);
 
     /// <summary>
-    /// Whether a recorded sample met the warning limit: taken at or after the change, and no more than
-    /// <see cref="WarningDeadline"/> after it. A sample from before the change never counts.
+    /// WHETHER THE WARNING ARRIVED IN TIME, AND HOW LONG IT TOOK, decided here as a pure function of the
+    /// recorded window so that it can be tested. The caller only supplies the window and the condition.
+    ///
+    /// THE MEASUREMENT IS THE DIFFERENCE OF TWO <c>recordingSeconds</c>, from the first sample taken at or
+    /// after the change to the first one that meets the condition. The recorder advances that figure with
+    /// the MONOTONIC clock inside a run, so no wall-clock step can stretch, shrink or reorder it, and the
+    /// recording's own documentation says the last hour is measured on it for exactly this reason.
+    ///
+    /// THREE THINGS IT DELIBERATELY IS NOT:
+    ///
+    /// Not the difference of two <c>takenAtUtc</c> stamps. <c>ResourceSample.TakenAtUtc</c> says on its own
+    /// type that comparing two of these is the defect that interface was changed to remove: a time
+    /// synchronisation step of ten seconds during a run turns a real 68-second warning into 58 or 78, and
+    /// this is the instrument that decides whether the product met a success criterion.
+    ///
+    /// Not the time the HARNESS took to see it. That was the first attempt and it could not pass a correct
+    /// product. The sampler reads every five seconds and the processor only turns Critical once a whole
+    /// sustained window is over the limit, so the product's own red arrives 65 to 70 seconds after the load
+    /// by construction - the entire budget. Adding the recorder's one-minute write interval and the poll on
+    /// top left a correct product passing a few runs in a hundred. An instrument that fails a product which
+    /// meets the criterion is worse than one that measures with the wrong clock, because its failures look
+    /// like the product's.
+    ///
+    /// Not clamped at zero or otherwise tidied. If the figures say the qualifying sample came BEFORE the
+    /// baseline, something is wrong with the recording and the caller is told, rather than shown a plausible
+    /// zero.
+    ///
+    /// IT OVERSTATES BY AT MOST ONE SAMPLE INTERVAL, which is honest in the safe direction: the baseline is
+    /// the first sample at or after the change, so the load may have begun up to five seconds before it.
     /// </summary>
-    public static bool WithinWarningDeadline(DateTime changeUtc, DateTime sampleTakenAtUtc) =>
-        sampleTakenAtUtc >= changeUtc && sampleTakenAtUtc - changeUtc <= WarningDeadline;
+    public static WarningVerdict JudgeWarning(
+        IReadOnlyList<MeterObservation> window, DateTime changeUtc, Func<MeterObservation, bool> condition)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        ArgumentNullException.ThrowIfNull(condition);
+
+        // THE RECORDING'S OWN TIMELINE DECIDES ORDER, AND - ONCE THE BASELINE IS KNOWN - MEMBERSHIP TOO.
+        // Ordering by the stamp would hand a backward clock step the power to choose which two lines get
+        // subtracted: a line stamped earlier sorts first even though the recorder wrote it later, so the
+        // baseline could be a line that is not the earliest after the change. The measurement would still
+        // be monotonic and the CHOICE of what to measure would not - the same defect one level up, and it
+        // produced a false pass in review.
+        var onTheTimeline = window.OrderBy(sample => sample.RecordingSeconds).ToList();
+
+        // THE BASELINE IS THE EARLIEST LINE WHOSE RAW STAMP **OR** CORRECTED STAMP IS AT OR AFTER THE
+        // CHANGE. Either one being right is enough, because the line cannot say which clock stamped the
+        // change: the RAW stamp is the exact comparison when the step happened BEFORE the change, so the
+        // change carries the stepped clock too, and the CORRECTED stamp is the exact comparison when the
+        // step happened AFTER it, so the change carries the pre-step clock. Taking whichever qualifies is
+        // therefore right whenever either is right.
+        //
+        // Both halves were found by review, each as a false pass. Without the corrected stamp, a BACKWARD
+        // step larger than the gap to the next sample pushed that sample out of the selection and put its
+        // mark below the scan at the same time, so a 75-second warning measured 65 (arrangement C). Without
+        // the raw stamp, a FORWARD step just before the change excluded the one line that should have been
+        // the baseline, and the next line became it: 75 seconds measured as 70, inside the limit, with no
+        // caveat (probe D). Both are pinned as tests below.
+        var baseline = onTheTimeline.FirstOrDefault(
+            sample => TakenAfterTheChange(changeUtc, sample.TakenAtUtc)
+                || TakenAfterTheChange(changeUtc, StampCorrectedByItsOwnStep(sample)));
+        if (baseline is null) return WarningVerdict.NothingRecorded;
+
+        // FROM THE BASELINE ON, THE STAMPS ARE NOT CONSULTED AT ALL. Every line at or after it on the
+        // recording's timeline is a member, so a line the step left stamped early still counts, and the
+        // qualifying sample is the TRUE first one rather than a later line whose stamp happened to climb
+        // back past the change.
+        var members = onTheTimeline
+            .Where(sample => sample.RecordingSeconds >= baseline.RecordingSeconds)
+            .ToList();
+
+        // The condition is never reached when nothing was recorded after the change: a safety check must
+        // not live inside it and quietly stop running.
+        var met = members.FirstOrDefault(condition);
+        if (met is null) return WarningVerdict.NotSeen(baseline);
+
+        // Across a Director restart the recorder bridges the gap with the WALL clock, so a span containing
+        // one is not a monotonic measurement at all. A run id is a fresh value per run, so comparing the
+        // two ends is equivalent to looking for a run start inside the span.
+        var restarted = !string.Equals(baseline.RunId, met.RunId, StringComparison.Ordinal);
+
+        // SCANNED OVER THE MEMBERS, both ends inclusive. Because membership is taken from the timeline and
+        // not from the stamps, this is the same set as "every line inside the span", so a line a backward
+        // step left stamped before the change - which is the line carrying the mark - is scanned like any
+        // other. That equivalence is the point of the membership rule above; the two scans used to differ,
+        // and the mark could fall in the gap between them.
+        var stepped = members.Any(sample =>
+            sample.RecordingSeconds <= met.RecordingSeconds && sample.ClockStepSeconds is not null);
+
+        var elapsed = TimeSpan.FromSeconds(met.RecordingSeconds - baseline.RecordingSeconds);
+        return new WarningVerdict(
+            Seen: true,
+            Met: !restarted && WithinWarningDeadline(elapsed),
+            Elapsed: elapsed,
+            Sample: met,
+            Baseline: baseline,
+            ClockStepped: stepped,
+            DirectorRestarted: restarted);
+    }
+
+    /// <summary>
+    /// Whether a measured time met the warning limit. Negative is refused rather than clamped: once the
+    /// ordering is taken from <c>recordingSeconds</c> this can only mean the recording itself ran
+    /// backwards, which is a broken instrument - and zero would be a believable figure for it.
+    /// </summary>
+    public static bool WithinWarningDeadline(TimeSpan measured) =>
+        measured >= TimeSpan.Zero && measured <= WarningDeadline;
+
+    /// <summary>
+    /// Whether a recorded sample belongs to the change at all: taken at or after it. This compares a stamp
+    /// for ORDER against a single reference, which is selection, not measurement - the distinction the rest
+    /// of this file turns on.
+    ///
+    /// <see cref="JudgeWarning"/> ASKS IT TWICE FOR THE BASELINE, with the raw stamp and with
+    /// <see cref="StampCorrectedByItsOwnStep"/>, and takes the line if either qualifies. Neither stamp is
+    /// sufficient alone, and each is exact in the case the other gets wrong: a step after the change needs
+    /// the correction, a step before it needs the raw stamp. Asking only one of them UNDERSTATES - by
+    /// starting from a later line while hiding the mark that would have said so - and an understatement is
+    /// a false pass. It is asked only to pick the baseline; after that, membership comes from the timeline.
+    /// </summary>
+    public static bool TakenAfterTheChange(DateTime changeUtc, DateTime sampleTakenAtUtc) =>
+        sampleTakenAtUtc >= changeUtc;
+
+    /// <summary>
+    /// A line's stamp read on the clock the CHANGE was stamped on: its own step mark undone. The recorder
+    /// writes <c>clockStepSeconds</c> on the first line at which it saw the wall clock jump, so a backward
+    /// step of eight seconds leaves minus eight on that line; subtracting the mark puts the line back where
+    /// the pre-step clock would have stamped it. An unmarked line is its own stamp.
+    ///
+    /// WHAT IT DOES NOT COVER, SAID PLAINLY AND WITH THE DIRECTION OF THE ERROR. It corrects only the line
+    /// CARRYING the mark; the later lines need no correction, because membership after the baseline is read
+    /// off the recording's timeline.
+    ///
+    /// THE RESIDUAL IS A BACKWARD STEP SHORTLY BEFORE THE CHANGE. The change is then stamped on the pulled-
+    /// back clock, so the UNMARKED lines taken before the step carry stamps at or after it and qualify by
+    /// their raw stamps. The earliest of them becomes the baseline, and the measurement starts **up to the
+    /// size of the step** too early - not a few seconds: a sixty-second step, with the change inside the
+    /// following sixty seconds, starts it up to sixty seconds early. It OVERSTATES, which is the safe
+    /// direction: it can turn a pass into a failure, never a failure into a pass.
+    ///
+    /// Such a window normally reports <c>ClockStepped</c>, because the marked line sits INSIDE the span -
+    /// not because it is the baseline, which it is not. The scan misses it in one geometry only: the
+    /// qualifying sample comes before the marked line on the timeline, which needs the condition to have
+    /// already held before the change. That cannot happen on the processor wait or either clear wait; it can
+    /// on the memory amber wait, where the meter may be amber while the fill is still finishing. The state
+    /// reported there is true and the figure overstates, so it is recorded here rather than counted.
+    ///
+    /// A step under the recorder's roughly two-second tolerance carries no mark, and with no mark the raw
+    /// stamps on both sides are read on one clock, so the only error is the same overstatement bounded by
+    /// that tolerance. Two steps inside one sample interval are not handled.
+    /// </summary>
+    public static DateTime StampCorrectedByItsOwnStep(MeterObservation sample)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        return sample.TakenAtUtc - TimeSpan.FromSeconds(sample.ClockStepSeconds ?? 0);
+    }
 
     /// <summary>
     /// Reads the Gateway rows command's output: a JSON array of window start times. Each must carry its offset
@@ -254,7 +440,7 @@ public static class ProofChecks
     /// Reads every sample of the window from <c>cc-devthrottle machine diagnose --json --samples</c>, oldest first.
     /// The recorder writes a whole minute of lines in one append, so the newest line alone is the END of a batch:
     /// judging a time limit on it would report a meter that turned red at 65 seconds as red at 110. The harness
-    /// therefore reads them all and judges on the earliest one that meets the condition - see <see cref="FirstMeeting"/>.
+    /// therefore reads them all, and <see cref="JudgeWarning"/> judges on the earliest one that meets the condition.
     /// An empty or absent list is an error, never a clean window.
     /// </summary>
     public static IReadOnlyList<MeterObservation> ParseDiagnoseSamples(string json)
@@ -270,17 +456,6 @@ public static class ProofChecks
         return observations.OrderBy(observation => observation.TakenAtUtc).ToList();
     }
 
-    /// <summary>
-    /// The earliest sample taken at or after <paramref name="changeUtc"/> that meets <paramref name="condition"/>, or
-    /// null when none has yet. A sample from before the change never counts, so a stopped Director's old lines
-    /// cannot pass.
-    /// </summary>
-    public static MeterObservation? FirstMeeting(IReadOnlyList<MeterObservation> samples, DateTime changeUtc, Func<MeterObservation, bool> condition)
-    {
-        ArgumentNullException.ThrowIfNull(samples);
-        ArgumentNullException.ThrowIfNull(condition);
-        return samples.Where(sample => sample.TakenAtUtc >= changeUtc).OrderBy(sample => sample.TakenAtUtc).FirstOrDefault(condition);
-    }
 
     /// <summary>
     /// How old the newest recorded sample may be for the idle comparison to mean anything: the recorder's one-minute
@@ -336,6 +511,11 @@ public static class ProofChecks
             causes.Length == 0 ? "None" : string.Join(", ", causes),
             DateTimeOffset.Parse(Required(newest, "takenAtUtc", "newest").GetString()
                 ?? throw new FormatException("newest.takenAtUtc is null."), CultureInfo.InvariantCulture).UtcDateTime,
+            Required(newest, "recordingSeconds", "newest").GetDouble(),
+            Required(newest, "run", "newest").GetString() ?? throw new FormatException("newest.run is null."),
+            newest.TryGetProperty("clockStepSeconds", out var step) && step.ValueKind != JsonValueKind.Null
+                ? step.GetDouble()
+                : null,
             json);
     }
 

@@ -24,17 +24,78 @@ ends with `out/summary.json` and `out/summary.md`. The exit code is 0 only when 
 
 The diagnosis check (mission item 6) runs inside steps 2 and 3, on the reading taken under load.
 
-**Every time limit is judged on the recorded sample's own time.** The Director writes its recording once a
-minute, so the newest line the diagnose command can see may be up to a minute old. A step counts a sample only if
-it was TAKEN after the change (the load starting, or stopping), and the 70 seconds are measured from the change to
-that sample's `takenAtUtc` - never to the moment the harness happened to read it. The harness polls for up to 145
-seconds (the limit, plus the one-minute write interval, plus three polls) to see that sample. Because the recorder
-appends a whole minute of lines at once, each poll reads every sample of the last five minutes and judges on the
-EARLIEST one after the change that meets the condition, not the newest. So a stopped Director whose last line was
-red can never pass "red", one whose last line was normal can never pass "clear", and a meter that turned red at 65
-seconds is not reported as red at 110. The idle step fails outright when the newest sample is more than 70 seconds
-old: a Director that is not recording has nothing to compare. For the
-memory step the clock starts once the machine is held short of memory, not while it is being filled.
+**Every time limit is measured on the recording's own monotonic timeline.** Each recorded line carries
+`recordingSeconds`, which the recorder advances with the MONOTONIC clock inside a Director run - its own
+documentation says the last hour is measured on it for exactly this reason. A step counts the difference
+between the first sample taken at or after the change and the first one that meets the condition. No
+wall-clock subtraction, and nothing that depends on when the harness happened to look.
+
+*Why not the sample stamps.* The difference between the moment the load began and a sample's `takenAtUtc`
+is the difference of two readings of the WALL clock, and `ResourceSample.TakenAtUtc` says on its own type
+that comparing these stamps is the defect that interface was changed to remove. A ten-second
+synchronisation step turns a real 68-second warning into 58 or 78. This harness decides whether the
+product met a success criterion, so it is the last place that may measure with a clock that can move.
+
+*Why not the time the harness took to see it.* That was tried and it cannot pass a correct product. The
+sampler reads every five seconds and the processor turns Critical only once a whole sustained window is
+over the limit, so the product's own red arrives 65 to 70 seconds after the load **by construction** -
+the entire budget. Adding the recorder's one-minute write interval and the poll interval on top left a
+correct product passing a few runs in a hundred. An instrument that fails a product which meets the
+criterion is worse than one that measures with the wrong clock, because its failures look like the
+product's.
+
+*Order comes from the recording too, and so does membership once the baseline is known.* The baseline is
+the earliest line on the recording's timeline whose **raw stamp or corrected stamp** is at or after the
+change - corrected meaning its own step mark undone; from there on, every line at or after it on that
+timeline is a member and the stamps are not consulted again. Ordering or selecting by the stamp alone would
+hand a clock step the power to choose which two lines get subtracted, which is the same defect one level
+up: the measurement monotonic, the choice of what to measure not.
+
+**Review found that three times, and each stamp alone is wrong in the case the other gets right.** A
+backward step bigger than the gap between the change and the next sample hid that sample AND the mark that
+would have declared it, so a 75-second warning measured as 65 and passed clean; the corrected stamp
+rescues it. A forward step just before the change made the change's own stamp eight seconds later than the
+clock the correction reads, so the line that should have been the baseline was thrown out and the next one
+took its place: 75 seconds measured as 70, inside the limit, no caveat; the raw stamp rescues that one.
+Taking either is right whenever one of them is, because the line cannot say which clock stamped the change.
+Dropping either half fails exactly one test.
+
+*Where that rule is still imprecise, and in which direction.* A **backward** step shortly before the change
+pulls the change's own stamp back, so unmarked lines taken before the step qualify by their raw stamps and
+the earliest of them becomes the baseline. The measurement then starts **up to the size of the step** too
+early - a sixty-second step with the change inside the following sixty seconds starts it up to sixty seconds
+early. It OVERSTATES, which is the safe direction: it can turn a pass into a failure, never a failure into a
+pass. Such a window reports the clock step, because the marked line sits inside the span - not because it is
+the baseline, which it is not. The scan misses it in one geometry only: the qualifying sample comes before
+the marked line, which needs the condition to have already held before the change. That cannot happen on the
+processor wait or either clear wait; it can on the memory amber wait, where the meter may be amber while the
+fill is still finishing, and there the state reported is true while the figure overstates. A step under the
+recorder's roughly two-second tolerance carries no mark, so both sides are read on one clock and the only
+error is the same overstatement bounded by that tolerance. Two steps inside one five-second sample interval
+are not handled.
+
+*What the measurement costs.* It overstates by at most one five-second sample interval, because the
+baseline is the first sample at or after the change rather than the change itself. That is the safe
+direction.
+
+*When the run is not trustworthy, the run says so.* The recorder marks the exact line where the wall clock
+moved by more than about two seconds (`clockStepSeconds`); a step anywhere inside the span is reported
+beside the figure, which stands, because it is monotonic. A Director **restart** inside the span is
+different: there the recorder bridges the gap with the wall clock, so the span is not a monotonic
+measurement at all and the step never counts as met.
+
+**Which sample is read is a separate question from which clock measures the wait,** and the stamps still
+answer it. The Director writes its recording once a minute, so the newest line the diagnose command can
+see may be up to a minute old. A step counts a sample only if it was TAKEN after the change - a comparison
+for order against one reference, which is selection, not measurement. The harness polls for up to 145
+seconds (the limit, plus the one-minute write interval, plus three polls) to SEE that sample; that budget
+bounds the waiting and never the verdict. Because the recorder appends a whole minute of lines at once,
+each poll reads every sample of the last five minutes and judges on the EARLIEST one after the change that
+meets the condition, not the newest. So a stopped Director whose last line was red can never pass "red",
+one whose last line was normal can never pass "clear", and a meter that turned red at 65 seconds is not
+reported as red at 110. The idle step fails outright when the newest sample is more than 70 seconds old: a
+Director that is not recording has nothing to compare. For the memory step the clock starts once the
+machine is held short of memory, not while it is being filled.
 
 ## Where each figure comes from
 
