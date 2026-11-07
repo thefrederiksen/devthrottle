@@ -26,7 +26,12 @@ export function FactoryInboxStuckActions({ stuck, onAnswered }: FactoryInboxStuc
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  // Set on every mount, not only at creation: a development build mounts twice, and a flag cleared by the first
+  // unmount would leave the button disabled and hide a refusal (issue 4746 review, finding 5).
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const dealtWith = async () => {
     setBusy(true);

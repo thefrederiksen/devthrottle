@@ -315,6 +315,22 @@ public sealed class FactoryInboxStuckAlertSourceTests : IDisposable
     }
 
     [Fact]
+    public void Summary_CountsTheOwnersMark_ByWhenHeMadeIt_NotWhenTheMessageWasSent()
+    {
+        // The review of issue 4746, finding 3: a decision is counted when it is made, so the owner's mark is too.
+        var id = Send(T0);
+        DealtWith(T0.AddHours(30));
+
+        var today = _store.Summary(A, Factory, T0.AddHours(24), T0.AddHours(48));
+        var thatDay = _store.Summary(A, Factory, T0.AddHours(-1), T0.AddHours(23));
+
+        Assert.Equal("0 messages came in; 0 decisions made; 1 dealt with by the owner.", today.Line);
+        Assert.Equal("1 message came in; 0 decisions made.", thatDay.Line);
+        Assert.Equal(FactoryInboxWords.OwnerDealtWithLabel, Assert.Single(thatDay.Items).StateLabel);
+        Assert.Equal(id.ToString("D"), thatDay.Items[0].Id);
+    }
+
+    [Fact]
     public void DealtWithByOwner_InOneAccount_LeavesAnotherAccountsStuckInbox()
     {
         Send(T0);

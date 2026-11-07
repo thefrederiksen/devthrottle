@@ -709,11 +709,36 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task DealtWith_AnUnknownFactory_IsRefused()
+    public async Task DealtWith_AFactoryWithNoInbox_IsRefusedAsNotStuck()
     {
         var (status, body) = await Post("/gateway/factory/nowhere/inbox/dealt-with", Phone);
 
-        Assert.Equal(HttpStatusCode.NotFound, status);
-        Assert.Equal("factory_not_found", Code(body));
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("not_stuck", Code(body));
+    }
+
+    [Fact]
+    public async Task DealtWith_ADeletedFactorysStuckInbox_CanStillBeCleared()
+    {
+        // The review of issue 4746, finding 1: deleting a factory leaves its inbox rows, and the stuck alert is raised
+        // from those rows alone. Its "Dealt with it" must not answer "not a factory of this account".
+        var id = (await _store.SendAsync(A, new FactoryInboxSendInput("closed-shop", "Check the totals", FactoryInboxWords.Notes.None,
+            FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Phone, "owner-phone-1", _now))).Id;
+        _now = _now.AddMinutes(20);
+
+        var (status, body) = await Post("/gateway/factory/closed-shop/inbox/dealt-with", Phone);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(1, body.GetProperty("marked").GetInt32());
+        Assert.Equal("decided", _store.Get(A, id)!.State);
+    }
+
+    [Fact]
+    public async Task DealtWith_ABadFactoryName_IsRefused()
+    {
+        var (status, body) = await Post("/gateway/factory/Not%20A%20Name!/inbox/dealt-with", Phone);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("bad_factory", Code(body));
     }
 }

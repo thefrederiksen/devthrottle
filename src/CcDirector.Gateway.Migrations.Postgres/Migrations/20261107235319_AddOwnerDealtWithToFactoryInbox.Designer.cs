@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261107222606_AddOwnerDealtWithToFactoryInbox")]
+    [Migration("20261107235319_AddOwnerDealtWithToFactoryInbox")]
     partial class AddOwnerDealtWithToFactoryInbox
     {
         /// <inheritdoc />
@@ -2006,7 +2006,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("OwnerDealtWithBy")
-                        .HasColumnType("text");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .UseCollation("C");
 
                     b.Property<string>("RawText")
                         .HasMaxLength(20000)

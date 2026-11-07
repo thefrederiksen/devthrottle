@@ -236,7 +236,11 @@ public sealed class FactoryInboxStore
         var (sent, decided) = Since(tenant, factory, sinceUtc, untilUtc);
         var decisionOfSent = DecisionsOf(tenant, sent.Select(m => m.Id).ToList());
         var handed = HandedTimes(tenant, sent.Where(m => m.BundleId is not null).Select(m => m.BundleId!.Value).Distinct().ToList());
-        return FactoryInboxFold.Summary(factory, sinceUtc, untilUtc, sent, decided, decisionOfSent, handed);
+        int ownerDealtWith;
+        using (var ctx = _db.CreateContext(tenant))
+            ownerDealtWith = ctx.FactoryInboxMessages.AsNoTracking()
+                .Count(m => m.Factory == factory && m.OwnerDealtWithAtUtc >= sinceUtc && m.OwnerDealtWithAtUtc <= untilUtc);
+        return FactoryInboxFold.Summary(factory, sinceUtc, untilUtc, sent, decided, decisionOfSent, handed, ownerDealtWith);
     }
 
     /// <summary>One factory's to-do list, newest first.</summary>
@@ -317,8 +321,10 @@ public sealed class FactoryInboxStore
             }
 
             using var tx = ctx.Database.BeginTransaction();
+            // The state is repeated here, not only in the candidate read: another Gateway process (a deploy overlap) may
+            // have marked a candidate dealt with by the owner since (issue 4746 review, finding 2), and it stays decided.
             ctx.FactoryInboxMessages
-                .Where(m => candidateIds.Contains(m.Id) && m.BundleId == null
+                .Where(m => candidateIds.Contains(m.Id) && m.BundleId == null && m.State != FactoryInboxWords.States.Decided
                             && (m.ClaimSessionId == null || m.ClaimSessionId == sessionId || (m.ClaimSessionId != null && endedClaimants.Contains(m.ClaimSessionId))))
                 .ExecuteUpdate(set => set
                     .SetProperty(m => m.State, FactoryInboxWords.States.Received)

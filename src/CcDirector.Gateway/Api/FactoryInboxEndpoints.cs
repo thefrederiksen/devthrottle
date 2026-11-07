@@ -236,12 +236,18 @@ internal static class FactoryInboxEndpoints
             var device = AuthMiddleware.AuthenticatedDevice(ctx);
             if (device is null || SessionOriginSurfaces.FromDeviceType(device.DeviceType) == SessionOriginSurfaces.Unknown)
                 return Error(403, "owner_device_required", "Only the owner's phone or Cockpit marks a factory inbox as dealt with.");
-            if (Registered(parts, tenant, factory, out var registered) is { } missing) return missing;
+            // NOT ONLY A REGISTERED FACTORY (issue 4746 review, finding 1). Deleting a factory leaves its inbox rows, and
+            // the stuck alert is raised from those rows alone, so a deleted factory's alert must be clearable too. The
+            // registry only supplies the stored spelling when it has one; the store refuses when nothing is stuck.
+            if (!Factory.FactoryNames.TryFactory(factory, out var folded, out var badName))
+                return Error(400, "bad_factory", badName ?? $"'{factory}' is not one spelling of a factory id.");
+            var name = parts.Factories(tenant).FirstOrDefault(f => string.Equals(f.Factory, folded, StringComparison.OrdinalIgnoreCase))?.Factory
+                       ?? folded;
             return Refusals(() =>
             {
-                var marked = parts.Store.DealtWithByOwner(tenant, registered!.Factory, device.DeviceId,
+                var marked = parts.Store.DealtWithByOwner(tenant, name, device.DeviceId,
                     sid => parts.IsEnded(tenant, sid), parts.NowUtc());
-                return Results.Json(new { factory = registered.Factory, marked });
+                return Results.Json(new { factory = name, marked });
             });
         });
 

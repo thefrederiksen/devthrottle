@@ -1330,6 +1330,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Source).HasMaxLength(16);
             b.Property(e => e.Surface).HasMaxLength(16);
             b.Property(e => e.SentBy).HasMaxLength(200);
+            b.Property(e => e.OwnerDealtWithBy).HasMaxLength(200);
             b.Property(e => e.State).HasMaxLength(16);
             b.Property(e => e.ReceivedBySessionId).HasMaxLength(64);
             b.Property(e => e.ClaimSessionId).HasMaxLength(64);
@@ -3052,6 +3053,7 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.Surface).UseCollation("C");
             modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.ReceivedBySessionId).UseCollation("C");
             modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.ClaimSessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.OwnerDealtWithBy).UseCollation("C");
             modelBuilder.Entity<FactoryInboxBundleEntity>().Property(e => e.Factory).UseCollation("C");
             modelBuilder.Entity<FactoryInboxBundleEntity>().Property(e => e.HandedBySessionId).UseCollation("C");
             modelBuilder.Entity<FactoryInboxBundleEntity>().Property(e => e.ReadBySessionId).UseCollation("C");

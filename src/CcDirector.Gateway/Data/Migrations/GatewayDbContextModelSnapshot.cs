@@ -1940,6 +1940,7 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OwnerDealtWithBy")
+                        .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("RawText")

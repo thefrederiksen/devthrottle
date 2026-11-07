@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace CcDirector.Gateway.Migrations.Postgres.Migrations
+namespace CcDirector.Gateway.Data.Migrations
 {
     /// <inheritdoc />
     public partial class AddOwnerDealtWithToFactoryInbox : Migration
@@ -13,16 +13,15 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
         {
             migrationBuilder.AddColumn<DateTime>(
                 name: "OwnerDealtWithAtUtc",
-                schema: "gateway",
                 table: "factory_inbox_messages",
-                type: "timestamp with time zone",
+                type: "TEXT",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "OwnerDealtWithBy",
-                schema: "gateway",
                 table: "factory_inbox_messages",
-                type: "text",
+                type: "TEXT",
+                maxLength: 200,
                 nullable: true);
         }
 
@@ -31,12 +30,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
         {
             migrationBuilder.DropColumn(
                 name: "OwnerDealtWithAtUtc",
-                schema: "gateway",
                 table: "factory_inbox_messages");
 
             migrationBuilder.DropColumn(
                 name: "OwnerDealtWithBy",
-                schema: "gateway",
                 table: "factory_inbox_messages");
         }
     }

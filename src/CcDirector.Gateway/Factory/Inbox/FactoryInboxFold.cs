@@ -144,20 +144,23 @@ public static class FactoryInboxFold
     /// </summary>
     public static FactoryInboxSummaryDto Summary(string factory, DateTime sinceUtc, DateTime untilUtc,
         IReadOnlyList<FactoryInboxMessageEntity> sent, IReadOnlyList<FactoryInboxDecisionEntity> decided,
-        IReadOnlyDictionary<Guid, FactoryInboxDecisionEntity> decisionOfSent, IReadOnlyDictionary<Guid, DateTime> handedAt)
+        IReadOnlyDictionary<Guid, FactoryInboxDecisionEntity> decisionOfSent, IReadOnlyDictionary<Guid, DateTime> handedAt,
+        int ownerDealtWith)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(ownerDealtWith);
         var byDecision = FactoryInboxWords.Decisions.All
             .Select(k => new FactoryInboxCountDto(k, FactoryInboxWords.DecisionLabel(k), decided.Count(d => d.Kind == k)))
             .Where(c => c.Count > 0)
             .ToList();
-        // A message the owner dealt with himself (issue 4746) is not waiting, and it is not a Boss decision either.
-        var ownerDealt = sent.Count(m => !decisionOfSent.ContainsKey(m.Id) && m.OwnerDealtWithAtUtc is not null);
+        // A message the owner dealt with himself (issue 4746) is not waiting, and it is not a Boss decision either. Like a
+        // decision, it is counted by WHEN the owner dealt with it (ownerDealtWith, read by the store for the window), so
+        // an older message he dealt with today is in today's line.
         var waiting = sent.Count(m => !decisionOfSent.ContainsKey(m.Id) && m.OwnerDealtWithAtUtc is null);
-        var line = sent.Count == 0 && decided.Count == 0
+        var line = sent.Count == 0 && decided.Count == 0 && ownerDealtWith == 0
             ? "Nothing came in and nothing was decided."
             : $"{Count(sent.Count, "message")} came in; {Count(decided.Count, "decision")} made" +
               (byDecision.Count == 0 ? "" : " (" + string.Join(", ", byDecision.Select(c => $"{c.Label} {c.Count}")) + ")") +
-              (ownerDealt == 0 ? "" : $"; {ownerDealt} dealt with by the owner") +
+              (ownerDealtWith == 0 ? "" : $"; {ownerDealtWith} dealt with by the owner") +
               (waiting == 0 ? "." : $"; {waiting} still waiting.");
         var items = sent.Select(m => Message(m, decisionOfSent.TryGetValue(m.Id, out var d) ? d : null,
             m.BundleId is { } b && handedAt.TryGetValue(b, out var at) ? at : null)).ToList();
