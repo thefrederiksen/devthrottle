@@ -251,6 +251,7 @@ read on Linux) and reviewed by a separate session; every review file is under `r
 | 4664 | Email off: each factory's morning summary goes to Your inbox; the sweep has no mail sender. | 00:04 UTC, 7 November |
 | 4703 | Small defects from the end-to-end proof, and reads that cannot hang a screen. | 00:49 UTC, 7 November |
 | 4699 | The end-to-end QA report and this record, with the morning check of 7 November. | - (documents only) |
+| 4737 | A failed schedule tells its owner in Your inbox, never by email (the sender `owner-emails.md` missed). | 15:38 Coordinated Universal Time, 7 November, in `4317292` |
 
 Issues filed for what is outside this mission: 4701 (two Directors on one computer), 4702 (session keys refused for an
 owned session). Deploys cost between no failed answer and an 8-minute stall (17:06 UTC); the rule to roll back after
@@ -268,3 +269,15 @@ emailing the owner: the Gateway's "Schedule failed" notices (`ScheduleFailureNot
 `owner-emails.md`), the `devthrottle_internal` seat briefs listed in `owner-emails.md` section 6, the kept system
 alerts, and the website's daily account report. The first is this repository's work; the second needs
 `devthrottle_internal`; the last two are the owner's decisions.
+
+### After the morning check (7 November)
+
+Pull request 4737 moved the Gateway's "Schedule failed" notice from email to Your inbox; proven live at 15:54 (step 9
+of the QA report). Its first deploy (15:01) overlapped another session's deploy of `4317292` started 90 seconds later;
+the two restarts left the service unreliable from 15:04 to 15:13 (the workflow measured 468 seconds), so it was rolled
+back to `7c1019b` at 15:13, as the five-minute rule says. `7c1019b` was just as unsteady for three minutes after its
+own restart, so the code was not the cause. Main (`4317292`, which holds 4737) was deployed again alone at 15:30: 117
+seconds measured, inside the 120-second budget, and a clean 15-minute watch.
+
+**Status now:** the Gateway no longer emails the owner about factories. Still emailing him: the `devthrottle_internal`
+seat briefs (`owner-emails.md` section 6), the kept system alerts, and the website's daily account report.
