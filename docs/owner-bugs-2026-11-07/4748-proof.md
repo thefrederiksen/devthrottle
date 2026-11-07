@@ -6,6 +6,8 @@ When a scheduled run's start outcome was not known (the Director didn't answer w
 
 The `ScheduleFailureNotifier` scans the run history every 30 seconds and considers any run with `Result = StartUnknown` or `Result = Problem` as a failure. Because `ResultUtc` was set immediately for `StartUnknown` runs, the notifier would send a false "Schedule failed" email right away, even though the session might start minutes later and complete successfully.
 
+Additionally, there was no recovery notification mechanism: if a failure alarm was sent and the run then recovered (a subsequent run succeeded), the owner was never told the issue resolved.
+
 ## Solution
 
 Changed the code to NOT set `ResultUtc` for `StartUnknown` runs when they're first recorded. Set it to `null` instead.
@@ -41,10 +43,19 @@ if (reason.Contains("whether it started a session was not known", StringComparis
     return StartUnknown(reason, machine);
 ```
 
-### 3. ScheduleFailureNotifierTests.cs: Regression test
-Added test `AStartUnknownRun_IsNotToldImmediately_BecauseTheDirectorMayBeSlowButTheSessionMayStillStart` that verifies:
-- A `StartUnknown` run does NOT send a failure notification immediately
-- This proves slow Directories won't trigger false alarms
+### 3. ScheduleFailureNotifierTests.cs: Regression and recovery tests
+Added two tests:
+- `AStartUnknownRun_IsNotToldImmediately_BecauseTheDirectorMayBeSlowButTheSessionMayStillStart`: verifies that a `StartUnknown` run does NOT send a failure notification immediately (proves slow Directories won't trigger false alarms)
+- `ARunThatWasMarkedFailed_ThenRecovers_NotifiesTheOwnerOfRecovery`: verifies that when a previously-failed schedule has a successful run, a recovery notification is sent
+
+### 4. ScheduleFailureNotifier.cs: Recovery notification mechanism
+Added logic to track which schedules have had failure notifications and detect recoveries:
+- Tracks failed jobs in `_jobsWithFailureNotified` set
+- Calls new `ScanRecoveriesAsync()` method after processing failures
+- Sends recovery notifications with `Succeeded = true` and `Reason = "The schedule has recovered."`
+
+### 5. CronRunHistoryStore.cs: Success run lookup
+Added `SuccessRunsSince(DateTime, string jobId)` method to find successful runs for a given schedule after a specific time
 
 ## What Was NOT Changed
 
@@ -70,4 +81,5 @@ If a run genuinely fails (no session appeared by window close), it's then report
 
 - End-to-end behavior with real slow Director responses
 - Whether the UI shows "may not have started" correctly for `StartUnknown` runs still waiting for the window
-- Whether owners receive a "recovered" message if an alarm was sent and the run then completes
+- Recovery notification delivery through all channels (fleet, push, inbox message display)
+- Whether recovery notifications reach owners in real-world scenarios
