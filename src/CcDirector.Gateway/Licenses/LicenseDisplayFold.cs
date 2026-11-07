@@ -1003,6 +1003,9 @@ public static partial class LicenseDisplayFold
             LicenseLogStates.Open when row.Kind == LicenseLogKinds.ReportRefused => ("Refused", LicenseTones.Bad),
             LicenseLogStates.Open when row.Kind == LicenseLogKinds.MachineSilent => ("Silent", LicenseTones.Warning),
             LicenseLogStates.Ended when row.Kind is LicenseLogKinds.ReportRefused or LicenseLogKinds.MachineSilent => ("Over", LicenseTones.Neutral),
+            // An account a sign-in by hand replaced and the machine could not keep: open while its reports say so.
+            LicenseLogStates.Open when row.Kind == LicenseLogKinds.SignInNotKept => ("Not kept", LicenseTones.Bad),
+            LicenseLogStates.Ended when row.Kind == LicenseLogKinds.SignInNotKept => ("Over", LicenseTones.Neutral),
             _ => (string.IsNullOrWhiteSpace(row.State) ? "Recorded" : row.State, LicenseTones.Neutral),
         };
         var kindText = row.Kind switch
@@ -1023,6 +1026,7 @@ public static partial class LicenseDisplayFold
             LicenseLogKinds.CannotSwitch => "Cannot switch",
             LicenseLogKinds.CanSwitchAgain => "Can switch again",
             LicenseLogKinds.LeftBehind => "Not switched",
+            LicenseLogKinds.SignInNotKept => "Sign-in not kept",
             LicenseLogKinds.Forgotten => ForgottenKindText,
             _ => "Note",
         };

@@ -71,6 +71,10 @@ public sealed class LicenseUsageReporter
     private DateTime? _lastSpareReadUtc;
     private DateTime? _lastSentUtc;
     private string? _lastSentShape;
+
+    /// <summary>The accounts not kept (<see cref="LicenseUsageReport.SignInsNotKept"/>) the last sent report carried, as
+    /// one string: a change is a reason to report at once, as a change of holdings is.</summary>
+    private string _lastSentNotKept = "";
     private List<LicenseHolding>? _lastSentHoldings;
     private bool _toolMissingLogged;
     private bool _otherHolderLogged;
@@ -299,6 +303,7 @@ public sealed class LicenseUsageReporter
                     TakeHandSwitches();
                     if (listing is null) return null;
                     if (ShapeOf(listing.Select(h => (h.AccountEmail, h.IsActive, ErrorOf(h.AccountEmail))), canSwitch: true) == _lastSentShape
+                        && NotKeptShape(_tool.SignInsNotKept) == _lastSentNotKept
                         && PendingHandSwitch() is null)
                         return null;
                     trigger = LicenseReportTriggers.Changed;
@@ -351,6 +356,10 @@ public sealed class LicenseUsageReporter
         _lastSentUtc = report.SentAtUtc;
         _lastSentShape = ShapeOf(report.Holdings.Select(h => (h.AccountEmail, h.IsActive, h.ReadError)), report.CanSwitch == true);
         _lastSentHoldings = report.Holdings;
+        var notKept = NotKeptShape(report.SignInsNotKept ?? new List<LicenseSignInNotKept>());
+        if (notKept != _lastSentNotKept)
+            FileLog.Write($"[LicenseUsageReporter] sent: the accounts a sign-in by hand replaced that could not be kept are now [{notKept}]");
+        _lastSentNotKept = notKept;
         if (report.SwitchedByHand is not null)
         {
             lock (_gate)
@@ -490,6 +499,8 @@ public sealed class LicenseUsageReporter
             Holdings = holdings,
             SwitchedByHand = HandSwitchFor(holdings),
             CanSwitch = true,
+            SignInsNotKept = _tool.SignInsNotKept
+                .Select(n => new LicenseSignInNotKept { AccountEmail = n.AccountEmail, Reason = n.Reason }).ToList(),
         };
     }
 
@@ -558,6 +569,9 @@ public sealed class LicenseUsageReporter
     {
         lock (_gate) return _readings.TryGetValue(accountEmail, out var h) ? h.ReadError : null;
     }
+
+    private static string NotKeptShape(IEnumerable<LicenseSignInNotKept> rows) =>
+        string.Join("|", rows.Select(r => $"{r.AccountEmail}:{r.Reason}").OrderBy(x => x, StringComparer.Ordinal));
 
     private static string ShapeOf(IEnumerable<(string Email, bool Active, string? Error)> holdings, bool canSwitch) =>
         string.Join("|", holdings.OrderBy(h => h.Email, StringComparer.Ordinal).Select(h => $"{h.Email}:{h.Active}:{h.Error}"))

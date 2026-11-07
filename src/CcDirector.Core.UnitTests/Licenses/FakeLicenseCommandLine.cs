@@ -184,6 +184,11 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         return taken;
     }
 
+    /// <summary>The accounts the key store says it could not keep after a sign-in by hand: a state, read as it is now.</summary>
+    public List<LicenseSignInNotKept> NotKept { get; } = new();
+
+    public IReadOnlyList<LicenseSignInNotKept> SignInsNotKept => NotKept.ToList();
+
     // ---- Phase 6, Track C: the daily approver check ----
 
     /// <summary>What a check of a profile answers, by profile identifier and account (null: no account given). A check

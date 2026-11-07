@@ -55,6 +55,38 @@ public sealed class LicenseUsageReport
 
     /// <summary>When <see cref="CanSwitch"/> is false: one of <see cref="LicenseCannotSwitchReasons"/>. Else null.</summary>
     public string? CannotSwitchReason { get; set; }
+
+    /// <summary>
+    /// Every account a sign-in BY HAND replaced in the default config (<c>claude auth login</c>, or <c>/login</c> in a
+    /// session) that the machine's key store could NOT keep as a spare. The machine holds it nowhere a switch can reach;
+    /// its only copy is the store's copy of the old active sign-in, which nothing switches to. A STATE, sent on every
+    /// report while it lasts: an empty list says there is none now, and ends any the Gateway has open. NULL FROM A
+    /// DIRECTOR OLDER THAN THIS FIELD, which says nothing either way.
+    /// </summary>
+    public List<LicenseSignInNotKept>? SignInsNotKept { get; set; }
+}
+
+/// <summary>One account a sign-in by hand replaced that the machine could not keep as a spare. Only an email and a
+/// reason word - never a folder or a key.</summary>
+public sealed class LicenseSignInNotKept
+{
+    /// <summary>The account that was replaced; lower-cased.</summary>
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseNotKeptReasons"/>.</summary>
+    public string Reason { get; set; } = "";
+}
+
+/// <summary>Why a replaced sign-in could not be kept as a spare (the key store's <c>NOT_KEPT_</c> words).</summary>
+public static class LicenseNotKeptReasons
+{
+    /// <summary>The account's spare folder holds a sign-in that is not the account's own; keeping it would overwrite that.</summary>
+    public const string SpareFolderHoldsAnotherSignIn = "spare-folder-holds-another-sign-in";
+
+    /// <summary>A reason word this build does not know (a newer tool's). That the account was not kept is still said.</summary>
+    public const string NotKnown = "not-known";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal) { SpareFolderHoldsAnotherSignIn, NotKnown };
 }
 
 /// <summary>

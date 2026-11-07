@@ -1314,17 +1314,30 @@ def test_abandonSignIn_RemovesOnlyAnEmptyNewFolder_NeverARenewalsFolder(world):
     assert world.key_at(written.folder) is not None, "a folder holding the account's own key is never deleted"
 
 
-def test_abandonSignIn_NewFolderHoldingAnotherAccountsKey_IsDeleted(world):
+def test_abandonSignIn_NewFolderHoldingAnotherAccountsKey_ItIsKeptAsThatAccountsSpare_NeverDeleted(world):
     world.sign_in(world.default, ACCOUNT_A)
     target = world.store().sign_in_target(ACCOUNT_B)
-    world.sign_in(target.folder, ACCOUNT_C)  # the login signed in the wrong account
-    world.removed = {ACCOUNT_C}
+    c_key = world.sign_in(target.folder, ACCOUNT_C)  # the login signed in the wrong account
+
+    world.store().abandon_sign_in(target)
+
+    assert not Path(target.folder).exists(), "no folder named for B is left holding C"
+    assert _held(world) == {ACCOUNT_A: "active", ACCOUNT_C: "spare"}
+    assert world.key_at(world.store().spare_folder(ACCOUNT_C)) == c_key
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_abandonSignIn_NewFolderHoldingAnAccountHeldAlready_IsSetAsideInTheBackups_NeverDeleted(world):
+    _machine_with_active_and_spare(world)
+    target = world.store().sign_in_target(ACCOUNT_C)
+    second_b = world.sign_in(target.folder, ACCOUNT_B)  # the wrong account, and one this machine holds already
 
     world.store().abandon_sign_in(target)
 
     assert not Path(target.folder).exists()
-    assert _held(world) == {ACCOUNT_A: "active"}
-    world.assert_each_signin_in_exactly_one_place()
+    assert _held(world) == {ACCOUNT_A: "active", ACCOUNT_B: "spare"}
+    assert [world.key_at(b) for b in world.backups()] == [second_b]
+    assert [r["event"] for r in _log_records(world)][-1] == "sign-in-set-aside"
 
 
 def test_signedInAt_RecordedWithTheEndDate_AndOnlyMatchesThatSignIn(world):
@@ -1527,25 +1540,111 @@ def test_keptCopy_AKeepACrashInterrupted_IsReportedByTheRunThatFinishesIt(tmp_pa
     assert [(k.account, k.kept_in) for k in store.last_kept] == [(ACCOUNT_A, _spare(world, ACCOUNT_A))]
 
 
-def test_keptCopy_TheReplacedAccountsSpareFolderExists_TheCopyIsNeverWrittenOver_AndTheNextOpenKeepsIt(world):
-    # A new spare's sign-in waiting for its approval holds an empty spare folder: the move waits a round, and the copy
-    # - the only place A is now - is left exactly as it was, not overwritten with C.
-    a_key = world.sign_in(world.default, ACCOUNT_A)
+def test_keptCopy_SixNovemberALeftoverKeylessSpareFolder_TheReplacedAccountIsKeptInIt(world):
+    # What dropped a held account on 6 November 2026, replayed. A switch onto B empties B's spare folder but leaves
+    # the folder itself. Later the owner signs C in by hand over B. The keep used to stop at "the spare folder exists
+    # already" - every open for two hours - and B was held nowhere a switch could reach. Now B is kept, in that very
+    # folder, with its own key.
+    _machine_with_active_and_spare(world)
+    world.store().switch(ACCOUNT_B)
+    leftover = _spare(world, ACCOUNT_B)
+    assert Path(leftover).is_dir() and world.key_at(leftover) is None, "the switch leaves B's folder, key-less"
+    b_key = world.key_at(world.default)
     world.store().held_accounts()
-    Path(_spare(world, ACCOUNT_A)).mkdir(parents=True)
     world.sign_in(world.default, ACCOUNT_C)
 
-    first = world.store()
-    assert [(h.email, h.role) for h in first.held_accounts()] == [(ACCOUNT_C, "active")]
-    assert world.key_at(_copy(world)) == a_key and first.last_kept == []
-    assert [r["account"] for r in _log_records(world) if r["event"] == "replaced-sign-in-not-kept-yet"] == [ACCOUNT_A]
+    store = world.store()
+    held = store.held_accounts()
 
-    Path(_spare(world, ACCOUNT_A)).rmdir()
-    second = world.store()
-
-    assert [(h.email, h.role) for h in second.held_accounts()] == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")]
-    assert world.key_at(_spare(world, ACCOUNT_A)) == a_key
+    assert [(h.email, h.role) for h in held] == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare"), (ACCOUNT_B, "spare")]
+    assert world.key_at(leftover) == b_key and world.email_at(leftover) == ACCOUNT_B
+    assert [(k.account, k.kept_in) for k in store.last_kept] == [(ACCOUNT_B, leftover)]
+    assert store.not_kept == []
+    assert world.key_at(_copy(world)) == world.key_at(world.default), "the copy now follows C"
     world.assert_each_signin_in_exactly_one_place()
+    assert not [r for r in _log_records(world) if r["event"].startswith("replaced-sign-in-not-kept")]
+
+
+def test_keptCopy_ASignInWaitingForApprovalHoldsTheEmptyFolder_AIsKept_AndTheWaitingSignInRefusesToWrite(world):
+    # A new spare's sign-in waiting for its approval holds an empty spare folder. A, replaced by hand, is kept in it
+    # at once; the waiting sign-in then finds a key there and writes nothing, and abandoning it keeps A.
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    world.sign_in(world.default, ACCOUNT_C)
+    waiting = world.store().sign_in_target(ACCOUNT_A)
+    assert Path(waiting.folder).is_dir() and world.key_at(waiting.folder) is None
+
+    assert [(h.email, h.role) for h in world.store().held_accounts()] == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(waiting.folder) == a_key
+
+    written = []
+    with pytest.raises(LicenseStoreError, match="came to be held here"):
+        world.store().finish_sign_in(waiting, lambda: written.append(True), _now)
+    world.store().abandon_sign_in(waiting)
+
+    assert written == [] and world.key_at(waiting.folder) == a_key
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_keptCopy_TheReplacedAccountsSpareFolderHoldsAnotherSignIn_NothingIsOverwritten_AndItIsReportedNotKept(world):
+    # The one case the keep cannot do: A's spare folder holds a key that is not A's. The copy - the only place A is -
+    # is left exactly as it was, A is listed as not kept on every open while it lasts, and the next open after the
+    # folder is cleared keeps A.
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    stray = world.sign_in(_spare(world, ACCOUNT_A), ACCOUNT_B)
+    world.sign_in(world.default, ACCOUNT_C)
+
+    for _ in range(2):
+        store = world.store()
+        assert [(h.email, h.role) for h in store.held_accounts()] == [(ACCOUNT_C, "active"), (ACCOUNT_B, "spare")]
+        assert world.key_at(_copy(world)) == a_key and world.email_at(_copy(world)) == ACCOUNT_A
+        assert world.key_at(_spare(world, ACCOUNT_A)) == stray, "the other sign-in is never written over"
+        [lost] = store.not_kept
+        assert (lost.account, lost.reason, lost.copy, lost.spare_folder) == (
+            ACCOUNT_A, license_store.NOT_KEPT_FOLDER_HOLDS_ANOTHER_SIGN_IN, _copy(world), _spare(world, ACCOUNT_A))
+        assert set(lost.to_json()) == {"accountEmail", "reason", "copy", "spareFolder"}
+
+    os.replace(_spare(world, ACCOUNT_A), _spare(world, ACCOUNT_B))  # the owner puts the stray sign-in where it belongs
+    if world.kind == "keychain":
+        world.backend().write(_spare(world, ACCOUNT_B), HeldKey(stray))
+        world.backend().delete(_spare(world, ACCOUNT_A))
+    after = world.store()
+
+    assert [(h.email, h.role) for h in after.held_accounts()] == [
+        (ACCOUNT_C, "active"), (ACCOUNT_A, "spare"), (ACCOUNT_B, "spare")]
+    assert world.key_at(_spare(world, ACCOUNT_A)) == a_key and after.not_kept == []
+    log = (Path(world.store_dir) / "license-store.log").read_text(encoding="utf-8")
+    assert not any(secret in log for secret in world.secrets)
+
+
+@pytest.mark.parametrize("kind", ["file", "keychain"])
+def test_keptCopy_CrashAtEveryChangePointOfAKeepIntoALeftoverFolder_TheReplacedAccountIsNeverLost(tmp_path, kind):
+    # The keep into a key-less leftover folder is a copy and then a drop, journaled: a crash at any change point is
+    # finished by the next run, and A is held once, as a spare, with its own key.
+    def make(tag):
+        w = World(tmp_path / tag, kind)
+        w.removed = set()
+        w.a_key = w.sign_in(w.default, ACCOUNT_A)
+        w.store().held_accounts()
+        Path(_spare(w, ACCOUNT_A)).mkdir(parents=True)
+        w.sign_in(w.default, ACCOUNT_C)
+        return w
+
+    probe = make("probe")
+    labels = []
+    probe.store(checkpoint=labels.append).held_accounts()
+    assert "copy-key" in labels and "drop-key" in labels and "rename-folder" not in labels, labels
+
+    for n in range(1, len(labels) + 1):
+        w = make(f"crash{n}")
+        assert _run_with_crash_at(w, n, lambda store: store.held_accounts()), f"no crash at {labels[n - 1]}"
+        held = [(a.email, a.role) for a in w.store().held_accounts()]
+
+        assert held == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")], f"crash at {labels[n - 1]}: {held}"
+        assert w.key_at(_spare(w, ACCOUNT_A)) == w.a_key, f"crash at {labels[n - 1]}"
+        w.assert_each_signin_in_exactly_one_place()
+        assert not (Path(w.store_dir) / "journal.json").exists()
 
 
 @pytest.mark.parametrize("kind", ["file", "keychain"])
@@ -1576,3 +1675,64 @@ def test_keptCopy_CrashAtEveryChangePoint_TheReplacedAccountIsKeptOnceAndNeverLo
         assert w.email_at(_copy(w)) == ACCOUNT_C and w.key_at(_copy(w)) == w.key_at(w.default)
         w.assert_each_signin_in_exactly_one_place()
         assert not (Path(w.store_dir) / "journal.json").exists()
+
+
+# ===== never lose a held sign-in (issue 4696): every path that could overwrite one refuses, and changes nothing =====
+
+
+def _a_folder_named_for_one_account_holding_another(world, named: str, holding: str) -> str:
+    """A spare folder named for ``named`` that holds ``holding``'s sign-in: the one shape every write must not touch."""
+    folder = world.store().spare_folder(named)
+    world.sign_in(folder, holding)
+    return folder
+
+
+def test_neverLose_SwitchWhoseActiveSpareFolderHoldsAnotherSignIn_IsRefused_AndNothingChanges(world):
+    # Putting the active sign-in away would overwrite the sign-in in its folder.
+    _machine_with_active_and_spare(world)
+    _a_folder_named_for_one_account_holding_another(world, ACCOUNT_A, ACCOUNT_C)
+    before = world.snapshot()
+
+    with pytest.raises(LicenseStoreError, match="would overwrite that sign-in, so nothing was changed"):
+        world.store().switch(ACCOUNT_B)
+
+    assert world.snapshot() == before
+
+
+def test_neverLose_AddIntoASpareFolderHoldingAnotherSignIn_IsRefused_AndNothingChanges(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    _a_folder_named_for_one_account_holding_another(world, ACCOUNT_B, ACCOUNT_C)
+    source = world.new_signin_folder(ACCOUNT_B)
+    before = world.snapshot()
+
+    with pytest.raises(LicenseStoreError, match="already holds a key that is not"):
+        world.store().add(source)
+
+    assert world.snapshot() == before
+
+
+def test_neverLose_SignInIntoASpareFolderHoldingAnotherSignIn_IsRefusedBeforeAnyLogin_AndNothingChanges(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    _a_folder_named_for_one_account_holding_another(world, ACCOUNT_B, ACCOUNT_C)
+    before = world.snapshot()
+
+    with pytest.raises(LicenseStoreError, match="already holds a key that is not"):
+        world.store().sign_in_target(ACCOUNT_B)
+
+    assert world.snapshot() == before
+
+
+def test_neverLose_ASwitchsLeftoverFolderThenAHandSignIn_EveryAccountIsStillHeld(world):
+    # The whole 6 November sequence end to end, on both backends: three accounts, switches back and forth (each
+    # leaving key-less folders behind), then a sign-in by hand to an account held nowhere. Nothing is lost.
+    _machine_with_active_and_spare(world)
+    world.store().add(world.new_signin_folder(ACCOUNT_C))
+    for target in [ACCOUNT_B, ACCOUNT_C, ACCOUNT_A, ACCOUNT_C]:
+        world.store().switch(target)
+    world.store().held_accounts()
+    world.sign_in(world.default, "account-d@example.com")
+
+    held = {a.email: a.role for a in world.store().held_accounts()}
+
+    assert held == {"account-d@example.com": "active", ACCOUNT_A: "spare", ACCOUNT_B: "spare", ACCOUNT_C: "spare"}
+    world.assert_each_signin_in_exactly_one_place()

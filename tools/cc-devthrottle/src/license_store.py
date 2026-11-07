@@ -109,6 +109,11 @@ REASON_EXCHANGE_FAILED_RESTORED = "exchange-failed-restored"
 REASON_EXCHANGE_FAILED_UNKNOWN = "exchange-failed-unknown"
 REASON_VERIFY_FAILED = "verify-failed"
 
+#: Why a sign-in by hand's replaced account could not be kept as a spare (`NotKeptSignIn.reason`). The one case left once
+#: a key-less leftover folder no longer stops the keep: the account's spare folder holds a sign-in key that is not the
+#: account's own (another account's, or one with no account block), which the keep would overwrite.
+NOT_KEPT_FOLDER_HOLDS_ANOTHER_SIGN_IN = "spare-folder-holds-another-sign-in"
+
 
 class LicenseStoreError(Exception):
     """An operation could not be done. The message names what failed and never carries a key value;
@@ -642,6 +647,10 @@ class LicenseStore:
         self.last_heals: list[HandSignInHeal] = []
         #: Every account a hand sign-in replaced that this store object kept as a spare (see `_keep_active_copy`).
         self.last_kept: list[KeptReplacedSignIn] = []
+        #: Every account a sign-in by hand replaced that the LAST open could not keep as a spare (see `_keep_replaced`).
+        #: A state, not an event: it is worked out again on every open, so it lasts exactly as long as the problem does,
+        #: and the Director reports it on every report while it lasts. Its only copy is ``active-copy``.
+        self.not_kept: list[NotKeptSignIn] = []
 
     # ----- paths -----
 
@@ -1067,8 +1076,15 @@ class LicenseStore:
           ``/logout`` leaves, but a moment of Claude Code's save can look the same, so it is not proof of anything. The
           cost is loud and removable: after a real ``/logout`` and a login to another account, the revoked sign-in
           becomes a spare the usage read reports refused, which ``license remove`` clears.
-        A spare folder for the replaced account that exists already - a new spare's sign-in waiting for its approval -
-        stops the move; then the copy is left exactly as it is, never written over, and the next open tries again."""
+        A spare folder for the replaced account that exists but holds NO key - what a switch's drop leaves behind, or a new
+        spare's sign-in waiting for its approval - does not stop the keep: the copy's key and account block are copied
+        into it and then dropped from the copy (6 November 2026: such a leftover stopped the keep for two hours, and the
+        machine held the replaced account nowhere it could switch to). A sign-in waiting for its approval then finds its
+        folder holds a key and refuses to write (`finish_sign_in`), so nothing is overwritten either way. Only a spare
+        folder that holds a key which is not the account's own stops the keep: the copy is left exactly as it is, never
+        written over, and the account is listed in `not_kept` for the Director to report, on every open, until it is
+        put right."""
+        self.not_kept = []
         copy = self.active_copy_dir
         active_key = self.backend.read(self.default_config_dir)
         active = _email_of(read_oauth_account(self.default_config_dir)) if active_key is not None else None
@@ -1099,20 +1115,33 @@ class LicenseStore:
         self.backend.write(copy, active_key)
 
     def _keep_replaced(self, email: str) -> bool:
-        """Move the copy of a replaced sign-in into ``email``'s spare folder. False, with nothing changed, when that
-        folder exists already."""
+        """Keep the copy of a replaced sign-in as ``email``'s spare. The caller has proved the account is held nowhere.
+
+        - No spare folder: the copy's folder is renamed into it, whole.
+        - A spare folder holding no key (a switch's leftover, or a sign-in waiting for its approval): the key and the
+          account block are COPIED into it, then dropped from the copy - the drop runs only once the spare folder is
+          proven to hold the same key, so the sign-in is never in no place.
+        - A spare folder holding a key (one that is not ``email``'s, or ``email`` would have been found held): False,
+          with nothing changed, and the account is listed in `not_kept` with the reason."""
         copy, target = self.active_copy_dir, self.spare_folder(email)
-        if os.path.exists(target) or self.backend.exists(target):
-            self._log("replaced-sign-in-not-kept-yet", account=email.lower(), copy=copy, spare_folder=target,
-                      reason="the spare folder exists already")
+        if self.backend.exists(target):
+            found = _email_of(read_oauth_account(target))
+            self._log("replaced-sign-in-not-kept", account=email.lower(), copy=copy, spare_folder=target,
+                      reason=NOT_KEPT_FOLDER_HOLDS_ANOTHER_SIGN_IN, found=found)
+            self.not_kept.append(NotKeptSignIn(email.lower(), NOT_KEPT_FOLDER_HOLDS_ANOTHER_SIGN_IN, copy, target))
             return False
-        # Each step names its own undo, as a heal's do: a move that cannot finish puts the copy back.
-        steps: list[dict] = [{"op": "rename", "from": copy, "to": target,
-                              "undo": {"op": "rename", "from": target, "to": copy}}]
-        if self.backend.name == "keychain":
-            fingerprint = self.backend.read(copy).fingerprint()
-            steps.append({"op": "move-key", "from": copy, "to": target, "fingerprint": fingerprint,
-                          "undo": {"op": "move-key", "from": target, "to": copy, "fingerprint": fingerprint}})
+        if os.path.exists(target):
+            # A copy, not a rename: the folder is there already, and whatever else Claude Code keeps in it stays.
+            steps: list[dict] = [{"op": "copy", "from": copy, "to": target},
+                                 {"op": "drop", "folder": copy, "keptIn": target}]
+        else:
+            # Each step names its own undo, as a heal's do: a move that cannot finish puts the copy back.
+            steps = [{"op": "rename", "from": copy, "to": target,
+                      "undo": {"op": "rename", "from": target, "to": copy}}]
+            if self.backend.name == "keychain":
+                fingerprint = self.backend.read(copy).fingerprint()
+                steps.append({"op": "move-key", "from": copy, "to": target, "fingerprint": fingerprint,
+                              "undo": {"op": "move-key", "from": target, "to": copy, "fingerprint": fingerprint}})
         self._start("keep-replaced", email.lower(), steps)
         kept = KeptReplacedSignIn(email.lower(), target, _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0))
         self.last_kept.append(kept)
@@ -1195,7 +1224,9 @@ class LicenseStore:
             return account
 
     def remove(self, email: str) -> HeldAccount:
-        """Delete a spare's sign-in. The active account cannot be removed this way."""
+        """Delete a spare's sign-in. The active account cannot be removed this way. This is the ONLY operation that
+        drops a sign-in this store holds: a switch, an add, a sign-in, a heal and a keep each refuse, or set a sign-in
+        aside in ``hand-sign-in-backups/``, rather than delete one."""
         with self._lock:
             self.recover()
             account = self._find(email)
@@ -1438,8 +1469,13 @@ class LicenseStore:
     def abandon_sign_in(self, target: "SignInTarget") -> None:
         """After a sign-in that did not finish: remove the NEW spare folder it created. A renewal's folder is never
         touched - it holds the sign-in it had. A new folder holding ``target.email``'s own key is kept (that sign-in
-        exists nowhere else); one holding ANOTHER account's key - a login the browser approved for the wrong account,
-        made a moment ago and held nowhere else - is deleted, so no folder named for one account holds another."""
+        exists nowhere else).
+
+        One holding ANOTHER account's key - a login the browser approved for the wrong account - is a working sign-in,
+        and a sign-in is never deleted here (`remove` is the only way to drop one): when its account is held nowhere
+        and its own spare folder holds no key, it is kept as that account's spare; otherwise (its account is held
+        already, or the key names no account) its folder is set aside whole in ``hand-sign-in-backups/``. Either way
+        no folder named for one account is left holding another."""
         if target.renewing:
             return
         with self._lock:
@@ -1448,11 +1484,37 @@ class LicenseStore:
                 if found is not None and found.strip().lower() == target.email:
                     self._log("sign-in-abandoned-with-key", account=target.email, folder=target.folder)
                     return
-                self._checkpoint("abandon-key")
-                self.backend.delete(target.folder)
+                other = self.spare_folder(found) if found is not None else None
+                # Held elsewhere means in a folder other than this one, which holds it now only by mistake.
+                elsewhere = found is not None and any(
+                    (a.email or "").lower() == found.lower() and not _same_folder(a.config_dir, target.folder)
+                    for a in self._held_accounts())
+                if other is not None and not elsewhere and not self.backend.exists(other):
+                    self._start("keep-wrong-account", found.lower(), [
+                        {"op": "copy", "from": target.folder, "to": other},
+                        {"op": "drop", "folder": target.folder, "keptIn": other},
+                    ])
+                    self._log("wrong-account-sign-in-kept", account=found.lower(), requested=target.email,
+                              kept_in=other)
+                else:
+                    self._set_aside(target.folder, found or target.email)
+                    return
             if os.path.isdir(target.folder):
                 shutil.rmtree(target.folder)
             self._log("sign-in-abandoned", account=target.email, folder=target.folder)
+
+    def _set_aside(self, folder: str, email: str) -> None:
+        """Move ``folder`` whole into ``hand-sign-in-backups/`` (journaled, a Keychain item with it), so the sign-in key
+        it holds is kept, outside ``spares/``, and is never listed, renewed or switched to. The caller holds the lock."""
+        backup = self._free_backup_folder(spare_slug(email), _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0))
+        steps: list[dict] = [{"op": "rename", "from": folder, "to": backup,
+                              "undo": {"op": "rename", "from": backup, "to": folder}}]
+        if self.backend.name == "keychain":
+            fingerprint = self.backend.read(folder).fingerprint()
+            steps.append({"op": "move-key", "from": folder, "to": backup, "fingerprint": fingerprint,
+                          "undo": {"op": "move-key", "from": backup, "to": folder, "fingerprint": fingerprint}})
+        self._start("set-aside", email.lower(), steps)
+        self._log("sign-in-set-aside", account=email.lower(), moved_from=folder, moved_to=backup)
 
     def _record_sign_in(self, email: str, signed_in_at: _dt.datetime, ends: Optional[_dt.datetime]) -> None:
         data = _read_json_object(self._sign_ins_path) or {}
@@ -1558,6 +1620,22 @@ class KeptReplacedSignIn:
     def to_json(self) -> dict:
         """For ``--json``: an email, a folder and a time. No key."""
         return {"accountEmail": self.account, "keptIn": self.kept_in, "keptAtUtc": _iso(self.kept_at)}
+
+
+@dataclass(frozen=True)
+class NotKeptSignIn:
+    """One account a sign-in by hand replaced that could NOT be kept as a spare: it is held nowhere on the machine but
+    the copy of the active sign-in (``copy``), which nothing switches to. ``reason`` is a NOT_KEPT_ word."""
+
+    account: str
+    reason: str
+    copy: str
+    spare_folder: str
+
+    def to_json(self) -> dict:
+        """For ``--json``: an email, a reason word and two folders. No key."""
+        return {"accountEmail": self.account, "reason": self.reason, "copy": self.copy,
+                "spareFolder": self.spare_folder}
 
 
 @dataclass(frozen=True)

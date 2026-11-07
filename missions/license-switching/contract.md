@@ -97,6 +97,7 @@ public sealed class LicenseUsageReport
     public string? SwitchInProgressId { get; set; }    // the SwitchId being executed right now, else null
     public List<LicenseHolding> Holdings { get; set; } = new();  // EVERY account this machine holds, active first
     public LicenseHandSwitch? SwitchedByHand { get; set; }     // set on the one report after a hand sign-in was healed (2.6), else null
+    public List<LicenseSignInNotKept>? SignInsNotKept { get; set; }  // accounts a sign-in by hand replaced and could not keep (2.7); NULL from an older Director
 }
 
 public sealed class LicenseHandSwitch
@@ -266,6 +267,40 @@ twice`).
   account active and this report no longer holds that account, the entry adds that its sign-in was
   overwritten and is no longer held on the machine. A report whose `SwitchedByHand` names an account
   that is not its active holding is malformed.
+
+### 2.7 A sign-in by hand never drops an account the machine held (added for issue 4696)
+
+A sign-in by hand to an account the machine does NOT hold (`claude auth login` into the default config,
+or `/login` in a session) replaces the active sign-in. The key store keeps a copy of the active sign-in
+(`<store>/active-copy/`) and, on its next open, keeps the replaced account as a spare from that copy.
+
+- **A key-less spare folder never stops the keep.** A switch onto an account empties that account's
+  spare folder and leaves the folder. On 6 November 2026 such a leftover stopped the keep on every open
+  for two hours ("the spare folder exists already"), and the machine held the replaced account nowhere
+  a switch could reach. The store now copies the key and account block into a folder that holds no key,
+  then drops them from the copy (journaled). A sign-in waiting for its approval in that folder then
+  finds a key there and writes nothing.
+- **Only a spare folder holding ANOTHER sign-in stops it.** Nothing is overwritten, and the account is
+  NOT KEPT: `license list --json` and `license usage --json` carry it in `notKept`
+  (`accountEmail`, `reason`, `copy`, `spareFolder`) on every answer while it lasts.
+- **The report carries it as a state.** Every report from a Director that knows the field sets
+  `SignInsNotKept` (email and reason word only; empty when there is none). A reason word the receiver
+  does not know travels and is stored as `not-known`.
+- **The Gateway keeps one open log row** of kind `sign-in-not-kept` for each machine and account, opened
+  by the first report that names it and ended by the first report that does not, or by forgetting the
+  machine. A null field (an older Director) touches nothing. The license alarm kind `sign-in-not-kept`
+  is raised from the open rows once a minute: one alarm for each machine, naming every account.
+- **`license remove` is the only operation that drops a sign-in.** A sign-in abandoned with another
+  account's key in its folder is kept as that account's spare, or set aside in
+  `<store>/hand-sign-in-backups/` - never deleted.
+
+```csharp
+public sealed class LicenseSignInNotKept
+{
+    public string AccountEmail { get; set; } = "";   // lower-cased
+    public string Reason { get; set; } = "";         // LicenseNotKeptReasons: "spare-folder-holds-another-sign-in" | "not-known"
+}
+```
 
 ## 3. The switch command (Gateway to Director)
 
