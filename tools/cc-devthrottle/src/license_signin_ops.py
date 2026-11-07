@@ -14,7 +14,7 @@ in the AXI shape (docs/axi-standard.md).
 - With `--json`, `sign-in` and `approve` also answer a FAILURE as one JSON object on standard output
   (`result` "failed" or "refused", and the `reason` word), because the Director reads these answers and writes its
   own sentences. The sentence for a person still goes to standard error.
-- `license renew` signs in again every account held (the active one too) whose sign-in ends within five days, with
+- `license renew` signs in again every account held (the active one too) whose sign-in ends within seven days (``license_signin.RENEW_AHEAD``), with
   the profile set for it by
   `license set-browser`. It exits non-zero when any renewal failed, so a scheduler sees the failure.
 - `license renew --check` signs nothing in: it answers which accounts are `due`, and the profile set for each here.

@@ -736,12 +736,19 @@ dies. The rule, exactly as built:
   days are reached and the renewal is still failing.
 - A machine whose last report is stale is still emailed about: the last thing it said is that its renewal failed
   and its sign-in was about to end, and silence since then is not good news.
+- **The license alarm opens at the FIRST failure** (issue 4697), whatever time is left: kind `renewal-failing`, one
+  for each machine and account, with the reason in words (`LicenseRenewalFailureAlarm`). It stays open while the
+  machine's report says the last renewal failed, or the sign-in's failure streak above is open (so a Director restart,
+  which forgets the failure until its renewal at start fails again, does not close it), and closes by itself once a
+  renewal works. The three-day email above is unchanged.
 
 ### 8.2 The Director renews on a schedule
 
 The key holder (2.4) runs a renewal once a day and once at start, only while `licenseSwitching.enabled` is on. A
-renewal is due when the sign-in ends within five days of now (`LicenseContract.RenewAhead`, matching
-`license_signin.RENEW_AHEAD`). Each row that changes - renewed, or failed - makes a report with
+renewal is due when the sign-in ends within SEVEN days of now (`license_signin.RENEW_AHEAD`, issue 4697 - five days
+until 6 November 2026). That constant is the ONE place the window is set: the Director takes "due" from the tool's
+answer and the Gateway holds no copy (`LicenseContract.RenewAhead` was removed). A renewal that fails is tried again
+on the next daily run, and every day after, until one works. Each row that changes - renewed, or failed - makes a report with
 `Trigger = "changed"` (2.3). A renewal never interrupts a switch: both take the key store's lock, and a renewal that
 finds it taken is tried at the next run.
 
@@ -981,7 +988,7 @@ end of the text, so an identifier followed by a line break is refused.
 
 | Constant | Value |
 |---|---|
-| Renewal due when the sign-in ends within (`RenewAhead`) | 5 days |
+| Renewal due when the sign-in ends within (`license_signin.RENEW_AHEAD`, the tool's alone) | 7 days |
 | Director renewal run | once a day, and at start |
 | `license-sign-in` command timeout (Gateway) | 5 minutes |
 | `license-approve` command timeout (Gateway) | 3 minutes |

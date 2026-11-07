@@ -170,7 +170,6 @@ public sealed class LicenseMessagesCarryNoKeyTests
         Assert.Equal("license-approval-result", LicenseContract.ApprovalResultVerb);
         Assert.Equal("license-sign-in", LicenseContract.SignInVerb);
         Assert.Equal("license-approval", LicenseContract.ApprovalSealPurpose);
-        Assert.Equal(TimeSpan.FromDays(5), LicenseContract.RenewAhead);
         Assert.Equal(TimeSpan.FromDays(1), LicenseContract.RenewalRunInterval);
         Assert.Equal(TimeSpan.FromMinutes(5), LicenseContract.SignInCommandTimeout);
         Assert.Equal(TimeSpan.FromMinutes(3), LicenseContract.ApproveCommandTimeout);

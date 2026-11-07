@@ -36,8 +36,8 @@ hands the URL over and reads the code back (``license sign-in --remote-approval`
 
 WHY RENEWAL EXISTS. A sign-in dies about 30 days after it was made, however often its access is refreshed
 (missions/license-switching/spare-refresh.md) - the active account's too, or the machine stops. So every held account
-is signed in again before then: ``renew_due`` renews each one whose sign-in ends within ``RENEW_AHEAD`` (five days,
-so at about 25 days old), using the browser profile the
+is signed in again before then: ``renew_due`` renews each one whose sign-in ends within ``RENEW_AHEAD`` (seven days,
+so at about 23 days old), using the browser profile the
 owner configured for that account. Which profile is signed in as which account is the OWNER's configuration, kept in
 the key store's folder on his machine (``sign-in-browsers.json``), never in this repository. A renewal that fails
 is reported in the result and makes the command exit non-zero - never silent.
@@ -81,9 +81,13 @@ from .license_store import (
 
 log = logging.getLogger("cc_devthrottle.license_signin")
 
-#: A spare is signed in again when its sign-in ends within this. A sign-in lives about 30 days, so this renews it
-#: at about 25 days, leaving five days of daily attempts before it dies.
-RENEW_AHEAD = _dt.timedelta(days=5)
+#: Every held sign-in - the spares AND the active one - is signed in again when it ends within this. THE ONE PLACE the
+#: renewal window is set: the Director asks this tool which accounts are due (`license renew --check`) and never decides
+#: it itself, and the Gateway only reads what the machines report. A sign-in lives about 30 days, so this renews it at
+#: about 23 days, leaving seven daily attempts before it dies - and, once renewed, every sign-in ends more than a week
+#: out, which is what the Licenses coverage grid counts as fresh (issue 4697; it was five days until 6 November 2026,
+#: when several spares sat inside a week of ending on machines that could not renew them unattended).
+RENEW_AHEAD = _dt.timedelta(days=7)
 
 #: How long Claude Code may take to print the authorize URL, and to finish once the code is typed in.
 URL_WAIT_SECONDS = 60
