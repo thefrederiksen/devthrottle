@@ -183,15 +183,27 @@ public sealed class SlownessDiagnoserTests : IDisposable
     /// the stamp therefore makes the last minute's readings sort FIRST and picks a sample from the first
     /// minute as the newest, and the minute that gets judged is the quiet one that has already passed.
     ///
-    /// The wrong answer this would give is the dangerous direction: the disk is answering at 15.8
+    /// The wrong answer this would give is the dangerous direction: the disk is answering at 13.0
     /// milliseconds a write for the whole of the last minute, and the verdict is NOT SLOW.
+    ///
+    /// THE MARGINS ARE STATED, because review found this test caught the order line by an accident of
+    /// arithmetic it did not declare. The figures are chosen so BOTH comparisons are far from the 10
+    /// millisecond solid-state limit, rather than just over and just under it:
+    /// <list type="bullet">
+    /// <item>the real last minute is 13 readings at 13.0, so 13.0 - thirty per cent ABOVE the limit;</item>
+    /// <item>the two minutes wrongly averaged together are 13 at 13.0 and 12 at 0.4, so (169 + 4.8) / 25 =
+    /// 6.95 - thirty per cent BELOW it.</item>
+    /// </list>
+    /// With the earlier figures of 15.8 and 1.1 the wrong average landed at 8.7 against the limit of 10, so
+    /// the test passed on a margin of 1.3 milliseconds; raising the slow figure to 20.0 would have made the
+    /// order-only revert PASS and left that line guarded by nothing. Measured by the reviewer, not supposed.
     /// </summary>
     [Fact]
     public void Diagnose_TheClockStepsBackMidHistory_JudgesTheNewestMinuteNotTheOneWithTheLargestStamps()
     {
         var history = SteppingClock(
             TimeSpan.FromSeconds(120), stepAt: TimeSpan.FromSeconds(65), step: TimeSpan.FromMinutes(-10),
-            at: timeline => MacOs(millisecondsPerWrite: timeline >= TimeSpan.FromSeconds(60) ? 15.8 : 1.1));
+            at: timeline => MacOs(millisecondsPerWrite: timeline >= TimeSpan.FromSeconds(60) ? 13.0 : 0.4));
 
         // The stepped readings really do hold the smallest stamps, so this history would be mis-ordered.
         Assert.True(history[^1].Sample.TakenAtUtc < history[0].Sample.TakenAtUtc);
@@ -201,6 +213,34 @@ public sealed class SlownessDiagnoserTests : IDisposable
         Assert.True(diagnosis.IsSlow);
         Assert.Equal(SlownessCause.Disk, diagnosis.Cause);
         Assert.Contains("the disk is answering slowly", diagnosis.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// THAT A SORT HAPPENS AT ALL. Review found that every test in this file, old and new, hands the samples in
+    /// ascending timeline order, so removing the sort entirely left all three stepping tests passing: they guard
+    /// WHICH KEY sorts, not WHETHER sorting happens. The method's own contract says "in any order; they are put
+    /// in timeline order before they are judged", and that sentence was true of nothing anyone checked.
+    ///
+    /// So this hands the identical history reversed and demands the identical verdict. Reversed is enough: with
+    /// no sort, the first element decides the window's start and the last decides what counts as newest, so a
+    /// reversal moves both to the wrong end.
+    /// </summary>
+    [Fact]
+    public void Diagnose_TheSameHistoryHandedBackwards_GivesTheSameVerdict()
+    {
+        var forwards = SteppingClock(
+            TimeSpan.FromSeconds(120), stepAt: TimeSpan.FromSeconds(65), step: TimeSpan.FromMinutes(-10),
+            at: timeline => MacOs(millisecondsPerWrite: timeline >= TimeSpan.FromSeconds(60) ? 13.0 : 0.4));
+        var backwards = Enumerable.Reverse(forwards).ToList();
+
+        var one = SlownessDiagnoser.Diagnose(forwards, SessionProcessMembership.Empty);
+        var other = SlownessDiagnoser.Diagnose(backwards, SessionProcessMembership.Empty);
+
+        Assert.True(one.IsSlow);
+        Assert.Equal(SlownessCause.Disk, one.Cause);
+        Assert.Equal(one.Cause, other.Cause);
+        Assert.Equal(one.Summary, other.Summary);
+        Assert.Equal(one.Evidence, other.Evidence);
     }
 
     /// <summary>
