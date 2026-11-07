@@ -117,16 +117,26 @@ public sealed class LicenseApproverCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task TickAsync_OfferOn_TheRecordedProfilesCannotBeRead_TheAssignedRecordsAreStillChecked()
+    public async Task TickAsync_OfferOn_TheRecordedProfilesCannotBeRead_NoRunIsMade_AndItIsTriedAgainAtTheNextLook()
     {
+        // The review of 4710, finding 1: a run on a list it could not read would report the recorded profiles as never
+        // set and not look again for a day.
         _channel.Assign(AccountA, "work-chrome");
         _tool.RecordedBrowsersFailWith = "the profile list is not valid JSON";
         Answers("work-chrome", AccountA, LicenseApproverStates.CanApprove, shown: AccountA);
+        var check = Check(offers: true);
 
-        var report = await Check(offers: true).TickAsync(CancellationToken.None);
+        Assert.Null(await check.TickAsync(CancellationToken.None));
+        Assert.Empty(_tool.ApproverCheckCalls);
+        Assert.Empty(_channel.Reports);
+        Assert.Null(check.LastRunUtc);
 
-        Assert.Equal(new[] { ("work-chrome", (string?)AccountA) }, _tool.ApproverCheckCalls);
+        _tool.RecordedBrowsersFailWith = null;
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        var report = await check.TickAsync(CancellationToken.None);
+
         Assert.Single(report!.Rows);
+        Assert.NotNull(check.LastRunUtc);
     }
 
     [Fact]

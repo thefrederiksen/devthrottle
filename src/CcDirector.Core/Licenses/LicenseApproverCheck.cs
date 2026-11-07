@@ -222,8 +222,20 @@ public sealed class LicenseApproverCheck
                 var startedUtc = _utcNow();
                 if (dailyRunDue)
                 {
+                    IReadOnlyList<LicenseRecordedBrowser> recorded;
+                    try
+                    {
+                        recorded = _offersApprovers ? await _tool.ListRecordedBrowsersAsync(cancellationToken) : Array.Empty<LicenseRecordedBrowser>();
+                    }
+                    catch (LicenseCommandLineException ex)
+                    {
+                        // No run on a list it could not read: a run without it would report the recorded profiles as
+                        // never set and not look again for a day. The look is tried again in ten minutes instead.
+                        NoteFailure($"the browser profiles set for accounts here could not be read: {ex.Message}");
+                        return null;
+                    }
                     _checkedWhenDue.Clear();
-                    _unsent = await CheckAllAsync(assignments, cancellationToken);
+                    _unsent = await CheckAllAsync(assignments, recorded, cancellationToken);
                 }
                 else
                 {
@@ -266,31 +278,18 @@ public sealed class LicenseApproverCheck
     /// them approving nothing - and each check that could not run was one more "could not be checked" line on the
     /// Licenses page. A recorded profile is checked with its own account, so a proven one registers as that account's
     /// approver, and one recorded but no longer on this machine is checked anyway and fails saying so.</summary>
-    private async Task<LicenseApproverCheckReport> CheckAllAsync(LicenseApproverAssignments assignments, CancellationToken cancellationToken)
+    private async Task<LicenseApproverCheckReport> CheckAllAsync(LicenseApproverAssignments assignments,
+        IReadOnlyList<LicenseRecordedBrowser> recordedHere, CancellationToken cancellationToken)
     {
         var own = _profiles.List();
         var work = assignments.Rows.Select(a => (Profile: a.BrowserProfile, Email: (string?)Normalize(a.AccountEmail))).ToList();
         var recorded = 0;
-        if (_offersApprovers)
+        foreach (var r in recordedHere)
         {
-            IReadOnlyList<LicenseRecordedBrowser> set;
-            try
-            {
-                set = await _tool.ListRecordedBrowsersAsync(cancellationToken);
-            }
-            catch (LicenseCommandLineException ex)
-            {
-                // The assigned records are still checked; the profiles set here cannot be known, and the log says so.
-                FileLog.Write($"[LicenseApproverCheck] run FAILED to read the profiles set here, only the assigned records are checked: {ex.Message}");
-                set = Array.Empty<LicenseRecordedBrowser>();
-            }
-            foreach (var r in set)
-            {
-                var item = (Profile: IdOf(r.BrowserProfile, own), Email: (string?)Normalize(r.AccountEmail));
-                if (work.Contains(item)) continue;
-                work.Add(item);
-                recorded++;
-            }
+            var item = (Profile: IdOf(r.BrowserProfile, own), Email: (string?)Normalize(r.AccountEmail));
+            if (work.Contains(item)) continue;
+            work.Add(item);
+            recorded++;
         }
         var report = await CheckEachAsync(work, own, cancellationToken);
         FileLog.Write($"[LicenseApproverCheck] run: assigned={assignments.Rows.Count}, recordedProfilesChecked={recorded}, rows={report.Rows.Count}, failed={report.Rows.Count(r => r.State == LicenseApproverStates.CheckFailed)}");

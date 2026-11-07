@@ -468,6 +468,19 @@ def test_cli_listBrowsers_NoneSet_SaysCountZero_AndNeverFails(machine):
     assert text.exit_code == 0 and "count: 0" in text.output and "No browser profile is set" in text.output
 
 
+def test_cli_listBrowsersJson_TheFileCannotBeRead_ExitsOne_AndAnswersWhyOnStandardOutput(machine):
+    # The Director reads standard output only, so the reason - which file, and to repair it - must be there.
+    assert _run("set-browser", ACCOUNT_B, "Profile B").exit_code == 0
+    (machine / "store" / license_signin.BROWSERS_FILE).write_text("{ not json", encoding="utf-8")
+
+    result = _run("list-browsers", "--json")
+
+    assert result.exit_code == 1
+    answer = _first_json(result.stdout)
+    assert (answer["result"], answer["reason"]) == ("failed", "no-approver")
+    assert "is not valid JSON" in answer["error"] and license_signin.BROWSERS_FILE in answer["error"]
+
+
 def test_cli_listBrowsers_EveryAccountSetHere_WithItsProfile(machine):
     assert _run("set-browser", ACCOUNT_B, "Profile B").exit_code == 0
     assert _run("set-browser", ACCOUNT_A, "Profile A").exit_code == 0

@@ -404,14 +404,16 @@ NAVIGATION_WAIT_SECONDS = 45
 #: while claude.ai navigates - after a redirect, or a click that leaves the page - waits for a page that is not there
 #: yet and times out: on 6 November 2026 that ended most approver checks on Windows and Linux with
 #: "Runtime.evaluate timed out" from browser-harness's own helpers. One such timeout never ends a step: only a page
-#: still navigating after NAVIGATION_WAIT_SECONDS does, and then it says so. Any other error is raised as it is.
+#: still not answering after NAVIGATION_WAIT_SECONDS does, and then it says so. Any other error is raised as it is.
 _NAVIGATION_SAFE = r'''
 import time as _nav_time
 
 NAVIGATION_WAIT = @NAVIGATION_WAIT@
 # Words browser-harness and Chrome use for an evaluate whose page went away under it.
+# Never "timed out after": that is browser-harness's own daemon not answering ("... timed out after 5s waiting for the
+# daemon"), which a page that moves does not cause and asking again does not cure.
 _NAVIGATING = ("Runtime.evaluate timed out", "Execution context was destroyed", "Cannot find context with specified id",
-               "Inspected target navigated or closed", "timed out after")
+               "Inspected target navigated or closed")
 
 def _navigating(ex):
     return any(words in str(ex) for words in _NAVIGATING)
@@ -439,8 +441,11 @@ def read(evaluate):
             if not _navigating(ex):
                 raise
             if _nav_time.time() >= deadline:
-                raise RuntimeError("the page was still navigating after " + str(NAVIGATION_WAIT) + " seconds: "
-                                   + str(ex).split("; expression:")[0]) from None
+                # An evaluate times out the same way when the page is navigating and when browser-harness's own
+                # daemon has stopped answering (it rewraps both as "Runtime.evaluate timed out"), so the sentence
+                # names both rather than guess.
+                raise RuntimeError("the page or the browser-harness daemon did not answer for " + str(NAVIGATION_WAIT)
+                                   + " seconds: " + str(ex).split("; expression:")[0]) from None
         _nav_time.sleep(1)
         settle_load()
 '''.replace("@NAVIGATION_WAIT@", str(NAVIGATION_WAIT_SECONDS))
@@ -651,26 +656,38 @@ def director_browser(profile: str, environ: Optional[Dict[str, str]] = None) -> 
                           ["cc-devthrottle session whoami", "cc-devthrottle browser list"]) from None
 
 
-#: The Gateway answers that mean the Director could not be reached FOR A MOMENT, not that the request was refused:
-#: the tunnel's own 502, 503 and 504. On 6 November 2026 a Director's connection to the Gateway dropped for a few
-#: seconds about every four minutes, and each drop during a check was reported as a broken browser profile ("is not
-#: connected right now", "could not be put back as it was found"). A failure with no answer at all is a drop too, but
-#: only when a connection failure caused it (``is_dropped_connection``): a setting that is missing has no answer
-#: either, and asking again would only make it wait.
-TRANSIENT_GATEWAY_STATUSES = (502, 503, 504)
+#: The Gateway's own sentences for a Director it could not reach FOR A MOMENT: not connected right now
+#: (GatewayEndpoints.TunnelFailure) and the tunnel dropping mid-command (DirectorCommandRouter). The browser routes answer
+#: both with 502 - and answer the DIRECTOR's own failure (a browser that would not start, Chrome exiting, a locked
+#: profile folder) with 502 too, so the status alone cannot tell them apart and only these sentences can (the review
+#: of pull request 4710, finding 2). On 6 November 2026 a Director's connection to the Gateway dropped for a few
+#: seconds about every four minutes, and each drop during a check was reported as a broken browser profile.
+DROPPED_SENTENCES = ("is not connected right now", "dropped while the command was being sent")
+
+#: Statuses that are a drop whatever they say: 504, the Gateway's own "did not answer within" for a Director that
+#: holds its tunnel and answers nothing, and 503, the Gateway itself restarting. Neither is ever the Director's answer.
+DROPPED_STATUSES = (503, 504)
+
+
+def is_dropped_connection(ex: Exception) -> bool:
+    """Whether a GatewayError says the connection dropped for a moment: a 503 or 504, a 502 carrying one of the
+    Gateway's DROPPED_SENTENCES, or no answer because the connection failed or timed out (an OSError under it -
+    urllib's URLError and a read timeout are both). A setting that is missing has no answer either, and no OSError."""
+    status = getattr(ex, "status", None)
+    if status is None:
+        return isinstance(ex.__cause__, OSError)
+    if status in DROPPED_STATUSES:
+        return True
+    if status == 502:
+        body = getattr(ex, "body", None)
+        said = f"{ex} {body.get('error', '') if isinstance(body, dict) else ''}"
+        return any(sentence in said for sentence in DROPPED_SENTENCES)
+    return False
+
 
 #: The pauses, in seconds, between the attempts at a Gateway request that met a dropped connection: four attempts
 #: over about fifty seconds, longer than the drops seen, short enough for a check to finish.
 RECONNECT_PAUSES = (5, 15, 30)
-
-
-def is_dropped_connection(ex: Exception) -> bool:
-    """Whether a GatewayError says the connection dropped for a moment: the tunnel's 502, 503 or 504, or no answer
-    because the connection failed or timed out (an OSError under it - urllib's URLError and a read timeout are both)."""
-    status = getattr(ex, "status", None)
-    if status is not None:
-        return status in TRANSIENT_GATEWAY_STATUSES
-    return isinstance(ex.__cause__, OSError)
 
 
 def with_reconnect(what: str, request: Callable[[], object]) -> object:
@@ -685,8 +702,8 @@ def with_reconnect(what: str, request: Callable[[], object]) -> object:
         except gateway.GatewayError as ex:
             if not is_dropped_connection(ex) or pause is None:
                 raise
-            log.warning("%s: the Gateway did not reach the Director (attempt %d, status %s: %s); asking again in %d "
-                        "seconds", what, attempt, ex.status, ex, pause)
+            log.warning("%s: the connection to the Director dropped for a moment (attempt %d, status %s: %s); asking "
+                        "again in %d seconds", what, attempt, ex.status, ex, pause)
             time.sleep(pause)
     raise AssertionError("unreachable: the last attempt returns or raises")
 

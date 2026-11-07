@@ -207,7 +207,9 @@ def list_browsers(default_config_dir: Optional[str], store_dir: Optional[str], j
     try:
         recorded = license_signin.load_browsers(store)
     except SignInError as ex:
-        _fail(ex)
+        # Under --json the Director reads standard output, so the failure and its sentence (the file and how to repair
+        # it) are answered there too.
+        _fail(ex, {"result": "failed", "error": str(ex)} if json_output else None)
     rows = [{"accountEmail": account, "browser": profile} for account, profile in sorted(recorded.items())]
     if json_output:
         print(json.dumps({"count": len(rows), "accounts": rows}, indent=2))

@@ -229,6 +229,15 @@ public sealed class LicenseSignInCommandLineTests
     }
 
     [Fact]
+    public void ReadRecordedBrowsers_TheToolCouldNotReadItsFile_ThrowsWithTheToolsSentence()
+    {
+        var failed = Assert.Throws<LicenseCommandLineException>(() => CcDevthrottleLicenseCommandLine.ReadRecordedBrowsers(
+            "{\"result\": \"failed\", \"error\": \"sign-in-browsers.json is not valid JSON\", \"reason\": \"no-approver\"}"));
+
+        Assert.Contains("sign-in-browsers.json is not valid JSON", failed.Message);
+    }
+
+    [Fact]
     public void ReadRecordedBrowsers_NoneSet_IsAnEmptyList() =>
         Assert.Empty(CcDevthrottleLicenseCommandLine.ReadRecordedBrowsers("{\"count\": 0, \"accounts\": []}"));
 

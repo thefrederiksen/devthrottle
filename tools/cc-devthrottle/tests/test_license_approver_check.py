@@ -516,11 +516,31 @@ def test_checkApprover_PageStillNavigatingWhenTheTimeIsUp_IsCheckFailed_AndSaysS
     check = machine.check()
 
     assert check.state == "check-failed"
-    assert check.detail == ("The check could not run: browser-harness failed (exit 1): RuntimeError: the page was still "
-                            f"navigating after {license_signin.NAVIGATION_WAIT_SECONDS} seconds: Runtime.evaluate "
-                            "timed out")
+    assert check.detail == ("The check could not run: browser-harness failed (exit 1): RuntimeError: the page or the "
+                            "browser-harness daemon did not answer for "
+                            f"{license_signin.NAVIGATION_WAIT_SECONDS} seconds: Runtime.evaluate timed out")
     assert len(check.detail) <= 200, "the Gateway keeps 200 characters, so the reason must fit whole"
     machine.assert_left_nothing()
+
+
+def test_checkApprover_TheDaemonStopsAnswering_IsNotTakenForANavigation_AndSaysWhatHappened(tmp_path):
+    # The review of 4710, finding 3: browser-harness's own "... timed out after 5s waiting for the daemon" - raised as it
+    # is by page_info's dialog probe - is a daemon that is gone, not a page that moves. It is not asked again.
+    asked = []
+
+    def gone():
+        asked.append(1)
+        raise TimeoutError("pending_dialog timed out after 5s waiting for the daemon")
+
+    browser = FakeBrowser("consent")
+    browser.helper_overrides = {"page_info": lambda real: gone}
+    machine = Machine(tmp_path, browser)
+
+    check = machine.check()
+
+    assert check.state == "check-failed"
+    assert check.detail.endswith("TimeoutError: pending_dialog timed out after 5s waiting for the daemon")
+    assert len(asked) == 1
 
 
 def test_checkApprover_AnErrorThatIsNotANavigation_IsNotAskedAgain(tmp_path):
@@ -600,17 +620,53 @@ def test_checkApprover_FailedAndCouldNotCleanUp_KeepsWhyItFailedFirst(tmp_path):
 # --- a Gateway connection that drops for a moment (6 November 2026) --------------------------------------------------
 
 
-def _gateway_error(status):
-    """A GatewayError as gateway._request raises it: with the answer's status, or - with None - for a connection that
-    failed, with the OSError under it."""
+#: The Gateway's own 502 sentence for a Director it cannot reach (GatewayEndpoints.TunnelFailure).
+NOT_CONNECTED = "The Director on machine-a is not connected right now, so the command was not delivered."
+#: Its 502 sentence for a tunnel that dropped mid-command (DirectorCommandRouter.DescribeTunnelDrop).
+DROPPED = ("The connection to the Director on machine-a dropped while the command was being sent. It is not known "
+           "whether the command was carried out.")
+
+
+def _gateway_error(status, said=None):
+    """A GatewayError as gateway._request raises it: with the answer's status and the Gateway's sentence in the
+    message and the body (a 502 says the Director is not connected, unless ``said`` gives the Director's own
+    failure), or - with None - for a connection that failed, with the OSError under it."""
     import urllib.error
 
     from cc_shared import gateway
 
-    error = gateway.GatewayError(f"status {status}", status=status)
+    said = said or (NOT_CONNECTED if status == 502 else f"status {status}")
+    error = gateway.GatewayError(f"HTTP {status} from the Gateway: {said}", status=status, body={"error": said})
     if status is None:
         error.__cause__ = urllib.error.URLError("connection refused")
     return error
+
+
+def test_withReconnect_ADirectorsOwnFailureAnswered502_IsNotADrop_AndIsRaisedAtOnce():
+    # The review of 4710, finding 2: the Gateway answers a Director that failed - a browser that would not start - with
+    # 502 too. Asking again would start the browser up to four times and say the Director could not be reached.
+    asked = []
+
+    def request():
+        asked.append(1)
+        raise _gateway_error(502, said="The browser profile did not start: Chrome exited with code 21.")
+
+    with pytest.raises(Exception) as raised:
+        license_signin.with_reconnect("browser profile work", request)
+
+    assert "Chrome exited" in str(raised.value) and len(asked) == 1
+
+
+def test_withReconnect_TheTunnelDroppedMidCommand_IsADrop_AndIsAskedAgain():
+    answers = [_gateway_error(502, said=DROPPED), "started"]
+
+    def request():
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    assert license_signin.with_reconnect("browser profile work", request) == "started"
 
 
 def test_withReconnect_ASettingThatIsMissing_IsNotADrop_AndIsRaisedAtOnce():

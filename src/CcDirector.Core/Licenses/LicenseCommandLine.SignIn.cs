@@ -255,6 +255,10 @@ public sealed partial class CcDevthrottleLicenseCommandLine
     {
         using var document = FirstObject(output)
             ?? throw new LicenseCommandLineException($"{ToolName} license list-browsers printed no JSON answer.");
+        // A list the tool could not read answers {result: failed, error}: its sentence names the file and how to repair it,
+        // and it is the one thing that says why, so it goes to the Director's log as it is.
+        if (Text(document.RootElement, "result") == "failed")
+            throw new LicenseCommandLineException($"{ToolName} license list-browsers failed: {Text(document.RootElement, "error") ?? "it gave no reason"}");
         if (!document.RootElement.TryGetProperty("accounts", out var accounts) || accounts.ValueKind != JsonValueKind.Array)
             throw new LicenseCommandLineException($"{ToolName} license list-browsers answered no \"accounts\" list.");
         var rows = new List<LicenseRecordedBrowser>();

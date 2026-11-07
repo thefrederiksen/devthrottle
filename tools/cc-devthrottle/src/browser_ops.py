@@ -290,7 +290,8 @@ class DrivenBrowser:
         self._call = call
         browsers = call(_browsers)
         key = target.strip().lower()
-        match = next((b for b in browsers if gateway.field(b, "id", "Id").lower() == key), None)             or next((b for b in browsers if gateway.field(b, "name", "Name").lower() == key), None)
+        match = next((b for b in browsers if gateway.field(b, "id", "Id").lower() == key), None) \
+            or next((b for b in browsers if gateway.field(b, "name", "Name").lower() == key), None)
         if match is None:
             names = ", ".join(f'"{gateway.field(b, "name", "Name")}"' for b in browsers) or "none"
             raise LookupError(f'no browser profile "{target}" on this machine (there are: {names})')
