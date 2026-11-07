@@ -7,7 +7,7 @@ namespace CcDirector.Core.UnitTests.Licenses;
 
 /// <summary>
 /// License Switching phase 6 (Track C): the key holder's daily approver check. Each approver record that names this
-/// machine is checked with its account, each of this Director's own browser profiles is checked with none when the
+/// machine is checked with its account, each browser profile recorded here for an account is checked with that account when the
 /// machine offers them, and all of it goes up in one report. Runs against a fake license tool, a fake tunnel and a
 /// fake profile list; no browser and no sign-in exists anywhere.
 /// </summary>
@@ -76,19 +76,67 @@ public sealed class LicenseApproverCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task TickAsync_OfferOn_EveryOwnProfileIsCheckedWithNoAccount_AndTheReportSaysItOffers()
+    public async Task TickAsync_OfferOn_OnlyTheProfilesRecordedHereAreChecked_EachWithItsAccount_NeverEveryProfile()
     {
-        _channel.Assign(AccountA, "work-chrome");
-        Answers("work-chrome", AccountA, LicenseApproverStates.CanApprove, shown: AccountA);
-        Answers("work-chrome", null, LicenseApproverStates.CanApprove, account: AccountA, shown: AccountA);
-        Answers("home-edge", null, LicenseApproverStates.SignedOut, account: null);
+        // 6 November 2026: an offering machine checked all eleven of its profiles with no account, most approving nothing.
+        _profiles.Add("spare-chrome", "Spare Chrome");
+        _tool.RecordedBrowsers.Add(new LicenseRecordedBrowser(AccountB, "Home Edge"));
+        Answers("home-edge", AccountB, LicenseApproverStates.SignedOut);
 
         var report = await Check(offers: true).TickAsync(CancellationToken.None);
 
-        Assert.Equal(new[] { ("work-chrome", (string?)AccountA), ("work-chrome", null), ("home-edge", null) }, _tool.ApproverCheckCalls);
+        Assert.Equal(new[] { ("home-edge", (string?)AccountB) }, _tool.ApproverCheckCalls);
         Assert.True(report!.OffersApprovers);
-        var signedOut = report.Rows.Single(r => r.BrowserProfile == "home-edge");
-        Assert.Equal((null, LicenseApproverStates.SignedOut, "Home Edge"), (signedOut.AccountEmail, signedOut.State, signedOut.BrowserProfileName));
+        var row = Assert.Single(report.Rows);
+        Assert.Equal(("home-edge", "Home Edge", AccountB, LicenseApproverStates.SignedOut),
+            (row.BrowserProfile, row.BrowserProfileName!, row.AccountEmail!, row.State));
+    }
+
+    [Fact]
+    public async Task TickAsync_OfferOn_ARecordedProfileTheGatewayAlsoAssigns_IsCheckedOnce()
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        _tool.RecordedBrowsers.Add(new LicenseRecordedBrowser("Account-A@Example.com", "work-chrome"));
+        Answers("work-chrome", AccountA, LicenseApproverStates.CanApprove, shown: AccountA);
+
+        var report = await Check(offers: true).TickAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { ("work-chrome", (string?)AccountA) }, _tool.ApproverCheckCalls);
+        Assert.Single(report!.Rows);
+    }
+
+    [Fact]
+    public async Task TickAsync_OfferOn_ARecordedProfileNotOnThisMachine_IsCheckedAsRecorded_AndItsFailureReported()
+    {
+        _tool.RecordedBrowsers.Add(new LicenseRecordedBrowser(AccountA, "gone-chrome"));
+
+        var report = await Check(offers: true).TickAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { ("gone-chrome", (string?)AccountA) }, _tool.ApproverCheckCalls);
+        Assert.Equal(("gone-chrome", LicenseApproverStates.CheckFailed), (Assert.Single(report!.Rows).BrowserProfile, report.Rows[0].State));
+    }
+
+    [Fact]
+    public async Task TickAsync_OfferOn_TheRecordedProfilesCannotBeRead_NoRunIsMade_AndItIsTriedAgainAtTheNextLook()
+    {
+        // The review of 4710, finding 1: a run on a list it could not read would report the recorded profiles as never
+        // set and not look again for a day.
+        _channel.Assign(AccountA, "work-chrome");
+        _tool.RecordedBrowsersFailWith = "the profile list is not valid JSON";
+        Answers("work-chrome", AccountA, LicenseApproverStates.CanApprove, shown: AccountA);
+        var check = Check(offers: true);
+
+        Assert.Null(await check.TickAsync(CancellationToken.None));
+        Assert.Empty(_tool.ApproverCheckCalls);
+        Assert.Empty(_channel.Reports);
+        Assert.Null(check.LastRunUtc);
+
+        _tool.RecordedBrowsersFailWith = null;
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        var report = await check.TickAsync(CancellationToken.None);
+
+        Assert.Single(report!.Rows);
+        Assert.NotNull(check.LastRunUtc);
     }
 
     [Fact]
@@ -140,11 +188,12 @@ public sealed class LicenseApproverCheckTests : IDisposable
     public async Task TickAsync_EveryRowFailed_TheReportIsStillSent()
     {
         _channel.Assign(AccountA, "work-chrome").Assign(AccountB, "home-edge");
+        _tool.RecordedBrowsers.Add(new LicenseRecordedBrowser(AccountA, "Home Edge"));
 
         await Check(offers: true).TickAsync(CancellationToken.None);
 
         var sent = Assert.Single(_channel.Reports);
-        Assert.Equal(4, sent.Rows.Count);
+        Assert.Equal(3, sent.Rows.Count);
         Assert.All(sent.Rows, r => Assert.Equal(LicenseApproverStates.CheckFailed, r.State));
     }
 

@@ -396,6 +396,60 @@ def _classifier_source() -> str:
     return inspect.getsource(classify_page)
 
 
+#: How long a browser step keeps asking a page that is navigating before it gives up, in seconds.
+NAVIGATION_WAIT_SECONDS = 45
+
+#: What every browser step defines before it reads a page: ``read``, which asks again an evaluate that a navigation
+#: interrupted, and ``settle_load``, which waits for a load the same way. A ``js()`` or ``page_info()`` call made
+#: while claude.ai navigates - after a redirect, or a click that leaves the page - waits for a page that is not there
+#: yet and times out: on 6 November 2026 that ended most approver checks on Windows and Linux with
+#: "Runtime.evaluate timed out" from browser-harness's own helpers. One such timeout never ends a step: only a page
+#: still not answering after NAVIGATION_WAIT_SECONDS does, and then it says so. Any other error is raised as it is.
+_NAVIGATION_SAFE = r'''
+import time as _nav_time
+
+NAVIGATION_WAIT = @NAVIGATION_WAIT@
+# Words browser-harness and Chrome use for an evaluate whose page went away under it.
+# Never "timed out after": that is browser-harness's own daemon not answering ("... timed out after 5s waiting for the
+# daemon"), which a page that moves does not cause and asking again does not cure.
+_NAVIGATING = ("Runtime.evaluate timed out", "Execution context was destroyed", "Cannot find context with specified id",
+               "Inspected target navigated or closed")
+
+def _navigating(ex):
+    return any(words in str(ex) for words in _NAVIGATING)
+
+def settle_load():
+    # Wait for the document to be complete. A page that navigates while it is asked is asked again; a page that is
+    # not complete in time is read anyway, by reads that are themselves asked again.
+    deadline = _nav_time.time() + NAVIGATION_WAIT
+    while _nav_time.time() < deadline:
+        try:
+            if js("document.readyState") == "complete":
+                return
+        except Exception as ex:
+            if not _navigating(ex):
+                raise
+        _nav_time.sleep(0.5)
+
+def read(evaluate):
+    # evaluate() is one js() or page_info() call: asked again while the page navigates, never ended by one timeout.
+    deadline = _nav_time.time() + NAVIGATION_WAIT
+    while True:
+        try:
+            return evaluate()
+        except Exception as ex:
+            if not _navigating(ex):
+                raise
+            if _nav_time.time() >= deadline:
+                # An evaluate times out the same way when the page is navigating and when browser-harness's own
+                # daemon has stopped answering (it rewraps both as "Runtime.evaluate timed out"), so the sentence
+                # names both rather than guess.
+                raise RuntimeError("the page or the browser-harness daemon did not answer for " + str(NAVIGATION_WAIT)
+                                   + " seconds: " + str(ex).split("; expression:")[0]) from None
+        _nav_time.sleep(1)
+        settle_load()
+'''.replace("@NAVIGATION_WAIT@", str(NAVIGATION_WAIT_SECONDS))
+
 #: The part of both browser steps that opens the URL and waits for a page that can be judged. Formatted with url,
 #: email and wait, after ``classify_page`` is defined.
 _SETTLE_SCRIPT = r'''
@@ -407,9 +461,9 @@ WAIT = %(wait)s
 def authorize_button():
     # The consent page is long: the button can sit below the visible area, where a click at its position lands on
     # nothing. Scroll it to the middle first, then read where it is, and only count it when it is on screen.
-    found = js("""(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.offsetParent&&b.innerText.trim()==='Authorize');
+    found = read(lambda: js("""(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.offsetParent&&b.innerText.trim()==='Authorize');
         if(!b) return null; b.scrollIntoView({block:'center'}); const r=b.getBoundingClientRect();
-        return [r.x+r.width/2, r.y+r.height/2, innerWidth, innerHeight];})()""")
+        return [r.x+r.width/2, r.y+r.height/2, innerWidth, innerHeight];})()"""))
     if not found:
         return None
     x, y, width, height = found
@@ -426,8 +480,8 @@ def settle():
     previous = None
     while True:
         authorize = authorize_button()
-        text = js("document.body ? document.body.innerText : ''") or ""
-        address = page_info().get("url", "")
+        text = read(lambda: js("document.body ? document.body.innerText : ''")) or ""
+        address = read(page_info).get("url", "")
         state, shown = classify_page(text, address, authorize is not None, EMAIL)
         if state == "can-approve" or (state != "check-failed" and state == previous) or time.time() >= deadline:
             return state, shown, authorize, address.split("?")[0]
@@ -446,7 +500,7 @@ cdp("Emulation.setFocusEmulationEnabled", enabled=True)
 #: on a page ``classify_page`` calls can-approve.
 _APPROVE_SCRIPT = _SETTLE_SCRIPT + r'''
 try:
-    wait_for_load()
+    settle_load()
     state, shown, authorize, address = settle()
     if state != "can-approve":
         finish(state, shown=shown, url=address)
@@ -466,8 +520,9 @@ try:
             if again and clicks < 3 and time.time() - last_click > 6:
                 click_at_xy(again[0], again[1])
                 clicks, last_click = clicks + 1, time.time()
-            values = js("[...document.querySelectorAll('input,textarea,code,pre')].map(e=>e.value||e.innerText||'')") or []
-            for s in values + [js("document.body ? document.body.innerText : ''") or ""]:
+            # Authorize leaves the page for the one that shows the code: every read here can meet that navigation.
+            values = read(lambda: js("[...document.querySelectorAll('input,textarea,code,pre')].map(e=>e.value||e.innerText||'')")) or []
+            for s in values + [read(lambda: js("document.body ? document.body.innerText : ''")) or ""]:
                 m = CODE.search(s)
                 if m:
                     code = m.group(0)
@@ -475,9 +530,9 @@ try:
         if code:
             finish("code", code=code)
         else:
-            page = js("document.body ? document.body.innerText : ''") or ""
-            state = js("[document.visibilityState, document.hasFocus()]") or ["?", "?"]
-            finish("no-code", clicks=clicks, url=page_info().get("url", "").split("?")[0],
+            page = read(lambda: js("document.body ? document.body.innerText : ''")) or ""
+            state = read(lambda: js("[document.visibilityState, document.hasFocus()]")) or ["?", "?"]
+            finish("no-code", clicks=clicks, url=read(page_info).get("url", "").split("?")[0],
                    text=" ".join(page.split())[:300], visibility=state[0], focused=state[1])
 finally:
     cdp("Emulation.setFocusEmulationEnabled", enabled=False)
@@ -488,7 +543,7 @@ finally:
 #: no click, no typing, no sign-in. It prints exactly one "RESULT " line whose "state" is one of the page states.
 _CHECK_SCRIPT = _SETTLE_SCRIPT + r'''
 try:
-    wait_for_load()
+    settle_load()
     state, shown, authorize, address = settle()
     finish(state, shown=shown)
 finally:
@@ -506,13 +561,14 @@ def finish(state, **extra):
 new_tab("https://claude.ai/")
 tab = current_tab()
 try:
-    wait_for_load()
-    answer = js("""fetch('/api/account', {credentials: 'include'}).then(async r => {
+    # claude.ai redirects on the way in, so the read can meet a navigation; a read asks nothing that changes anything.
+    settle_load()
+    answer = read(lambda: js("""fetch('/api/account', {credentials: 'include'}).then(async r => {
         const body = await r.text();
         let email = null;
         if (r.status === 200) { try { email = JSON.parse(body).email_address || null; } catch (e) {} }
         return {status: r.status, email: email, sessionInvalid: body.includes('account_session_invalid')};
-    })""") or {}
+    })""")) or {}
     status = answer.get("status")
     # Signed out is claude.ai's own answer for it, recorded on 16 October: "account_session_invalid", "Invalid
     # authorization". A refusal without it - a bot challenge or an edge block answers 403 too - is not proof of a
@@ -591,7 +647,8 @@ def director_browser(profile: str, environ: Optional[Dict[str, str]] = None) -> 
     from . import browser_ops
 
     try:
-        return browser_ops.DrivenBrowser(profile)
+        return browser_ops.DrivenBrowser(profile, call=lambda request: with_reconnect(f"browser profile {profile}",
+                                                                                      request))
     except LookupError as ex:
         raise SignInError(APPROVAL_FAILED, str(ex), ["cc-devthrottle browser list"]) from None
     except gateway.GatewayError as ex:
@@ -599,7 +656,73 @@ def director_browser(profile: str, environ: Optional[Dict[str, str]] = None) -> 
                           ["cc-devthrottle session whoami", "cc-devthrottle browser list"]) from None
 
 
+#: The Gateway's own sentences for a Director it could not reach FOR A MOMENT: not connected right now
+#: (GatewayEndpoints.TunnelFailure) and the tunnel dropping mid-command (DirectorCommandRouter). The browser routes answer
+#: both with 502 - and answer the DIRECTOR's own failure (a browser that would not start, Chrome exiting, a locked
+#: profile folder) with 502 too, so the status alone cannot tell them apart and only these sentences can (the review
+#: of pull request 4710, finding 2). On 6 November 2026 a Director's connection to the Gateway dropped for a few
+#: seconds about every four minutes, and each drop during a check was reported as a broken browser profile.
+DROPPED_SENTENCES = ("is not connected right now", "dropped while the command was being sent")
+
+#: Statuses that are a drop whatever they say: 504, the Gateway's own "did not answer within" for a Director that
+#: holds its tunnel and answers nothing, and 503, the Gateway itself restarting. Neither is ever the Director's answer.
+DROPPED_STATUSES = (503, 504)
+
+
+def is_dropped_connection(ex: Exception) -> bool:
+    """Whether a GatewayError says the connection dropped for a moment: a 503 or 504, a 502 carrying one of the
+    Gateway's DROPPED_SENTENCES, or no answer because the connection failed or timed out (an OSError under it -
+    urllib's URLError and a read timeout are both). A setting that is missing has no answer either, and no OSError."""
+    status = getattr(ex, "status", None)
+    if status is None:
+        return isinstance(ex.__cause__, OSError)
+    if status in DROPPED_STATUSES:
+        return True
+    if status == 502:
+        body = getattr(ex, "body", None)
+        said = f"{ex} {body.get('error', '') if isinstance(body, dict) else ''}"
+        return any(sentence in said for sentence in DROPPED_SENTENCES)
+    return False
+
+
+#: The pauses, in seconds, between the attempts at a Gateway request that met a dropped connection: four attempts
+#: over about fifty seconds, longer than the drops seen, short enough for a check to finish.
+RECONNECT_PAUSES = (5, 15, 30)
+
+
+def with_reconnect(what: str, request: Callable[[], object]) -> object:
+    """``request()``, asked again after each pause in RECONNECT_PAUSES while the Gateway answers that the Director could
+    not be reached for a moment. A refusal - any other answer - is raised at once, and so is the last drop: a drop
+    that outlasts every pause is a real failure, and says so."""
+    from cc_shared import gateway
+
+    for attempt, pause in enumerate((*RECONNECT_PAUSES, None), start=1):
+        try:
+            return request()
+        except gateway.GatewayError as ex:
+            if not is_dropped_connection(ex) or pause is None:
+                raise
+            log.warning("%s: the connection to the Director dropped for a moment (attempt %d, status %s: %s); asking "
+                        "again in %d seconds", what, attempt, ex.status, ex, pause)
+            time.sleep(pause)
+    raise AssertionError("unreachable: the last attempt returns or raises")
+
+
 RunHarness = Callable[[str, Dict[str, str], float], str]
+
+#: A line of a Python traceback that names the exception: "RuntimeError: Runtime.evaluate timed out; ...".
+_EXCEPTION_LINE = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Timeout|Interrupt)(?::.*)?$")
+
+
+def harness_reason(output: str) -> str:
+    """Why a browser-harness run failed, from what it printed: the line naming the exception, without the JavaScript
+    it was evaluating. The last lines of a traceback start with the file and line it was raised at, and the Gateway
+    keeps 200 characters of a check's reason: from 19 October to 6 November 2026 every reason it kept was "File
+    ...helpers.py, line 117, in _runtime_evaluate" and never the error itself."""
+    lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
+    named = next((line for line in reversed(lines) if _EXCEPTION_LINE.match(line)), None)
+    reason = named or (lines[-1] if lines else "it printed nothing")
+    return reason.split("; expression:")[0].strip()
 
 
 #: browser-harness refuses a daemon name longer than this ("invalid BU_NAME"), before it does anything.
@@ -649,8 +772,10 @@ def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> st
     if done.returncode != 0:
         # browser-harness's own error text names the page or the connection; the code is never in it, because a
         # run that found the code printed it only on the RESULT line and exited 0.
-        detail = " / ".join(line for line in (done.stderr or done.stdout).splitlines()[-3:] if line.strip())
-        raise SignInError(APPROVAL_FAILED, f"browser-harness failed (exit {done.returncode}): {detail}",
+        log.warning("browser-harness exited %d: %s", done.returncode,
+                    " / ".join((done.stderr or done.stdout).strip().splitlines()[-6:]))
+        raise SignInError(APPROVAL_FAILED, f"browser-harness failed (exit {done.returncode}): "
+                                           f"{harness_reason(done.stderr or done.stdout)}",
                           ["browser-harness --doctor"])
     return done.stdout
 
@@ -720,8 +845,9 @@ def approve_in_browser(url: str, email: str, profile: str, *,
 
 
 def _page_script(body: str, url: str, email: str) -> str:
-    """A browser step for one authorize URL: the shared page classifier, then ``body`` formatted for the URL."""
-    return _classifier_source() + body % {"url": json.dumps(url.strip()), "email": json.dumps(email),
+    """A browser step for one authorize URL: the shared page classifier and the navigation-safe reads, then ``body``
+    formatted for the URL."""
+    return _classifier_source() + _NAVIGATION_SAFE + body % {"url": json.dumps(url.strip()), "email": json.dumps(email),
                                           "wait": BROWSER_WAIT_SECONDS // 2}
 
 
@@ -793,7 +919,7 @@ def _detail(state: str, profile: str, email: Optional[str]) -> str:
 def read_signed_in_account(env: Dict[str, str], run_harness: RunHarness = _run_harness) -> Optional[str]:
     """The account the browser profile behind ``env`` is signed in to claude.ai as, or None when it is signed out.
     Raises SignInError when claude.ai's answer is neither."""
-    answer = _result(run_harness(_ACCOUNT_SCRIPT, env, BROWSER_WAIT_SECONDS))
+    answer = _result(run_harness(_NAVIGATION_SAFE + _ACCOUNT_SCRIPT, env, BROWSER_WAIT_SECONDS))
     if answer.get("state") == "signed-out":
         return None
     if answer.get("state") == "account" and isinstance(answer.get("email"), str) and "@" in answer["email"]:
@@ -874,8 +1000,12 @@ def check_approver(profile: str, email: Optional[str] = None, *,
         raise
     problems = opened.clean_up()
     if problems:
+        cleanup = "The check could not clean up after itself: " + "; ".join(problems) + "."
+        # A check that failed already keeps its own reason first: it is why the check failed, and the Gateway keeps
+        # only the start of a long sentence.
+        detail = f"{check.detail} {cleanup}" if check.state == CHECK_FAILED else cleanup
         return ApproverCheck(check.browser_profile, check.browser_profile_name, check.account_email, None,
-                             CHECK_FAILED, "The check could not clean up after itself: " + "; ".join(problems) + ".")
+                             CHECK_FAILED, detail)
     return check
 
 

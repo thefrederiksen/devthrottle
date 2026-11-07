@@ -13,6 +13,7 @@ import io
 import json
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import pytest
@@ -54,9 +55,13 @@ class FakeBrowser:
     ``frames`` are the pages the tab shows in turn, one per read, the last one staying; a click on Authorize, where
     it is allowed, turns the page into the one that shows the code. ``account`` is what claude.ai's account endpoint
     answers. Any click when ``clicks_allowed`` is False fails the test, and so does any helper this fake does not
-    define - typing, key presses, file uploads - because the script would raise NameError."""
+    define - typing, key presses, file uploads - because the script would raise NameError.
 
-    def __init__(self, *frames, account=None, clicks_allowed=False, fails_with=None):
+    ``timeouts`` is how many of the script's page reads time out first, the way browser-harness's evaluate does while
+    claude.ai navigates. A script that raises fails the run the way browser-harness does - exit 1 with its traceback -
+    read by the same ``harness_reason`` the real run uses."""
+
+    def __init__(self, *frames, account=None, clicks_allowed=False, fails_with=None, timeouts=0):
         self.frames = [PAGES[f] if isinstance(f, str) else f for f in frames]
         self.account = account
         self.clicks_allowed = clicks_allowed
@@ -68,6 +73,10 @@ class FakeBrowser:
         self.focus = []
         self.runs = 0
         self.code_shown = False
+        self.timeouts = timeouts
+        self.timed_out = 0
+        #: Set by a test to replace or wrap helpers the script is given.
+        self.helper_overrides = {}
 
     def _page(self):
         return self.frames[min(max(self.reads - 1, 0), len(self.frames) - 1)]
@@ -77,15 +86,27 @@ class FakeBrowser:
         if self.fails_with is not None:
             raise self.fails_with
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            exec(compile(script, "<browser step>", "exec"), self._helpers())
+        try:
+            with contextlib.redirect_stdout(out):
+                exec(compile(script, "<browser step>", "exec"), self._helpers())
+        except Exception:
+            raise SignInError(license_signin.APPROVAL_FAILED, "browser-harness failed (exit 1): "
+                              + license_signin.harness_reason(traceback.format_exc())) from None
         return out.getvalue()
+
+    def _navigating(self, expression):
+        if self.timed_out < self.timeouts:
+            self.timed_out += 1
+            raise RuntimeError(f"Runtime.evaluate timed out; expression: {expression[:40]}")
 
     def _helpers(self):
         def new_tab(url):
             self.opened.append(url)
 
         def js(expression):
+            self._navigating(expression)
+            if expression == "document.readyState":
+                return "complete"
             if "/api/account" in expression:
                 return self.account
             if "querySelectorAll('button')" in expression:
@@ -102,6 +123,7 @@ class FakeBrowser:
             raise AssertionError(f"the script ran JavaScript this fake does not know: {expression[:80]}")
 
         def page_info():
+            self._navigating("JSON.stringify({url:location.href")
             return {"url": self._page()["address"]}
 
         def cdp(method, **params):
@@ -118,8 +140,11 @@ class FakeBrowser:
             self.clicks.append((x, y))
             self.code_shown = True
 
-        return {"new_tab": new_tab, "current_tab": lambda: {"targetId": "tab-1"}, "wait_for_load": lambda: None,
-                "js": js, "page_info": page_info, "cdp": cdp, "click_at_xy": click_at_xy}
+        helpers = {"new_tab": new_tab, "current_tab": lambda: {"targetId": "tab-1"}, "js": js, "page_info": page_info,
+                   "cdp": cdp, "click_at_xy": click_at_xy}
+        for name, make in self.helper_overrides.items():
+            helpers[name] = make(helpers[name])
+        return helpers
 
 
 class FakeProfile:
@@ -459,6 +484,279 @@ def test_temporaryLoginFolder_IsANewEmptyFolderInTheTemporaryArea():
         assert Path(license_signin.tempfile.gettempdir()) in folder.parents
     finally:
         folder.rmdir()
+
+
+# --- a page that navigates while it is read (6 November 2026) -------------------------------------------------------
+
+
+@pytest.mark.parametrize("timeouts", [1, 3])
+def test_checkApprover_EvaluateTimesOutDuringANavigation_AsksAgain_AndAnswersThePage(tmp_path, timeouts):
+    machine = Machine(tmp_path, FakeBrowser("consent", timeouts=timeouts))
+
+    check = machine.check()
+
+    assert check.state == "can-approve" and check.shown_account == ALICE
+    assert machine.browser.timed_out == timeouts
+    machine.assert_left_nothing()
+
+
+def test_checkApprover_NoEmail_AccountReadTimesOutOnce_AsksAgain_AndChecksThatAccount(tmp_path):
+    browser = FakeBrowser("consent", account={"status": 200, "email": ALICE}, timeouts=1)
+    machine = Machine(tmp_path, browser)
+
+    check = machine.check(email=None)
+
+    assert (check.state, check.account_email) == ("can-approve", ALICE)
+    assert browser.timed_out == 1
+
+
+def test_checkApprover_PageStillNavigatingWhenTheTimeIsUp_IsCheckFailed_AndSaysSo(tmp_path):
+    machine = Machine(tmp_path, FakeBrowser("consent", timeouts=10_000))
+
+    check = machine.check()
+
+    assert check.state == "check-failed"
+    assert check.detail == ("The check could not run: browser-harness failed (exit 1): RuntimeError: the page or the "
+                            "browser-harness daemon did not answer for "
+                            f"{license_signin.NAVIGATION_WAIT_SECONDS} seconds: Runtime.evaluate timed out")
+    assert len(check.detail) <= 200, "the Gateway keeps 200 characters, so the reason must fit whole"
+    machine.assert_left_nothing()
+
+
+def test_checkApprover_TheDaemonStopsAnswering_IsNotTakenForANavigation_AndSaysWhatHappened(tmp_path):
+    # The review of 4710, finding 3: browser-harness's own "... timed out after 5s waiting for the daemon" - raised as it
+    # is by page_info's dialog probe - is a daemon that is gone, not a page that moves. It is not asked again.
+    asked = []
+
+    def gone():
+        asked.append(1)
+        raise TimeoutError("pending_dialog timed out after 5s waiting for the daemon")
+
+    browser = FakeBrowser("consent")
+    browser.helper_overrides = {"page_info": lambda real: gone}
+    machine = Machine(tmp_path, browser)
+
+    check = machine.check()
+
+    assert check.state == "check-failed"
+    assert check.detail.endswith("TimeoutError: pending_dialog timed out after 5s waiting for the daemon")
+    assert len(asked) == 1
+
+
+def test_checkApprover_AnErrorThatIsNotANavigation_IsNotAskedAgain(tmp_path):
+    asked = []
+
+    def broken(expression):
+        asked.append(expression)
+        raise RuntimeError("JavaScript evaluation failed: boom; expression: document.readyState")
+
+    browser = FakeBrowser("consent")
+    browser.helper_overrides = {"js": lambda real: broken}
+    machine = Machine(tmp_path, browser)
+
+    check = machine.check()
+
+    assert check.state == "check-failed"
+    assert check.detail.endswith("RuntimeError: JavaScript evaluation failed: boom")
+    assert len(asked) == 1
+
+
+def test_approve_TheCodePageNavigatesAfterTheClick_StillReturnsTheCode():
+    browser = FakeBrowser("consent", clicks_allowed=True)
+
+    def navigates_after(click):
+        def click_then_navigate(x, y):
+            click(x, y)
+            browser.timeouts = browser.timed_out + 2
+        return click_then_navigate
+
+    browser.helper_overrides = {"click_at_xy": navigates_after}
+
+    code = license_signin.approve_in_browser(URL, ALICE, "work", open_profile=lambda p: FakeProfile(),
+                                             run_harness=browser.run)
+
+    assert code == CODE and browser.timed_out == 2
+
+
+def test_harnessReason_ATraceback_IsTheLineNamingTheError_WithoutTheJavaScript():
+    printed = (
+        "Traceback (most recent call last):\n"
+        '  File "C:\\tools\\browser_harness\\run.py", line 180, in main\n'
+        "    exec(code, globals())\n"
+        '  File "C:\\tools\\browser_harness\\helpers.py", line 117, in _runtime_evaluate\n'
+        '    raise RuntimeError(f"Runtime.evaluate timed out; expression: {_js_snippet(expression)}") from e\n'
+        "RuntimeError: Runtime.evaluate timed out; expression: document.body ? document.body.innerText : ''\n")
+
+    assert license_signin.harness_reason(printed) == "RuntimeError: Runtime.evaluate timed out"
+
+
+@pytest.mark.parametrize("printed, reason", [
+    ("", "it printed nothing"),
+    ("daemon did not come up\n", "daemon did not come up"),
+    ("browser_harness.helpers._IPCResponseTimeout: Runtime.evaluate timed out after 5s waiting for the daemon\n",
+     "browser_harness.helpers._IPCResponseTimeout: Runtime.evaluate timed out after 5s waiting for the daemon"),
+])
+def test_harnessReason_OutputWithNoTraceback_IsItsLastLine(printed, reason):
+    assert license_signin.harness_reason(printed) == reason
+
+
+def test_checkApprover_FailedAndCouldNotCleanUp_KeepsWhyItFailedFirst(tmp_path):
+    from cc_shared import gateway
+
+    machine = Machine(tmp_path, FakeBrowser("consent"), url_error="claude auth login printed no authorize URL")
+
+    def refused():
+        raise gateway.GatewayError("the Gateway refused", status=400)
+
+    machine.profile.stop = refused
+
+    check = machine.check()
+
+    assert check.state == "check-failed"
+    assert check.detail.startswith("The check could not run: claude auth login printed no authorize URL")
+    assert "could not be put back" in check.detail
+
+
+# --- a Gateway connection that drops for a moment (6 November 2026) --------------------------------------------------
+
+
+#: The Gateway's own 502 sentence for a Director it cannot reach (GatewayEndpoints.TunnelFailure).
+NOT_CONNECTED = "The Director on machine-a is not connected right now, so the command was not delivered."
+#: Its 502 sentence for a tunnel that dropped mid-command (DirectorCommandRouter.DescribeTunnelDrop).
+DROPPED = ("The connection to the Director on machine-a dropped while the command was being sent. It is not known "
+           "whether the command was carried out.")
+
+
+def _gateway_error(status, said=None):
+    """A GatewayError as gateway._request raises it: with the answer's status and the Gateway's sentence in the
+    message and the body (a 502 says the Director is not connected, unless ``said`` gives the Director's own
+    failure), or - with None - for a connection that failed, with the OSError under it."""
+    import urllib.error
+
+    from cc_shared import gateway
+
+    said = said or (NOT_CONNECTED if status == 502 else f"status {status}")
+    error = gateway.GatewayError(f"HTTP {status} from the Gateway: {said}", status=status, body={"error": said})
+    if status is None:
+        error.__cause__ = urllib.error.URLError("connection refused")
+    return error
+
+
+def test_withReconnect_ADirectorsOwnFailureAnswered502_IsNotADrop_AndIsRaisedAtOnce():
+    # The review of 4710, finding 2: the Gateway answers a Director that failed - a browser that would not start - with
+    # 502 too. Asking again would start the browser up to four times and say the Director could not be reached.
+    asked = []
+
+    def request():
+        asked.append(1)
+        raise _gateway_error(502, said="The browser profile did not start: Chrome exited with code 21.")
+
+    with pytest.raises(Exception) as raised:
+        license_signin.with_reconnect("browser profile work", request)
+
+    assert "Chrome exited" in str(raised.value) and len(asked) == 1
+
+
+def test_withReconnect_TheTunnelDroppedMidCommand_IsADrop_AndIsAskedAgain():
+    answers = [_gateway_error(502, said=DROPPED), "started"]
+
+    def request():
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    assert license_signin.with_reconnect("browser profile work", request) == "started"
+
+
+def test_withReconnect_ASettingThatIsMissing_IsNotADrop_AndIsRaisedAtOnce():
+    from cc_shared import gateway
+
+    asked = []
+
+    def request():
+        asked.append(1)
+        raise gateway.GatewayError("CC_DIRECTOR_ID is not set")
+
+    with pytest.raises(gateway.GatewayError):
+        license_signin.with_reconnect("browser profile work", request)
+
+    assert len(asked) == 1
+
+
+@pytest.mark.parametrize("status", [None, 502, 503, 504])
+def test_withReconnect_TheConnectionDropsThenComesBack_AsksAgain_AndAnswers(status):
+    answers = [_gateway_error(status), _gateway_error(status), "started"]
+
+    def request():
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    assert license_signin.with_reconnect("browser profile work", request) == "started"
+    assert answers == []
+
+
+@pytest.mark.parametrize("status", [400, 404, 409])
+def test_withReconnect_ARefusal_IsRaisedAtOnce(status):
+    asked = []
+
+    def request():
+        asked.append(1)
+        raise _gateway_error(status)
+
+    with pytest.raises(Exception) as raised:
+        license_signin.with_reconnect("browser profile work", request)
+
+    assert raised.value.status == status and len(asked) == 1
+
+
+def test_withReconnect_ADropThatOutlastsEveryPause_IsRaised():
+    asked = []
+
+    def request():
+        asked.append(1)
+        raise _gateway_error(502)
+
+    with pytest.raises(Exception) as raised:
+        license_signin.with_reconnect("browser profile work", request)
+
+    assert raised.value.status == 502 and len(asked) == len(license_signin.RECONNECT_PAUSES) + 1
+
+
+def test_checkApprover_InASession_TheListStartAndPutBackEachMeetADrop_IsNotAProfileFault(tmp_path, monkeypatch):
+    from src import browser_ops
+
+    monkeypatch.setattr(browser_ops, "_mine", lambda: "directors/dir-a/browsers")
+    drops = {"list": 1, "start": 1, "stop": 1}
+    posted = []
+
+    def once_dropped(step, answer):
+        if drops[step]:
+            drops[step] -= 1
+            raise _gateway_error(None)
+        return answer
+
+    monkeypatch.setattr(browser_ops, "_browsers", lambda: once_dropped(
+        "list", [{"id": "work-chrome", "name": "Work Chrome", "status": "Stopped"}]))
+
+    def post_json(path, body):
+        step = path.rsplit("/", 1)[1]
+        answer = once_dropped(step, {"buName": "work-chrome", "buCdpUrl": "http://127.0.0.1:1"})
+        posted.append(step)
+        return answer
+
+    monkeypatch.setattr(browser_ops.gateway, "post_json", post_json)
+    machine = Machine(tmp_path, FakeBrowser("consent"))
+
+    check = license_signin.check_approver("Work Chrome", ALICE,
+                                          open_profile=lambda p: license_signin.director_browser(p, environ={}),
+                                          run_harness=machine.browser.run, start_login=machine.start_login,
+                                          make_folder=machine.make_folder)
+
+    assert check.state == "can-approve", check.detail
+    assert posted == ["start", "stop"], "a stopped profile the check started is started once and stopped again once"
 
 
 # --- approve_in_browser reads the page the same way ----------------------------------------------------------------

@@ -88,7 +88,8 @@ public static class LicenseApproverCheckSentences
 ///
 /// What is checked: every record the Gateway says names this machine (<c>GetLicenseApproverAssignments</c>), with its
 /// account; and, when this machine offers its profiles as approvers (<see cref="Configuration.LicenseApproverOfferSetting"/>),
-/// every one of this Director's own profiles with no account, so the tool says who each is signed in as. A check that
+/// every profile recorded here for an account (<c>license set-browser</c>), with that account - never every profile on
+/// the machine. A check that
 /// failed is reported <c>check-failed</c>, never left out, and the report goes even when every row failed.
 ///
 /// One check at a time, and never during a sign-in or an approval: each check enters the
@@ -221,8 +222,20 @@ public sealed class LicenseApproverCheck
                 var startedUtc = _utcNow();
                 if (dailyRunDue)
                 {
+                    IReadOnlyList<LicenseRecordedBrowser> recorded;
+                    try
+                    {
+                        recorded = _offersApprovers ? await _tool.ListRecordedBrowsersAsync(cancellationToken) : Array.Empty<LicenseRecordedBrowser>();
+                    }
+                    catch (LicenseCommandLineException ex)
+                    {
+                        // No run on a list it could not read: a run without it would report the recorded profiles as
+                        // never set and not look again for a day. The look is tried again in ten minutes instead.
+                        NoteFailure($"the browser profiles set for accounts here could not be read: {ex.Message}");
+                        return null;
+                    }
                     _checkedWhenDue.Clear();
-                    _unsent = await CheckAllAsync(assignments, cancellationToken);
+                    _unsent = await CheckAllAsync(assignments, recorded, cancellationToken);
                 }
                 else
                 {
@@ -257,17 +270,38 @@ public sealed class LicenseApproverCheck
         }
     }
 
-    /// <summary>Checks each assigned record with its account and, when offered, each own profile with none.</summary>
-    private async Task<LicenseApproverCheckReport> CheckAllAsync(LicenseApproverAssignments assignments, CancellationToken cancellationToken)
+    /// <summary>Checks each assigned record with its account and, when offered, each profile recorded here for an account
+    /// (<c>license set-browser</c>) with that account.
+    ///
+    /// ONLY THE RECORDED PROFILES, NEVER EVERY PROFILE (mission "Licenses - Always Ready, Loud When Not", step 3). Until
+    /// then an offering machine checked every one of its browser profiles with no account - eleven on one machine, most of
+    /// them approving nothing - and each check that could not run was one more "could not be checked" line on the
+    /// Licenses page. A recorded profile is checked with its own account, so a proven one registers as that account's
+    /// approver, and one recorded but no longer on this machine is checked anyway and fails saying so.</summary>
+    private async Task<LicenseApproverCheckReport> CheckAllAsync(LicenseApproverAssignments assignments,
+        IReadOnlyList<LicenseRecordedBrowser> recordedHere, CancellationToken cancellationToken)
     {
         var own = _profiles.List();
         var work = assignments.Rows.Select(a => (Profile: a.BrowserProfile, Email: (string?)Normalize(a.AccountEmail))).ToList();
-        if (_offersApprovers)
-            work.AddRange(own.Select(p => (Profile: p.Id, Email: (string?)null)));
+        var recorded = 0;
+        foreach (var r in recordedHere)
+        {
+            var item = (Profile: IdOf(r.BrowserProfile, own), Email: (string?)Normalize(r.AccountEmail));
+            if (work.Contains(item)) continue;
+            work.Add(item);
+            recorded++;
+        }
         var report = await CheckEachAsync(work, own, cancellationToken);
-        FileLog.Write($"[LicenseApproverCheck] run: assigned={assignments.Rows.Count}, ownProfilesChecked={(_offersApprovers ? own.Count : 0)}, rows={report.Rows.Count}, failed={report.Rows.Count(r => r.State == LicenseApproverStates.CheckFailed)}");
+        FileLog.Write($"[LicenseApproverCheck] run: assigned={assignments.Rows.Count}, recordedProfilesChecked={recorded}, rows={report.Rows.Count}, failed={report.Rows.Count(r => r.State == LicenseApproverStates.CheckFailed)}");
         return report;
     }
+
+    /// <summary>The identifier of this Director's profile that <paramref name="nameOrId"/> names - the owner types either -
+    /// or the text as it is when no profile here has it, so its check fails and says the profile is not on this machine.</summary>
+    private static string IdOf(string nameOrId, IReadOnlyList<LicenseBrowserProfile> own) =>
+        own.FirstOrDefault(p => string.Equals(p.Id, nameOrId, StringComparison.OrdinalIgnoreCase))?.Id
+        ?? own.FirstOrDefault(p => string.Equals(p.Name, nameOrId, StringComparison.OrdinalIgnoreCase))?.Id
+        ?? nameOrId;
 
     /// <summary>The records the Gateway marks due that have not been checked since the last daily run. A record no
     /// longer assigned is forgotten, so one the owner sets again later is checked again.</summary>

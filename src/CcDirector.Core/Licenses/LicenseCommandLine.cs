@@ -85,6 +85,11 @@ public interface ILicenseCommandLine
     /// to claude.ai as. Never throws for a run that gave no readable answer: that is
     /// <see cref="LicenseApproverStates.CheckFailed"/>, with <see cref="LicenseApproverToolAnswer.ToolAnswered"/> false.</summary>
     Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken);
+
+    /// <summary>Every account a browser profile is set for on this machine (<c>license list-browsers</c>): the profiles
+    /// this machine offers as approvers, each with the account it signs in. Throws
+    /// <see cref="LicenseCommandLineException"/> when the tool gave no readable answer.</summary>
+    Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>What <c>license switch --json</c> answered. Its words are the contract's (section 3.3).</summary>
