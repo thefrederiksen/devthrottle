@@ -13,16 +13,20 @@ record shows what was accepted and what was argued.
 
 ## What the four passes found, in one place
 
+The first row is the pull request's own premise rather than a review finding - the change existed to fix
+it, and the first pass accepted that diagnosis. It is kept for context and marked, because crediting it
+to the review would inflate what the review found (the reviewer's own correction, fourth pass).
+
 | Pass | The defect | Direction |
 |---|---|---|
-| First | The limit was measured by subtracting two wall-clock stamps, the exact defect `ResourceSample.TakenAtUtc` carries a warning about. A ten-second time synchronisation step turned a real 68-second warning into 58 or 78. | Either |
+| (premise) | The limit was measured by subtracting two wall-clock stamps, the exact defect `ResourceSample.TakenAtUtc` carries a warning about. A ten-second time synchronisation step turned a real 68-second warning into 58 or 78. | Either |
 | First | The first fix moved the verdict onto the harness's own stopwatch, which could not pass a correct product: the product's red arrives 65 to 70 seconds after the load by construction, and the recorder's write interval and the poll were added on top of a 70-second budget. | **Failed a correct product** |
 | First | The regression test guarded nothing. Putting the wall-clock subtraction back left all 62 tests passing, because the file holding the decision was not compiled by the test project. | A check that fails open |
 | Second | Members were selected by stamp, correctly, and then ORDERED by stamp. A backward clock step let a line the recorder wrote later sort first and become the baseline: 85 minus 15 is 70, a pass, where the truth was 85 minus 10, a failure. | **FALSE PASS** |
-| Second | The step scan covered only the members, so a backward step hid its own mark - the marked line is stamped before the change by definition - and the run reported no clock step while a clock step was choosing its answer. | Evidence suppressed |
+| Second | The step scan covered only the members, so a backward step could hide its own mark - the marked line CAN be stamped before the change, which is what happens once the step exceeds the time since the change - and the run reported no clock step while a clock step was choosing its answer. | Evidence suppressed |
 | Third | A backward step LARGER than the gap between the change and the first sample hid that sample and its mark at once: 75 seconds measured as 65, passed, no caveat. Two comments asserted this case was covered. | **FALSE PASS** |
 | Fourth | A FORWARD step just before the change excluded the line that should have been the baseline, because the change was stamped on the stepped clock while the correction reads the pre-step one: 75 seconds measured as 70, inside the limit, no caveat. The comment written to declare the residual said "never a failure into a pass", which was true of backward steps and false of forward ones. | **FALSE PASS** |
-| Fourth | One of the two new tests was weaker than it read: its line was excluded on both stamps, so it passed whether or not the fix ran at all. The Lead's own experiment had shown this and was read as confirmation instead. | A check that fails open |
+| Fourth | One of the two new tests was weaker than it read: its line was excluded on both stamps, so it passed whether or not the fix ran at all. It guards against over-correcting, which is worth having. The Lead's own experiment had shown it guarded nothing extra and was read as confirmation instead. | Weaker than it reads |
 
 **The pattern across all four.** Every defect was in the part the author was most confident about, and
 three of the four were the same shape one level up from the defect being removed: the MEASUREMENT was
@@ -39,6 +43,13 @@ change starts the measurement up to the size of the step too early, which OVERST
 into a failure, never the reverse - and the run reports the step.
 `JudgeWarning_ABackwardStepShortlyBeforeTheChange_OverstatesAndSaysSo` asserts all three of those, so the
 residual cannot quietly change direction.
+
+There is one geometry in which the run does NOT report that step: the qualifying sample comes before the
+marked line on the recording's timeline, which needs the condition to have already held before the change.
+That cannot happen on the processor wait or either clear wait. It can on the memory amber wait, where the
+meter may be amber while the fill is still finishing - and there the product state reported is true while
+the figure overstates. The test pins the common geometry; this clause is the uncommon one, and it is
+written here rather than left to be rediscovered.
 
 **What none of it covers.** No live run against a Director. Every arrangement above is unit-level, built
 from the fields the recorder writes. That gap belongs to the phase 2 sampler.
