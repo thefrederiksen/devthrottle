@@ -39,7 +39,7 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
         _alarms = new LicenseAlarmService(_db,
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
             (_, opened, _) => { lock (_pushed) _pushed.AddRange(opened); return Task.CompletedTask; },
-            () => _now);
+            () => _now, NeverNight);
         _alarm = new LicenseRenewalFailureAlarm(_store, _log, new LicenseReadModel(_store), _alarms, () => _now);
         _emails = new LicenseRenewalEmailService(_store, _log, new LicenseReadModel(_store),
             (_, email, _) => { lock (_mailed) _mailed.Add(email); return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)); },
