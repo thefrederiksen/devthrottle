@@ -14,6 +14,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from fake_admin import FakeAdmin
 from fake_calendar import CAL, FakeCalendar
 from src.transport import Response
 
@@ -95,6 +96,7 @@ class FakeZoho:
         self.labels = [{"labelId": "636823000000007002", "displayName": "LWTBI", "color": "#dd902f"}]
         self.messages: List[Message] = []
         self.calendar = FakeCalendar()
+        self.admin = FakeAdmin(self.accounts[0], self._new_id)
 
     # ----- the wire
 
@@ -263,9 +265,12 @@ class FakeZoho:
     def _mail(self, method: str, path: str, query: dict, raw: Optional[bytes] = None) -> Response:
         p = path.split("/")
         if path == "/api/accounts" and method == "GET":
-            return _ok(self.accounts)
+            return _ok([self.admin.account_answer()] + self.accounts[1:])
         if path == "/api/accounts/":
             return _mail_error(404, "URL_RULE_NOT_CONFIGURED")
+        admin = self.admin.handle(method, path, query, raw)
+        if admin is not None:
+            return admin
         if len(p) < 4 or p[3] != ACCOUNT_ID:
             return _mail_error(404, "INVALID_ACCOUNT")
         rest = p[4:]

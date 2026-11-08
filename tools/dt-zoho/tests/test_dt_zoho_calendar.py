@@ -272,8 +272,26 @@ def test_meeting_StartLink_NeverReachesWhatAGuestReceives(env):
         assert refused.exit_code == 2 and "start link" in refused.output
     refused = env.run("event", "create", "--title", "x", "--start", "2026-11-21 10:00", "--invite", OTHER,
                       "--description", f"host: {host}")
-    assert refused.exit_code == 2 and "start link" in refused.output
+    # On a create the text is the caller's own, so there is nothing already held to drop.
+    assert refused.exit_code == 2 and "start link" in refused.output and "already holds" not in refused.output
     assert host not in _everything_sent(env)
+
+
+def test_meeting_EventAlreadyHoldingTheStartLink_RefusalSaysHowToDropIt(env):
+    # An event made elsewhere can already carry the start link in its text; every change is refused, so the
+    # refusal names the way out.
+    data = _create(env, "--meeting", "--invite", OTHER)
+    stored = env.zoho.calendar.events[DEFAULT_CAL][data["uid"]]
+    stored["description"] = "host: " + data["start_link_owner_only"]
+    refused = env.run("event", "change", data["uid"], "--title", "renamed")
+    assert refused.exit_code == 2 and '--description ""' in refused.output and _calls(env, "PUT") == []
+    # In the title the way out is a new title, never an empty one.
+    stored["description"], stored["title"] = "agenda", "host: " + data["start_link_owner_only"]
+    refused = env.run("event", "change", data["uid"], "--location", "Room 1")
+    assert refused.exit_code == 2 and '--title "<new title>"' in refused.output and '--title ""' not in refused.output
+    stored["title"] = "Plan"
+    env.ok("event", "change", data["uid"], "--title", "renamed", "--description", "")
+    assert data["start_link_owner_only"] not in _everything_sent(env)
 
 
 def test_occurrence_ChangeOneThenDeleteOneThenTheSeries(env):

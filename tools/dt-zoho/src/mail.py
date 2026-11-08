@@ -43,7 +43,9 @@ def account_record(raw: dict) -> dict:
             "name": raw.get("firstName") or raw.get("displayName"), "default": bool(raw.get("isDefaultAccount")),
             "zuid": str(raw.get("zuid")) if raw.get("zuid") is not None else None,
             "imap_enabled": raw.get("imapAccessEnabled"), "time_zone": raw.get("timeZone"),
-            "addresses": addresses}
+            "addresses": addresses,
+            "aliases": [a.get("mailId") for a in raw.get("emailAddress") or [] if a.get("isAlias") and a.get("mailId")],
+            "zoid": str((raw.get("policyId") or {}).get("zoid")) if (raw.get("policyId") or {}).get("zoid") else None}
 
 
 def pick_account(client: ZohoClient, email: Optional[str]) -> dict:
