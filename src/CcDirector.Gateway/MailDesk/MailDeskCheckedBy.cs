@@ -9,12 +9,14 @@ namespace CcDirector.Gateway.MailDesk;
 /// it has none and how to add one - a "?" that explains how a check works, and "Sign-in held". Every one of those words is
 /// decided here; a client renders them verbatim.
 ///
-/// WHICH MACHINE IS THE MAIN ONE. A mailbox is read by the Director that holds the Mail Desk start's claim, and only if
-/// the channel names that Director's machine (<see cref="MailDeskMemory.HandedTo"/>). The start runs on its own machine
-/// first and fails over to its backups in order (<see cref="TriggerMachines"/>). So the main machine of a mailbox is the
-/// first machine on the start's list that the channel names, and its backups are the others the channel names, in the
-/// start's order. The order the channel lists its machines in decides nothing, and is never claimed. A machine the
-/// channel names that is not on the start's list never checks the mailbox, and the card says so.
+/// WHICH MACHINE IS THE MAIN ONE. The Mail Desk start runs on its own machine whenever that machine is up, and moves
+/// to its backups, in order, only while every machine before them is away: the start's own machine always takes the
+/// claim back (<see cref="TriggerStore.ClaimForDirector"/>). The Director holding the claim reads only the mailboxes
+/// that name its machine (<see cref="MailDeskMemory.HandedTo"/>). So, walking the start's list in order: the start's
+/// own machine is a mailbox's main machine when the mailbox names it, and every later machine the mailbox names is a
+/// backup. A machine on the start's list that the mailbox leaves out, ahead of one it names, is a gap: while that
+/// machine holds the check the mailbox is not read, and the card says so. The order the channel lists its machines in
+/// decides nothing. A machine the channel names that is not on the start's list never checks the mailbox.
 /// </summary>
 public static class MailDeskCheckedBy
 {
@@ -40,15 +42,11 @@ public static class MailDeskCheckedBy
             return new MailDeskCheckedByRow(string.Join(", ", named), NotPublishedNote, MailDeskChannelFold.Tones.Neutral, help);
 
         var order = TriggerMachines.AllOf(start);
-        var checking = named
-            .Select(m => (Machine: m, Position: TriggerMachines.PositionOf(start, m)))
-            .Where(m => m.Position >= 0)
-            .OrderBy(m => m.Position)
-            .Select(m => m.Machine)
-            .ToList();
+        bool Names(string machine) => named.Any(m => string.Equals(m, machine, StringComparison.OrdinalIgnoreCase));
         var never = named.Where(m => TriggerMachines.PositionOf(start, m) < 0).ToList();
+        var lastNamed = order.ToList().FindLastIndex(m => Names(m));
 
-        if (checking.Count == 0)
+        if (lastNamed < 0)
         {
             return new MailDeskCheckedByRow("No machine checks it",
                 $"This mailbox names {And(never)}, and the Mail Desk check runs only on {And(order)}. "
@@ -56,15 +54,28 @@ public static class MailDeskCheckedBy
                 MailDeskChannelFold.Tones.Bad, help);
         }
 
-        var label = $"{checking[0]} (main)" + string.Concat(checking.Skip(1).Select(b => $", {b} (backup)"));
-        if (never.Count > 0)
+        // Walk the start's list up to the last machine the mailbox names: each is a reader (main or backup) or a gap.
+        var readers = new List<string>();
+        var gaps = new List<string>();
+        for (var i = 0; i <= lastNamed; i++)
         {
-            return new MailDeskCheckedByRow(label,
-                $"{And(never)} never {(never.Count == 1 ? "checks" : "check")} it: the Mail Desk check does not run there. "
-                + "Ask your agent to add it to the check, or take it off this mailbox.",
-                MailDeskChannelFold.Tones.Bad, help);
+            if (Names(order[i])) readers.Add($"{named.First(m => string.Equals(m, order[i], StringComparison.OrdinalIgnoreCase))} ({(i == 0 ? "main" : "backup")})");
+            else gaps.Add(order[i]);
         }
-        return checking.Count == 1
+        var label = string.Join(", ", readers);
+
+        var problems = new List<string>();
+        if (gaps.Count > 0)
+            problems.Add($"While {Or(gaps)} {(gaps.Count == 1 ? "runs" : "run")} the Mail Desk check, this mailbox is not read, "
+                         + $"because it does not name {(gaps.Count == 1 ? "that machine" : "those machines")}. "
+                         + $"Ask your agent to add {And(gaps)} to this mailbox.");
+        if (never.Count > 0)
+            problems.Add($"{And(never)} never {(never.Count == 1 ? "checks" : "check")} it: the Mail Desk check does not run there. "
+                         + $"Ask your agent to add {(never.Count == 1 ? "it" : "them")} to the check, or take {(never.Count == 1 ? "it" : "them")} off this mailbox.");
+        if (problems.Count > 0)
+            return new MailDeskCheckedByRow(label, string.Join(" ", problems), MailDeskChannelFold.Tones.Bad, help);
+
+        return readers.Count == 1
             ? new MailDeskCheckedByRow(label, NoBackupNote, MailDeskChannelFold.Tones.Attention, help)
             : new MailDeskCheckedByRow(label, null, null, help);
     }
@@ -85,7 +96,8 @@ public static class MailDeskCheckedBy
     /// <summary>The words behind the "?" beside "Checked by": how a check works, and where this provider's sign-in is kept.</summary>
     internal static string HelpOf(Guid channel, string provider)
         => "The Gateway does not read your mail. On every Mail Desk check it asks the Director on the main machine to "
-           + "check this mailbox. If that machine is off, a backup machine checks it. The sign-in for this mailbox is "
+           + "check this mailbox. While that machine is off, the check moves to the next machine on its list, which reads "
+           + "this mailbox if the mailbox names it: a backup. The sign-in for this mailbox is "
            + $"{KeeperOf(channel, provider).ToLowerInvariant()} on those machines, never on the Gateway.";
 
     /// <summary>Who keeps the sign-in on the machine, as the start of a sentence. A provider with none is refused.</summary>
@@ -94,8 +106,12 @@ public static class MailDeskCheckedBy
             ? keeper
             : throw new InvalidOperationException($"Mail Desk channel {channel} holds the provider '{provider}', which names no keeper of its sign-in.");
 
-    private static string And(IReadOnlyList<string> names)
-        => names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
+    private static string And(IReadOnlyList<string> names) => Join(names, "and");
+
+    private static string Or(IReadOnlyList<string> names) => Join(names, "or");
+
+    private static string Join(IReadOnlyList<string> names, string word)
+        => names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + $" {word} " + names[^1];
 }
 
 /// <summary>

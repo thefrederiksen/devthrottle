@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { describeAndReport } from "../errors/reportClientError";
 import {
@@ -196,12 +196,32 @@ function Fact({ name, tone, help, children }: { name: string; tone?: string; hel
   );
 }
 
-/** The "?" beside a fact: its words show on hover, on keyboard focus, and on a tap (a phone has no hover). */
+/** The "?" beside a fact: its words show on hover, on keyboard focus, and on a tap (a phone has no hover). An opened tip
+ * closes on Escape, on leaving the mark, and on a tap or click anywhere outside it - iOS gives a tapped button no focus,
+ * so leaving it alone would never close it there. */
 function Help({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  const mark = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (mark.current !== null && !mark.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
   return (
-    <span className="mail-desk-help">
+    <span className="mail-desk-help" ref={mark}>
       <button
         type="button"
         className="mail-desk-help-button"

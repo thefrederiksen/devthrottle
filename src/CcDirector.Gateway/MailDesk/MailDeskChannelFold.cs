@@ -286,15 +286,18 @@ public sealed class MailDeskChannelFold
     public static readonly IReadOnlyList<string> HowItWorksSteps = new[]
     {
         "The Gateway does not read your mail. Every few minutes it asks a Director on one of your machines to check each mailbox.",
-        "That Director runs a small script, with no AI session, so a check costs nothing. It opens the mailbox with the sign-in "
-            + "kept on that machine and reads the newest emails, at most 10 at a time.",
+        "That Director runs a small script, with no AI session, so a check costs nothing. It opens each mailbox with the "
+            + "sign-in kept on that machine and reads the emails that arrived since its last check, oldest first, at most 10 "
+            + "in one check across all your mailboxes. The rest wait for the next check.",
         "For each email it sends the Gateway only the sender, the subject and the first 200 characters. The Gateway decides: "
             + "route to a seat, archive, junk, or keep for you. It uses your rules first and a small AI model after, records the "
             + "decision, and throws the 200 characters away.",
         "In observe mode nothing in the mailbox changes. In live mode the Director files the email on its next check, and a "
             + "routed email starts its seat. The script never sends mail.",
-        "Each mailbox has a main machine and can have backup machines. If the main machine is off, a backup checks it. The "
-            + "mailbox must be signed in on every machine that may check it, and that sign-in is never stored on the Gateway.",
+        "The check runs on one machine and moves to the next machine on its list while that one is off. It reads a mailbox "
+            + "only if the mailbox names the machine it is running on, so a mailbox's backup machines are the later machines it "
+            + "names. The mailbox must be signed in on every machine that may check it, and that sign-in is never stored on "
+            + "the Gateway.",
         "There is no setup screen. Ask your agent to add a mailbox, add a backup machine, change the mode or change the rules.",
     };
 

@@ -85,7 +85,9 @@ export interface MailDeskChannel {
   provider: string;
   providerLabel: string;
   address: string;
-  /** The machines that may read the mailbox, in the order the channel lists them; no claim about which reads first. */
+  /** The machines the channel names, in the order it lists them - a list, not a ruling. `machinesLabel` is the command
+   * line's sentence for it. Which of them reads the mailbox first is the Gateway's ruling in `checkedBy`, which the page
+   * shows; these two are carried for the command line and are not shown. */
   machines: string[];
   machinesLabel: string;
   checkedBy: MailDeskCheckedBy;

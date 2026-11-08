@@ -245,6 +245,26 @@ describe("MailDeskPage", () => {
     fireEvent.blur(mark);
     expect(tip.getAttribute("data-open")).toBeNull();
   });
+
+  it("MailDeskPage_HelpMark_OpenTipClosesOnEscapeAndOnATapOutside", async () => {
+    answers({ kind: "channels", envelope: oddChannels() });
+
+    renderPage();
+
+    const cards = await screen.findAllByTestId("mail-desk-channel");
+    const mark = within(cards[0]).getByRole("button", { name: "?" });
+    const tip = within(cards[0]).getByRole("tooltip", { hidden: true });
+    fireEvent.click(mark);
+    expect(tip.getAttribute("data-open")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(tip.getAttribute("data-open")).toBeNull();
+
+    fireEvent.click(mark);
+    fireEvent.pointerDown(tip);
+    expect(tip.getAttribute("data-open")).toBe("true");
+    fireEvent.pointerDown(cards[1]);
+    expect(tip.getAttribute("data-open")).toBeNull();
+  });
 });
 
 describe("MailDeskHowItWorksPage", () => {

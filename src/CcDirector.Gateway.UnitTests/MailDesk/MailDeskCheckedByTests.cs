@@ -75,6 +75,57 @@ public sealed class MailDeskCheckedByTests
     }
 
     [Fact]
+    public void Of_OnlyTheStartsBackupNamed_IsABackupAndSaysTheMailboxIsUnreadWhileTheStartsOwnMachineRuns()
+    {
+        // devlinux takes the claim back whenever it is up, and is never handed this mailbox.
+        var row = MailDeskCheckedBy.Of(Mailbox("outlook", "SOREN_NORTH"), Start("devlinux", "SOREN_NORTH"));
+
+        Assert.Equal("SOREN_NORTH (backup)", row.Label);
+        Assert.Equal("While devlinux runs the Mail Desk check, this mailbox is not read, because it does not name that machine. "
+                     + "Ask your agent to add devlinux to this mailbox.", row.Note);
+        Assert.Equal(MailDeskChannelFold.Tones.Bad, row.NoteTone);
+    }
+
+    [Fact]
+    public void Of_AGapInTheStartsList_NamesTheMachineWhileWhichTheMailboxIsUnread()
+    {
+        var row = MailDeskCheckedBy.Of(Mailbox("outlook", "alpha", "gamma"), Start("alpha", "beta", "gamma"));
+
+        Assert.Equal("alpha (main), gamma (backup)", row.Label);
+        Assert.Equal("While beta runs the Mail Desk check, this mailbox is not read, because it does not name that machine. "
+                     + "Ask your agent to add beta to this mailbox.", row.Note);
+        Assert.Equal(MailDeskChannelFold.Tones.Bad, row.NoteTone);
+    }
+
+    [Fact]
+    public void Of_TwoGaps_NamesBothInThePlural()
+    {
+        var row = MailDeskCheckedBy.Of(Mailbox("outlook", "gamma"), Start("alpha", "beta", "gamma"));
+
+        Assert.Equal("gamma (backup)", row.Label);
+        Assert.Equal("While alpha or beta run the Mail Desk check, this mailbox is not read, because it does not name those machines. "
+                     + "Ask your agent to add alpha and beta to this mailbox.", row.Note);
+    }
+
+    [Fact]
+    public void Of_AStartMachineAfterTheLastNamedOne_IsNoGap()
+    {
+        var row = MailDeskCheckedBy.Of(Mailbox("outlook", "alpha", "beta"), Start("alpha", "beta", "gamma"));
+
+        Assert.Equal("alpha (main), beta (backup)", row.Label);
+        Assert.Null(row.Note);
+    }
+
+    [Fact]
+    public void Of_TwoMachinesTheStartNeverRunsOn_NamesThemInThePlural()
+    {
+        var row = MailDeskCheckedBy.Of(Mailbox("outlook", "devlinux", "attic-box", "cellar-box"), Start("devlinux"));
+
+        Assert.Equal("attic-box and cellar-box never check it: the Mail Desk check does not run there. "
+                     + "Ask your agent to add them to the check, or take them off this mailbox.", row.Note);
+    }
+
+    [Fact]
     public void Of_NoNamedMachineIsOnTheStart_SaysNoMachineChecksIt()
     {
         var row = MailDeskCheckedBy.Of(Mailbox("outlook", "attic-box"), Start("devlinux", "SOREN_NORTH"));
