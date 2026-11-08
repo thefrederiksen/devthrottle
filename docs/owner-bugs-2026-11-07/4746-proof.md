@@ -129,7 +129,7 @@ In both, pressing "Dealt with it" sent `POST /gateway/factory/citizenship/inbox/
 
 ## Review
 
-A separate review session (Claude Code on Fable; the Codex seat refused the model it was given) read the diff at
+A separate review session read the diff at
 160d4b9ea. It confirmed the three shared rules are the one definition, bundle closing, the route's refusals, the
 queues that exclude a decided message, and that the client decides nothing. Its findings and the answers:
 
