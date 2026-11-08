@@ -640,3 +640,25 @@
 .folder-listing-entry.folder {
   color: var(--text);
 }
+
+/* ClampText (Web UI Polish, fix 8): text held to a few lines (the line count is set inline), and the "More" link
+   that shows the rest in place. */
+.clamp-text.clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.clamp-text-more {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.clamp-text-more:hover {
+  text-decoration: underline;
+}

@@ -18,6 +18,15 @@ export function toneClass(tone: string): string {
   }
 }
 
+/** A version as the table shows it (Web UI Polish, fix 8): the release number without its build metadata, so
+ *  "2.37.0+9ac50e5674b9..." reads "2.37.0" and the whole string goes on hover. Display only - the Gateway's
+ *  version state (current, behind) is drawn beside it unchanged, and the cut is semantic versioning's own "+", which
+ *  marks metadata that never changes what a version is. A version with no "+" is drawn whole. */
+export function shortVersion(version: string): string {
+  const plus = version.indexOf("+");
+  return plus > 0 ? version.slice(0, plus) : version;
+}
+
 /** The machine a Director runs on, by machine name as the Gateway groups it (case-insensitive). */
 export function machineOf(view: FleetMachines | null, machineName: string): FleetMachine | null {
   if (view === null) return null;

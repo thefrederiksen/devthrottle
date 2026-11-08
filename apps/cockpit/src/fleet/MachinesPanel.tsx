@@ -4,7 +4,8 @@ import type { FleetMachineCapacity, FleetMachines, FleetVersionState } from "@de
 import { useNow } from "@devthrottle/client-core/polling/useNow";
 import { relativeTime } from "./format";
 import { MachineActions, type ActionOutcome } from "./MachineActions";
-import { nextSpareOrder, outcomeStillShown, sortBySpare, toneClass, type SpareOrder } from "./machinesFormat";
+import { nextSpareOrder, outcomeStillShown, shortVersion, sortBySpare, toneClass, type SpareOrder } from "./machinesFormat";
+import { ClampText } from "../components/ClampText";
 import { MachineResourcesPanel } from "./MachineResourcesPanel";
 import { Chevron } from "../components/Chevron";
 
@@ -29,20 +30,36 @@ function CapacityFigure({ label, detail, tone, testId }: { label: string; detail
   );
 }
 
+// Inline, not stacked, so the whole status - reach, its detail, the capacity pill and why - can be held to two lines
+// as one paragraph (Web UI Polish, fix 8).
 function CapacityStatus({ capacity }: { capacity: FleetMachineCapacity }) {
   return (
     <>
       {capacity.statusLabel != null && capacity.statusLabel.length > 0 && (
-        <div>
+        <>
+          {" "}
           <span className={`fm-pill fm-capacity-status ${toneClass(capacity.statusTone)}`} data-testid="fm-capacity-status">
             {capacity.statusLabel}
           </span>
-        </div>
+        </>
       )}
       {capacity.why != null && capacity.why.length > 0 && (
-        <div className="fm-why" data-testid="fm-capacity-why">{capacity.why}</div>
+        <>
+          {" "}
+          <span className="fm-why" data-testid="fm-capacity-why">{capacity.why}</span>
+        </>
       )}
     </>
+  );
+}
+
+/** A version, short, with the whole build string on hover when it was cut (Web UI Polish, fix 8). */
+function VersionText({ version }: { version: string }) {
+  const short = shortVersion(version);
+  return (
+    <span className="dmono" title={short === version ? undefined : version}>
+      {short}
+    </span>
   );
 }
 
@@ -140,10 +157,17 @@ export function MachinesPanel({
                             : "No launcher registered"}
                         </div>
                       </td>
-                      <td>
-                        <span className={toneClass(m.reachTone)}>{m.reachLabel}</span>
-                        {(m.reachDetail ?? "").length > 0 && <div className="fm-why">{m.reachDetail}</div>}
-                        <CapacityStatus capacity={m.capacity} />
+                      <td className="fm-status-cell">
+                        <ClampText className="fm-status" testId="fm-status">
+                          <span className={toneClass(m.reachTone)}>{m.reachLabel}</span>
+                          {(m.reachDetail ?? "").length > 0 && (
+                            <>
+                              {" "}
+                              <span className="fm-why">{m.reachDetail}</span>
+                            </>
+                          )}
+                          <CapacityStatus capacity={m.capacity} />
+                        </ClampText>
                       </td>
                       <td />
                       <td>
@@ -158,7 +182,7 @@ export function MachinesPanel({
                       <td>
                         {(m.launcherVersion ?? "").length > 0 && (
                           <>
-                            <span className="dmono">{m.launcherVersion}</span> <VersionPill state={m.launcherVersionState} />
+                            <VersionText version={m.launcherVersion ?? ""} /> <VersionPill state={m.launcherVersionState} />
                             <div className="ddim fm-sub">launcher</div>
                           </>
                         )}
@@ -198,7 +222,7 @@ export function MachinesPanel({
                         <td />
                         <td />
                         <td>
-                          <span className="dmono">{d.version ?? "-"}</span> <VersionPill state={d.versionState} />
+                          <VersionText version={d.version ?? "-"} /> <VersionPill state={d.versionState} />
                         </td>
                         <td />
                       </tr>
