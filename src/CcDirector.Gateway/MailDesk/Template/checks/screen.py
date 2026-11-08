@@ -1196,10 +1196,13 @@ class ImapReader:
     @staticmethod
     def advance(cursor, mine):
         """The cursor after reporting `mine`: the highest UID reported, under the uidvalidity they were read with, and
-        the latest arrival time among them (what a renumbered Inbox is read again from)."""
+        the latest arrival time ever reported (what a renumbered Inbox is read again from). It is the latest of the
+        cursor's and these, never just these: in a mailbox whose mail was moved or imported, a higher UID can carry an
+        earlier arrival time (seen live on a migrated Zoho mailbox)."""
         validity = int(mine[-1]["id"].split(".")[0])
+        newest = max(m["received"] for m in mine)
         return {"provider": "imap", "uidValidity": validity, "lastUid": max(m["uid"] for m in mine),
-                "newest": max(m["received"] for m in mine)}
+                "newest": max(newest, cursor["newest"]) if cursor else newest}
 
     # ------------------------------------------------------------------------------------------------ dt-email
 

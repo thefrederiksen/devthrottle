@@ -76,6 +76,16 @@ def test_MailMovedIntoTheInboxLate_IsReportedInUidOrder_SoTheCursorNeverJumpsOve
         ["Moved in"] + [f"Plain {n}" for n in range(9)]
 
 
+def test_Cursor_ANewerUidWithAnEarlierArrival_KeepsTheLatestArrivalEverReported(iw):
+    """A migrated mailbox: UID 3 arrived before UID 2 was reported. The cursor's newest never goes back."""
+    box = iw.tools.account()
+    box.inbox(mail("2026-10-18T08:00:00Z"), mail("2026-10-18T10:00:00Z"), mail("2026-10-17T09:00:00Z"))
+    iw.memory(imap(cursor=cursor(2, "2026-10-18T10:00:00Z")))
+    _, _, context, _ = iw.run()
+    assert len(section(context)["messages"]) == 1
+    assert iw.read_memory()["channels"][0]["cursor"] == cursor(3, "2026-10-18T10:00:00Z")
+
+
 def test_Renumbered_NewMailIsFoundAgainByArrivalTime_TheLastReportedOnceMore(iw):
     box = iw.tools.account()
     box.inbox(mail("2026-10-17T08:00:00Z", subject="Old"), mail("2026-10-18T09:00:00Z", subject="Reported last"),
