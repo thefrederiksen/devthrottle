@@ -22,6 +22,17 @@ public sealed class DirectorUpdateViewFoldTests
     }
 
     [Fact]
+    public void Sentence_HeldBecauseToolsNotReady_SaysTheToolsComeFirst_WithTheLaunchersReason()
+    {
+        // Issue #4744: the launcher holds a Director update until the cc-* tools reach its version.
+        var (text, tone) = DirectorUpdateViewFold.Sentence("HeldBecauseToolsNotReady", "2.38.0", "the cc-* tools are in use.");
+
+        Assert.Contains("cc-* tools could not be brought to 2.38.0", text);
+        Assert.Contains("the cc-* tools are in use.", text);
+        Assert.Equal(FleetTone.Warn, tone);
+    }
+
+    [Fact]
     public void Sentence_UnknownDecision_SaysItIsNotRecognised()
     {
         var (text, tone) = DirectorUpdateViewFold.Sentence("HeldBecauseTheMoonIsFull", "2.1.4", null);

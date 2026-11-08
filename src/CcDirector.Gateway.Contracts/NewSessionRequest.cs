@@ -305,6 +305,18 @@ public sealed class NewSessionRequest
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public FactoryCheckDto? FactoryCheck { get; set; }
 
+    /// <summary>
+    /// The <c>cc-devthrottle</c> commands the new session's instructions tell it to run, each as its words after the
+    /// program name - <c>"factory inbox"</c> for <c>cc-devthrottle factory inbox new</c> (issue #4744). The Director asks
+    /// its OWN installed copy of the tool for each one before it starts anything, and refuses the start, naming the
+    /// command, when the machine's tools lack it: a factory Secretary told to run <c>cc-devthrottle factory inbox</c> on a
+    /// machine whose tools were two releases older started anyway on 7 November 2026, could do nothing, and the owner's
+    /// message sat unfiled. Null or empty asks for no check. Left out of the JSON when null, so a create without one is
+    /// byte-for-byte what it was.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? RequiredToolCommands { get; set; }
+
     /// <summary>True when the create carries any of the six seat-start fields (<see cref="FactorySeat"/>,
     /// <see cref="FactoryDefinitionVersion"/>, <see cref="FactoryKit"/>, <see cref="FactoryWorktree"/>,
     /// <see cref="FactoryHome"/>, <see cref="Model"/>): such a create goes only to a Director that said

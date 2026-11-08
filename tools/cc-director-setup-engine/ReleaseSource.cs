@@ -114,6 +114,25 @@ public sealed class ReleaseSource
         return await FetchFromChannelAsync(DownloadServer.PreReleaseChannel, ct);
     }
 
+    /// <summary>
+    /// Fetch ONE named release: the manifest in its own version folder. Used where a release is already chosen and
+    /// "the latest" would be the wrong answer - the launcher bringing the cc-* tools to the version of the Director
+    /// it is about to install (issue #4744). A folder that is not there is an error, never a quiet step to another
+    /// release.
+    /// </summary>
+    /// <exception cref="HttpRequestException">The download server did not answer, or has no such release.</exception>
+    /// <exception cref="InvalidOperationException">The manifest in that folder is for another release.</exception>
+    public async Task<ResolvedRelease> FetchReleaseAsync(string version, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        var tag = TagForVersion(version);
+        var manifestUrl = DownloadServer.ReleaseFileUrl(tag, DownloadServer.ManifestName);
+        EngineLog.Write($"[ReleaseSource] FetchReleaseAsync: reading {manifestUrl}");
+        var manifestJson = await GetTextAsync(manifestUrl, notFoundIsAbsent: false, ct)
+                           ?? throw new InvalidOperationException($"The download server returned nothing for {manifestUrl}.");
+        return Resolve(tag, manifestJson, manifestUrl);
+    }
+
     /// <summary>Read a channel file, then the manifest in the version folder it names.</summary>
     private async Task<ResolvedRelease> FetchFromChannelAsync(string channel, CancellationToken ct)
     {

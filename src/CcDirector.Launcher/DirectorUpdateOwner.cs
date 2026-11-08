@@ -39,6 +39,13 @@ public enum DirectorUpdateDecision
     /// Nothing was touched. See <see cref="DisplayAvailability"/>.
     /// </summary>
     HeldBecauseNoDisplay,
+    /// <summary>
+    /// An update is staged and the Director is idle, but the cc-* tools could not be brought to the staged version
+    /// first - they are in use, the download server did not answer, or the install failed (issue #4744). Nothing was
+    /// stopped or replaced; the next pass asks again. A Director never runs ahead of its tools: its seats are told to
+    /// use commands only that release's tools have.
+    /// </summary>
+    HeldBecauseToolsNotReady,
     /// <summary>The staged update is one that already failed to start and was pinned away from.</summary>
     SkippedPinnedBadVersion,
     /// <summary>The update was applied and the new version answered.</summary>
@@ -88,12 +95,21 @@ public sealed class DirectorUpdateOwner
     private readonly DirectorSupervisor _supervisor;
     private readonly DirectorUpdateApply _apply;
     private readonly TimeSpan _healthTimeout;
+    private readonly Func<string, CancellationToken, Task<ToolsForDirector>> _bringToolsTo;
     private readonly SemaphoreSlim _oneAtATime = new(1, 1);
 
-    public DirectorUpdateOwner(DirectorSupervisor supervisor, DirectorUpdateApply? apply = null, TimeSpan? healthTimeout = null)
+    /// <param name="bringToolsTo">
+    /// Brings the machine's cc-* tools to a Director version before that Director is swapped in (issue #4744). Null is
+    /// the production one: <see cref="ToolUpdater.BringPythonToolsToDirectorAsync"/> against the download server. A test
+    /// passes its own so a pass never downloads anything.
+    /// </param>
+    public DirectorUpdateOwner(DirectorSupervisor supervisor, DirectorUpdateApply? apply = null, TimeSpan? healthTimeout = null,
+        Func<string, CancellationToken, Task<ToolsForDirector>>? bringToolsTo = null)
     {
         _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
         _apply = apply ?? new DirectorUpdateApply();
+        _bringToolsTo = bringToolsTo
+                        ?? ((version, ct) => new ToolUpdater().BringPythonToolsToDirectorAsync(version, new ReleaseSource(), ct));
         // A cold Director start walks a splash screen, the engine and the control interface before it
         // answers anything, and this has to be long enough that a slow machine is not called a failure.
         _healthTimeout = healthTimeout ?? TimeSpan.FromMinutes(3);
@@ -307,6 +323,36 @@ public sealed class DirectorUpdateOwner
                           + "The build is not at fault and is NOT pinned.");
             return Record(staged, DirectorUpdateDecision.HeldBecauseNoDisplay, conflictNote + obstacle + ".");
         }
+
+        // THE TOOLS GO FIRST (issue #4744). A Director's seats are told to run cc-devthrottle commands its own release
+        // added, so a Director swapped in beside older tools starts seats that cannot do their work - on 7 November 2026
+        // a factory Secretary was told to run "cc-devthrottle factory inbox" on a machine whose tools did not have it, and
+        // the owner's message sat unfiled. The Director is idle here, which is also when the tools are least likely to be
+        // in use. If they cannot be brought up, nothing is stopped or replaced and the staged record stays for the next
+        // pass: holding the update is the honest answer, and installing a Director that runs ahead of its tools is not.
+        ToolsForDirector tools;
+        try
+        {
+            tools = await _bringToolsTo(staged.Version, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested
+                                   && ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            // The download server refused, failed, hung past its timeout, or served a manifest for another release. Not
+            // swallowed: it is the recorded reason the update is held, shown on the update panel and the Gateway's
+            // machine view, and the next pass asks again.
+            FileLog.Write($"[DirectorUpdateOwner] RunOnceCoreAsync FAILED: the cc-* tools {staged.Version} could not be fetched: {ex.Message}");
+            tools = ToolsForDirector.NotReady($"the cc-* tools {staged.Version} could not be fetched: {ex.Message}");
+        }
+        if (!tools.IsReady)
+        {
+            FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged and the Director is idle, but the cc-* tools are "
+                          + $"not at that version, so the update is HELD and nothing was touched: {tools.Message}");
+            return Record(staged, DirectorUpdateDecision.HeldBecauseToolsNotReady,
+                conflictNote + $"The cc-* tools could not be brought to {staged.Version} first, so the Director was not "
+                + $"updated: {tools.Message}.");
+        }
+        FileLog.Write($"[DirectorUpdateOwner] the cc-* tools are ready for {staged.Version}: {tools.Message}");
 
         FileLog.Write($"[DirectorUpdateOwner] installing {staged.Version}: staged={staged.StagedBuild}, "
                       + $"target={staged.InstallTarget}, sessions=0, currentVersion="
