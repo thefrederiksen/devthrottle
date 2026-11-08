@@ -1107,13 +1107,14 @@ def test_providers_AnswerWithNoList_FailsRatherThanPrintingNone(fake_gateway):
     assert "no list of providers" in result.output
 
 
-def test_providers_Help_SaysWhatItIsAndTakesOneOptionalProvider():
+def test_providers_Help_SaysWhatItIsAndTakesOneOptionalProvider(plain):
     # Act
     result = runner.invoke(app, ["maildesk", "providers", "--help"])
 
     # Assert
     assert result.exit_code == 0
-    assert "What is supported, by provider" in result.output
-    assert "[PROVIDER]" in result.output
-    flat = " ".join(result.output.replace("|", " ").split())
+    help_text = plain(result.output)
+    assert "What is supported, by provider" in help_text
+    assert "[PROVIDER]" in help_text
+    flat = " ".join(help_text.replace("|", " ").split())
     assert "The Gateway holds the list" in flat

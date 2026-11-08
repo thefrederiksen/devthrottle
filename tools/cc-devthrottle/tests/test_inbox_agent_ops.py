@@ -416,9 +416,10 @@ def test_body_file_that_does_not_exist_is_a_usage_error_that_names_it(monkeypatc
     assert calls == []
 
 
-def test_help_tells_a_script_to_use_body_file_for_more_than_one_line():
+def test_help_tells_a_script_to_use_body_file_for_more_than_one_line(plain):
     for command in (["inbox", "send"], ["inbox", "reply"], ["factory", "inbox", "send"]):
         result = runner.invoke(app, [*command, "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
-        assert "--body-file" in result.output
-        assert "first line break" in " ".join(result.output.split())
+        help_text = plain(result.output)
+        assert "--body-file" in help_text
+        assert "first line break" in " ".join(help_text.split())
