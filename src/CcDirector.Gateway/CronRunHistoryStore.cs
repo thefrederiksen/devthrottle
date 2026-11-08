@@ -482,6 +482,26 @@ public sealed class CronRunHistoryStore
         }
     }
 
+    /// <summary>
+    /// The first run of schedule <paramref name="jobId"/> in <paramref name="tenant"/> that succeeded with a result time
+    /// later than <paramref name="afterUtc"/>, or null when none has (issue #4748: a recovery is the first success after
+    /// the newest failure, never one before it).
+    /// </summary>
+    public CronRunRecord? FirstSuccessAfter(Core.Tenancy.TenantId tenant, string jobId, DateTime afterUtc)
+    {
+        if (!tenant.IsValid) return null;
+        var after = DateTime.SpecifyKind(afterUtc, DateTimeKind.Utc);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var found = ctx.CronRuns.AsNoTracking()
+                .Where(e => e.JobId == jobId && e.Result == CronRunResults.Ok && e.ResultUtc != null && e.ResultUtc > after)
+                .OrderBy(e => e.ResultUtc).ThenBy(e => e.Sequence)
+                .FirstOrDefault();
+            return found is null ? null : ToRecord(found);
+        }
+    }
+
     private static IReadOnlyList<AccountRun> WithNames(GatewayDbContext ctx, List<CronRunEntity> runs)
     {
         if (runs.Count == 0) return Array.Empty<AccountRun>();
