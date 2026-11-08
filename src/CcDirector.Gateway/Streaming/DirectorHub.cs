@@ -99,9 +99,11 @@ public sealed class DirectorHub : Hub
         PushedHostedDesktopStore? hostedDesktops = null,
         DesktopRelayRegistry? desktopRelay = null,
         Api.GatewayAccountFailures? accountFailures = null,
-        Stats.ResourceSummaryStore? resourceSummaries = null)
+        Stats.ResourceSummaryStore? resourceSummaries = null,
+        Stats.DiskSpaceNotifier? diskSpaceNotices = null)
     {
         _resourceSummaries = resourceSummaries;
+        _diskSpaceNotices = diskSpaceNotices;
         _accountFailures = accountFailures;
         _hostedDesktops = hostedDesktops;
         _desktopRelay = desktopRelay;
@@ -154,6 +156,10 @@ public sealed class DirectorHub : Hub
     /// exercise them): Hello does not offer PushResourceSummaries, and a batch that arrives anyway is answered "not
     /// stored", so the Director keeps it.</summary>
     private readonly Stats.ResourceSummaryStore? _resourceSummaries;
+
+    /// <summary>Tells the owner when a drive goes under 10 GB free and when it recovers, from the windows just stored
+    /// (Disk Space on the Meter, 7 November 2026). Null (older callers, tests that do not exercise it) tells nobody.</summary>
+    private readonly Stats.DiskSpaceNotifier? _diskSpaceNotices;
 
     /// <summary>The desktops each connected Director hosts (the Factory Boxes mission, phase 1). Null (older callers,
     /// tests that do not exercise boxes) refuses nothing and stores nothing.</summary>
@@ -437,12 +443,36 @@ public sealed class DirectorHub : Hub
             FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} windows={batch?.Windows.Count ?? 0} "
                           + $"held={ack.HeldWindowStartsUtc.Count} refused={ack.RejectedWindowStartsUtc.Count}"
                           + (ack.NotStoredReason is null ? "" : $" NOT stored ({ack.NotStoredReason})"));
+            NoticeDiskSpace(tenant, directorId, batch, ack);
             return ack;
         }
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorHub] PushResourceSummaries: the store FAILED (contained; the Director keeps the windows): director={directorId}: {ex.GetType().Name}: {ex.Message}");
             return new ResourceSummaryAck { NotStoredReason = $"the Gateway could not store it: {ex.Message}" };
+        }
+    }
+
+    /// <summary>
+    /// Hands the windows the store just held, with figures it accepted, to the disk space notices. Its own containment:
+    /// a notice that fails is logged and costs nothing else - the windows are stored and the acknowledgement stands.
+    /// </summary>
+    private void NoticeDiskSpace(TenantId tenant, string directorId, ResourceSummaryBatch? batch, ResourceSummaryAck ack)
+    {
+        if (_diskSpaceNotices is null || batch?.Windows is not { Count: > 0 } windows || ack.HeldWindowStartsUtc.Count == 0) return;
+        try
+        {
+            var held = ack.HeldWindowStartsUtc.ToHashSet();
+            var accepted = windows
+                .Where(w => w is not null && held.Contains(Stats.ResourceSummaryStore.Utc(w.WindowStartUtc))
+                            && Stats.ResourceSummaryStore.FiguresRefusalFor(w) is null)
+                .ToList();
+            var written = _diskSpaceNotices.Observe(tenant, accepted);
+            if (written > 0) FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} wrote {written} disk space notice(s)");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorHub] PushResourceSummaries: the disk space notices FAILED (contained; the windows are stored): director={directorId}: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

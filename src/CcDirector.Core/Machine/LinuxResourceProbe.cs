@@ -9,7 +9,7 @@ namespace CcDirector.Core.Machine;
 ///
 /// What it reads: the processor (the whole machine and the busiest core), memory and swap, the stall
 /// readings from the kernel's own pressure files, each physical disk's evidence for the slowness
-/// diagnosis, and every process. It reads no disk meter, no free space and no network throughput: the
+/// diagnosis, and every process. It reads no disk activity meter and no network throughput (free space per drive came back on 2026-11-07, through DiskSpaceReader): the
 /// owner narrowed the meter to memory and the processor on 2026-11-06, and the disk survives only as
 /// evidence the diagnosis puts into a sentence.
 ///
@@ -139,7 +139,9 @@ public sealed class LinuxResourceProbe : IResourceProbe
         // of exactly the multi-threaded programs the diagnosis exists to name.
         var stall = Guard("stalls", () => ReadStall(cpuTimes?.ProcessesBlocked), StallReading.Unreadable);
 
-        return new ResourceSample(now, cpu, memory, swap, stall, disks, processes);
+        var diskSpace = Guard("free space", DiskSpaceReader.ReadThisMachine, DiskSpaceSet.Unreadable);
+
+        return new ResourceSample(now, cpu, memory, swap, stall, disks, processes, diskSpace);
     }
 
     /// <summary>

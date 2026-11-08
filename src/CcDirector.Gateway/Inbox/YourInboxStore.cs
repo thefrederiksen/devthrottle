@@ -290,6 +290,32 @@ public sealed class YourInboxStore
         };
     }
 
+    /// <summary>
+    /// A disk space notice (Disk Space on the Meter, 7 November 2026): from the Gateway, seat
+    /// <see cref="YourInboxWords.DiskSpaceSeat"/>, unread. Nobody reads a reply to it. A subject over the limit is cut.
+    /// </summary>
+    public static YourInboxMessageEntity ForDiskSpace(TenantId tenant, string subject, string body, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+        if (body.Length > MaxBodyLength)
+            throw new ArgumentException($"A disk space notice of {body.Length} characters is over the limit of {MaxBodyLength}; its words are fixed and short, so this is a defect.", nameof(body));
+        subject = subject.Trim().Replace('\r', ' ').Replace('\n', ' ');
+        if (subject.Length > MaxSubjectLength) subject = subject[..(MaxSubjectLength - 3)].TrimEnd() + "...";
+        FileLog.Write($"[YourInboxStore] ForDiskSpace: subject={subject}");
+        return new YourInboxMessageEntity
+        {
+            TenantId = tenant.Value,
+            Subject = subject,
+            Body = body,
+            FromKind = YourInboxWords.Senders.Gateway,
+            Factory = null,
+            Seat = YourInboxWords.DiskSpaceSeat,
+            State = YourInboxWords.States.Unread,
+            SentAtUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+        };
+    }
+
     /// <summary>The 08:00 message about problems in no factory already written for the boundary, or null.</summary>
     public YourInboxMessageEntity? NoFactoryMorningOf(TenantId tenant, DateTime boundaryUtc)
     {

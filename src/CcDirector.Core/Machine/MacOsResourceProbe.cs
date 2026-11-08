@@ -23,9 +23,9 @@ namespace CcDirector.Core.Machine;
 /// two of them, caches the result and never throws.
 ///
 /// WHAT THIS PROBE DOES NOT READ, AND WHY. The owner narrowed the Resource Monitor on 2026-11-06 to
-/// memory and the processor: there is no disk bar and no network figure in the toolbar, the detail
-/// tiles, the Gateway rows or the Cockpit. So this probe reads no network counters at all, no per-volume
-/// figures and no disk throughput. The disk survives in one place only - <see cref="DiskEvidence"/>,
+/// memory and the processor, and on 2026-11-07 brought back free space per drive only (read by
+/// <see cref="DiskSpaceReader"/>, the same on every platform). So this probe reads no network counters at
+/// all and no disk throughput. Disk activity survives in one place only - <see cref="DiskEvidence"/>,
 /// which exists to fill in the words of a slowness diagnosis and is never drawn as a meter.
 ///
 /// MOST FIGURES HERE ARE RATES, SO THEY NEED TWO READINGS. The processor, the per-disk timings and
@@ -240,7 +240,8 @@ public sealed class MacOsResourceProbe : IResourceProbe
             Swap: FoldSwap(),
             Stall: FoldStall(),
             DiskEvidence: FoldDiskEvidence(diskCaptures, disks, disksWhyNot, systemVolumeDisks, previous, since),
-            Processes: FoldProcesses(processes, previous, since, cores.Count, now));
+            Processes: FoldProcesses(processes, previous, since, cores.Count, now),
+            DiskSpace: DiskSpaceReader.ReadThisMachine());
 
         _previous = new Previous(timestamp, cores, disks, processes);
         return sample;
@@ -758,7 +759,8 @@ public sealed class MacOsResourceProbe : IResourceProbe
             Swap: SwapReading.Unreadable(reason),
             Stall: StallReading.Unreadable(reason),
             DiskEvidence: DiskEvidenceSet.Unreadable(reason),
-            Processes: ProcessSetReading.Unreadable(reason));
+            Processes: ProcessSetReading.Unreadable(reason),
+            DiskSpace: DiskSpaceSet.Unreadable(reason));
 
     /// <summary>
     /// Writes one line for each resource that has become unreadable, and NOT AGAIN for the same one.

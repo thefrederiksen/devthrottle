@@ -42,6 +42,9 @@ public static class ResourceSummaryStatsModel
             b.Property(e => e.SampleCount).HasColumnName("sample_count");
             b.Property(e => e.ReceivedUtc).HasColumnName("received_utc").HasConversion(UtcConverter);
             b.Property(e => e.RefusedReason).HasColumnName("refused_reason");
+            // Added 7 November 2026 (Disk Space on the Meter). The default fills every row written before the column
+            // existed, and every row from a Director that reports no drives, with an empty list.
+            b.Property(e => e.DrivesJson).HasColumnName("drives_json").IsRequired().HasDefaultValue("[]");
             Figures(b);
             // The Cockpit's reads: a tenant's machines over a time range.
             b.HasIndex(e => new { e.Tenant, e.WindowStartUtc }).HasDatabaseName("ix_resource_window_tenant_window");
@@ -101,7 +104,26 @@ public static class ResourceSummaryStatsModel
             Figures(b);
             b.HasIndex(e => new { e.Tenant, e.HourStartUtc }).HasDatabaseName("ix_resource_session_hour_tenant_hour");
         });
+
+        // Disk Space on the Meter (7 November 2026): where each drive stands for the owner's disk space notices.
+        modelBuilder.Entity<ResourceDiskNoticeEntity>(b =>
+        {
+            b.ToTable("resource_disk_notice");
+            b.HasKey(e => new { e.Tenant, e.MachineName, e.Drive });
+            b.Property(e => e.Tenant).HasColumnName("tenant").IsRequired();
+            b.Property(e => e.MachineName).HasColumnName("machine_name").IsRequired();
+            b.Property(e => e.Drive).HasColumnName("drive").IsRequired();
+            b.Property(e => e.IsRed).HasColumnName("is_red");
+            b.Property(e => e.LastRedNoticeUtc).HasColumnName("last_red_notice_utc").HasConversion(NullableUtcConverter);
+            b.Property(e => e.RedSpellNoticed).HasColumnName("red_spell_noticed");
+            b.Property(e => e.LastWindowStartUtc).HasColumnName("last_window_start_utc").HasConversion(UtcConverter);
+        });
     }
+
+    /// <summary>The nullable form of <see cref="UtcConverter"/>.</summary>
+    private static readonly ValueConverter<DateTime?, DateTime?> NullableUtcConverter = new(
+        v => v == null ? null : v.Value.Kind == DateTimeKind.Utc ? v : v.Value.ToUniversalTime(),
+        v => v == null ? null : DateTime.SpecifyKind(v.Value, DateTimeKind.Utc));
 
     /// <summary>The figure columns every resource row shares, named once.</summary>
     private static void Figures<T>(EntityTypeBuilder<T> b) where T : class, IResourceFigureColumns

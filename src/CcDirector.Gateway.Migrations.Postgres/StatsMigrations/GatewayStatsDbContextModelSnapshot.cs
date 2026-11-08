@@ -448,6 +448,47 @@ namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
                     b.ToTable("repo_session", "gateway_stats");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceDiskNoticeEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant")
+                        .UseCollation("C");
+
+                    b.Property<string>("MachineName")
+                        .HasColumnType("text")
+                        .HasColumnName("machine_name")
+                        .UseCollation("C");
+
+                    b.Property<string>("Drive")
+                        .HasColumnType("text")
+                        .HasColumnName("drive")
+                        .UseCollation("C");
+
+                    b.Property<bool>("IsRed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_red");
+
+                    b.Property<DateTime?>("LastRedNoticeUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_red_notice_utc");
+
+                    b.Property<DateTime>("LastWindowStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_window_start_utc");
+
+                    b.Property<bool>("RedSpellNoticed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("red_spell_noticed");
+
+                    b.HasKey("Tenant", "MachineName", "Drive");
+
+                    b.ToTable("resource_disk_notice", "gateway_stats", t =>
+                        {
+                            t.HasCheckConstraint("ck_resource_disk_notice_tenant_not_empty", "\"tenant\" ~ '^[a-z0-9-]+$'");
+                        });
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceHourEntity", b =>
                 {
                     b.Property<string>("Tenant")
@@ -770,6 +811,14 @@ namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("crossings_json")
+                        .UseCollation("C");
+
+                    b.Property<string>("DrivesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("drives_json")
                         .UseCollation("C");
 
                     b.Property<DateTime>("HourStartUtc")

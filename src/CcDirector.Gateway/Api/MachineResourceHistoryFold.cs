@@ -2,6 +2,12 @@ using System.Globalization;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Stats;
 using CcDirector.Gateway.Stats.Data.Entities;
+using DiskSpacePressure = CcDirector.Core.Machine.DiskSpacePressure;
+using DiskSpaceSet = CcDirector.Core.Machine.DiskSpaceSet;
+using DiskSpaceText = CcDirector.Core.Machine.DiskSpaceText;
+using DriveSpaceReading = CcDirector.Core.Machine.DriveSpaceReading;
+using ResourceLevel = CcDirector.Core.Machine.ResourceLevel;
+using ResourceViewText = CcDirector.Core.Machine.ResourceViewText;
 
 namespace CcDirector.Gateway.Api;
 
@@ -99,7 +105,82 @@ internal static class MachineResourceHistoryFold
             .ThenBy(f => f.Factory, StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (dto.Factories.Count == 0) dto.NoFactoriesMessage = NoFactoriesMessage;
+
+        dto.Drives = DriveHistory(rows);
+        if (dto.Drives.Count == 0)
+            dto.NoDrivesMessage = $"No resource summary from {machine} in the last {hours} hours reported a drive. "
+                                  + "A Director older than 7 November 2026 does not report disk space; updating it adds the drives here.";
         return dto;
+    }
+
+    /// <summary>
+    /// Each drive's free space over the span, from the windows' uploaded drive figures (Disk Space on the Meter,
+    /// 7 November 2026). The words and the tone are decided here, with the same lines and the same wording as the
+    /// Director's DISK bar, so the machine page and the toolbar cannot disagree (CLAUDE.md rule 7).
+    /// </summary>
+    internal static List<MachineDriveHistoryDto> DriveHistory(IReadOnlyList<ResourceWindowEntity> rows)
+    {
+        var order = new List<string>();
+        var byDrive = new Dictionary<string, List<(DateTime Start, ResourceDriveSummary Drive)>>(StringComparer.Ordinal);
+        foreach (var row in rows.OrderBy(r => r.WindowStartUtc))
+        {
+            foreach (var drive in ResourceSummaryStore.DrivesOf(row))
+            {
+                if (!byDrive.TryGetValue(drive.Name, out var list))
+                {
+                    list = new List<(DateTime, ResourceDriveSummary)>();
+                    byDrive[drive.Name] = list;
+                    order.Add(drive.Name);
+                }
+                list.Add((row.WindowStartUtc, drive));
+            }
+        }
+
+        var result = new List<MachineDriveHistoryDto>(order.Count);
+        foreach (var name in order)
+        {
+            var seen = byDrive[name];
+            var newest = seen[^1].Drive;
+            var dto = new MachineDriveHistoryDto { Name = name };
+            if (newest is { CouldRead: true, FreeBytesAtEnd: { } free, TotalBytes: { } total })
+            {
+                var level = DiskSpacePressure.LevelOfFree((ulong)free);
+                dto.Headline = $"{ResourceViewText.Bytes((ulong)free)} free of {ResourceViewText.Bytes((ulong)total)}";
+                dto.LevelLabel = DiskSpacePressure.LevelWords(level);
+                dto.Tone = level switch
+                {
+                    ResourceLevel.Critical => FleetTone.Bad,
+                    ResourceLevel.Tight => FleetTone.Warn,
+                    _ => FleetTone.Ok,
+                };
+            }
+            else
+            {
+                dto.Headline = ResourceViewText.CannotRead(newest.UnreadableReason);
+                dto.LevelLabel = DiskSpacePressure.LevelWords(ResourceLevel.Unknown);
+                dto.Tone = FleetTone.Idle;
+            }
+
+            var read = seen.Where(x => x.Drive is { CouldRead: true, FreeBytesAtEnd: not null, LowestFreeBytes: not null, TotalBytes: > 0 }).ToList();
+            dto.Points = read.Select(x => new MachineDrivePointDto
+            {
+                WindowStartUtc = x.Start,
+                LowestFreeBytes = x.Drive.LowestFreeBytes!.Value,
+                UsedPercent = 100.0 - x.Drive.LowestFreeBytes!.Value * 100.0 / x.Drive.TotalBytes!.Value,
+            }).ToList();
+
+            // The trend reads free space at each window's END, oldest against newest, through the toolbar's own wording.
+            if (read.Count > 0)
+            {
+                var origin = read[0].Start;
+                var timeline = read
+                    .Select(x => (x.Start - origin, DiskSpaceSet.Read([DriveSpaceReading.Read(name, (ulong)x.Drive.TotalBytes!.Value, (ulong)x.Drive.FreeBytesAtEnd!.Value)])))
+                    .ToList();
+                dto.TrendLabel = DiskSpaceText.Trend(name, timeline);
+            }
+            result.Add(dto);
+        }
+        return result;
     }
 
     /// <summary>Why one window has no figure for one resource. A refused window says so, in the fault tone; an unread one

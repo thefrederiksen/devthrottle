@@ -139,6 +139,10 @@ public sealed class GatewayStatsDbContext : DbContext
     /// <summary>Hourly session roll-ups of the resource windows (<c>resource_session_hour</c>), kept two years.</summary>
     public DbSet<ResourceSessionHourEntity> ResourceSessionHours => Set<ResourceSessionHourEntity>();
 
+    /// <summary>Where each drive on each machine stands for the owner's disk space notices (<c>resource_disk_notice</c>,
+    /// Disk Space on the Meter, 7 November 2026).</summary>
+    public DbSet<ResourceDiskNoticeEntity> ResourceDiskNotices => Set<ResourceDiskNoticeEntity>();
+
     /// <summary>
     /// The check constraint name for one table's non-empty tenant guard. Named per table because a
     /// PostgreSQL constraint name is unique within its schema, and named deterministically so a migration

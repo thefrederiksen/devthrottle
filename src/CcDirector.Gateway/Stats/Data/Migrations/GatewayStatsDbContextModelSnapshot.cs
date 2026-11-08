@@ -380,6 +380,41 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                     b.ToTable("repo_session", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceDiskNoticeEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant");
+
+                    b.Property<string>("MachineName")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("machine_name");
+
+                    b.Property<string>("Drive")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("drive");
+
+                    b.Property<bool>("IsRed")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_red");
+
+                    b.Property<DateTime?>("LastRedNoticeUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_red_notice_utc");
+
+                    b.Property<DateTime>("LastWindowStartUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_window_start_utc");
+
+                    b.Property<bool>("RedSpellNoticed")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("red_spell_noticed");
+
+                    b.HasKey("Tenant", "MachineName", "Drive");
+
+                    b.ToTable("resource_disk_notice", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceHourEntity", b =>
                 {
                     b.Property<string>("Tenant")
@@ -669,6 +704,13 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("crossings_json");
+
+                    b.Property<string>("DrivesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("drives_json");
 
                     b.Property<DateTime>("HourStartUtc")
                         .HasColumnType("TEXT")

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getMachineResources,
+  type MachineDriveHistory,
   type MachineResourceHistory,
 } from "@devthrottle/client-core/fleet/machinesClient";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
@@ -95,6 +96,65 @@ export function ResourceChart({ geometry }: { geometry: ChartGeometry }) {
   );
 }
 
+const SPARK = { width: 160, height: 28 };
+
+/**
+ * A drive's short history: how full it was at its fullest in each window, laid across the Gateway's span so its right
+ * edge is the Gateway's now. Layout only - the points are the Gateway's.
+ */
+function DriveSpark({ drive, fromUtc, toUtc }: { drive: MachineDriveHistory; fromUtc: string; toUtc: string }) {
+  const from = Date.parse(fromUtc);
+  const to = Date.parse(toUtc);
+  const span = to - from;
+  const points = drive.points
+    .map((p) => ({ at: Date.parse(p.windowStartUtc), used: p.usedPercent }))
+    .filter((p) => Number.isFinite(p.at) && span > 0);
+  if (points.length === 0) return null;
+  const xy = points.map((p) => {
+    const x = Math.min(SPARK.width, Math.max(0, ((p.at - from) / span) * SPARK.width));
+    const y = SPARK.height - (Math.min(100, Math.max(0, p.used)) / 100) * SPARK.height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  return (
+    <svg
+      className="fmr-drive-spark"
+      viewBox={`0 0 ${SPARK.width} ${SPARK.height}`}
+      width={SPARK.width}
+      height={SPARK.height}
+      role="img"
+      aria-label={`Drive ${drive.name}: how full it was over the last day`}
+    >
+      <polyline className={`fmr-drive-line ${toneClass(drive.tone)}`} points={xy.join(" ")} fill="none" />
+    </svg>
+  );
+}
+
+/** Each fixed drive's free space, as the Gateway worded it (Disk Space on the Meter, 7 November 2026). Exported for tests. */
+export function MachineDrives({ history }: { history: MachineResourceHistory }) {
+  return (
+    <div className="fmr-drives" data-testid="fmr-drives">
+      <div className="fmr-factories-title">Disk space</div>
+      {history.noDrivesMessage != null ? (
+        <div className="fmr-empty" data-testid="fmr-no-drives">{history.noDrivesMessage}</div>
+      ) : (
+        <table className="dtbl fmr-drive-table">
+          <tbody>
+            {history.drives.map((d) => (
+              <tr key={d.name} data-testid={`fmr-drive-${d.name}`}>
+                <td className="dmono">{d.name}</td>
+                <td>{d.headline}</td>
+                <td className={toneClass(d.tone)}>{d.levelLabel}</td>
+                <td className="ddim">{d.trendLabel ?? ""}</td>
+                <td><DriveSpark drive={d} fromUtc={history.fromUtc} toUtc={history.toUtc} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 /** The history and the factory table, once loaded. Exported for tests. */
 export function MachineResourcesBody({ history }: { history: MachineResourceHistory }) {
   if (history.emptyMessage != null) {
@@ -120,6 +180,8 @@ export function MachineResourcesBody({ history }: { history: MachineResourceHist
         <ResourceChart geometry={cpu} />
         <ResourceChart geometry={memory} />
       </div>
+
+      <MachineDrives history={history} />
 
       {events.length > 0 && (
         <ul className="fmr-events" data-testid="fmr-events">

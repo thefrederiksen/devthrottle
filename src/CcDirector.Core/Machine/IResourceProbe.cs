@@ -6,8 +6,9 @@ namespace CcDirector.Core.Machine;
 /// The one shape the meter, the detail screen, the Gateway summary and the slowness
 /// diagnosis all read from, so none of them knows which operating system it is on.
 ///
-/// It reads no disk meter, no per-volume free space and no network throughput, and the disk survives only
-/// as evidence the diagnosis puts into a sentence. <see cref="ResourceSample"/> explains why.
+/// It reads free and total space per fixed drive (brought back by the owner on 2026-11-07), but no disk
+/// activity meter and no network throughput: disk activity survives only as evidence the diagnosis puts
+/// into a sentence. <see cref="ResourceSample"/> explains why.
 ///
 /// The platform implementations are <c>LinuxResourceProbe</c>, <c>WindowsResourceProbe</c> and
 /// <c>MacOsResourceProbe</c>, each written separately. It is an interface, like

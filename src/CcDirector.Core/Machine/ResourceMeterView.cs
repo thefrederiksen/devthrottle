@@ -4,13 +4,18 @@ namespace CcDirector.Core.Machine;
 
 /// <summary>
 /// One bar of the toolbar meter, finished: the view binds to it and decides nothing (CLAUDE.md rule 7).
-/// There are exactly two bars, CPU and MEM. Nothing about the disk, a volume or the network is ever a bar.
+/// There are exactly three bars, CPU, MEM and DISK (free space, brought back by the owner on 2026-11-07, always
+/// shown). Disk activity and the network are never a bar.
 /// </summary>
-/// <param name="Kind">Which resource: <see cref="ResourceKind.Cpu"/> or <see cref="ResourceKind.Memory"/>.</param>
-/// <param name="Label">The on-screen label, "CPU" or "MEM".</param>
+/// <param name="Kind">Which resource: <see cref="ResourceKind.Cpu"/>, <see cref="ResourceKind.Memory"/> or <see cref="ResourceKind.Disk"/>.</param>
+/// <param name="Label">The on-screen label, "CPU", "MEM" or "DISK".</param>
 /// <param name="CouldRead">False when the reading could not be taken. The bar is then empty and the text a dash.</param>
 /// <param name="Fraction">How full the bar is, 0.0 to 1.0. Null when unreadable - never zero.</param>
-/// <param name="PercentText">"28%", or <see cref="ResourceViewText.CannotReadText"/> when unreadable.</param>
+/// <param name="PercentText">
+/// The figure beside the bar: "28%" for CPU and MEM; for DISK the free space LEFT on the tightest drive, "C: 6 GB",
+/// because that is the figure the owner acts on while the bar fills with how FULL it is.
+/// <see cref="ResourceViewText.CannotReadText"/> when unreadable.
+/// </param>
 /// <param name="Level">The colour the bar takes, from the verdict. Unknown is its own look, never Normal's.</param>
 /// <param name="Tooltip">One line saying the figure, or that it cannot be read and why.</param>
 public sealed record ResourceBarView(
@@ -27,7 +32,8 @@ public sealed record ResourceBarView(
 /// </summary>
 /// <param name="Cpu">The CPU bar.</param>
 /// <param name="Memory">The MEM bar.</param>
-/// <param name="NarrowText">What a narrow window shows instead of the bars, for example "28%/55%" (issue #2812).</param>
+/// <param name="Disk">The DISK bar: the fixed drive with the least room left.</param>
+/// <param name="NarrowText">What a narrow window shows instead of the bars, for example "CPU 23% MEM 61% C: 6 GB".</param>
 /// <param name="TooltipLines">The meter's tooltip, one line each, machine figures first and then this Director's own sessions.</param>
 /// <param name="SwapLevel">
 /// Swap's verdict level. SWAP HAS NO BAR - the mission allows exactly two, the processor and memory - but it
@@ -38,12 +44,13 @@ public sealed record ResourceBarView(
 public sealed record ResourceMeterView(
     ResourceBarView Cpu,
     ResourceBarView Memory,
+    ResourceBarView Disk,
     string NarrowText,
     IReadOnlyList<string> TooltipLines,
     ResourceLevel SwapLevel = ResourceLevel.Unknown)
 {
     /// <summary>
-    /// The level the meter's frame takes: the worst of the two bars AND SWAP. Unknown only when all three are
+    /// The level the meter's frame takes: the worst of the three bars AND SWAP. Unknown only when all three are
     /// unknown, so one reading that cannot be taken never hides another's warning (the same rule as
     /// <see cref="ResourcePressureVerdict.Worst"/>, and it falls out of Unknown being zero in the enum).
     ///
@@ -55,6 +62,7 @@ public sealed record ResourceMeterView(
         get
         {
             var worst = Cpu.Level > Memory.Level ? Cpu.Level : Memory.Level;
+            if (Disk.Level > worst) worst = Disk.Level;
 
             // SWAP MAY RAISE THIS FRAME; IT MAY NEVER ASSERT HEALTH. Only a warning level counts. Taking the
             // plain maximum would have let a readable, Normal swap turn a frame whose BOTH BARS CANNOT BE READ
@@ -80,10 +88,11 @@ public sealed record ResourceMeterView(
     {
         get
         {
-            var name = $"Resources: CPU {Cpu.PercentText}, memory {Memory.PercentText}";
+            var name = $"Resources: CPU {Cpu.PercentText}, memory {Memory.PercentText}, disk {DiskSpoken}";
             var warnings = new List<string>();
             if (Cpu.Level is ResourceLevel.Tight or ResourceLevel.Critical) warnings.Add(Word(ResourceKind.Cpu, Cpu.Level));
             if (Memory.Level is ResourceLevel.Tight or ResourceLevel.Critical) warnings.Add(Word(ResourceKind.Memory, Memory.Level));
+            if (Disk.Level is ResourceLevel.Tight or ResourceLevel.Critical) warnings.Add(Word(ResourceKind.Disk, Disk.Level));
             if (SwapLevel is ResourceLevel.Tight or ResourceLevel.Critical) warnings.Add(Word(ResourceKind.Swap, SwapLevel));
             return warnings.Count == 0 ? name : $"{name}. Warning: {string.Join("; ", warnings)}.";
         }
@@ -96,6 +105,9 @@ public sealed record ResourceMeterView(
     /// request 4732 - it reached a screen reader as "the processor is running short", which is not English for
     /// what happened.
     /// </summary>
+    // "C: 6 GB free" - the bar's figure is free space, so a screen reader says so; a dash is "cannot be read".
+    private string DiskSpoken => Disk.CouldRead ? $"{Disk.PercentText} free" : "cannot be read";
+
     private static string Word(ResourceKind kind, ResourceLevel level)
     {
         var critical = level == ResourceLevel.Critical;
@@ -103,6 +115,7 @@ public sealed record ResourceMeterView(
         {
             ResourceKind.Cpu => critical ? "the processor is maxed out" : "the processor is running hot",
             ResourceKind.Memory => critical ? "memory is nearly gone" : "memory is running short",
+            ResourceKind.Disk => critical ? "a drive has under 10 GB free" : "a drive has under 25 GB free",
             _ => critical ? "swap is nearly full" : "swap is filling up",
         };
     }
@@ -213,18 +226,25 @@ public static class ResourceMeterFold
     /// (<see cref="ResourceSampler.LatestAge"/>). Never worked out from the sample's wall-clock stamp, which a
     /// stepped clock would make read as "just now" or "40 minutes ago". Null before the first read.
     /// </param>
+    /// <param name="history">
+    /// The sampler's history on its monotonic timeline (<see cref="ResourceSampler.TimelineHistory"/>), for the
+    /// tooltip's "C: lost 8 GB in the last 60 minutes" line. Empty before the first read.
+    /// </param>
     public static ResourceMeterView Build(
         ResourceSamplerState state,
         string machineName,
         int runningSessions,
         IReadOnlyList<ResourceSessionInput>? sessions,
-        TimeSpan? latestAge)
+        TimeSpan? latestAge,
+        IReadOnlyList<TimelineSample> history)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
+        ArgumentNullException.ThrowIfNull(history);
 
         var cpu = CpuBar(state);
         var memory = MemoryBar(state);
+        var disk = DiskBar(state);
         var swap = state.VerdictFor(ResourceKind.Swap);
         var directorSessions = Combine(sessions);
 
@@ -234,6 +254,23 @@ public static class ResourceMeterFold
             cpu.Tooltip,
             memory.Tooltip,
         };
+
+        // EVERY DRIVE, not only the one on the bar (the approved mock-up): the bar shows the tightest, the tooltip
+        // says where the rest stand. Then the trend of each drive that is losing room, because "6 GB free" is an
+        // emergency at 8 GB an afternoon and nothing at all at 1 GB a month.
+        if (state.Latest is { } latestSample)
+        {
+            var diskSpace = latestSample.DiskSpace;
+            if (!diskSpace.CouldRead || diskSpace.Drives.Count == 0) lines.Add(disk.Tooltip);
+            foreach (var drive in diskSpace.Drives) lines.Add(DiskSpaceText.Line(drive));
+
+            var timeline = history.OrderBy(h => h.Timeline).Select(h => (h.Timeline, h.Sample.DiskSpace)).ToList();
+            foreach (var drive in diskSpace.Drives.Where(d => d.CouldRead))
+            {
+                if (DiskSpaceText.Trend(drive.Name, timeline) is { } trend && trend.StartsWith("lost ", StringComparison.Ordinal))
+                    lines.Add($"{drive.Name} {trend}");
+            }
+        }
 
         // THE WARNING BANNER'S ONE UNIQUE FACT, KEPT (the owner's ruling of 2026-11-07, which deleted the banner
         // strip outright: "it should really just show red in the resource meter, that's enough").
@@ -290,8 +327,15 @@ public static class ResourceMeterFold
             lines.Add("Waiting for the first reading - click for detail");
         }
 
-        return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}", lines, swap.Level);
+        return new ResourceMeterView(cpu, memory, disk, NarrowText(cpu, memory, disk), lines, swap.Level);
     }
+
+    /// <summary>
+    /// The compact form keeps all three as text: "CPU 23% MEM 61% C: 6 GB" (the approved mock-up). An unreadable disk
+    /// reads "DISK -", so the owner can still tell which figure is missing.
+    /// </summary>
+    private static string NarrowText(ResourceBarView cpu, ResourceBarView memory, ResourceBarView disk) =>
+        $"CPU {cpu.PercentText} MEM {memory.PercentText} {(disk.CouldRead ? disk.PercentText : "DISK " + disk.PercentText)}";
 
     /// <summary>
     /// The meter when the resource monitor never started: both bars cannot be read, and say why. Never "not read
@@ -304,8 +348,9 @@ public static class ResourceMeterFold
         var why = $"the resource monitor did not start: {reason}";
         var cpu = Unreadable(ResourceKind.Cpu, "CPU", why);
         var memory = Unreadable(ResourceKind.Memory, "MEM", why);
-        return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}",
-            [machineName, cpu.Tooltip, memory.Tooltip]);
+        var disk = Unreadable(ResourceKind.Disk, "DISK", why);
+        return new ResourceMeterView(cpu, memory, disk, NarrowText(cpu, memory, disk),
+            [machineName, cpu.Tooltip, memory.Tooltip, disk.Tooltip]);
     }
 
     /// <summary>
@@ -449,10 +494,48 @@ public static class ResourceMeterFold
             ? $"{figures} - {verdict.Evidence}"
             : figures;
 
+    /// <summary>
+    /// The DISK bar: the readable fixed drive with the least room left. The bar fills with how FULL it is; the figure
+    /// beside it is how much is LEFT ("C: 6 GB"); the colour is <see cref="DiskSpacePressure"/>'s line in gigabytes.
+    /// A drive that cannot be read never stands in for one that can, and is never drawn as zero: when no drive can be
+    /// read the bar is the dashed "cannot read" bar, with the reason.
+    /// </summary>
+    private static ResourceBarView DiskBar(ResourceSamplerState state)
+    {
+        if (state.Latest is not { } sample)
+            return Unreadable(ResourceKind.Disk, "DISK", ResourceSamplerState.NotYetSampledReason);
+
+        var disks = sample.DiskSpace;
+        if (!disks.CouldRead)
+            return Unreadable(ResourceKind.Disk, "DISK", disks.UnreadableReason);
+        if (disks.Drives.Count == 0)
+            return Unreadable(ResourceKind.Disk, "DISK", "no fixed drive was found on this machine");
+
+        if (DiskSpacePressure.Tightest(disks) is not { } drive)
+        {
+            var first = disks.Drives[0];
+            return Unreadable(ResourceKind.Disk, "DISK", $"no drive could be read; {first.Name}: {first.UnreadableReason}");
+        }
+
+        var fraction = DiskSpaceText.UsedFraction(drive);
+        if (fraction is null)
+            return Unreadable(ResourceKind.Disk, "DISK", $"drive {drive.Name} reported a size of zero");
+
+        return new ResourceBarView(ResourceKind.Disk, "DISK", CouldRead: true, fraction, DiskSpaceText.Short(drive),
+            DiskSpacePressure.Level(drive), DiskSpaceText.Line(drive));
+    }
+
     // An unreadable bar is Unknown whatever the verdict says: the bar shows nothing, so it cannot be coloured as though it did.
     private static ResourceBarView Unreadable(ResourceKind kind, string label, string? reason) =>
         new(kind, label, CouldRead: false, Fraction: null, ResourceViewText.CannotReadText, ResourceLevel.Unknown,
-            $"{(kind == ResourceKind.Cpu ? "CPU" : "Memory")} {ResourceViewText.CannotRead(reason)}");
+            $"{BarWord(kind)} {ResourceViewText.CannotRead(reason)}");
+
+    private static string BarWord(ResourceKind kind) => kind switch
+    {
+        ResourceKind.Cpu => "CPU",
+        ResourceKind.Memory => "Memory",
+        _ => "Disk space",
+    };
 
     private static string Age(TimeSpan age)
     {

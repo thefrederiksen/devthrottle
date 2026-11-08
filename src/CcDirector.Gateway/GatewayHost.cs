@@ -102,6 +102,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// a hosted statistics store finishes opening.</summary>
     public Stats.ResourceSummaryStore ResourceSummaries { get; }
 
+    /// <summary>Disk Space on the Meter (7 November 2026): a drive under 10 GB free, told in the owner's Your inbox.</summary>
+    public Stats.DiskSpaceNotifier DiskSpaceNotices { get; }
+
     /// <summary>The hourly roll-up and retention of <see cref="ResourceSummaries"/>.</summary>
     private readonly Stats.ResourceSummaryRollupJob _resourceSummaryRollup;
 
@@ -2198,6 +2201,14 @@ public sealed class GatewayHost : IAsyncDisposable
         InputStatsHandle = OpenInputStats(inputStatsPath, _hostedStatsObservers, Hosted);
         // Mission: Resource Monitor: the five-minute summaries and their hourly roll-up, over the same statistics store.
         ResourceSummaries = new Stats.ResourceSummaryStore(() => StatsStore.Factory, Options.StatsClock);
+        // Disk Space on the Meter (7 November 2026): the owner's inbox notice when a drive goes under 10 GB free and when
+        // it recovers, written through the same Your inbox path the schedule failure notices use.
+        DiskSpaceNotices = new Stats.DiskSpaceNotifier(() => StatsStore.Factory, (tenant, message) =>
+        {
+            // Both are assigned further down this constructor; the lambda runs only once windows arrive, after it.
+            using (_tenantBoundary!.EnterScope(tenant))
+                YourInbox!.Add(tenant, message);
+        }, Options.StatsClock);
         _resourceSummaryRollup = new Stats.ResourceSummaryRollupJob(
             new Stats.ResourceSummaryRollup(() => StatsStore.Factory, Options.StatsClock), Options.StatsClock);
         _resourceSummaryRollup.Start();
@@ -4883,6 +4894,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(PushedRepositories);
         builder.Services.AddSingleton(PushedHostedDesktops);
         builder.Services.AddSingleton(ResourceSummaries);
+        builder.Services.AddSingleton(DiskSpaceNotices);
         builder.Services.AddSingleton(RepoHistory);
         // Issue #2194: the work-history recorder, so the SignalR-constructed DirectorHub folds every
         // accepted push into the durable session record (throttled inside the recorder).

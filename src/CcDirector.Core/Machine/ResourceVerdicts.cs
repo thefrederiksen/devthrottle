@@ -3,9 +3,10 @@ namespace CcDirector.Core.Machine;
 /// <summary>
 /// The resources the Resource Monitor gives a verdict on - one row each in mission section 5c.
 ///
-/// THERE IS NO DISK VERDICT, because there is no disk bar for one to colour - see
-/// <see cref="ResourceSample"/>. The disk reaches the owner only through the slowness diagnosis, in
-/// words: <see cref="SlownessCause.Disk"/>.
+/// <see cref="Disk"/> is FREE SPACE, brought back by the owner on 2026-11-07, and its level comes from
+/// <see cref="DiskSpacePressure"/>, not from <c>ResourcePressure</c>: a drive's lines are in gigabytes and
+/// need no sixty-second hold. Disk ACTIVITY still has no verdict - it reaches the owner only through the
+/// slowness diagnosis, in words: <see cref="SlownessCause.Disk"/>.
 ///
 /// The values are numbered explicitly, because a Gateway row will carry them and a reordering must not
 /// silently relabel stored history.
@@ -20,6 +21,9 @@ public enum ResourceKind
 
     /// <summary>The swap file or page file.</summary>
     Swap = 2,
+
+    /// <summary>Free space on the fixed drive with the least room left (the DISK bar, 2026-11-07).</summary>
+    Disk = 3,
 }
 
 /// <summary>

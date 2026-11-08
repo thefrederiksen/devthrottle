@@ -116,6 +116,8 @@ export function history(
     gaps: [],
     events: [],
     noFactoriesMessage: factories.length === 0 ? "No sessions were recorded on this machine in this span." : null,
+    drives: [],
+    noDrivesMessage: "No resource summary from devlinux in the last 24 hours reported a drive.",
     ...extra,
   };
 }

@@ -25,7 +25,7 @@ public class ResourceViewFoldTests
 
     private static ResourceMeterView Meter(ResourceSamplerState state, SessionUsage? own = null) =>
         ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4,
-            own is null ? null : [new ResourceSessionInput(own, own.SessionId, null)], TimeSpan.FromSeconds(3));
+            own is null ? null : [new ResourceSessionInput(own, own.SessionId, null)], TimeSpan.FromSeconds(3), []);
 
     // ---- the toolbar meter ----
 
@@ -39,7 +39,8 @@ public class ResourceViewFoldTests
         Assert.Equal(0.28, meter.Cpu.Fraction!.Value, 3);
         Assert.Equal("MEM", meter.Memory.Label);
         Assert.Equal("55%", meter.Memory.PercentText);
-        Assert.Equal("28%/55%", meter.NarrowText);
+        // The compact form keeps all three as text (the approved mock-up of 7 November 2026).
+        Assert.Equal("CPU 28% MEM 55% C: 500 GB", meter.NarrowText);
         Assert.Equal(ResourceLevel.Normal, meter.Cpu.Level);
     }
 
@@ -53,9 +54,11 @@ public class ResourceViewFoldTests
         Assert.Equal("devthrottle-mac-mini - 4 sessions running", lines[0]);
         Assert.Equal("CPU 28% of 8 cores - busiest core 71%", lines[1]);
         Assert.StartsWith("Memory 8.86 GB used of 16.0 GB", lines[2]);
-        Assert.Equal("Swap 966 MB of 2.00 GB", lines[3]);
-        Assert.Equal("This Director's sessions 2.10 GB and 19% CPU", lines[4]);
-        Assert.Equal("Updated 3 seconds ago - click for detail", lines[5]);
+        // Every drive comes after the bars it shares the meter with (Disk Space on the Meter, 7 November 2026).
+        Assert.Equal("C: 500 GB free of 931 GB - normal", lines[3]);
+        Assert.Equal("Swap 966 MB of 2.00 GB", lines[4]);
+        Assert.Equal("This Director's sessions 2.10 GB and 19% CPU", lines[5]);
+        Assert.Equal("Updated 3 seconds ago - click for detail", lines[6]);
     }
 
     [Fact]
@@ -65,7 +68,7 @@ public class ResourceViewFoldTests
 
         var lines = Meter(State(new FakeSampleBuilder().Build()), own).TooltipLines;
 
-        Assert.Equal("This Director's sessions at least 2.10 GB and at least 19% CPU", lines[4]);
+        Assert.Equal("This Director's sessions at least 2.10 GB and at least 19% CPU", lines[5]);
     }
 
     /// <summary>
@@ -75,11 +78,12 @@ public class ResourceViewFoldTests
     /// which noticed the semantic change I had not listed.
     /// </summary>
     [Fact]
-    public void Meter_BothBarsUnreadableAndSwapNormal_TheFrameStaysUnknown_NeverNormal()
+    public void Meter_EveryBarUnreadableAndSwapNormal_TheFrameStaysUnknown_NeverNormal()
     {
         var sample = new FakeSampleBuilder()
             .CpuUnreadable("the counters are switched off")
             .MemoryUnreadable("sysctl refused")
+            .WithDiskSpace(DiskSpaceSet.Unreadable("the mount table could not be read"))
             .Build();
         var meter = Meter(State(sample, cpu: ResourceLevel.Unknown, memory: ResourceLevel.Unknown));
 
@@ -111,7 +115,7 @@ public class ResourceViewFoldTests
             new ResourceVerdict(ResourceKind.Swap, swap, "swap evidence"),
         ]));
 
-        var name = ResourceMeterFold.Build(state, "m", 1, null, TimeSpan.FromSeconds(3)).AccessibleName;
+        var name = ResourceMeterFold.Build(state, "m", 1, null, TimeSpan.FromSeconds(3), []).AccessibleName;
 
         Assert.Contains(expected, name, StringComparison.Ordinal);
         Assert.StartsWith("Resources: CPU ", name, StringComparison.Ordinal);
@@ -138,7 +142,7 @@ public class ResourceViewFoldTests
         Assert.Equal("CPU cannot read: the counters are switched off", meter.Cpu.Tooltip);
         Assert.True(meter.Memory.CouldRead);
         Assert.Equal("55%", meter.Memory.PercentText);
-        Assert.Equal("-/55%", meter.NarrowText);
+        Assert.Equal("CPU - MEM 55% C: 500 GB", meter.NarrowText);
     }
 
     [Fact]
@@ -174,9 +178,10 @@ public class ResourceViewFoldTests
     {
         var meter = Meter(ResourceSamplerState.NotYetSampled);
 
-        Assert.Equal("-/-", meter.NarrowText);
+        Assert.Equal("CPU - MEM - DISK -", meter.NarrowText);
         Assert.Equal(ResourceLevel.Unknown, meter.Cpu.Level);
         Assert.Equal(ResourceLevel.Unknown, meter.Memory.Level);
+        Assert.Equal(ResourceLevel.Unknown, meter.Disk.Level);
         Assert.Equal("Waiting for the first reading - click for detail", meter.TooltipLines[^1]);
     }
 
@@ -219,7 +224,7 @@ public class ResourceViewFoldTests
     [InlineData(120, "Updated 2 minutes ago - click for detail")]
     public void Meter_Updated_SaysHowOldTheReadingIs(int ageSeconds, string expected)
     {
-        var meter = ResourceMeterFold.Build(State(new FakeSampleBuilder().Build()), "m", 1, null, TimeSpan.FromSeconds(ageSeconds));
+        var meter = ResourceMeterFold.Build(State(new FakeSampleBuilder().Build()), "m", 1, null, TimeSpan.FromSeconds(ageSeconds), []);
 
         Assert.Equal(expected, meter.TooltipLines[^1]);
     }

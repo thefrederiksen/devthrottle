@@ -20,7 +20,7 @@ public sealed class ResourceMeterHonestyTests
         ]));
 
     private static ResourceMeterView Meter(ResourceSamplerState state, TimeSpan? age) =>
-        ResourceMeterFold.Build(state, "soren-north", 2, null, age);
+        ResourceMeterFold.Build(state, "soren-north", 2, null, age, []);
 
     [Theory]
     [InlineData(400.0)]

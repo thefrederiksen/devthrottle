@@ -192,7 +192,8 @@ public sealed class ResourceRecordingGoldenTests : IDisposable
                     null, "Nothing to do.", "Not slow: no resource is holding programs up");
 
             return new ResourceMoment(
-                new ResourceSample(takenAtUtc, cpu, memory, swap, stall, disks, ProcessSetReading.Read(processes)),
+                new ResourceSample(takenAtUtc, cpu, memory, swap, stall, disks, ProcessSetReading.Read(processes),
+                    DiskSpaceSet.Read([DriveSpaceReading.Read("C:", 931UL << 30, 500UL << 30)])),
                 sessions, verdict, diagnosis);
         }
     }

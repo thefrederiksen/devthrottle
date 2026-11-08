@@ -11,8 +11,9 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Avalonia.Controls;
 
 /// <summary>
-/// The toolbar's resource meter (the Resource Monitor mission, issue #2811, sections 5d to 5g): two bars, CPU
-/// and MEM, each coloured on its own reading, and the whole meter one click target.
+/// The toolbar's resource meter (the Resource Monitor mission, issue #2811, sections 5d to 5g): three bars, CPU,
+/// MEM and DISK (free space on the tightest fixed drive, always shown since 2026-11-07), each coloured on its own
+/// reading, and the whole meter one click target.
 ///
 /// IT RENDERS WHAT IT IS HANDED. Every figure, word and level comes from <see cref="ResourceMeterFold"/> in
 /// Core; this control only maps a level to the mock-up's colours and lays the bars out (CLAUDE.md rule 7).
@@ -32,6 +33,7 @@ public sealed class ResourceMeter : Button
 
     private readonly Gauge _cpu = new();
     private readonly Gauge _memory = new();
+    private readonly Gauge _disk = new();
     private readonly StackPanel _bars;
     private readonly TextBlock _narrow;
     private bool _isCompact;
@@ -51,6 +53,7 @@ public sealed class ResourceMeter : Button
         _bars = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         _bars.Children.Add(_cpu.Root);
         _bars.Children.Add(_memory.Root);
+        _bars.Children.Add(_disk.Root);
 
         _narrow = new TextBlock
         {
@@ -65,7 +68,7 @@ public sealed class ResourceMeter : Button
         content.Children.Add(_narrow);
         Content = content;
 
-        Render(ResourceMeterFold.Build(ResourceSamplerState.NotYetSampled, Environment.MachineName, 0, null, null));
+        Render(ResourceMeterFold.Build(ResourceSamplerState.NotYetSampled, Environment.MachineName, 0, null, null, Array.Empty<TimelineSample>()));
     }
 
     /// <summary>The view last rendered, for tests.</summary>
@@ -93,6 +96,7 @@ public sealed class ResourceMeter : Button
 
         _cpu.Render(view.Cpu);
         _memory.Render(view.Memory);
+        _disk.Render(view.Disk);
         _narrow.Text = view.NarrowText;
 
         var (background, border) = Frame(view.FrameLevel);

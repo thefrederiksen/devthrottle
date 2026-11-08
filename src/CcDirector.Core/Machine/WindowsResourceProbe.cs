@@ -93,13 +93,16 @@ public sealed class WindowsResourceProbe : IResourceProbe
         {
             return new ResourceSample(now, CpuReading.Unreadable(platformProblem), memory,
                 SwapReading.Unreadable(platformProblem), StallReading.Unreadable(platformProblem),
-                DiskEvidenceSet.Unreadable(platformProblem), ProcessSetReading.Unreadable(platformProblem));
+                DiskEvidenceSet.Unreadable(platformProblem), ProcessSetReading.Unreadable(platformProblem),
+                // Free space is read through the drive letters, not the counters the platform problem is about.
+                DiskSpaceReader.ReadThisMachine());
         }
 
         var cores = ReadLogicalCoreCount();
         var (processes, stall) = ReadProcessesAndStall(timestamp, cores);
 
-        return new ResourceSample(now, ReadCpu(cores), memory, ReadSwap(), stall, ReadDiskEvidence(), processes);
+        return new ResourceSample(now, ReadCpu(cores), memory, ReadSwap(), stall, ReadDiskEvidence(), processes,
+            DiskSpaceReader.ReadThisMachine());
     }
 
     /// <summary>

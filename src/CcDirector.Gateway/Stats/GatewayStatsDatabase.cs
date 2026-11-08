@@ -36,7 +36,7 @@ public sealed class GatewayStatsDatabase : IDisposable
 {
     /// <summary>The schema version this build understands. Bump it and add a migration step; never reshape
     /// an existing table in place without one.</summary>
-    public const int SchemaVersion = 8;
+    public const int SchemaVersion = 9;
 
     /// <summary>
     /// The oldest schema version this build can migrate FORWARD without losing data. Below it the store is
@@ -201,6 +201,9 @@ public sealed class GatewayStatsDatabase : IDisposable
 
         if (current < 8 && _targetVersion >= 8)
             MigrateToVersion8(tx);
+
+        if (current < 9 && _targetVersion >= 9)
+            MigrateToVersion9(tx);
 
         Execute($"PRAGMA user_version={_targetVersion}", tx);
         tx.Commit();
@@ -764,6 +767,15 @@ public sealed class GatewayStatsDatabase : IDisposable
     private void MigrateToVersion8(SqliteTransaction tx)
     {
         FileLog.Write("[GatewayStatsDatabase] MigrateToVersion8: stamp moves to 8 with the migration chain; no table changes here");
+    }
+
+    // Version 9: the migration chain's ResourceDiskSpace (Disk Space on the Meter, 7 November 2026), which adds the
+    // drives_json column to resource_window and the resource_disk_notice table, and moves the chain's stamp to 9. THIS
+    // STEP CREATES NOTHING, for the same two reasons as version 8: the stamp must move or this opener would refuse every
+    // chain-built file as "written by a newer build", and nothing that opens a store this way reads either change.
+    private void MigrateToVersion9(SqliteTransaction tx)
+    {
+        FileLog.Write("[GatewayStatsDatabase] MigrateToVersion9: stamp moves to 9 with the migration chain; no table changes here");
     }
 
     // Rebuild one table so the tenant can join its primary key: create the new shape, copy every existing row

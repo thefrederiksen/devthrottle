@@ -60,6 +60,7 @@ public static class ResourceSummaryBuilder
             Machine = MachineFigures(inWindow, machineCrossings.Select(c => c.Crossing).ToList()),
             SamplesWithUnknownSessions = inWindow.Count(s => s.SessionsUnreadableReason is not null),
             SessionsUnreadableReason = inWindow.LastOrDefault(s => s.SessionsUnreadableReason is not null)?.SessionsUnreadableReason,
+            Drives = DriveSummaries(inWindow, end),
         };
 
         // Sessions in first-seen order, so the same samples always give the same row order.
@@ -99,6 +100,94 @@ public static class ResourceSummaryBuilder
 
         return window;
     }
+
+    /// <summary>
+    /// One row per fixed drive seen in the window, in first-seen order: its size, free space at the newest sample that
+    /// read it ("at the window's end"), the lowest free space any sample read, and each run of samples under the amber
+    /// (25 GB) or red (10 GB) line. A drive no sample could read is a row with the reason and no figures.
+    /// </summary>
+    private static List<ResourceDriveSummary> DriveSummaries(List<ResourceSummarySample> samples, DateTime windowEnd)
+    {
+        var order = new List<string>();
+        var byDrive = new Dictionary<string, List<(ResourceSummarySample Sample, ResourceSummaryDriveSample Drive)>>(StringComparer.Ordinal);
+        foreach (var sample in samples)
+        {
+            foreach (var drive in sample.Drives)
+            {
+                if (string.IsNullOrWhiteSpace(drive.Name)) continue;
+                if (!byDrive.TryGetValue(drive.Name, out var list))
+                {
+                    list = new List<(ResourceSummarySample, ResourceSummaryDriveSample)>();
+                    byDrive[drive.Name] = list;
+                    order.Add(drive.Name);
+                }
+                list.Add((sample, drive));
+            }
+        }
+
+        var rows = new List<ResourceDriveSummary>(order.Count);
+        foreach (var name in order)
+        {
+            var seen = byDrive[name];
+            var read = seen.Where(x => x.Drive.FreeBytes.HasValue && x.Drive.TotalBytes.HasValue).ToList();
+            var row = new ResourceDriveSummary { Name = name, CouldRead = read.Count > 0 };
+            if (read.Count == 0)
+            {
+                row.UnreadableReason = ReasonOf(seen.Select(x => x.Drive.UnreadableReason), seen.Count, $"drive {name}");
+                rows.Add(row);
+                continue;
+            }
+            row.TotalBytes = read[^1].Drive.TotalBytes;
+            row.FreeBytesAtEnd = read[^1].Drive.FreeBytes;
+            row.LowestFreeBytes = read.Min(x => x.Drive.FreeBytes!.Value);
+            row.Crossings = DriveCrossings(read, windowEnd);
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    private static List<GatewayResourceCrossing> DriveCrossings(
+        List<(ResourceSummarySample Sample, ResourceSummaryDriveSample Drive)> read, DateTime windowEnd)
+    {
+        var crossings = new List<GatewayResourceCrossing>();
+        var run = new List<(ResourceSummarySample Sample, ResourceSummaryDriveSample Drive)>();
+        foreach (var point in read)
+        {
+            if (DiskLevel(point.Drive.FreeBytes!.Value) is ResourceLevel.Tight or ResourceLevel.Critical)
+            {
+                run.Add(point);
+                continue;
+            }
+            if (run.Count > 0) crossings.Add(DriveCrossingOf(run, windowEnd));
+            run = new List<(ResourceSummarySample, ResourceSummaryDriveSample)>();
+        }
+        if (run.Count > 0) crossings.Add(DriveCrossingOf(run, windowEnd));
+        return crossings;
+    }
+
+    private static GatewayResourceCrossing DriveCrossingOf(
+        List<(ResourceSummarySample Sample, ResourceSummaryDriveSample Drive)> run, DateTime windowEnd)
+    {
+        var first = run[0].Sample.AtUtc;
+        var lastEnds = run[^1].Sample.AtUtc + SampleInterval;
+        if (lastEnds > windowEnd) lastEnds = windowEnd;
+        var lowestFree = run.Min(x => x.Drive.FreeBytes!.Value);
+        var fullest = run.Where(x => x.Drive.TotalBytes > 0)
+            .Select(x => (double?)(100.0 - x.Drive.FreeBytes!.Value * 100.0 / x.Drive.TotalBytes!.Value))
+            .Max();
+        return new GatewayResourceCrossing
+        {
+            Resource = ResourceSummaryContract.Disk,
+            Level = DiskLevel(lowestFree) == ResourceLevel.Critical ? ResourceSummaryContract.Red : ResourceSummaryContract.Amber,
+            StartedUtc = DateTime.SpecifyKind(first, DateTimeKind.Utc),
+            Seconds = Math.Max(1, (int)Math.Round((lastEnds - first).TotalSeconds)),
+            PeakPercent = fullest,
+        };
+    }
+
+    // The same lines as the meter's DISK bar, read from the one pair of numbers both use.
+    private static ResourceLevel DiskLevel(long freeBytes) =>
+        freeBytes < 0 ? ResourceLevel.Unknown : DiskSpacePressure.LevelOfFree((ulong)freeBytes);
 
     private static ResourceSummaryFigures MachineFigures(List<ResourceSummarySample> samples, List<GatewayResourceCrossing> crossings)
     {

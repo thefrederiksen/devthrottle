@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CcDirector.Avalonia;
@@ -159,6 +160,45 @@ public sealed class ResourceMeterWindowTests
         Assert.DoesNotContain(view.TooltipLines, line => line.StartsWith("Biggest:", StringComparison.Ordinal)
             || line.StartsWith("Busiest:", StringComparison.Ordinal));
         Photograph(rig.Window, "01-normal.png");
+    }
+
+    // Disk Space on the Meter (7 November 2026): the DISK bar is always on the toolbar beside CPU and MEM, and a drive
+    // under 10 GB free turns it and the meter's frame red while CPU and MEM stay green.
+    [AvaloniaFact]
+    public void DiskRed_TheThirdBarSaysWhatIsLeftInRed_AndTheFrameTurnsRed()
+    {
+        using var rig = new Rig();
+
+        rig.Read(Machine(28, (ulong)(7.14 * Gb)).WithDiskSpace(DiskSpaceSet.Read(
+        [
+            DriveSpaceReading.Read("C:", 931 * Gb, (ulong)(6.4 * Gb)),
+            DriveSpaceReading.Read("D:", 3815 * Gb, 325 * Gb),
+        ])).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
+
+        var texts = rig.Meter.GetVisualDescendants().OfType<TextBlock>().ToList();
+        Assert.Equal(new[] { "CPU", "MEM", "DISK" }, texts.Where(t => t.Text is "CPU" or "MEM" or "DISK").Select(t => t.Text));
+        var disk = Assert.Single(texts, t => t.Text == "C: 6 GB");
+        Assert.Equal(Color.Parse("#FF8B8B"), ((ISolidColorBrush)disk.Foreground!).Color);
+        Assert.Equal(Color.Parse("#7A2B2B"), ((ISolidColorBrush)rig.Meter.BorderBrush!).Color);
+        Assert.Equal(ResourceLevel.Normal, rig.Meter.View!.Cpu.Level);
+        Photograph(rig.Window, "08-disk-red.png");
+    }
+
+    [AvaloniaFact]
+    public void DiskUnreadable_TheThirdBarIsTheDashedCannotReadBar_NeverAnEmptyTrack()
+    {
+        using var rig = new Rig();
+
+        rig.Read(Machine(28, (ulong)(7.14 * Gb)).WithDiskSpace(DiskSpaceSet.Unreadable("the mount table could not be read")).Build(),
+            ResourceLevel.Normal, ResourceLevel.Normal);
+
+        var view = rig.Meter.View!;
+        Assert.False(view.Disk.CouldRead);
+        Assert.Equal(ResourceViewText.CannotReadText, view.Disk.PercentText);
+        // Exactly one dashed outline is showing: the DISK bar's. CPU and MEM have their tracks.
+        var dashed = rig.Meter.GetVisualDescendants().OfType<global::Avalonia.Controls.Shapes.Rectangle>().Where(r => r.IsVisible).ToList();
+        Assert.Single(dashed);
+        Photograph(rig.Window, "09-disk-unreadable.png");
     }
 
     [AvaloniaFact]
@@ -410,7 +450,8 @@ public sealed class ResourceMeterWindowTests
         Pump();
 
         Assert.True(rig.Meter.IsCompact, $"the meter kept its bars on a toolbar with no room: {FitText(rig)}");
-        Assert.Equal("28%/55%", rig.Meter.View!.NarrowText);
+        // The compact form keeps all three as text (Disk Space on the Meter, 7 November 2026).
+        Assert.Equal("CPU 28% MEM 55% C: 500 GB", rig.Meter.View!.NarrowText);
         AssertInsideTheWindow(rig.Window, rig.Window.BtnCockpit);
         AssertInsideTheWindow(rig.Window, rig.Window.BtnSettings);
         AssertInsideTheWindow(rig.Window, rig.Meter);
