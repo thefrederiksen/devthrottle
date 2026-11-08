@@ -139,6 +139,21 @@ public sealed class SkillStore
     private bool EffectiveEnabled(SkillEntity head) =>
         head.IsBuiltIn ? TenantChoiceFor(head.Id) ?? head.Enabled : head.Enabled;
 
+    /// <summary>Why the agent path refuses a switched-off skill, in words that are true for THIS
+    /// tenant: an optional built-in nobody here has turned on was never disabled by anyone, and saying
+    /// "the owner disabled it" would send an agent to ask the owner about a choice he never made.</summary>
+    private string OffRefusal(SkillEntity head, string key)
+    {
+        var optionalNeverChosen = head.IsBuiltIn && !head.Enabled && TenantChoiceFor(head.Id) is null;
+        if (optionalNeverChosen)
+            return $"Skill '{key}' is an OPTIONAL DevThrottle skill and is not turned on for this " +
+                   "account. Ask the owner before turning it on. It is turned on in " +
+                   "the cockpit's Skills page or with: cc-devthrottle skill enable " + key;
+        return $"Skill '{key}' is turned OFF on this fleet. The owner disabled it, so it must " +
+               "not be used - do not work around this by reading its history. It can be " +
+               "switched back on in the cockpit or with: cc-devthrottle skill enable " + key;
+    }
+
     /// <summary>
     /// Built-ins are READ-ONLY: they are DevThrottle's, maintained by shipping a new binary, and the
     /// only writer of their content is the boot-time seeder. Every authoring write refuses a built-in
@@ -297,10 +312,7 @@ public sealed class SkillStore
             using var ctx = OpenOwningContext(key);
             var head = ctx.Skills.AsNoTracking().FirstOrDefault(h => h.Id == key);
             if (head is { Archived: false } && !EffectiveEnabled(head))
-                throw new SkillValidationException(
-                    $"Skill '{key}' is turned OFF on this fleet. The owner disabled it, so it must " +
-                    "not be used - do not work around this by reading its history. It can be " +
-                    "switched back on in the cockpit or with: cc-devthrottle skill enable " + key);
+                throw new SkillValidationException(OffRefusal(head, key));
             var row = ResolveVersionRow(ctx, key, version);
             return row?.BodyMarkdown;
         }

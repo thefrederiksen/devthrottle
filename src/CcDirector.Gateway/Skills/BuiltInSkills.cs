@@ -5,12 +5,19 @@ namespace CcDirector.Gateway.Skills;
 /// should bring it to mind. The BODY is not here - it lives in an embedded markdown resource, read by
 /// <see cref="BuiltInSkills.BodyFor"/>, so the text stays diffable against the skill file it came from
 /// and cannot drift through C# string escaping.
+///
+/// <see cref="ShipsSwitchedOff"/> marks an OPTIONAL built-in: it is in every account's register but
+/// starts OFF - left out of every briefing and refused on fetch - until the account turns it on
+/// (Cockpit Skills page, or cc-devthrottle skill enable). Use it for a skill only some accounts need,
+/// so it does not cost every other account a line in every session's briefing. The account's own
+/// choice always wins over it.
 /// </summary>
 public sealed record SkillDefinition(
     string Id,
     string Name,
     string Summary,
-    IReadOnlyList<string> Triggers);
+    IReadOnlyList<string> Triggers,
+    bool ShipsSwitchedOff = false);
 
 /// <summary>
 /// The skills the Gateway ships with (devthrottle_internal issue 995). These are exactly the three the
