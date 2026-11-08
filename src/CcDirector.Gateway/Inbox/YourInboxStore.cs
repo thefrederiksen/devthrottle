@@ -480,7 +480,7 @@ public sealed class YourInboxStore
         ArgumentNullException.ThrowIfNull(agent);
         using var ctx = _db.CreateContext(tenant);
         var newest = ctx.YourInboxAgentActions.AsNoTracking().Where(a => a.MessageId == messageId)
-            .OrderByDescending(a => a.AtUtc).FirstOrDefault();
+            .OrderByDescending(a => a.AtUtc).ThenByDescending(a => a.Id).FirstOrDefault();
         if (newest is not null && newest.Action == YourInboxWords.AgentActs.Read && newest.SessionId == agent.SessionId)
         {
             FileLog.Write($"[YourInboxStore] RecordAgentRead: {messageId} read again by session {agent.SessionId}; its read is already the newest act");

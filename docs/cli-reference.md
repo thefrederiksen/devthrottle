@@ -1354,8 +1354,12 @@ USAGE: cc-devthrottle inbox list [--view unread|inbox|archived] [--count N | -n 
   ended nothing is sent: the Gateway's sentence and its offers are printed (exit 1), and `--to-factory`
   takes the offer to leave the reply in that session's factory. A reply to this session's own message, or
   into a factory this session is a seat of, is refused. A reply to a session is an ordinary message FROM
-  this session, held to the normal message rules: it goes only where this session may send a message
-  (`message send`), and a refusal is the Gateway's sentence (`reply_refused`, nothing sent). The reply is
+  this session, held to exactly the rules `message send` is held to: the relationship rule (the session
+  that started you, a session you started, or a message link the owner set up - a one-time link is used up
+  by it) and both rates. A session the owner raised gets the same waiver it gets for `message send`. A
+  message a link carried, and one let through only because the sender is raised, is recorded in the
+  governance audit log as `message send` records it. A refusal is the Gateway's sentence
+  (`reply_refused`, nothing sent). The reply is
   shown as from this session - the session that receives it is told an agent wrote it, never the owner -
   and the message stays unread.
   Give the text or `--body-file` (see Inbox Send for why a script's multi-line text must use the file).
