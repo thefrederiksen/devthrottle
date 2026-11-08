@@ -247,6 +247,9 @@ public sealed class PostgresProviderProofTests
             ("factory_attachments", "Factory"),
             ("factory_attachments", "ImportKey"),
             ("factory_attachments", "Seat"),
+            // factory_boss_starts: the session id is an exact key (issue #4598). Pinned in the model on 6 November 2026 and
+            // missed here, so this proof had been red on main since.
+            ("factory_boss_starts", "SessionId"),
             // The state a factory's checks keep (Factory Definition mission, phase 5b). The factory and the owner key
             // are two parts of the primary key that keeps two reports from adding the same row, so the two providers
             // must agree on what counts as the same start.
@@ -279,6 +282,9 @@ public sealed class PostgresProviderProofTests
             ("factory_inbox_messages", "ClaimSessionId"),
             ("factory_inbox_messages", "Factory"),
             ("factory_inbox_messages", "Note"),
+            // The device that marked a stuck message dealt with (issue #4752): pinned in the model on 7 November 2026 and
+            // missed here.
+            ("factory_inbox_messages", "OwnerDealtWithBy"),
             ("factory_inbox_messages", "ReceivedBySessionId"),
             ("factory_inbox_messages", "Source"),
             ("factory_inbox_messages", "State"),
@@ -437,6 +443,10 @@ public sealed class PostgresProviderProofTests
             ("turn_verdict_traces", "SessionId"),
             ("turn_verdict_traces", "TraceId"),
             ("turn_verdicts", "SessionId"),
+            // The website's key to one account's Your inbox (brief E): the hash lookup and the account key must match byte
+            // for byte as they do on SQLite.
+            ("website_inbox_keys", "KeyHash"),
+            ("website_inbox_keys", "TenantId"),
             ("workflow_tenant_overrides", "WorkflowId"),
             // The workspace slug (issue #2722). Caller-supplied, in a composite primary key with
             // tenant_id, and compared ordinally by the store exactly like the skill and workflow ids -
@@ -449,15 +459,12 @@ public sealed class PostgresProviderProofTests
             // the session id an exact key.
             ("your_inbox_agent_actions", "Action"),
             ("your_inbox_agent_actions", "SessionId"),
-            // The website's key to one account's Your inbox (brief E): the hash lookup and the account key, and the retry
-            // key on a website message, must match byte for byte as they do on SQLite.
-            ("website_inbox_keys", "KeyHash"),
-            ("website_inbox_keys", "TenantId"),
-            ("your_inbox_messages", "WebsiteKey"),
             ("your_inbox_messages", "Factory"),
             ("your_inbox_messages", "FromKind"),
             ("your_inbox_messages", "SessionId"),
             ("your_inbox_messages", "State"),
+            // The website's retry key on a message (brief E), an exact key.
+            ("your_inbox_messages", "WebsiteKey"),
             ("your_inbox_replies", "Factory"),
             ("your_inbox_replies", "RoutedTo"),
             ("your_inbox_replies", "SessionId"),
