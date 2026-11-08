@@ -35,6 +35,17 @@ public static class MailDeskWords
             [Gmail] = "Gmail",
         };
 
+        /// <summary>
+        /// Who keeps each provider's sign-in on the machine that checks it, as the start of a sentence (mission "Zoho Mail
+        /// Skill", section 4). cc-outlook and cc-gmail save theirs in the Director's folder on that machine, which is
+        /// where screen.py reads them. Every provider in <see cref="All"/> has one; none of them is on the Gateway.
+        /// </summary>
+        public static readonly IReadOnlyDictionary<string, string> SignInKeepers = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [Outlook] = "Saved by cc-outlook",
+            [Gmail] = "Saved by cc-gmail",
+        };
+
         /// <summary>The providers as the <c>--provider</c> placeholder of a command shows them: <c>outlook|gmail</c>.</summary>
         public static string Placeholder => string.Join("|", All);
     }

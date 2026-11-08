@@ -69,6 +69,22 @@ describe("the phone's Mail Desk address", () => {
     expect(container.querySelector(".screen .mail-desk")).not.toBeNull();
   });
 
+  it("MailDesk_HowItWorksLink_OpensTheStepsScreenWhoseBackGoesToTheMailDesk", async () => {
+    const envelope = oddChannels();
+    read.answer = () => Promise.resolve({ kind: "channels", envelope });
+
+    mountAt("/mobile/mail-desk");
+    const link = await screen.findByRole("link", { name: envelope.howItWorks.button });
+    expect(link.getAttribute("href")).toBe("/mobile/mail-desk/how-it-works");
+    cleanup();
+
+    const how = mountAt("/mobile/mail-desk/how-it-works");
+    await screen.findByTestId("mail-desk-how-it-works");
+    expect(how.container.querySelector(".screen > .app-bar > h1")?.textContent).toBe(envelope.howItWorks.title);
+    expect(how.container.querySelector(".screen > .app-bar > .back-link")?.getAttribute("href")).toBe("/mobile/mail-desk");
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(envelope.howItWorks.steps);
+  });
+
   it("MailDesk_SwitchOff_LooksExactlyLikeAnUnknownAddress", async () => {
     // An unknown address on the phone first reloads once to rule out a stale shell; after that one reload it reads
     // "Page not found". That second look is the ordinary one, and the one the switched-off page must match.

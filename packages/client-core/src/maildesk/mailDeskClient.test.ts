@@ -102,7 +102,7 @@ describe("getMailDeskChannels", () => {
     expect(await rejection()).toBeInstanceOf(GatewayError);
   });
 
-  it.each(["providerLabel", "machinesLabel", "modeLabel"] as const)(
+  it.each(["providerLabel", "machinesLabel", "modeLabel", "checkedBy", "signInHeld"] as const)(
     "getMailDeskChannels_ChannelWithout%s_ThrowsRatherThanShowingTheRawWord",
     async (field) => {
       const body = oddChannels();
@@ -115,7 +115,7 @@ describe("getMailDeskChannels", () => {
     },
   );
 
-  it.each(["title", "summary", "emptyLabel"] as const)("getMailDeskChannels_EnvelopeWithout%s_Throws", async (field) => {
+  it.each(["title", "summary", "emptyLabel", "howItWorks"] as const)("getMailDeskChannels_EnvelopeWithout%s_Throws", async (field) => {
     const body = oddChannels() as unknown as Record<string, unknown>;
     delete body[field];
     answeringJson(body);
@@ -141,5 +141,46 @@ describe("getMailDeskChannels", () => {
     answeringJson(body);
 
     expect(await rejection()).toBeInstanceOf(GatewayError);
+  });
+
+  it("getMailDeskChannels_CheckedByNoteToneOutsideTheContract_Throws", async () => {
+    const body = oddChannels();
+    (body.channels[1].checkedBy as { noteTone: string }).noteTone = "good";
+    answeringJson(body);
+
+    const err = await rejection();
+
+    expect((err as Error).message).toContain("checkedBy note");
+  });
+
+  it("getMailDeskChannels_CheckedByNoteWithoutItsTone_Throws", async () => {
+    const body = oddChannels();
+    (body.channels[1].checkedBy as { noteTone: string | null }).noteTone = null;
+    answeringJson(body);
+
+    expect(await rejection()).toBeInstanceOf(GatewayError);
+  });
+
+  it("getMailDeskChannels_CheckedBy_IsCarriedVerbatimWithANoteOrWithNone", async () => {
+    const body = oddChannels();
+    answeringJson(body);
+
+    const answer = await getMailDeskChannels();
+
+    if (answer.kind !== "channels") throw new Error("expected the channels");
+    expect(answer.envelope.channels[0].checkedBy).toEqual(body.channels[0].checkedBy);
+    expect(answer.envelope.channels[0].checkedBy.note).toBeNull();
+    expect(answer.envelope.channels[1].checkedBy).toEqual(body.channels[1].checkedBy);
+    expect(answer.envelope.channels[1].checkedBy.note).toBe("Nobody holds the spare key. Whistle for a second kettle.");
+  });
+
+  it("getMailDeskChannels_HowItWorksWithNoSteps_Throws", async () => {
+    const body = oddChannels();
+    body.howItWorks.steps = [];
+    answeringJson(body);
+
+    const err = await rejection();
+
+    expect((err as Error).message).toContain("steps");
   });
 });

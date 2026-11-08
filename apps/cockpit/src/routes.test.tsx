@@ -24,7 +24,10 @@ vi.mock("./sessions/SessionsView", () => ({ SessionsView: () => <Outlet />, Sess
 vi.mock("./fleet/FleetMapView", () => ({ FleetMapView: () => <div>fleet map page</div> }));
 vi.mock("./fleetmanager/WalkthroughView", () => ({ WalkthroughView: () => <div>walkthrough page</div> }));
 vi.mock("./licenses/LicensesView", () => ({ LicensesView: () => <div>licenses page</div> }));
-vi.mock("./maildesk/MailDeskView", () => ({ MailDeskView: () => <div>mail desk page</div> }));
+vi.mock("./maildesk/MailDeskView", () => ({
+  MailDeskView: () => <div>mail desk page</div>,
+  MailDeskHowItWorksView: () => <div>mail desk how it works page</div>,
+}));
 vi.mock("./boxes/BoxesView", () => ({ BoxesView: () => <div>boxes page</div> }));
 
 import { COCKPIT_ROUTES } from "./routes";
@@ -85,6 +88,14 @@ describe("Cockpit routes", () => {
 
     expect(await screen.findByText("mail desk page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/mail-desk");
+  });
+
+  // "How does this work?" on the Mail Desk page opens the documentation page at its own address, as on the phone.
+  it("serves the Mail Desk's how-it-works page at its own address", async () => {
+    renderAt("/mail-desk/how-it-works");
+
+    expect(await screen.findByText("mail desk how it works page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/mail-desk/how-it-works");
   });
 
   // Boxes (Factory Boxes mission, phase 1): the address exists; whether it shows the page or "Page not found" is the

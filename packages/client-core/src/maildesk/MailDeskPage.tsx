@@ -1,6 +1,12 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useId, useState, type ComponentType, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { describeAndReport } from "../errors/reportClientError";
-import { getMailDeskChannels, type MailDeskAnswer, type MailDeskChannel } from "./mailDeskClient";
+import {
+  getMailDeskChannels,
+  type MailDeskAnswer,
+  type MailDeskChannel,
+  type MailDeskChannels,
+} from "./mailDeskClient";
 import "../settings/settings.css";
 import "./mailDesk.css";
 
@@ -15,7 +21,8 @@ import "./mailDesk.css";
 // the shell's token; no field is hidden because its value looks empty.
 //
 // IT LISTS; IT NEVER EDITS (mission 5.11). There is no control of any kind: a mailbox is added, removed or switched
-// with the command, `cc-devthrottle maildesk`.
+// with the command, `cc-devthrottle maildesk`. The one link is "How does this work?", to the shared documentation page
+// (MailDeskHowItWorksPage); each shell passes its address, so no shell renders a dead link.
 
 /** Where a Mail Desk page failure is filed. One page on both shells, so one surface. */
 const SURFACE = "mail-desk";
@@ -35,7 +42,63 @@ export interface MailDeskPageProps {
   errorClassName: string;
 }
 
-export function MailDeskPage({ Frame, notFound, errorClassName }: MailDeskPageProps) {
+export interface MailDeskMainPageProps extends MailDeskPageProps {
+  /** The shell's address of the "How does this work?" page. */
+  howItWorksHref: string;
+}
+
+export function MailDeskPage({ Frame, notFound, errorClassName, howItWorksHref }: MailDeskMainPageProps) {
+  return (
+    <MailDeskRead Frame={Frame} notFound={notFound} errorClassName={errorClassName}>
+      {(envelope) => (
+        <Frame title={envelope.title}>
+          <div className="mail-desk" data-testid="mail-desk">
+            <div className="mail-desk-intro">
+              <p className="settings-hint mail-desk-summary">{envelope.summary}</p>
+              <Link className="mail-desk-how-link" to={howItWorksHref}>
+                {envelope.howItWorks.button}
+              </Link>
+            </div>
+            {envelope.channels.length === 0 ? (
+              <div className="settings-card">
+                <p className="mail-desk-empty">{envelope.emptyLabel}</p>
+              </div>
+            ) : (
+              envelope.channels.map((channel) => <ChannelCard key={channel.id} channel={channel} />)
+            )}
+          </div>
+        </Frame>
+      )}
+    </MailDeskRead>
+  );
+}
+
+/** The documentation page "How does this work?" opens: the Gateway's heading and its steps, in order. */
+export function MailDeskHowItWorksPage({ Frame, notFound, errorClassName }: MailDeskPageProps) {
+  return (
+    <MailDeskRead Frame={Frame} notFound={notFound} errorClassName={errorClassName}>
+      {({ howItWorks }) => (
+        <Frame title={howItWorks.title}>
+          <div className="mail-desk" data-testid="mail-desk-how-it-works">
+            <ol className="settings-card mail-desk-steps">
+              {howItWorks.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        </Frame>
+      )}
+    </MailDeskRead>
+  );
+}
+
+/** Reads the Mail Desk once per visit and draws the shell's not-found, the error banner, the loading line, or the page. */
+function MailDeskRead({
+  Frame,
+  notFound,
+  errorClassName,
+  children,
+}: MailDeskPageProps & { children: (envelope: MailDeskChannels) => ReactNode }) {
   const [answer, setAnswer] = useState<MailDeskAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,21 +137,7 @@ export function MailDeskPage({ Frame, notFound, errorClassName }: MailDeskPagePr
     );
   }
 
-  const { envelope } = answer;
-  return (
-    <Frame title={envelope.title}>
-      <div className="mail-desk" data-testid="mail-desk">
-        <p className="settings-hint mail-desk-summary">{envelope.summary}</p>
-        {envelope.channels.length === 0 ? (
-          <div className="settings-card">
-            <p className="mail-desk-empty">{envelope.emptyLabel}</p>
-          </div>
-        ) : (
-          envelope.channels.map((channel) => <ChannelCard key={channel.id} channel={channel} />)
-        )}
-      </div>
-    </Frame>
-  );
+  return <>{children(answer.envelope)}</>;
 }
 
 // The fact names below are the page's layout, not a ruling: what each fact SAYS is the Gateway's sentence.
@@ -103,10 +152,21 @@ function ChannelCard({ channel }: { channel: MailDeskChannel }) {
         <Fact name="Mode" tone={channel.modeTone}>
           {channel.modeLabel}
         </Fact>
-        <Fact name="Machines">{channel.machinesLabel}</Fact>
+        <Fact name="Checked by" help={channel.checkedBy.help}>
+          {channel.checkedBy.label}
+          {channel.checkedBy.note !== null && (
+            <>
+              {" - "}
+              <span className="mail-desk-note" data-tone={channel.checkedBy.noteTone ?? undefined}>
+                {channel.checkedBy.note}
+              </span>
+            </>
+          )}
+        </Fact>
         <Fact name="Signed in" tone={channel.signedIn.tone}>
           {channel.signedIn.label}
         </Fact>
+        <Fact name="Sign-in held">{channel.signInHeld}</Fact>
         <Fact name="Last check" tone={channel.lastCheck.tone}>
           {channel.lastCheck.label}
         </Fact>
@@ -124,11 +184,37 @@ function ChannelCard({ channel }: { channel: MailDeskChannel }) {
   );
 }
 
-function Fact({ name, tone, children }: { name: string; tone?: string; children: ReactNode }) {
+function Fact({ name, tone, help, children }: { name: string; tone?: string; help?: string; children: ReactNode }) {
   return (
     <div className="mail-desk-fact">
-      <dt>{name}</dt>
+      <dt>
+        {name}
+        {help !== undefined && <Help text={help} />}
+      </dt>
       <dd data-tone={tone}>{children}</dd>
     </div>
+  );
+}
+
+/** The "?" beside a fact: its words show on hover, on keyboard focus, and on a tap (a phone has no hover). */
+function Help({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <span className="mail-desk-help">
+      <button
+        type="button"
+        className="mail-desk-help-button"
+        aria-describedby={id}
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+        onBlur={() => setOpen(false)}
+      >
+        ?
+      </button>
+      <span id={id} className="mail-desk-help-text" role="tooltip" data-open={open ? "true" : undefined}>
+        {text}
+      </span>
+    </span>
   );
 }

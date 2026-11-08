@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import type { ReactNode } from "react";
 import { GatewayError } from "../api/client";
 import type { MailDeskAnswer } from "./mailDeskClient";
 import { noChannels, oddChannels, wordsOf } from "./mailDeskFixture.testkit";
@@ -23,7 +25,9 @@ vi.mock("../errors/reportClientError", async (importActual) => ({
 }));
 
 import { describeAndReport } from "../errors/reportClientError";
-import { MailDeskPage, type MailDeskFrameProps } from "./MailDeskPage";
+import { MailDeskHowItWorksPage, MailDeskPage, type MailDeskFrameProps } from "./MailDeskPage";
+
+const HOW_HREF = "/somewhere/the-owls-explain";
 
 function Frame({ title, children }: MailDeskFrameProps) {
   return (
@@ -34,13 +38,32 @@ function Frame({ title, children }: MailDeskFrameProps) {
   );
 }
 
+function Page({ notFound }: { notFound?: ReactNode }) {
+  return (
+    <MemoryRouter>
+      <MailDeskPage
+        Frame={Frame}
+        notFound={notFound ?? <div data-testid="not-found">the shell's Page not found</div>}
+        errorClassName="test-error-banner"
+        howItWorksHref={HOW_HREF}
+      />
+    </MemoryRouter>
+  );
+}
+
 function renderPage() {
+  return render(<Page />);
+}
+
+function renderHowItWorks() {
   return render(
-    <MailDeskPage
-      Frame={Frame}
-      notFound={<div data-testid="not-found">the shell's Page not found</div>}
-      errorClassName="test-error-banner"
-    />,
+    <MemoryRouter>
+      <MailDeskHowItWorksPage
+        Frame={Frame}
+        notFound={<div data-testid="not-found">the shell's Page not found</div>}
+        errorClassName="test-error-banner"
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -106,6 +129,7 @@ describe("MailDeskPage", () => {
       const toned = Array.from(cards[index].querySelectorAll("[data-tone]")).map((el) => [el.textContent, el.getAttribute("data-tone")]);
       expect(toned).toEqual([
         [channel.modeLabel, channel.modeTone],
+        ...(channel.checkedBy.note === null ? [] : [[channel.checkedBy.note, channel.checkedBy.noteTone]]),
         [channel.signedIn.label, channel.signedIn.tone],
         [channel.lastCheck.label, channel.lastCheck.tone],
       ]);
@@ -157,7 +181,7 @@ describe("MailDeskPage", () => {
     expect(banner.className).toBe("test-error-banner");
     expect(screen.getByTestId("frame").contains(banner)).toBe(true);
     // A re-render does not report the same failure again.
-    rerender(<MailDeskPage Frame={Frame} notFound={<div data-testid="not-found" />} errorClassName="test-error-banner" />);
+    rerender(<Page notFound={<div data-testid="not-found" />} />);
     expect(screen.getByRole("alert").textContent).toBe(SHOWN);
     expect(describeAndReport).toHaveBeenCalledTimes(1);
     expect(vi.mocked(describeAndReport).mock.calls[0][2]).toBe(failure);
@@ -175,12 +199,73 @@ describe("MailDeskPage", () => {
     expect(describeAndReport).not.toHaveBeenCalled();
   });
 
-  it("MailDeskPage_Channels_HasNoControlsOfAnyKind", async () => {
-    answers({ kind: "channels", envelope: oddChannels() });
+  it("MailDeskPage_Channels_HasNoEditingControls_OnlyTheHowLinkAndTheHelpMarks", async () => {
+    const envelope = oddChannels();
+    answers({ kind: "channels", envelope });
 
     const { container } = renderPage();
 
     await screen.findAllByTestId("mail-desk-channel");
-    expect(container.querySelectorAll("button, input, select, textarea, a, [role=button]")).toHaveLength(0);
+    const controls = Array.from(container.querySelectorAll("button, input, select, textarea, a, [role=button]"));
+    expect(controls.map((c) => c.textContent)).toEqual(["Why do the owls fly?", ...envelope.channels.map(() => "?")]);
+  });
+
+  it("MailDeskPage_HowItWorksLink_IsTheGatewaysWordsToTheShellsAddress", async () => {
+    answers({ kind: "channels", envelope: oddChannels() });
+
+    renderPage();
+
+    const link = await screen.findByRole("link", { name: "Why do the owls fly?" });
+    expect(link.getAttribute("href")).toBe(HOW_HREF);
+  });
+
+  it("MailDeskPage_NoChannels_StillOffersTheHowItWorksLink", async () => {
+    answers({ kind: "channels", envelope: noChannels() });
+
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: "Why do the owls fly?" })).toBeTruthy();
+  });
+
+  it("MailDeskPage_HelpMark_TapOpensTheGatewaysWordsAndLeavingClosesThem", async () => {
+    const envelope = oddChannels();
+    answers({ kind: "channels", envelope });
+
+    renderPage();
+
+    const cards = await screen.findAllByTestId("mail-desk-channel");
+    const mark = within(cards[0]).getByRole("button", { name: "?" });
+    const tip = within(cards[0]).getByRole("tooltip", { hidden: true });
+    expect(tip.textContent).toBe(envelope.channels[0].checkedBy.help);
+    expect(mark.getAttribute("aria-describedby")).toBe(tip.id);
+    expect(tip.getAttribute("data-open")).toBeNull();
+    fireEvent.click(mark);
+    expect(tip.getAttribute("data-open")).toBe("true");
+    expect(mark.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.blur(mark);
+    expect(tip.getAttribute("data-open")).toBeNull();
+  });
+});
+
+describe("MailDeskHowItWorksPage", () => {
+  it("MailDeskHowItWorksPage_Channels_ShowsTheGatewaysTitleAndEveryStepInOrder", async () => {
+    const envelope = oddChannels();
+    answers({ kind: "channels", envelope });
+
+    renderHowItWorks();
+
+    const page = await screen.findByTestId("mail-desk-how-it-works");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(envelope.howItWorks.title);
+    expect(within(page).getAllByRole("listitem").map((li) => li.textContent)).toEqual(envelope.howItWorks.steps);
+    expect(screen.queryAllByTestId("mail-desk-channel")).toHaveLength(0);
+  });
+
+  it("MailDeskHowItWorksPage_SwitchOff_RendersTheShellsPageNotFound", async () => {
+    answers({ kind: "off" });
+
+    const { container } = renderHowItWorks();
+
+    expect(await screen.findByTestId("not-found")).toBeTruthy();
+    expect(container.textContent).toBe("the shell's Page not found");
   });
 });

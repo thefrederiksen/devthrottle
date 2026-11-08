@@ -15,8 +15,46 @@
   max-width: 820px;
 }
 
+/* The summary, with the "How does this work?" link beside it, by the page's title. On a narrow screen the link wraps
+ * under the summary rather than squeezing it. */
+.mail-desk-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
 .mail-desk-summary {
   max-width: 70ch;
+  margin-top: 0;
+}
+.mail-desk-how-link {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+.mail-desk-how-link:hover,
+.mail-desk-how-link:focus-visible {
+  background: var(--border);
+}
+
+/* The documentation page's steps. */
+.mail-desk-steps {
+  margin: 0;
+  padding: 16px 18px 16px 38px;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.mail-desk-steps li {
+  margin-bottom: 6px;
+}
+.mail-desk-steps li:last-child {
+  margin-bottom: 0;
 }
 
 .mail-desk-empty {
@@ -95,6 +133,57 @@
 }
 .mail-desk-fact dd[data-tone="neutral"]::before {
   background: var(--text-dim);
+}
+
+/* The note after "Checked by": the Gateway's tone, as text colour only - the fact itself carries no dot. */
+.mail-desk-note[data-tone="bad"] {
+  color: var(--attention);
+}
+.mail-desk-note[data-tone="attention"] {
+  color: var(--warn);
+}
+.mail-desk-note[data-tone="neutral"] {
+  color: var(--text-dim);
+}
+
+/* The "?" beside a fact's name, and its words: shown on hover, on keyboard focus, and when tapped open. */
+.mail-desk-help {
+  position: relative;
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.mail-desk-help-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--text-dim);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: help;
+}
+.mail-desk-help-text {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: 24px;
+  z-index: 5;
+  width: min(320px, 80vw);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.mail-desk-help:hover .mail-desk-help-text,
+.mail-desk-help-button:focus-visible + .mail-desk-help-text,
+.mail-desk-help-text[data-open="true"] {
+  display: block;
 }
 
 /* ---- today ---- */

@@ -42,6 +42,25 @@ export interface MailDeskLastCheck {
   tone: MailDeskTone;
 }
 
+/** "Checked by" on a mailbox card: the machines that check it (main first, then backups), a note when one is missing
+ * or wrong - null when nothing is - with the note's tone, and the words behind the "?" beside it. */
+export interface MailDeskCheckedBy {
+  label: string;
+  note: string | null;
+  noteTone: MailDeskNoteTone | null;
+  help: string;
+}
+
+/** The note's colour: a missing backup asks for attention, a machine that never checks is bad. */
+export type MailDeskNoteTone = "neutral" | "attention" | "bad";
+
+/** The "How does this work?" button by the page's title, and the documentation page it opens. */
+export interface MailDeskHowItWorks {
+  button: string;
+  title: string;
+  steps: string[];
+}
+
 /** One decision word with its label and today's count. */
 export interface MailDeskDecisionCount {
   decision: string;
@@ -69,6 +88,9 @@ export interface MailDeskChannel {
   /** The machines that may read the mailbox, in the order the channel lists them; no claim about which reads first. */
   machines: string[];
   machinesLabel: string;
+  checkedBy: MailDeskCheckedBy;
+  /** Where the mailbox's sign-in is kept: on which machines, by what, and never on the Gateway. */
+  signInHeld: string;
   mode: "observe" | "live";
   modeLabel: string;
   modeTone: MailDeskModeTone;
@@ -92,6 +114,7 @@ export interface MailDeskChannels {
   summary: string;
   /** Shown in place of the cards when there is no channel. */
   emptyLabel: string;
+  howItWorks: MailDeskHowItWorks;
 }
 
 export type MailDeskAnswer = { kind: "channels"; envelope: MailDeskChannels } | { kind: "off" };
@@ -158,6 +181,7 @@ function label(source: Record<string, unknown>, field: string, where: string): s
 
 const TONES: ReadonlyArray<MailDeskTone> = ["good", "bad", "neutral"];
 const MODE_TONES: ReadonlyArray<MailDeskModeTone> = ["neutral", "attention"];
+const NOTE_TONES: ReadonlyArray<MailDeskNoteTone> = ["neutral", "attention", "bad"];
 
 function tone<T extends string>(value: unknown, allowed: ReadonlyArray<T>, where: string): T {
   if (typeof value !== "string" || !(allowed as ReadonlyArray<string>).includes(value)) {
@@ -177,7 +201,28 @@ function readEnvelope(value: unknown): MailDeskChannels {
     title: label(value, "title", "its answer"),
     summary: label(value, "summary", "its answer"),
     emptyLabel: label(value, "emptyLabel", "its answer"),
+    howItWorks: readHowItWorks(value.howItWorks),
   };
+}
+
+function readHowItWorks(value: unknown): MailDeskHowItWorks {
+  const where = "its howItWorks";
+  if (!isObject(value)) fail("its answer has no howItWorks");
+  if (!Array.isArray(value.steps) || value.steps.length === 0) fail(`${where} has no steps`);
+  const steps = value.steps.map((step, index) => {
+    if (!isLabel(step)) fail(`${where} has an empty step ${index + 1}`);
+    return step;
+  });
+  return { button: label(value, "button", where), title: label(value, "title", where), steps };
+}
+
+/** A note and its tone come together: both null, or a sentence with one of the note tones. */
+function readCheckedBy(value: unknown, at: string): MailDeskCheckedBy {
+  const where = `${at}'s checkedBy`;
+  if (!isObject(value)) fail(`${at} has no checkedBy`);
+  const result = { label: label(value, "label", where), help: label(value, "help", where) };
+  if (value.note === null && value.noteTone === null) return { ...result, note: null, noteTone: null };
+  return { ...result, note: label(value, "note", where), noteTone: tone(value.noteTone, NOTE_TONES, `${where} note`) };
 }
 
 function readChannel(value: unknown, where: string): MailDeskChannel {
@@ -204,6 +249,8 @@ function readChannel(value: unknown, where: string): MailDeskChannel {
     address,
     providerLabel: label(value, "providerLabel", at),
     machinesLabel: label(value, "machinesLabel", at),
+    checkedBy: readCheckedBy(value.checkedBy, at),
+    signInHeld: label(value, "signInHeld", at),
     modeLabel: label(value, "modeLabel", at),
     modeTone: tone(value.modeTone, MODE_TONES, `${at}'s mode`),
     signedIn: {

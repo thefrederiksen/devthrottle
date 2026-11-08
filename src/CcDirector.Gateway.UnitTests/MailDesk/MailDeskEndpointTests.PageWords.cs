@@ -23,6 +23,59 @@ public sealed partial class MailDeskEndpointTests
     }
 
     [Fact]
+    public async Task ListChannels_Envelope_CarriesTheHowItWorksButtonTitleAndSixSteps()
+    {
+        // Act
+        var (_, body) = await Get(P + "/channels");
+
+        // Assert
+        var how = body.GetProperty("howItWorks");
+        Assert.Equal("How does this work?", how.GetProperty("button").GetString());
+        Assert.Equal("How the Mail Desk checks your mail", how.GetProperty("title").GetString());
+        var steps = how.GetProperty("steps").EnumerateArray().Select(s => s.GetString()!).ToList();
+        Assert.Equal(MailDeskChannelFold.HowItWorksSteps, steps);
+        Assert.Equal(6, steps.Count);
+        Assert.StartsWith("The Gateway does not read your mail.", steps[0]);
+    }
+
+    [Fact]
+    public async Task ListChannels_RowWithTwoMachinesOnTheStart_CarriesCheckedByAndSignInHeld()
+    {
+        // Arrange - the channel lists north-box first; the start runs on devlinux first
+        await Post(P + "/channels", new { address = Mailbox, provider = "outlook", machines = new[] { "north-box", Machine }, why = "the support mailbox" });
+        var start = MailDeskTrigger();
+        start.BackupMachinesJson = CcDirector.Gateway.Factory.Triggers.TriggerMachines.ToJson(new[] { "north-box" });
+        _triggers.Add(start);
+
+        // Act
+        var row = await OnlyRow();
+
+        // Assert
+        var checkedBy = row.GetProperty("checkedBy");
+        Assert.Equal("devlinux (main), north-box (backup)", checkedBy.GetProperty("label").GetString());
+        Assert.Equal(JsonValueKind.Null, checkedBy.GetProperty("note").ValueKind);
+        Assert.Equal(JsonValueKind.Null, checkedBy.GetProperty("noteTone").ValueKind);
+        Assert.Contains("never on the Gateway", checkedBy.GetProperty("help").GetString());
+        Assert.Equal("Saved by cc-outlook on north-box and devlinux, not on the Gateway", row.GetProperty("signInHeld").GetString());
+    }
+
+    [Fact]
+    public async Task ListChannels_RowWithOneMachine_CheckedByCarriesTheNoBackupNote()
+    {
+        // Arrange
+        await AddMailbox();
+        _triggers.Add(MailDeskTrigger());
+
+        // Act
+        var checkedBy = (await OnlyRow()).GetProperty("checkedBy");
+
+        // Assert
+        Assert.Equal("devlinux (main)", checkedBy.GetProperty("label").GetString());
+        Assert.Equal(MailDeskCheckedBy.NoBackupNote, checkedBy.GetProperty("note").GetString());
+        Assert.Equal(MailDeskChannelFold.Tones.Attention, checkedBy.GetProperty("noteTone").GetString());
+    }
+
+    [Fact]
     public async Task ListChannels_NoChannels_HelpIsTheAddCommandNamingBothProviders()
     {
         // Act
