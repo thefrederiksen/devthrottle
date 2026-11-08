@@ -18,7 +18,7 @@ public sealed partial class MailDeskEndpointTests
         Assert.Equal(MailDeskChannelFold.PageSummary, body.GetProperty("summary").GetString());
         Assert.Equal(MailDeskChannelFold.PageEmptyLabel, body.GetProperty("emptyLabel").GetString());
         Assert.StartsWith("No mailbox is on the Mail Desk yet.", body.GetProperty("emptyLabel").GetString());
-        Assert.Contains("cc-devthrottle maildesk channel add <address> --provider outlook|gmail|imap --machine <machine>",
+        Assert.Contains("cc-devthrottle maildesk channel add <address> --provider outlook|gmail|imap|zoho --machine <machine>",
             body.GetProperty("emptyLabel").GetString());
     }
 
@@ -83,7 +83,7 @@ public sealed partial class MailDeskEndpointTests
 
         // Assert
         var help = body.GetProperty("help").EnumerateArray().Select(h => h.GetString()).ToList();
-        Assert.Equal(new[] { "cc-devthrottle maildesk channel add <address> --provider outlook|gmail|imap --machine <machine> --why \"<text>\"" }, help);
+        Assert.Equal(new[] { "cc-devthrottle maildesk channel add <address> --provider outlook|gmail|imap|zoho --machine <machine> --why \"<text>\"" }, help);
     }
 
     [Fact]

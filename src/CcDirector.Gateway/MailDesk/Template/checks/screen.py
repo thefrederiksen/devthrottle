@@ -10,8 +10,9 @@ docs/qa/mail-desk/phase-2/CONTRACT.md, and the Gmail reader's in docs/qa/mail-de
 
 - The memory (the file named by CC_CHECK_STATE_FILE) is a JSON object whose "channels" list the Gateway writes: one
   entry per mailbox, with its address, provider and mode. The provider chooses the reader: "outlook" (cc-outlook's
-  sign-in, Microsoft Graph), "gmail" (cc-gmail's sign-in, the Gmail API) or "imap" (dt-email, with the password in
-  cc-secrets on the machine; the IMAP reader's contract is docs/qa/mail-desk/imap/CONTRACT.md). This check keeps its own fields in each entry (cursor,
+  sign-in, Microsoft Graph), "gmail" (cc-gmail's sign-in, the Gmail API), "imap" (dt-email, with the password in
+  cc-secrets on the machine; the IMAP reader's contract is docs/qa/mail-desk/imap/CONTRACT.md) or "zoho" (dt-zoho, Zoho's
+  own API, with the Zoho key in cc-secrets on the machine; docs/qa/mail-desk/zoho/CONTRACT.md). This check keeps its own fields in each entry (cursor,
   sentCache, keys) and removes from "filingQueue" the items it attempted. It writes the whole memory back, keeping
   every field it does not own exactly as it was.
 - Live mode only: each queued item is moved to Archive or Junk Email (Gmail: taken out of the Inbox, or moved to Spam),
@@ -37,9 +38,10 @@ and one message's metadata, and - in live mode only - POST .../messages/{id}/mod
 {"removeLabelIds": ["INBOX"]} or {"addLabelIds": ["SPAM"], "removeLabelIds": ["INBOX"]}; the Gmail sign-in's refresh
 goes through google_token_request(), to Google's token address only. Every dt-email command goes through
 check_dt_email(), which lets out only account list, list, folders and - in live mode only - archive of one message or
-move of one message to the junk folder. All three sign-ins can send mail (phase 0 and G0 findings; dt-email has send),
-so these guards are the only thing that keeps the Mail Desk from sending, replying, forwarding, changing or deleting
-anything.
+move of one message to the junk folder. Every dt-zoho command goes through check_dt_zoho(), which lets out only
+accounts, folders, list and - in live mode only - move of one Inbox message to Archive or Spam. Every sign-in can send
+mail (phase 0 and G0 findings; dt-email and dt-zoho have send), so these guards are the only thing that keeps the Mail
+Desk from sending, replying, forwarding, changing or deleting anything.
 
 Standard error is the check's only log. It says what was done in plain words, and never holds a token, a sender, a
 subject or any body text.
@@ -1185,6 +1187,57 @@ def read_json(text):
         return None
 
 
+def run_dt_tool(argv, root, address, what, refusal, missing=()):
+    """Starts one dt-email or dt-zoho command - the only place this check starts a process, and only ever called by a
+    reader's tool() after its guard - and returns its JSON answer. `argv` is the tool's command, or cc-secrets run
+    wrapped round it; `refusal` is (the sentence, the start of the detail line) for cc-secrets refusing the secret, None
+    when cc-secrets is not used. The tool reads its settings from `root` (its CC_DIRECTOR_ROOT). A failure is a sentence
+    naming the mailbox and what was being done; an error that starts with one of `missing` answers None instead."""
+    name = argv[argv.index("--") + 1] if argv[0] == "cc-secrets" else argv[0]
+    program = shutil.which(argv[0])
+    if program is None:
+        raise CheckFailed(f"{argv[0]} is not installed on {machine()}, so {address} cannot be read: install "
+                          f"the DevThrottle tools there", f"{argv[0]} is not on the PATH of the check")
+    try:
+        done = subprocess.run([program, *argv[1:]], capture_output=True, stdin=subprocess.DEVNULL,
+                              timeout=IMAP_TIMEOUT_SECONDS + 15, env=dict(os.environ, CC_DIRECTOR_ROOT=str(root)))
+    except subprocess.TimeoutExpired:
+        raise CheckFailed(f"{argv[0]} did not finish within {IMAP_TIMEOUT_SECONDS} seconds for {address} "
+                          f"while {what}") from None
+    except OSError as e:
+        raise CheckFailed(with_error(f"{argv[0]} could not be started on {machine()} for {address}",
+                                     type(e).__name__), str(e)) from None
+    out = done.stdout.decode("utf-8", "replace")
+    err = done.stderr.decode("utf-8", "replace")
+    code = done.returncode
+    if argv[0] == "cc-secrets":
+        wrapper = read_json(out)
+        if isinstance(wrapper, dict) and wrapper.get("outcome") == "refused":
+            # cc-secrets refuses an entry that is missing, one not allowed for run, and one it cannot hide in
+            # output, so its own reason is the sentence; which entry goes on the detail line.
+            reason = " ".join(str(wrapper.get("reason") or "it gave no reason").split())
+            raise CheckFailed(with_error(refusal[0], reason), refusal[1] + reason)
+        if not (isinstance(wrapper, dict) and isinstance(wrapper.get("exitCode"), int)
+                and isinstance(wrapper.get("stdout"), str) and isinstance(wrapper.get("stderr"), str)):
+            raise CheckFailed(with_error(f"cc-secrets failed on {machine()} for {address} while {what}",
+                                         err or out), " ".join((err or out).split()))
+        if wrapper.get("timedOut"):
+            raise CheckFailed(f"{name} did not finish within {IMAP_TIMEOUT_SECONDS} seconds for {address} "
+                              f"while {what}")
+        code, out, err = wrapper["exitCode"], wrapper["stdout"], wrapper["stderr"]
+    if code != 0:
+        lines = [line.strip() for line in err.splitlines() if line.strip()]
+        message = next((line.removeprefix("Error:").strip() for line in lines if line.startswith("Error:")),
+                       lines[0] if lines else f"it exited {code}")
+        if missing and message.startswith(tuple(missing)):
+            return None
+        raise CheckFailed(with_error(f"{name} failed for {address} while {what}", message), message)
+    answer = read_json(out)
+    if not isinstance(answer, dict):
+        raise CheckFailed(f"{name} answered something that is not JSON for {address} while {what}")
+    return answer
+
+
 class ImapReader:
     """Any mailbox that speaks IMAP, read with dt-email. dt-email's account on this machine (dt-email account add)
     names the server and the cc-secrets entry that holds the password. Every command goes through cc-secrets run, which
@@ -1240,55 +1293,15 @@ class ImapReader:
             args = [*args, "--account", self.account, "--json"]
         check_dt_email(args, self.live, (self.specials or {}).get("junk"))
         argv = ["dt-email", *args]
+        refusal = None
         if args[:2] != ["account", "list"]:
             entry, variable = self.secret
             argv = ["cc-secrets", "run", entry, "--via", "env", "--env-name", variable,
                     "--timeout", str(IMAP_TIMEOUT_SECONDS), "--json", "--", *argv]
-        program = shutil.which(argv[0])
-        if program is None:
-            raise CheckFailed(f"{argv[0]} is not installed on {machine()}, so {self.address} cannot be read: install "
-                              f"the DevThrottle tools there", f"{argv[0]} is not on the PATH of the check")
-        try:
-            done = subprocess.run([program, *argv[1:]], capture_output=True, stdin=subprocess.DEVNULL,
-                                  timeout=IMAP_TIMEOUT_SECONDS + 15,
-                                  env=dict(os.environ, CC_DIRECTOR_ROOT=str(root or self.root)))
-        except subprocess.TimeoutExpired:
-            raise CheckFailed(f"{argv[0]} did not finish within {IMAP_TIMEOUT_SECONDS} seconds for {self.address} "
-                              f"while {what}") from None
-        except OSError as e:
-            raise CheckFailed(with_error(f"{argv[0]} could not be started on {machine()} for {self.address}",
-                                         type(e).__name__), str(e)) from None
-        out = done.stdout.decode("utf-8", "replace")
-        err = done.stderr.decode("utf-8", "replace")
-        code = done.returncode
-        if argv[0] == "cc-secrets":
-            wrapper = read_json(out)
-            if isinstance(wrapper, dict) and wrapper.get("outcome") == "refused":
-                # cc-secrets refuses an entry that is missing, one not allowed for run, and one it cannot hide in
-                # output, so its own reason is the sentence; the entry the account names goes on the detail line.
-                reason = " ".join(str(wrapper.get("reason") or "it gave no reason").split())
-                raise CheckFailed(with_error(f"cc-secrets refused the password of {self.address} on {machine()}",
-                                             reason),
-                                  f"the dt-email account names the entry {entry}; cc-secrets said: {reason}")
-            if not (isinstance(wrapper, dict) and isinstance(wrapper.get("exitCode"), int)
-                    and isinstance(wrapper.get("stdout"), str) and isinstance(wrapper.get("stderr"), str)):
-                raise CheckFailed(with_error(f"cc-secrets failed on {machine()} for {self.address} while {what}",
-                                             err or out), " ".join((err or out).split()))
-            if wrapper.get("timedOut"):
-                raise CheckFailed(f"dt-email did not finish within {IMAP_TIMEOUT_SECONDS} seconds for {self.address} "
-                                  f"while {what}")
-            code, out, err = wrapper["exitCode"], wrapper["stdout"], wrapper["stderr"]
-        if code != 0:
-            lines = [line.strip() for line in err.splitlines() if line.strip()]
-            message = next((line.removeprefix("Error:").strip() for line in lines if line.startswith("Error:")),
-                           lines[0] if lines else f"it exited {code}")
-            if missing and message.startswith((IMAP_MISSING, IMAP_RENUMBERED)):
-                return None
-            raise CheckFailed(with_error(f"dt-email failed for {self.address} while {what}", message), message)
-        answer = read_json(out)
-        if not isinstance(answer, dict):
-            raise CheckFailed(f"dt-email answered something that is not JSON for {self.address} while {what}")
-        return answer
+            refusal = (f"cc-secrets refused the password of {self.address} on {machine()}",
+                       f"the dt-email account names the entry {entry}; cc-secrets said: ")
+        return run_dt_tool(argv, root or self.root, self.address, what, refusal,
+                           (IMAP_MISSING, IMAP_RENUMBERED) if missing else ())
 
     def listing(self, options, what, folder="INBOX"):
         """dt-email list of a folder: its answer, checked. For the Inbox, its uidvalidity must be the one read when
@@ -1462,8 +1475,245 @@ class ImapReader:
                           missing=True)
         return "already-gone" if moved is None else "moved"
 
+# ---------------------------------------------------------------------------------------------------- Zoho (dt-zoho)
+#
+# The whole contract is docs/qa/mail-desk/zoho/CONTRACT.md.
 
-READERS = {"outlook": OutlookReader, "gmail": GmailReader, "imap": ImapReader}
+
+ZOHO_SECRET_ENTRIES = ("zoho-api-client-secret", "zoho-api-client-id", "zoho-api-refresh-token")   # dt-zoho's README
+ZOHO_LIST_OPTIONS = ("--folder", "--start", "--count")   # each takes a value
+ZOHO_PAGE = 200                 # dt-zoho list's largest --count
+ZOHO_ID = re.compile(r"[1-9][0-9]{0,24}")
+ZOHO_FOLDERS = ("Inbox", "Sent", "Archive", "Spam")
+ZOHO_FILING_STEPS = {"archive": "archiving a message", "junk": "moving a message to Spam"}
+
+
+def check_dt_zoho(args, live, folders):
+    """The one guard on dt-zoho, the Zoho reader's only way to a mailbox. It lets out only: accounts; folders and list
+    (read only, with the options in ZOHO_LIST_OPTIONS) of one account; and, in live mode only, move of one message
+    from the Inbox to the Archive or Spam folder, with --from-folder so dt-zoho moves nothing unless the message is in
+    the Inbox now. `folders` maps "inbox", "archive" and "spam" to folder ids, and is None before they are read.
+    dt-zoho can send, reply, delete, mark spam (the whole conversation), change admin settings and create calendar
+    events with meeting links, so this guard is the only thing that keeps the Mail Desk from doing any of them."""
+    def refuse(why):
+        raise RefusedRequest(f"refused dt-zoho {' '.join(str(a) for a in args[:2])}: {why}")
+
+    if args == ["accounts", "--json"]:
+        return
+    if len(args) < 4 or args[-1] != "--json" or args[-3] != "--account":
+        refuse("not one of the commands the Mail Desk may run")
+    command, rest = args[0], args[1:-3]
+    if command == "folders" and not rest:
+        return
+    if command == "list":
+        given = rest[0::2]
+        if len(rest) % 2 or any(o not in ZOHO_LIST_OPTIONS for o in given) or len(set(given)) != len(given):
+            refuse("list was given an option the Mail Desk does not use")
+        if not all(ZOHO_ID.fullmatch(v) for v in rest[1::2]):
+            refuse("list was given a value that is not a number")
+        return
+    if command == "move":
+        if not live:
+            refuse("filing is for live mode only")
+        if folders and len(rest) == 5 and ZOHO_ID.fullmatch(rest[0]) and rest[1] == "--to" \
+                and rest[2] in (folders["archive"], folders["spam"]) and rest[3] == "--from-folder" \
+                and rest[4] == folders["inbox"]:
+            return
+    refuse("not one of the commands the Mail Desk may run")
+
+
+def zoho_utc(text):
+    """dt-zoho's arrival time (local time with its offset, to the second) as UTC, or None when it is not one."""
+    try:
+        moment = datetime.fromisoformat(text) if isinstance(text, str) else None
+    except ValueError:
+        return None
+    return iso(moment) if moment is not None and moment.tzinfo is not None else None
+
+
+class ZohoReader:
+    """A Zoho mailbox read through Zoho's own API with dt-zoho. One Zoho key (a Self Client: client id, client secret
+    and refresh token) in cc-secrets on the machine signs in for every mailbox it reaches; every dt-zoho command runs
+    under cc-secrets run, which hands the key to that one command: it never passes through this check, its memory, its
+    output or the Gateway. dt-zoho keeps its data centre and its sealed access token under one cc-director folder.
+
+    A message's id is Zoho's message id. Zoho lists a folder newest first with no way to ask for what came after an
+    id, so the cursor is the arrival time and the ids at exactly that time, as for Outlook."""
+
+    # Like Outlook, a sender is known by a cache of the Sent folder, read once a day (3.2): its To and Cc.
+    SENT_CACHE = True
+
+    def __init__(self, channel):
+        self.address = channel["address"].strip().lower()
+        self.live = channel["mode"] == "live"
+        self.root = None        # the cc-director folder whose dt-zoho settings to use (dt-zoho's CC_DIRECTOR_ROOT)
+        self.folders = None     # "inbox", "sent", "archive", "spam" -> Zoho folder id
+
+    # ------------------------------------------------------------------------------------------------ the cursor
+
+    @staticmethod
+    def cursor_ok(cursor):
+        """A cursor this reader wrote: {"provider": "zoho", "newest": <UTC time>, "idsAtNewest": [<id>, ...]}."""
+        return (isinstance(cursor, dict) and set(cursor) == {"provider", "newest", "idsAtNewest"}
+                and cursor["provider"] == "zoho" and isinstance(cursor["newest"], str)
+                and bool(IMAP_TIME.fullmatch(cursor["newest"])) and isinstance(cursor["idsAtNewest"], list)
+                and all(isinstance(i, str) and ZOHO_ID.fullmatch(i) for i in cursor["idsAtNewest"]))
+
+    @staticmethod
+    def advance(cursor, mine):
+        """The cursor after reporting `mine` (oldest first): the newest arrival time, and every id reported at exactly
+        that time, plus the ids already held when the time did not change."""
+        newest = mine[-1]["received"]
+        ids = {m["id"] for m in mine if m["received"] == newest}
+        if cursor and cursor["newest"] == newest:
+            ids |= set(cursor["idsAtNewest"])
+        return {"provider": "zoho", "newest": newest, "idsAtNewest": sorted(ids)}
+
+    # ------------------------------------------------------------------------------------------------ dt-zoho
+
+    def tool(self, args, what, missing=()):
+        """One dt-zoho command through the guard, under cc-secrets run, its JSON answer back. A failure is a sentence
+        naming this mailbox and what was being done; an error that starts with one of `missing` answers None."""
+        if args != ["accounts", "--json"]:
+            args = [*args, "--account", self.address, "--json"]
+        check_dt_zoho(args, self.live, self.folders)
+        first, *others = ZOHO_SECRET_ENTRIES
+        argv = ["cc-secrets", "run", first, *[w for e in others for w in ("--with", e)],
+                "--timeout", str(IMAP_TIMEOUT_SECONDS), "--json", "--", "dt-zoho", *args]
+        refusal = (f"cc-secrets refused the Zoho key on {machine()} for {self.address}",
+                   f"dt-zoho signs in with the entries {', '.join(ZOHO_SECRET_ENTRIES)}; cc-secrets said: ")
+        return run_dt_tool(argv, self.root, self.address, what, refusal, missing)
+
+    def listing(self, folder, start, count, what):
+        """dt-zoho list of one folder, newest first: its records, checked."""
+        answer = self.tool(["list", "--folder", folder, "--start", str(start), "--count", str(count)], what)
+        records = answer.get("messages")
+        if not isinstance(records, list) or answer.get("folder_id") != folder:
+            raise CheckFailed(f"dt-zoho answered a list without its messages, or of another folder, for "
+                              f"{self.address} while {what}")
+        return records
+
+    def message(self, record, what):
+        """One dt-zoho list record in the check's own shape."""
+        mid = record.get("id") if isinstance(record, dict) else None
+        received = zoho_utc(record.get("received")) if isinstance(record, dict) else None
+        if not (isinstance(mid, str) and ZOHO_ID.fullmatch(mid) and received):
+            raise CheckFailed(f"dt-zoho answered a message without a usable id or arrival time for {self.address} "
+                              f"while {what}")
+        fields = {f: record.get(f) for f in ("from", "subject", "summary")}
+        if not all(v is None or isinstance(v, str) for v in fields.values()):
+            raise CheckFailed(f"dt-zoho answered a message whose sender, subject or preview is not text for "
+                              f"{self.address} while {what}")
+        name, sender = email.utils.parseaddr(fields["from"] or "")
+        return {"id": mid, "received": received, "from": sender.lower(), "name": name,
+                "subject": fields["subject"] or "", "hasAttachments": record.get("attachments") is True,
+                "preview": fields["summary"] or ""}
+
+    # ------------------------------------------------------------------------------------------------ the sign-in
+
+    def sign_in(self):
+        # cc-secrets starts dt-zoho, so a missing dt-zoho would come back as cc-secrets's own failure: said plainly first.
+        if shutil.which("dt-zoho") is None:
+            raise CheckFailed(f"dt-zoho is not installed on {machine()}, so {self.address} cannot be read: install the "
+                              f"DevThrottle tools there", "dt-zoho is not on the PATH of the check")
+        # dt-zoho keeps its settings (the data centre) and its sealed access token under the cc-director folder it is
+        # given (CC_DIRECTOR_ROOT), else cc-storage's. A Director session gives it its instance folder; this check runs
+        # with no CC_ variable, so every such folder on the machine is looked in, as for dt-email.
+        bases = dt_email_bases(account_record_home())
+        roots = [r for b in bases for r in [b, *sorted(b.glob("instances/*"))]
+                 if (r / "config" / "dt-zoho" / "config.json").is_file()]
+        if not roots:
+            raise CheckFailed(f"dt-zoho has no settings on {machine()}, so {self.address} cannot be read: run dt-zoho "
+                              f"settings set there",
+                              "dt-zoho settings set --data-centre <ca|com|eu|in|com.au|jp>; looked in "
+                              + " and ".join(str(b) for b in bases) + " and their instances")
+        if len(roots) > 1:
+            raise CheckFailed(f"dt-zoho has settings in more than one cc-director folder on {machine()}: keep one",
+                              "the folders found: " + ", ".join(str(r) for r in roots))
+        self.root = roots[0]
+        # The first command with the key: it proves the sign-in, and that the key reaches this mailbox.
+        accounts = self.tool(["accounts", "--json"], "signing in").get("accounts")
+        if not isinstance(accounts, list):
+            raise CheckFailed(f"dt-zoho answered an account list without its accounts for {self.address}")
+        if not any(isinstance(a, dict) and isinstance(a.get("addresses"), list)
+                   and self.address in [str(x).strip().lower() for x in a["addresses"]] for a in accounts):
+            raise CheckFailed(f"the Zoho key on {machine()} does not reach {self.address}: use the key of its "
+                              f"organisation",
+                              "dt-zoho accounts lists: " + (", ".join(str(a.get("email")) for a in accounts
+                                                                      if isinstance(a, dict)) or "none"))
+        found = self.tool(["folders"], "reading the folders").get("folders")
+        if not isinstance(found, list):
+            raise CheckFailed(f"dt-zoho answered a folder list without its folders for {self.address}")
+        # A folder Zoho makes itself sits at the top: /Inbox, /Sent, /Archive, /Spam. A folder the owner makes can carry
+        # the type Inbox too, so the type alone does not find the Inbox.
+        tops = {f["type"]: f["id"] for f in found if isinstance(f, dict) and isinstance(f.get("id"), str)
+                and ZOHO_ID.fullmatch(f["id"]) and isinstance(f.get("type"), str) and f.get("path") == f"/{f['type']}"}
+        absent = [kind for kind in ZOHO_FOLDERS if kind not in tops]
+        if absent:
+            raise CheckFailed(f"{self.address} has no {absent[0]} folder that dt-zoho can find on {machine()}",
+                              f"dt-zoho folders shows no top folder /{absent[0]} of the type {absent[0]}")
+        self.folders = {kind.lower(): tops[kind] for kind in ZOHO_FOLDERS}
+
+    # ------------------------------------------------------------------------------------------------ reading
+
+    def sent_hashes(self):
+        """The hashed addresses in To and Cc of the most recent sent messages, newest first, at most 400."""
+        hashes = []
+        for page in range(SENT_MAX_PAGES):
+            records = self.listing(self.folders["sent"], 1 + page * SENT_PAGE_SIZE, SENT_PAGE_SIZE,
+                                   "reading the Sent folder")
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                values = [v for v in (record.get("to"), record.get("cc")) if isinstance(v, str) and v]
+                for _, address in email.utils.getaddresses(values):
+                    if address and address_hash(address) not in hashes:
+                        hashes.append(address_hash(address))
+            if len(records) < SENT_PAGE_SIZE or len(hashes) >= SENT_MAX_ADDRESSES:
+                break
+        return hashes[:SENT_MAX_ADDRESSES]
+
+    def inbox_first_run(self, now):
+        """First run: the most recent 200 Inbox messages, or those of the last 30 days, whichever is fewer, oldest
+        first."""
+        since = iso(now - timedelta(days=FIRST_RUN_DAYS))
+        records = self.listing(self.folders["inbox"], 1, FIRST_RUN_MESSAGES, "reading the Inbox")
+        found = [m for m in (self.message(r, "reading the Inbox") for r in records) if m["received"] >= since]
+        return sorted(found, key=lambda m: (m["received"], m["id"])), False
+
+    def inbox_since(self, cursor, wanted):
+        """Inbox messages that arrived after the cursor's time, or at exactly that time and are not among the ids
+        already reported then, oldest first. Zoho lists newest first, so the Inbox is read 200 at a time back to a page
+        that reaches before the cursor's time (at most 20 pages); each page is read whole."""
+        newest, already = cursor["newest"], set(cursor["idsAtNewest"])
+        fresh = {}
+        for page in range(MAX_INBOX_PAGES):
+            records = self.listing(self.folders["inbox"], 1 + page * ZOHO_PAGE, ZOHO_PAGE, "reading the Inbox")
+            found = [self.message(r, "reading the Inbox") for r in records]
+            # A message moves down a page when new mail arrives while the Inbox is read, so one can be read twice.
+            fresh.update((m["id"], m) for m in found
+                         if m["received"] > newest or (m["received"] == newest and m["id"] not in already))
+            if len(records) < ZOHO_PAGE or any(m["received"] < newest for m in found):
+                return sorted(fresh.values(), key=lambda m: (m["received"], m["id"])), False
+        raise CheckFailed(f"{self.address} has more new mail than the Mail Desk reads in one run; it cannot find "
+                          f"where it stopped",
+                          f"read {MAX_INBOX_PAGES * ZOHO_PAGE} Inbox messages newest first and none arrived before "
+                          f"{newest}")
+
+    def file(self, message_id, decision):
+        """Moves one Inbox message: archive to the Archive folder, junk to the Spam folder, each with move. Never
+        dt-zoho spam or archive: spam moves the whole conversation, the owner's sent replies too (dt-zoho's README).
+        Returns "moved", or "already-gone" when the Inbox no longer holds it: dt-zoho checks, with --from-folder, that
+        Zoho places the message in the Inbox before it moves anything."""
+        if not ZOHO_ID.fullmatch(message_id):
+            raise CheckFailed(f"a filing item of {self.address} names a message id this check did not write")
+        target = self.folders["archive" if decision == "archive" else "spam"]
+        moved = self.tool(["move", message_id, "--to", target, "--from-folder", self.folders["inbox"]],
+                          ZOHO_FILING_STEPS[decision], missing=(f"message {message_id} is not in ",))
+        return "already-gone" if moved is None else "moved"
+
+
+READERS = {"outlook": OutlookReader, "gmail": GmailReader, "imap": ImapReader, "zoho": ZohoReader}
 
 
 def read_message(raw):

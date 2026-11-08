@@ -275,23 +275,37 @@ def mark_command(message_ids: List[str] = IdsArg, as_: str = MarkOpt, account: O
     _report(_ids_record("marked", ids, **{"as": as_}), json_output)
 
 
-def _move(message_ids: List[str], to: str, account: Optional[str]) -> tuple:
+def _move(message_ids: List[str], to: str, account: Optional[str], from_folder: Optional[str] = None) -> tuple:
+    """Check the ids, then move them with one moveMessage call. With `from_folder`, first refuse unless every message
+    is in that folder now. Returns (ids, the destination, the folder they were checked in or None)."""
     ids = write.split_ids(message_ids)
     client = _client()
     acct = mail.pick_account(client, account)
-    dest = mail.resolve_folder(client, acct["account_id"], to)
-    write.update_messages(client, acct["account_id"], ids, {"mode": "moveMessage", "destfolderId": dest["id"]})
-    return ids, dest
+    aid = acct["account_id"]
+    dest = mail.resolve_folder(client, aid, to)
+    source = None
+    if from_folder is not None:
+        records = [mail.folder_record(f) for f in mail.folders(client, aid)]
+        source = mail.resolve_folder(client, aid, from_folder)
+        write.check_still_in(client, aid, source, records, ids)
+    write.update_messages(client, aid, ids, {"mode": "moveMessage", "destfolderId": dest["id"]})
+    return ids, dest, source
 
 
 @app.command("move")
 @_command
 def move_command(message_ids: List[str] = IdsArg,
                  to: str = typer.Option(..., "--to", help="The folder to move them to: name, path or id."),
+                 from_folder: Optional[str] = typer.Option(None, "--from-folder",
+                                                           help="Move only if every message is in this folder now "
+                                                                "(name, path or id); otherwise nothing is moved."),
                  account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
     """Move messages to another folder."""
-    ids, dest = _move(message_ids, to, account)
-    _report(_ids_record("moved", ids, to=dest["path"]), json_output)
+    ids, dest, source = _move(message_ids, to, account, from_folder)
+    extra = {"to": dest["path"]}
+    if source is not None:
+        extra["from"] = source["path"]
+    _report(_ids_record("moved", ids, **extra), json_output)
 
 
 @app.command("archive")
@@ -310,7 +324,7 @@ def unarchive_command(message_ids: List[str] = IdsArg,
                       account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
     """Move archived messages out of Archive. (Zoho's own unarchive call answers OK and changes nothing, so this is
     a move.)"""
-    ids, dest = _move(message_ids, to, account)
+    ids, dest, _ = _move(message_ids, to, account)
     _report(_ids_record("unarchived", ids, to=dest["path"]), json_output)
 
 

@@ -32,7 +32,7 @@ public sealed class MailDeskChannelFoldWordsTests
     [Fact]
     public void ChannelAddCommand_NamesEveryProviderTheGatewayAccepts()
     {
-        Assert.Equal("cc-devthrottle maildesk channel add <address> --provider outlook|gmail|imap --machine devlinux --why \"<text>\"",
+        Assert.Equal("cc-devthrottle maildesk channel add <address> --provider outlook|gmail|imap|zoho --machine devlinux --why \"<text>\"",
             MailDeskWords.ChannelAddCommand("devlinux"));
     }
 

@@ -85,7 +85,7 @@ draft is never sent, so `draft save` is not checked.
 | `reply ID [--all] --body T\|--body-file F\|--html-file F [--attach F] [--from ALIAS]` | Reply, or reply to all, in the same thread |
 | `draft save ...` / `draft list` / `draft delete ID...` | Save a draft (the send options), list drafts, delete them for good |
 | `mark ID... --as read\|unread\|important\|info\|followup\|unflagged` | Read state and flag |
-| `move ID... --to F` / `archive ID...` / `unarchive ID... [--to F]` | Move; archive; move back out of Archive (default Inbox) |
+| `move ID... --to F [--from-folder F]` / `archive ID...` / `unarchive ID... [--to F]` | Move; archive; move back out of Archive (default Inbox). With `--from-folder`, nothing moves unless Zoho places every message in that folder now (the Mail Desk files this way) |
 | `delete ID... [--folder F] [--permanent]` | To Trash, or with `--permanent` for good; refused unless Zoho places each message in that folder |
 | `spam ID...` / `not-spam ID...` | Into Spam; back to Inbox |
 | `label create NAME [--color #RRGGBB]` / `label rename L [--name N] [--color C]` / `label delete L` | Labels |

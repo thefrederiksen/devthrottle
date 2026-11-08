@@ -90,8 +90,8 @@ def test_UnknownProvider_FailsThatChannelNamingItAndTheOtherIsRead(world):
     """Changed in phase 3 by the Delivery Lead's ruling of 18 October 2026: the unknown provider fails its own channel
     only, before anything is asked of the network for it, and the Outlook channel beside it is read."""
     world.plant()
-    world.memory(channel(MAILBOX, cursor=CURSOR), channel(SECOND, provider="zoho"))
-    assert "provider zoho has no reader in this version of screen.py" in channel_failed(world, SECOND)
+    world.memory(channel(MAILBOX, cursor=CURSOR), channel(SECOND, provider="pigeon"))
+    assert "provider pigeon has no reader in this version of screen.py" in channel_failed(world, SECOND)
     assert {entry[3] for entry in world.graph.log} == {f"token-for-{MAILBOX}"}
     assert world.sign_in.authorities == [("f575e3f4-8f62-4bfb-8f30-f776e55b51bd",
                                           "https://login.microsoftonline.com/common")]   # one sign-in: the Outlook one
@@ -102,10 +102,10 @@ def test_Providers_EverythingOutlookIsInsideTheOutlookReader(world):
     source = open(world.screen.__file__, encoding="utf-8").read()
     run_body = source.split("\ndef run(")[1].split("\ndef main(")[0]
     for outlook_only in ("graph", "msal", "cc-outlook", "outlook_", "OUTLOOK", "gmail", "GMAIL", "dt-email", "imap",
-                         "IMAP", "cc-secrets"):
+                         "IMAP", "cc-secrets", "dt-zoho", "zoho", "ZOHO"):
         assert outlook_only not in run_body
     assert world.screen.READERS == {"outlook": world.screen.OutlookReader, "gmail": world.screen.GmailReader,
-                                    "imap": world.screen.ImapReader}
+                                    "imap": world.screen.ImapReader, "zoho": world.screen.ZohoReader}
 
 
 # ---------------------------------------------------------------------------------------------------- known senders
@@ -194,6 +194,6 @@ def test_ChannelId_TheGatewaysIdIsCarriedIntoTheReport(world):
 
 
 def test_UnknownProvider_TheSentenceIsTheChannelsFailure(world):
-    world.memory(channel(provider="zoho"))
-    assert channel_failed(world).splitlines()[0] == ("provider zoho has no reader in this version of screen.py (channel "
-                                   "email@devthrottle.com); this version reads: outlook, gmail, imap")
+    world.memory(channel(provider="pigeon"))
+    assert channel_failed(world).splitlines()[0] == ("provider pigeon has no reader in this version of screen.py (channel "
+                                   "email@devthrottle.com); this version reads: outlook, gmail, imap, zoho")

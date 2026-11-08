@@ -381,7 +381,7 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
         var answer = await Post(P + "/channels", new { address = Mailbox, provider = "carrier-pigeon", machines = new[] { Machine }, why = "try a pigeon" });
 
         AssertRefusedAndNothingRecorded(answer, HttpStatusCode.BadRequest, "bad_provider", before);
-        Assert.Equal("provider 'carrier-pigeon' is not one the Mail Desk reads; give 'outlook', 'gmail' or 'imap'",
+        Assert.Equal("provider 'carrier-pigeon' is not one the Mail Desk reads; give 'outlook', 'gmail', 'imap' or 'zoho'",
             answer.Body.GetProperty("detail").GetString());
     }
 
@@ -391,7 +391,7 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
     [InlineData("gmailx")]
     [InlineData("g mail")]
     [InlineData("googlemail")]
-    [InlineData("zoho")]
+    [InlineData("zohomail")]
     [InlineData("outlook2")]
     public async Task AddChannel_ABlankOrNearMissProvider_Answers400NamingBothAndRecordsNothing(string provider)
     {
@@ -400,7 +400,7 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
         var answer = await Post(P + "/channels", new { address = Mailbox, provider, machines = new[] { Machine }, why = "a near miss" });
 
         AssertRefusedAndNothingRecorded(answer, HttpStatusCode.BadRequest, "bad_provider", before);
-        Assert.EndsWith("give 'outlook', 'gmail' or 'imap'", answer.Body.GetProperty("detail").GetString());
+        Assert.EndsWith("give 'outlook', 'gmail', 'imap' or 'zoho'", answer.Body.GetProperty("detail").GetString());
     }
 
     [Fact]
@@ -411,7 +411,7 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
         var answer = await Post(P + "/channels", new { address = Mailbox, machines = new[] { Machine }, why = "no provider" });
 
         AssertRefusedAndNothingRecorded(answer, HttpStatusCode.BadRequest, "bad_provider", before);
-        Assert.EndsWith("give 'outlook', 'gmail' or 'imap'", answer.Body.GetProperty("detail").GetString());
+        Assert.EndsWith("give 'outlook', 'gmail', 'imap' or 'zoho'", answer.Body.GetProperty("detail").GetString());
     }
 
     [Fact]

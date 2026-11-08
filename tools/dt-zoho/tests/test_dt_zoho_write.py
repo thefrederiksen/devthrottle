@@ -302,6 +302,34 @@ def test_move_ToAFolderByPath(env):
     assert m.folder == SUB
 
 
+def test_move_FromFolder_StillThere_IsMoved(env):
+    m = _message(env, id="1", folder=INBOX, subject="a")
+    data = json.loads(env.ok("move", "1", "--to", "/Spam", "--from-folder", INBOX, "--json").output)
+    assert m.folder == SPAM and data["moved"] == ["1"] and data["from"] == "/Inbox"
+
+
+def test_move_FromFolder_TheMessageIsElsewhere_IsRefusedAndNothingMoves(env):
+    """The owner archived it by hand since: a move that trusted the id would take it out of Archive."""
+    m = _message(env, id="1", folder=ARCHIVE, subject="a")
+    result = env.run("move", "1", "--to", "/Spam", "--from-folder", INBOX)
+    assert result.exit_code == 1 and m.folder == ARCHIVE and _only_reads(env)
+    assert "Error: message 1 is not in /Inbox (Zoho places it in /Archive). Nothing was moved." in result.output
+
+
+def test_move_FromFolder_ZohoNoLongerHasIt_IsRefusedInTheSameWords(env):
+    """Zoho answers 400 'messageId is invalid' for an id it does not have (seen live, 8 November 2026)."""
+    result = env.run("move", "1", "--to", "/Spam", "--from-folder", INBOX)
+    assert result.exit_code == 1 and _only_reads(env)
+    assert "Error: message 1 is not in /Inbox (Zoho does not have it). Nothing was moved." in result.output
+
+
+def test_move_FromFolder_OneOfSeveralElsewhere_MovesNone(env):
+    a = _message(env, id="1", folder=INBOX, subject="a")
+    b = _message(env, id="2", folder=TRASH, subject="b")
+    result = env.run("move", "1,2", "--to", "/Spam", "--from-folder", "Inbox")
+    assert result.exit_code == 1 and (a.folder, b.folder) == (INBOX, TRASH) and _only_reads(env)
+
+
 def test_archive_ThenUnarchive_IsAMoveBack(env):
     m = _message(env, id="1", folder=INBOX, subject="a")
     env.ok("archive", "1")

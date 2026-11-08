@@ -311,7 +311,9 @@ class FakeZoho:
                 # was not proven whether Zoho honours it.
                 m = self._message(rest[3])
                 if m is None:
-                    return _mail_error(404, "INVALID_MESSAGE")
+                    # Zoho's own answer for an id it does not have (seen live on 8 November 2026).
+                    return Response(400, json.dumps({"data": {"errorCode": "messageId is invalid"},
+                                                     "status": {"code": 400, "description": "Invalid Input"}}).encode())
                 return _ok(m.summary())
             m = self._message(rest[3], rest[1])
             if m is None:
