@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertsBell } from "@devthrottle/client-core/alerts/AlertsBell";
+import { LicenseAlarmIndicator } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
 
 // The bell in the phone's app bar (the Alerts mission, section 5.4: "present on every screen that has the app bar").
 // ONE component, mounted in every app bar the phone draws - the roster's, the session screens' (SessionAppBar) and each
@@ -9,6 +10,10 @@ import { AlertsBell } from "@devthrottle/client-core/alerts/AlertsBell";
 // Pressing it opens the Alerts screen (phase 5: a full screen of its own, never a sheet over the page). A push
 // notification opens the app on ?alert={id} on whatever screen; that is turned into the Alerts screen on that alert,
 // in place of the address it came in on, so the link is used once.
+//
+// The license triangle (the owner, 7 November 2026) sits just before the bell, in every app bar for the same reason the
+// bell does: the count of open license alarms, tapping it opens Licenses, and nothing at all while none is open. The
+// phone has no Licenses screen of its own, so it opens the Cockpit's page.
 
 /** Where the Alerts screen's back arrow returns to, carried in the navigation's state. */
 export interface AlertsScreenState {
@@ -58,5 +63,10 @@ export function AppBarAlerts() {
     navigate(ALERTS_PATH, { state });
   }, [location.pathname, location.search, navigate]);
 
-  return <AlertsBell where="phone" onOpenPage={open} buttonRef={bell} />;
+  return (
+    <>
+      <LicenseAlarmIndicator href="/licenses" />
+      <AlertsBell where="phone" onOpenPage={open} buttonRef={bell} />
+    </>
+  );
 }

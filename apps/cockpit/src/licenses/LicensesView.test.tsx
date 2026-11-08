@@ -35,6 +35,16 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
 }));
 
 import { LicensesView, foldNewestLogPage, mergeLog } from "./LicensesView";
+import { LicenseAlarmsProvider } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
+
+/** The page as the Cockpit mounts it: under the shell's one reader of the license alarms (AppShell). */
+function InShell() {
+  return (
+    <LicenseAlarmsProvider enabled>
+      <LicensesView />
+    </LicenseAlarmsProvider>
+  );
+}
 import { APPROVERS_EMPTY, EMPTY_OVERVIEW, FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
 
 const ACCOUNT_A = "account-a@example.com";
@@ -62,7 +72,7 @@ async function card(accountEmail: string): Promise<HTMLElement> {
 describe("LicensesView: an account whose machines have never reported", () => {
   it("shows the Gateway's sentence in place of every list", async () => {
     getLicenseOverview.mockResolvedValue(copyOf(EMPTY_OVERVIEW));
-    render(<LicensesView />);
+    render(<InShell />);
 
     expect(await screen.findByText(EMPTY_OVERVIEW.emptyText as string)).toBeTruthy();
     expect(screen.queryByTestId("lic-account")).toBeNull();
@@ -77,7 +87,7 @@ describe("LicensesView: the alarm details", () => {
     getLicenseAlarms.mockResolvedValue({ count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [
       { alarmId: "a1", text: "A report was refused. Correct the report on the machine." },
     ] });
-    render(<LicensesView />);
+    render(<InShell />);
     const details = await screen.findByTestId("license-alarm-details");
     expect(details.textContent).toContain("1 license problem");
     expect(within(details).getByText("A report was refused. Correct the report on the machine.")).toBeTruthy();
@@ -86,7 +96,7 @@ describe("LicensesView: the alarm details", () => {
 
 describe("LicensesView: the accounts", () => {
   it("draws one card per account, with the Gateway's status word in the Gateway's tone", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
 
     const a = await card(ACCOUNT_A);
     expect(screen.getAllByTestId("lic-account").length).toBe(3);
@@ -105,7 +115,7 @@ describe("LicensesView: the accounts", () => {
   });
 
   it("draws each window as a meter with the Gateway's number, text and reset sentence", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
 
     const fiveHour = within(await card(ACCOUNT_A)).getByTestId("lic-window-five-hour");
     expect(fiveHour.textContent).toContain("96% - Resets in 1 hour 48 minutes");
@@ -131,7 +141,7 @@ describe("LicensesView: the accounts", () => {
     a.statusText = "Has room";
     a.statusTone = "good";
     getLicenseOverview.mockResolvedValue(overview);
-    render(<LicensesView />);
+    render(<InShell />);
 
     const drawn = await card(ACCOUNT_A);
     expect(within(drawn).getByTestId("lic-account-status").textContent).toBe("Has room");
@@ -150,7 +160,7 @@ describe("LicensesView: the accounts", () => {
     const b = overview.accounts[1];
     b.fiveHour = { ...b.fiveHour, utilization: 4, level: "stale" };
     getLicenseOverview.mockResolvedValue(overview);
-    render(<LicensesView />);
+    render(<InShell />);
 
     const drawn = await card(ACCOUNT_A);
     const old = within(await card(ACCOUNT_B)).getByTestId("lic-window-five-hour");
@@ -167,7 +177,7 @@ describe("LicensesView: the accounts", () => {
   });
 
   it("shows, per machine, when the sign-in it holds for the account expires, in the Gateway's tone", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
 
     const holdings = within(await card(ACCOUNT_B)).getAllByTestId("lic-holding");
     expect(holdings.length).toBe(2);
@@ -193,7 +203,7 @@ describe("LicensesView: the accounts", () => {
     spare.renewalFailedText = "The last renewal of this sign-in failed 3 hours ago.";
     spare.renewalFailedTone = "bad";
     getLicenseOverview.mockResolvedValue(overview);
-    render(<LicensesView />);
+    render(<InShell />);
 
     const b = await card(ACCOUNT_B);
     expect(within(b).getByTestId("lic-account-renewal").textContent).toBe("Renews 17 Oct");
@@ -211,7 +221,7 @@ describe("LicensesView: the accounts", () => {
 
 describe("LicensesView: the schedule", () => {
   it("shows the next switch and, per machine, the account it is on and the Gateway's sentence for what is next", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
 
     expect((await screen.findByTestId("lic-next-switch")).textContent).toBe(FORECAST.nextSwitchText);
     const rows = within(screen.getByTestId("lic-schedule")).getAllByTestId("lic-schedule-row");
@@ -227,7 +237,7 @@ describe("LicensesView: the schedule", () => {
 
   it("keeps the accounts on screen when the forecast cannot be read, and says so", async () => {
     getLicenseForecast.mockRejectedValue(new Error("The forecast could not be read."));
-    render(<LicensesView />);
+    render(<InShell />);
 
     expect(await card(ACCOUNT_A)).toBeTruthy();
     expect(await screen.findByText("The forecast could not be read.")).toBeTruthy();
@@ -237,7 +247,7 @@ describe("LicensesView: the schedule", () => {
 
 describe("LicensesView: the switch log", () => {
   it("lists a failed switch with the Gateway's state, tone, sentence and reason", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
 
     const rows = within(await screen.findByTestId("lic-log")).getAllByTestId("lic-log-row");
     expect(rows.length).toBe(4);
@@ -261,7 +271,7 @@ describe("LicensesView: the switch log", () => {
     const log = copyOf(LOG_PAGE);
     log.entries[0] = { ...log.entries[0], kind: "a-later-kind", kindText: "Note", state: "a-later-state", stateText: "a-later-state", summary: "Something a later build wrote." };
     getLicenseLog.mockResolvedValue(log);
-    render(<LicensesView />);
+    render(<InShell />);
 
     const rows = within(await screen.findByTestId("lic-log")).getAllByTestId("lic-log-row");
     expect(rows[0].textContent).toContain("Note");
@@ -270,14 +280,14 @@ describe("LicensesView: the switch log", () => {
 
   it("shows the Gateway's sentence when the log is empty", async () => {
     getLicenseLog.mockResolvedValue({ asOfUtc: LOG_PAGE.asOfUtc, isEmpty: true, emptyText: "Nothing has been switched yet.", entries: [], hasMore: false, nextCursor: null });
-    render(<LicensesView />);
+    render(<InShell />);
 
     expect(await screen.findByText("Nothing has been switched yet.")).toBeTruthy();
     expect(screen.queryByTestId("lic-log")).toBeNull();
   });
 
   it("reads older rows with the cursor exactly as the Gateway gave it, and stops offering when there are none", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
     const older = await screen.findByRole("button", { name: "Show older" });
 
     const olderRow: LicenseLogEntry = { ...copyOf(LOG_PAGE.entries[2]), entryId: "an-older-row", summary: "An older switch." };
@@ -318,7 +328,7 @@ describe("LicensesView: the switch log", () => {
 
 describe("LicensesView: Switch now", () => {
   it("offers the control only where the Gateway offers it, and always shows the Gateway's sentence", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
 
     expect(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" })).toBeTruthy();
     const b = await card(ACCOUNT_B);
@@ -328,7 +338,7 @@ describe("LicensesView: Switch now", () => {
   });
 
   it("asks first, and sends nothing when the confirmation is cancelled", async () => {
-    render(<LicensesView />);
+    render(<InShell />);
     fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
 
     const dialog = screen.getByRole("alertdialog", { name: "Switch account-a@example.com now?" });
@@ -355,7 +365,7 @@ describe("LicensesView: Switch now", () => {
       ],
       skipped: [{ machineName: "the-windows-machine", osUser: "owner", label: "the-windows-machine", why: "the-windows-machine is not switched: its last report is too old." }],
     });
-    render(<LicensesView />);
+    render(<InShell />);
     fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
     const readsBefore = getLicenseOverview.mock.calls.length;
 
@@ -379,7 +389,7 @@ describe("LicensesView: Switch now", () => {
     toC.unavailableText = null;
     getLicenseOverview.mockResolvedValue(overview);
     switchLicenseNow.mockResolvedValue({ targetAccountEmail: ACCOUNT_C, text: "", switches: [], skipped: [] });
-    render(<LicensesView />);
+    render(<InShell />);
     fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
     const dialog = screen.getByRole("alertdialog");
 
@@ -393,7 +403,7 @@ describe("LicensesView: Switch now", () => {
 
   it("keeps the confirmation open on a refusal and shows the Gateway's own sentence", async () => {
     switchLicenseNow.mockRejectedValue(new Error("account-b@example.com is at its limit until its 5-hour window resets."));
-    render(<LicensesView />);
+    render(<InShell />);
     fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
 
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Switch now" }));
@@ -407,7 +417,7 @@ describe("LicensesView: Switch now", () => {
 describe("LicensesView: a read that fails", () => {
   it("says so in a banner, and never shows an empty page as if there were no accounts", async () => {
     getLicenseOverview.mockRejectedValue(new Error("The Gateway took too long to answer."));
-    render(<LicensesView />);
+    render(<InShell />);
 
     const banner = await screen.findByRole("alert");
     expect(banner.textContent).toContain("The Gateway took too long to answer.");

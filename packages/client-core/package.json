@@ -43,7 +43,7 @@
     "./devreports/DevReportLanding": "./src/devreports/DevReportLanding.tsx",
     "./devreports/DevReportConversation": "./src/devreports/DevReportConversation.tsx",
     "./apimode/ApiModeLiveChat": "./src/apimode/ApiModeLiveChat.tsx",
-    "./licenses/LicenseAlarmBanner": "./src/licenses/LicenseAlarmBanner.tsx",
+    "./licenses/LicenseAlarmIndicator": "./src/licenses/LicenseAlarmIndicator.tsx",
     "./history/FolderListing": "./src/history/FolderListing.tsx",
     "./maildesk/MailDeskPage": "./src/maildesk/MailDeskPage.tsx",
     "./factoryinbox/FactoryComposer": "./src/factoryinbox/FactoryComposer.tsx",

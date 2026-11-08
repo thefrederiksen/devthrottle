@@ -1,0 +1,88 @@
+/* The license alarm indicator (LicenseAlarmIndicator.tsx) - THE ONE STYLESHEET for the triangle beside the bell, shared
+ * by the Cockpit's rail head and every phone app bar. It is sized like the bell (alerts.css), from the same
+ * --alerts-target: the phone sets it to 44px; the Cockpit sets none and takes the 32px default, as the bell does.
+ *
+ * Its colour is the Gateway's verdict (data-tone): amber for a warning (--warn), red for a critical alarm (--attention).
+ * Both shells define both tokens in their own :root (docs/CockpitVisualStyle.md). */
+
+.license-alarm-indicator {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: var(--alerts-target, 32px);
+  min-height: var(--alerts-target, 32px);
+  padding: 0 3px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.license-alarm-indicator:hover,
+.license-alarm-indicator:focus-visible {
+  border-color: var(--border);
+}
+.license-alarm-indicator--warning {
+  color: var(--warn);
+}
+.license-alarm-indicator--critical {
+  color: var(--attention);
+}
+
+/* The Cockpit's hover card: fixed to the page at the triangle's corner (the component measures it), so the scrolling
+   rail cannot cut it off. Never wider than the window less 16px. */
+.license-alarm-card {
+  position: fixed;
+  z-index: var(--alerts-layer, 1000);
+  width: max-content;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.license-alarm-card--critical {
+  border-color: var(--attention);
+}
+.license-alarm-card-summary {
+  margin-bottom: 4px;
+  font-weight: 700;
+  color: var(--warn);
+}
+.license-alarm-card--critical .license-alarm-card-summary {
+  color: var(--attention);
+}
+.license-alarm-card-line {
+  overflow-wrap: anywhere;
+}
+.license-alarm-card-line + .license-alarm-card-line {
+  margin-top: 2px;
+}
+/* The Gateway's link words, as plain text: the card itself cannot be clicked, the triangle can. */
+.license-alarm-card-link {
+  margin-top: 6px;
+  color: var(--text-dim);
+}
+
+/* The announcement for a screen reader (LicenseAlarmsProvider): read, never seen, and taking no room. */
+.license-alarm-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
