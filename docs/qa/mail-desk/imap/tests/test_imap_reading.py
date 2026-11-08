@@ -144,10 +144,11 @@ def test_Renumbered_AServerBehindUtc_ItsEarlierDateDoesNotHideMail(iw):
 
 
 def test_FirstRun_AServerBehindUtc_TheLookBackStartsOnTime(iw):
-    """The look-back starts at 12:00 UTC on 18 September, which is 07:00 on 18 September on a server five hours
-    behind: a message at 13:00 UTC is inside it, one at 11:00 UTC is not."""
+    """Run at 02:00 UTC, the look-back starts at 02:00 UTC on 18 September, which is 21:00 on 17 September on a server
+    five hours behind: a message at 03:00 UTC (22:00 on the 17th there) is inside it, one at 01:00 UTC is not."""
+    iw.screen.utc_now = lambda: NOW.replace(hour=2)
     box = iw.tools.account(zone_hours=-5)
-    box.inbox(mail("2026-09-18T11:00:00Z", subject="Too old"), mail("2026-09-18T13:00:00Z", subject="Just inside"))
+    box.inbox(mail("2026-09-18T01:00:00Z", subject="Too old"), mail("2026-09-18T03:00:00Z", subject="Just inside"))
     iw.memory(imap())
     _, _, context, _ = iw.run()
     assert [m["subject"] for m in section(context)["messages"]] == ["Just inside"]

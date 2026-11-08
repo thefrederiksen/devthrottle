@@ -100,7 +100,7 @@ def test_DtEmailError_IsTheChannelsSentence_TheWholeLineIsTheDetail(iw):
 
 @pytest.mark.parametrize("failure, start", [
     ("not-json", f"dt-email answered something that is not JSON for {BOX} while signing in"),
-    ("secrets-broken", f"cc-secrets failed on {MACHINE} for {BOX} while signing in: error: the cc-secrets store is locked"),
+    ("secrets-broken", f"cc-secrets failed on {MACHINE} for {BOX} while signing in: error: the cc-secrets store is locked by anothe..."),
     ("timeout", f"dt-email did not finish within 60 seconds for {BOX} while signing in"),
 ])
 def test_OtherFailures_EachIsASentence(iw, failure, start):

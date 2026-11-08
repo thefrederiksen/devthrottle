@@ -161,7 +161,7 @@ class FakeTools:
         if self.fail_only is not None and args[0] != self.fail_only:
             failure = None
         if failure == "secrets-broken":
-            return Done(1, "", "error: the cc-secrets store is locked")
+            return Done(1, "", "error: the cc-secrets store is locked by another process; close it and try again")
         if failure == "timeout":
             return Done(1, json.dumps({"entry": entry, "entries": [entry], "exitCode": -9, "timedOut": True,
                                        "stdout": "", "stderr": ""}))
