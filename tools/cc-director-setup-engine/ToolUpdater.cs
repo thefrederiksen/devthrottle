@@ -165,6 +165,62 @@ public sealed class ToolUpdater
     }
 
     /// <summary>
+    /// Bring the shared cc-* tools up to the version of a Director that is about to be installed (issue #4744), from
+    /// THAT release's own bundle - never "the latest", which is a different question. The launcher asks this before it
+    /// swaps a Director in, so a Director never runs ahead of the tools its seats are told to use: on 7 November 2026 a
+    /// machine ran a Director whose factory started a Secretary told to run <c>cc-devthrottle factory inbox</c>, and the
+    /// tools beside it were two releases older and did not have that command.
+    ///
+    /// Tools already at or past <paramref name="directorVersion"/> are left alone (they follow the newest release on
+    /// their own, so they are often ahead). Otherwise the bundle is installed, or the answer says why it was not: the
+    /// tools are in use (a hold - nothing was changed, ask again shortly), the release has no bundle for this platform,
+    /// or the install failed. The caller holds the Director update on any of those; nothing here pretends a refresh
+    /// happened.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="directorVersion"/> is not a version.</exception>
+    /// <exception cref="HttpRequestException">The download server did not answer, or has no such release.</exception>
+    public async Task<ToolsForDirector> BringPythonToolsToDirectorAsync(string directorVersion, ReleaseSource source, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directorVersion);
+        ArgumentNullException.ThrowIfNull(source);
+        var wanted = VersionUtil.TryParse(directorVersion)
+                     ?? throw new ArgumentException($"'{directorVersion}' is not a Director version.", nameof(directorVersion));
+
+        var installed = InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId);
+        var have = VersionUtil.TryParse(installed);
+        if (installed is not null && have is null)
+            return ToolsForDirector.NotReady(
+                $"the installed tools are recorded as version '{installed}' in {_layout.InstalledManifestPath}, which is not a version, so whether they reach {directorVersion} cannot be told; Fix it on the Director's tools reinstalls them");
+        if (have is not null && have >= wanted)
+        {
+            // The version alone is not enough: a recorded version beside a venv missing console scripts (the state issue
+            // #577 self-heals) cannot run the Director's commands. The tools refresh repairs that on its own pass; until
+            // then the Director waits.
+            var expectedScripts = PythonToolsState.LoadScripts(_layout);
+            if (expectedScripts.Count > 0 && !PythonToolsInstaller.VenvHasAllTools(_layout, expectedScripts))
+                return ToolsForDirector.NotReady(
+                    $"the cc-* tools are at {installed}, but their environment is missing console scripts, so they cannot run the Director's commands; the tools refresh repairs this, or Fix it on the Director's tools");
+            EngineLog.Write($"[ToolUpdater] BringPythonToolsToDirectorAsync: tools {installed} are already at or past the Director's {directorVersion}");
+            return ToolsForDirector.Ready($"the cc-* tools are already at {installed}");
+        }
+
+        EngineLog.Write($"[ToolUpdater] BringPythonToolsToDirectorAsync: tools {installed ?? "none"} are behind the Director's {directorVersion}; installing that release's bundle");
+        var release = await source.FetchReleaseAsync(directorVersion, ct);
+        if (release.Manifest.TryGetAsset(PythonToolsInstaller.ToolsAsset) is null || release.Manifest.TryGetAsset(PythonToolsInstaller.PythonAsset) is null)
+            return ToolsForDirector.NotReady(
+                $"release {directorVersion} carries no cc-* tools bundle for this platform ({PythonToolsInstaller.ToolsAsset}), so its tools cannot be installed");
+
+        var result = await RefreshPythonToolsAsync(release, source, ct)
+                     ?? throw new InvalidOperationException(
+                         $"the cc-* tools ({installed ?? "none"}) are behind {directorVersion}, yet the refresh found nothing to do");
+        if (result.HeldBecauseInUse)
+            return ToolsForDirector.NotReady(result.Message, heldBecauseInUse: true);
+        if (!result.Success)
+            return ToolsForDirector.NotReady($"the cc-* tools {directorVersion} did not install: {result.Message}");
+        return ToolsForDirector.Ready($"installed the cc-* tools {directorVersion} ({result.ToolCount} tools)");
+    }
+
+    /// <summary>
     /// On-demand, version-INDEPENDENT repair of the shared Python tools venv (e.g. the Home "Fix it"
     /// button). Unlike <see cref="RefreshPythonToolsAsync"/>, this does not gate on the installed bundle
     /// version - it calls <see cref="PythonToolsInstaller.InstallAsync"/> directly, whose health-check
@@ -195,4 +251,18 @@ public sealed class ToolUpdater
 
     private static UpdateRunResult Empty(bool pythonToolsHeld) =>
         new() { Results = Array.Empty<ApplyResult>(), PythonToolsHeld = pythonToolsHeld };
+}
+
+/// <summary>
+/// Whether the cc-* tools are at the version of a Director about to be installed (<see cref="ToolUpdater.BringPythonToolsToDirectorAsync"/>,
+/// issue #4744), and in one sentence why not when they are not.
+/// </summary>
+/// <param name="IsReady">True when the tools are at or past the Director's version.</param>
+/// <param name="Message">What was done, or why the tools are not there.</param>
+/// <param name="HeldBecauseInUse">True when nothing was changed because a cc-* tool was using the shared Python or venv.</param>
+public sealed record ToolsForDirector(bool IsReady, string Message, bool HeldBecauseInUse)
+{
+    public static ToolsForDirector Ready(string message) => new(true, message, false);
+
+    public static ToolsForDirector NotReady(string message, bool heldBecauseInUse = false) => new(false, message, heldBecauseInUse);
 }

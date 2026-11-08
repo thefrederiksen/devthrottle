@@ -234,6 +234,25 @@ public static class UpdateStatusFold
                     // Deliberately NOT offered: it would fail in exactly the way that is being waited out.
                     CanInstallNow: false, InstallNowLabel: null);
 
+            // The tools could not be brought to the staged version first (issue #4744), so the launcher held the
+            // update rather than start a Director whose seats would be told to use commands the tools lack. Said with
+            // the launcher's own reason, because the person can often act on it (a running tool, no network).
+            if (decision == "HeldBecauseToolsNotReady")
+                return new UpdateStatusView(
+                    State: "StagedWaitingForTools",
+                    Headline: "UPDATE WAITING",
+                    Detail: $"v{staged} downloaded - waiting for the cc-* tools to reach v{staged} first",
+                    Tooltip: $"v{staged} is downloaded and verified. The launcher installs the matching cc-* tools before "
+                             + "it installs a Director, so the Director never runs ahead of the commands its seats use, and "
+                             + "the tools could not be brought up when it last looked: "
+                             + (state.LastApplyDetail ?? "the launcher gave no reason.")
+                             + " It tries again on its next pass.",
+                    Accent: WarnAccent, Background: WarnBackground, Border: WarnBorder,
+                    Icon: "check", Busy: false, PercentComplete: null,
+                    CanCheckNow: false, CheckNowLabel: null,
+                    // Deliberately NOT offered: an install now would be held for the same reason.
+                    CanInstallNow: false, InstallNowLabel: null);
+
             if (decision == "HeldBecauseUnknown")
             {
                 return new UpdateStatusView(

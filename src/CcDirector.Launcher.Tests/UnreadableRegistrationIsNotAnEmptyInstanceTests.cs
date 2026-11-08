@@ -869,6 +869,57 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
     }
 
     /// <summary>
+    /// Issue #4744: an idle Director with an update staged is NOT updated while the cc-* tools cannot be brought to the
+    /// staged version first. The launcher asks for exactly the staged version, records the hold with the reason, stops
+    /// nothing, and keeps the staged record so the next pass asks again. Before this, the swap went ahead with whatever
+    /// tools were there, and a Director ran beside tools that lacked the commands its seats are told to use.
+    /// </summary>
+    [Fact]
+    public async Task The_update_owner_HOLDS_an_idle_Directors_update_while_its_tools_cannot_be_brought_to_that_version()
+    {
+        WriteLiveRegistration("aaaa7004-0000-0000-0000-000000000004");
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+        StageUpdateAndRosters(supervisor);
+        var asked = new List<string>();
+        var owner = new DirectorUpdateOwner(supervisor, bringToolsTo: (version, _) =>
+        {
+            asked.Add(version);
+            return Task.FromResult(ToolsForDirector.NotReady("the cc-* tools are in use", heldBecauseInUse: true));
+        });
+
+        var decision = await owner.RunOnceAsync();
+
+        Assert.Equal(DirectorUpdateDecision.HeldBecauseToolsNotReady, decision);
+        Assert.Equal(new[] { "9.9.9" }, asked);
+        var state = UpdaterState.LoadFrom(Path.Combine(InstanceHome, "config", "director", "updater-state.json"));
+        Assert.Equal("9.9.9", state.StagedVersion);       // still staged: the next pass asks again
+        Assert.Equal("HeldBecauseToolsNotReady", state.LastApplyDecision);
+        Assert.Contains("the cc-* tools are in use", state.LastApplyDetail);
+        Assert.True(supervisor.IsRunning);                  // nothing was stopped
+    }
+
+    /// <summary>Issue #4744: a download server that hangs past its timeout (or refuses) holds the update with the reason
+    /// recorded, exactly as tools in use do - never an unrecorded failure that leaves the panel on an older answer.</summary>
+    [Fact]
+    public async Task The_update_owner_RECORDS_a_tools_download_that_timed_out_as_the_reason_it_holds()
+    {
+        WriteLiveRegistration("aaaa7005-0000-0000-0000-000000000005");
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+        StageUpdateAndRosters(supervisor);
+        var owner = new DirectorUpdateOwner(supervisor, bringToolsTo: (_, _) =>
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 60 seconds elapsing."));
+
+        var decision = await owner.RunOnceAsync();
+
+        Assert.Equal(DirectorUpdateDecision.HeldBecauseToolsNotReady, decision);
+        var state = UpdaterState.LoadFrom(Path.Combine(InstanceHome, "config", "director", "updater-state.json"));
+        Assert.Equal("9.9.9", state.StagedVersion);
+        Assert.Contains("could not be fetched", state.LastApplyDetail);
+        Assert.Contains("HttpClient.Timeout", state.LastApplyDetail);
+        Assert.True(supervisor.IsRunning);
+    }
+
+    /// <summary>
     /// Stage a real update for the installed Director this rig fakes, give the live Director an EXPLICIT
     /// empty roster so "how busy is it" has a real answer, and run one pass of the production
     /// <see cref="DirectorUpdateOwner"/>.

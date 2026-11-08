@@ -51,6 +51,7 @@ public sealed class LauncherDirectorUpdateReport
         "HeldBecauseAnotherSwapIsRunning",
         "HeldBecauseDirectorNotRunning",
         "HeldBecauseNoDisplay",
+        "HeldBecauseToolsNotReady",
         "SkippedPinnedBadVersion",
         "Applied",
         "RolledBack",

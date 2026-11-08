@@ -66,6 +66,26 @@ public static class FactoryInboxSecretary
     }
 
     /// <summary>
+    /// Every cc-devthrottle command the Secretary's instructions (<see cref="Brief"/>, <see cref="RingLine"/>) tell it to
+    /// run, as the words after the program name. The wake sends them on its create
+    /// (<see cref="NewSessionRequest.RequiredToolCommands"/>) so the Director refuses the start on a machine whose tools
+    /// lack one, instead of starting a Secretary that can do nothing (issue #4744). A test holds this list to the
+    /// instructions, so a command added to the text without being added here fails it.
+    /// </summary>
+    public static readonly IReadOnlyList<string> SecretaryToolCommands = new[]
+    {
+        "factory inbox new", "factory inbox receive", "factory memory set", "factory inbox bundle", "session done",
+    };
+
+    /// <summary>Every cc-devthrottle command the Boss's bundle instructions (<see cref="BossBundleWork"/>,
+    /// <see cref="BossRingLine"/>) tell it to run; sent on the Boss's create for the same reason as
+    /// <see cref="SecretaryToolCommands"/>.</summary>
+    public static readonly IReadOnlyList<string> BossToolCommands = new[]
+    {
+        "factory inbox bundle", "factory inbox decide", "session done",
+    };
+
+    /// <summary>
     /// The Secretary's job, in full: its brief, and the first thing it reads. It never judges, never decides and never
     /// starts a session; it files, merges repeats, attaches what each message is about, writes the owner's Good or Bad
     /// note into the factory's memory for the Boss, hands ONE bundle, and closes itself when the inbox is empty.

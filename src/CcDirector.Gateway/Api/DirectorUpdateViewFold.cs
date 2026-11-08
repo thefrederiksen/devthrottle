@@ -69,6 +69,7 @@ internal static class DirectorUpdateViewFold
             "HeldBecauseAnotherSwapIsRunning" => ("Not installed: another update is already running on this machine.", FleetTone.Warn),
             "HeldBecauseDirectorNotRunning" => ("Not installed: the Director is not running. It installs the update the next time it starts.", FleetTone.Idle),
             "HeldBecauseNoDisplay" => ($"Not installed: this machine has no display awake to start the Director on.{why}", FleetTone.Warn),
+            "HeldBecauseToolsNotReady" => ($"Not installed: the cc-* tools could not be brought to {v} first, and a Director never runs ahead of its tools. The launcher tries again on its next pass.{why}", FleetTone.Warn),
             "SkippedPinnedBadVersion" => ($"Not installed: {v} already failed to start on this machine, so it is skipped.", FleetTone.Bad),
             null => ("The launcher finished the update without saying what it decided.", FleetTone.Bad),
             _ => ($"The launcher answered with an update result this Gateway does not recognise ('{decision}'). "
