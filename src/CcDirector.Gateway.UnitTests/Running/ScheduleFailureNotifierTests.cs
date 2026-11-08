@@ -477,6 +477,35 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
     }
 
     [Fact]
+    public async Task AScheduleThatFlapsOnOneCause_IsNotToldARecoveryForAFailureHeldBackInsideTheHour()
+    {
+        // Arrange: fails, recovers, fails again on the same cause inside the hour (held back, never told), recovers.
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        _now = _now.AddMinutes(5);
+        Succeed(job.Id);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        _now = _now.AddMinutes(5);
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(0, await notifier.ScanAsync(CancellationToken.None));
+        _now = _now.AddMinutes(5);
+        Succeed(job.Id);
+        _now = _now.AddSeconds(30);
+
+        // Act
+        var sent = await notifier.ScanAsync(CancellationToken.None);
+
+        // Assert: one failure told, one recovery told - the held-back failure owed nothing.
+        Assert.Equal(0, sent);
+        Assert.Equal((1, 1), (_fleet.Count(n => !n.Succeeded), _fleet.Count(n => n.Succeeded)));
+    }
+
+    [Fact]
     public async Task ARecovery_IsNotTold_WhenTheOwnerSetNotifyToOffAfterTheFailure()
     {
         var job = NewSchedule();

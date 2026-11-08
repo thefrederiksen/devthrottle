@@ -93,7 +93,9 @@ public sealed class CronFailureNoticeStore
     /// <summary>
     /// Every schedule, in every account, whose owner was told of a failure and has not been told of a recovery since
     /// (issue #4748). The recovery last told is the row of cause <see cref="ScheduleFailureCauses.Recovered"/>; it is owed
-    /// again whenever a failure is counted later than it. Kept here, not in memory, so a restart does not forget it.
+    /// again only when a failure was TOLD after it - a failure held back inside the hour was never told, so it owes no
+    /// recovery, and a schedule that flaps is not told it recovered more often than it is told it failed. Kept here, not
+    /// in memory, so a restart does not forget it.
     /// </summary>
     public IReadOnlyList<CronRecoveryOwed> RecoveriesOwed()
     {
@@ -101,17 +103,20 @@ public sealed class CronFailureNoticeStore
         {
             using var ctx = _db.CreateUnscopedContext();
             var rows = ctx.CronFailureNotices.IgnoreQueryFilters().AsNoTracking()
-                .Select(e => new { e.TenantId, e.JobId, e.Cause, e.LastCountedUtc })
+                .Select(e => new { e.TenantId, e.JobId, e.Cause, e.LastSentUtc, e.LastCountedUtc })
                 .ToList();
             var owed = new List<CronRecoveryOwed>();
             foreach (var job in rows.GroupBy(r => (r.TenantId, r.JobId)))
             {
                 var failures = job.Where(r => r.Cause != ScheduleFailureCauses.Recovered).ToList();
                 if (failures.Count == 0) continue;
-                var lastFailure = DateTime.SpecifyKind(failures.Max(r => r.LastCountedUtc), DateTimeKind.Utc);
+                var lastToldFailure = DateTime.SpecifyKind(failures.Max(r => r.LastSentUtc), DateTimeKind.Utc);
                 var recovered = job.FirstOrDefault(r => r.Cause == ScheduleFailureCauses.Recovered);
-                if (recovered is not null && DateTime.SpecifyKind(recovered.LastCountedUtc, DateTimeKind.Utc) >= lastFailure)
+                if (recovered is not null && DateTime.SpecifyKind(recovered.LastSentUtc, DateTimeKind.Utc) >= lastToldFailure)
                     continue;
+                // The success must still come after the newest failure counted, told or held back: one before it is not
+                // a recovery.
+                var lastFailure = DateTime.SpecifyKind(failures.Max(r => r.LastCountedUtc), DateTimeKind.Utc);
                 owed.Add(new CronRecoveryOwed(new TenantId(job.Key.TenantId), job.Key.JobId, lastFailure));
             }
             return owed;
@@ -349,8 +354,8 @@ public sealed class ScheduleFailureNotifier : IDisposable
         FileLog.Write($"[ScheduleFailureNotifier] telling the owner of a recovery: tenant={tenant.ToLogString()}, job={job.Id}, run={run.RunId}");
         using (_enterScope(tenant))
         {
-            // The inbox write first: it is the one leg here that can throw, and when it does nothing has been sent yet,
-            // so the next scan's retry sends nothing twice. The fleet channel and the push never throw.
+            // The inbox write first: when it throws nothing has been sent yet, so the next scan's retry sends nothing
+            // twice. A fleet or push leg that throws after it also fails the scan, and the retry writes the inbox again.
             var (subject, body) = RecoveryInboxWords(job, notice);
             var written = YourInboxStore.ForScheduleFailure(tenant, job.Factory, subject, body, now);
             _inbox(tenant, written);
