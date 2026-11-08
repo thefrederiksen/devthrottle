@@ -39,7 +39,7 @@ is refused with an error before any connection is opened. Nothing is sent.
 |---|---|
 | `folders` | Folders with their special use (drafts, sent, trash, junk, archive) and counts |
 | `folder create\|rename\|delete` | Manage folders. A server that keeps a deleted folder in Trash (Zoho) is reported, with the name it chose |
-| `list [--folder F] [--count N] [--unread]` | Newest messages first |
+| `list [--folder F] [--count N] [--unread] [--after-uid N] [--since DATE] [--oldest] [--preview]` | Newest messages first, or the oldest with `--oldest`. `--json` carries the folder's `uidvalidity` and each message's `received` time in UTC; `--preview` adds the first 200 characters of text and the attachment count, read from the first 64 KB without marking it read |
 | `search [TEXT] [--from --to --subject --body --since --before --unread --flagged]` | Search on the server |
 | `read UID [--folder F] [--html] [--full]` | One message; does not mark it read |
 | `attachments UID` / `download UID --out DIR [--index N] [--overwrite]` | List and save attachments |
@@ -48,7 +48,7 @@ is refused with an error before any connection is opened. Nothing is sent.
 | `forward UID --to ...` | Forward with the original attached whole, keeping References |
 | `draft save [--replace UID]\|list\|send UID\|delete UID` | Drafts in the Drafts folder |
 | `mark UID... --as read\|unread\|flagged\|unflagged` | Flags |
-| `move UID... --to F` / `archive UID...` | Move; Archive is found by its flag, else by its name |
+| `move UID... --to F` / `archive UID...` `[--expect-uidvalidity N]` | Move; Archive is found by its flag, else by its name. With `--expect-uidvalidity`, nothing moves unless the folder's uidvalidity is still N, checked on the connection that moves |
 | `delete UID... [--permanent]` | To Trash, or removed for good (only those UIDs are expunged) |
 
 Every command takes `--account NAME` and `--json` (every field, same shape whether filtered or not).

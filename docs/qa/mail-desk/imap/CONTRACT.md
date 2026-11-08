@@ -9,12 +9,15 @@ others) holds for it unchanged; this file says only what is particular to IMAP.
 
 - `dt-email` and `cc-secrets` on the PATH of the check.
 - A dt-email account for the mailbox (`dt-email account add <name> --email <address> --imap-host <host> --smtp-host
-  <host> --secret-entry <entry> --password-env <VARIABLE>`), saved under the Director's folder or any of its instance
-  folders. A Director session sets `CC_DIRECTOR_ROOT` to its instance folder, so an account added from a session is
-  saved there; the check runs with no `CC_` variable, so it looks in the Director's folder and every
-  `instances/*` folder that holds `config/dt-email/config.json`, and runs every dt-email command with
-  `CC_DIRECTOR_ROOT` set to the one that holds the account. The account in two of them fails the channel.
-- The password in cc-secrets on that machine, under the entry the account names.
+  <host> --secret-entry <entry> --password-env <VARIABLE>`). dt-email saves it under the folder `CC_DIRECTOR_ROOT`
+  names, else cc-storage's user folder. A Director session sets `CC_DIRECTOR_ROOT` to its instance folder; on Linux
+  cc-storage's user folder is `~/.cc-director`, not the Director's `~/.local/share/cc-director`. The check runs with no
+  `CC_` variable, so it looks in the Director's folder, cc-storage's user folder when that differs
+  (`dt_email_bases`, pinned to `tools/cc_storage/storage.py` by a test), and every `instances/*` under them that holds
+  `config/dt-email/config.json`, and runs every dt-email command with `CC_DIRECTOR_ROOT` set to the one that holds the
+  account. The account in two of them fails the channel.
+- The password in cc-secrets on that machine, under the entry the account names, allowed for `run`. When cc-secrets
+  refuses it (missing, not allowed for run, or one it cannot hide in output), cc-secrets's own reason is the sentence.
 
 ## The password
 
@@ -31,8 +34,8 @@ Nothing about the password is in the memory, the output, standard error or on th
 - `list` with only `--folder`, `--count`, `--after-uid`, `--since`, `--oldest`, `--preview`, then `--account <name>
   --json`;
 - `folders --account <name> --json`;
-- in live mode only: `archive <one UID>` (from the Inbox) and `move <one UID> --to <the junk folder dt-email folders
-  names>`.
+- in live mode only: `archive <one UID> --expect-uidvalidity <n>` (from the Inbox) and `move <one UID> --to <the junk
+  folder dt-email folders names> --expect-uidvalidity <n>`.
 
 dt-email can send, reply, forward, draft, mark and delete, so this guard is what keeps the Mail Desk from doing any of
 them. A process is started in exactly one place, after the guard.
@@ -45,22 +48,34 @@ them. A process is started in exactly one place, after the guard.
   was moved or imported a higher UID can carry an earlier arrival time (seen live on a migrated Zoho mailbox), so
   `newest` keeps the latest of the cursor's and the new ones, and never goes back.
 - First run: the most recent 200 Inbox messages, or those of the last 30 days, whichever is fewer. The lowest UID among
-  them is found (`list --since --count 200`), then they are read from it, oldest first.
+  them is found (`list --since <the day before> --count 200`, then the exact time compared), then they are read from
+  it, oldest first. IMAP's SINCE compares the server's own date, which can be the day before the UTC date, so dt-email
+  is always asked from the day before.
 - Later runs: `list --after-uid <lastUid> --oldest --count 10 --preview`. `more` is true when the Inbox holds more above
   the cursor than were read.
 - A renumbered Inbox (another UIDVALIDITY): the UIDs mean nothing any more, so new mail is found again by arrival time
-  from the cursor's `newest`. The message reported last may be reported once more.
+  from the cursor's `newest`: the Inbox is read oldest first from the day before, 200 at a time (at most 20 pages),
+  until a message at or after `newest` is found. The message reported last may be reported once more.
 - New mail is ordered by UID, not arrival time: each message carries `orderedAt`, the latest arrival time up to it, so
   mail moved into the Inbox late never reports before a lower UID that is not reported yet, and the cursor never jumps
   over a UID. The context's `receivedUtc` is always the real arrival time.
-- `--preview` reads each reported message with BODY.PEEK, so nothing is marked read.
+- `--preview` reads only the first 64 KB of each reported message (BODY.PEEK[]<0.65536>), so nothing is marked read and
+  an attachment is never downloaded; attachments are counted among the parts that start within it.
 
 ## Filing
 
-- `archive`: `dt-email archive <UID>`, to the folder dt-email marks as archive.
-- `junk`: `dt-email move <UID> --to <the junk folder>`.
+- `archive`: `dt-email archive <UID> --expect-uidvalidity <n>`, to the folder dt-email marks as archive.
+- `junk`: `dt-email move <UID> --to <the junk folder> --expect-uidvalidity <n>`.
 - A UID the Inbox no longer holds ("no message with UID") is `already-gone`.
 - A UID under an older UIDVALIDITY is `already-gone` without any command: moving it would file another message.
+- The Inbox renumbered during the run: dt-email checks `--expect-uidvalidity` on the connection that moves and moves
+  nothing; the run's next read of the Inbox sees the new uidvalidity and fails the channel for this run, so its queue
+  comes back whole, and the next run files those items as `already-gone` without any command.
+
+## Sentences
+
+Every failure sentence is at most 165 characters (SENTENCE_LIMIT). An error from dt-email or cc-secrets is cut to what
+is left after the address, the machine and the step (`with_error`); the whole error is on the detail line.
 
 ## Known senders
 
