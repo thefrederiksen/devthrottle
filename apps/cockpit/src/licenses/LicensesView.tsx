@@ -25,7 +25,7 @@ import {
   type LicenseSwitchNowResult,
 } from "@devthrottle/client-core/licenses/licensesClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
-import { useLicenseAlarms } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
+import { useLicenseAlarmsAnswer } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
@@ -138,7 +138,9 @@ export type LicensesTab = "accounts" | "usage";
 
 export function LicensesView({ initialTab = "accounts" }: { initialTab?: LicensesTab } = {}) {
   const [tab, setTab] = useState<LicensesTab>(initialTab);
-  const alarms = useLicenseAlarms(true);
+  // The same answer the rail's triangle draws, read once by the shell (LicenseAlarmsProvider in AppShell), so the
+  // page's number and the triangle's agree and the page makes no second read.
+  const alarms = useLicenseAlarmsAnswer();
   const overview = usePolled<LicenseOverview, LicenseOverview>(readOverview, "read the licenses", newest);
   const forecast = usePolled<LicenseForecast, LicenseForecast>(readForecast, "read the license forecast", newest);
   const log = usePolled<LicenseLogPage, LogView>(readNewestLog, "read the switch log", foldNewestLogPage);

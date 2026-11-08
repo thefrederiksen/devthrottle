@@ -1,4 +1,16 @@
-import { createContext, useCallback, useContext, useId, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import { getLicenseAlarms, type LicenseAlarms } from "./licensesClient";
@@ -12,6 +24,7 @@ import "./licenseAlarm.css";
 // It is still on every page while an alarm is open and gone the moment none is, because it lives in the one place every
 // page shares: the bell's row. The read is made ONCE per shell, by LicenseAlarmsProvider mounted above the router's
 // pages, so the triangle does not blink out and back on every navigation and a phone screen change makes no new read.
+// The Cockpit's Licenses page reads the same answer (useLicenseAlarmsAnswer), so its number and the triangle's agree.
 //
 // ITS COLOUR IS THE GATEWAY'S. The answer's `tone` - "warning" or "critical" - is set as `data-tone` and a class; the
 // shared sheet (licenseAlarm.css) draws a warning amber and a critical red. Nothing here compares a number with a
@@ -21,10 +34,15 @@ import "./licenseAlarm.css";
 // LicenseAlarmFold): the count, and the summary and link words, which become the control's name and tooltip. Full
 // sentences belong on the Licenses page. Count 0 is no triangle.
 //
+// A SCREEN READER STILL HEARS IT. The bar was role="alert"; the provider now carries a visually hidden role="alert" line
+// with the Gateway's summary while an alarm is open, so an alarm that opens is announced as it was before.
+//
 // THE HOVER LIST (Cockpit only, `details`): hovering or focusing the triangle shows a card with the summary, one line per
 // open alarm - each alarm's own `text`, verbatim - and the link words. The rail head sits in a rail that scrolls, which
 // would cut a card placed inside it off at the rail's edge, so the card is fixed to the page at the triangle's corner,
-// measured when it opens (as RailAlertsBell places its tray). The phone has no hover, so it never asks for the card.
+// measured when it opens and moved left if it would run past the window (as RailAlertsBell places its tray). The pointer
+// can move onto the card without it closing, and Escape closes it (WCAG 1.4.13). The phone has no hover, so it never
+// asks for the card.
 
 /** How often the alarms are read again while the page is visible. */
 export const LICENSE_ALARM_POLL_MS = 30_000;
@@ -62,10 +80,29 @@ export interface LicenseAlarmsProviderProps {
   children: ReactNode;
 }
 
-/** The one reader of the license alarms in a shell, mounted above every page. */
+/** The one reader of the license alarms in a shell, mounted above every page. It also carries the announcement for a
+ *  screen reader: while an alarm is open, one visually hidden alert line with the Gateway's summary - the role the bar
+ *  had. It lives here, mounted once for the life of the shell, so it is announced when an alarm opens and not again on
+ *  every phone screen change. With none open it is not drawn at all, so a page without alarms carries nothing extra. */
 export function LicenseAlarmsProvider({ enabled, children }: LicenseAlarmsProviderProps) {
   const alarms = useLicenseAlarms(enabled);
-  return <LicenseAlarmsContext.Provider value={alarms}>{children}</LicenseAlarmsContext.Provider>;
+  const announce = alarms !== null && alarms.count > 0 ? alarms.summary : null;
+  return (
+    <LicenseAlarmsContext.Provider value={alarms}>
+      {announce !== null && (
+        <span className="license-alarm-announce" role="alert" data-testid="license-alarm-announce">
+          {/* error-report-exempt: announces the Gateway's own summary of the open license alarms (rule 7) - a problem with the owner's licenses, not a failure in this client */}
+          {announce}
+        </span>
+      )}
+      {children}
+    </LicenseAlarmsContext.Provider>
+  );
+}
+
+/** The shell's current answer, from the provider above; null until the first answer (or with no provider). */
+export function useLicenseAlarmsAnswer(): LicenseAlarms | null {
+  return useContext(LicenseAlarmsContext);
 }
 
 export interface LicenseAlarmIndicatorProps {
@@ -79,12 +116,16 @@ export interface LicenseAlarmIndicatorProps {
 
 /** The triangle for the shell's current answer, or nothing when no alarm is open. */
 export function LicenseAlarmIndicator({ href, onOpen, details = false }: LicenseAlarmIndicatorProps) {
-  const alarms = useContext(LicenseAlarmsContext);
+  const alarms = useLicenseAlarmsAnswer();
   return <LicenseAlarmIndicatorView alarms={alarms} href={href} onOpen={onOpen} details={details} />;
 }
 
 /** The gap, in pixels, between the triangle and the card below it. */
 const CARD_GAP_PX = 6;
+/** The closest the card comes to the window's right edge. */
+const EDGE_PX = 8;
+/** How long the card waits after the pointer leaves the triangle or the card, so it can cross the gap between them. */
+const CLOSE_DELAY_MS = 150;
 
 /** The triangle for one answer of the Gateway; split out so a test can render an answer without a network. */
 export function LicenseAlarmIndicatorView({
@@ -100,17 +141,49 @@ export function LicenseAlarmIndicatorView({
 }) {
   const cardId = useId();
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current === null) return;
+    clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }, []);
+  const hide = useCallback(() => {
+    cancelClose();
+    setAnchor(null);
+  }, [cancelClose]);
+  const hideSoon = useCallback(() => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      setAnchor(null);
+    }, CLOSE_DELAY_MS);
+  }, [cancelClose]);
+  useEffect(() => cancelClose, [cancelClose]);
+
+  // The card opens at the triangle's left edge; once drawn, its width is measured and it is moved left just enough to
+  // stay inside the window.
+  useLayoutEffect(() => {
+    if (anchor === null || card.current === null) return;
+    const fits = Math.max(EDGE_PX, window.innerWidth - EDGE_PX - card.current.getBoundingClientRect().width);
+    if (anchor.left > fits) setAnchor({ top: anchor.top, left: fits });
+  }, [anchor]);
+
   if (alarms === null || alarms.count === 0 || alarms.alarms.length === 0) return null;
   const show = (target: HTMLElement) => {
     if (!details) return;
+    cancelClose();
     const r = target.getBoundingClientRect();
     setAnchor({ top: r.bottom + CARD_GAP_PX, left: r.left });
   };
-  const hide = () => setAnchor(null);
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
     if (onOpen === undefined) return;
     event.preventDefault();
     onOpen();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLAnchorElement>) => {
+    if (event.key === "Escape" && anchor !== null) hide();
   };
   // The Gateway's two phrases, joined as the bar used to show them: "2 license problems - Open Licenses".
   const name = [alarms.summary, alarms.linkText].filter((part): part is string => part !== null).join(" - ");
@@ -128,9 +201,10 @@ export function LicenseAlarmIndicatorView({
         data-testid="license-alarm-indicator"
         data-tone={alarms.tone ?? undefined}
         onMouseEnter={(event) => show(event.currentTarget)}
-        onMouseLeave={hide}
+        onMouseLeave={hideSoon}
         onFocus={(event) => show(event.currentTarget)}
         onBlur={hide}
+        onKeyDown={onKeyDown}
       >
         <TriangleIcon />
         <span className="license-alarm-count" data-testid="license-alarm-count" aria-hidden="true">
@@ -139,11 +213,14 @@ export function LicenseAlarmIndicatorView({
       </a>
       {anchor !== null && (
         <div
+          ref={card}
           id={cardId}
           role="tooltip"
           className={alarms.tone === null ? "license-alarm-card" : `license-alarm-card license-alarm-card--${alarms.tone}`}
           style={{ top: anchor.top, left: anchor.left }}
           data-testid="license-alarm-card"
+          onMouseEnter={cancelClose}
+          onMouseLeave={hideSoon}
         >
           {alarms.summary !== null && <div className="license-alarm-card-summary">{alarms.summary}</div>}
           {alarms.alarms.map((alarm) => (

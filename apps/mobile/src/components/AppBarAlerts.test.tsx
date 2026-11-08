@@ -129,11 +129,10 @@ describe("the license triangle beside the bell", () => {
     expect(triangle.getAttribute("aria-label")).toBe("3 license problems - Open Licenses");
     expect(triangle.getAttribute("href")).toBe("/licenses");
     expect(triangle.getAttribute("data-tone")).toBe("critical");
-    // Beside the bell, just before it, in the app bar - no bar of its own.
+    // Beside the bell, just before it, in the app bar.
     const bell = screen.getByTestId("alerts-bell");
     expect(triangle.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(triangle.closest(".app-bar")).not.toBeNull();
-    expect(document.querySelector(".license-alarm-banner")).toBeNull();
   });
 
   it("WithNoAlarmOpen_DrawsNothing_ButTheBell", async () => {

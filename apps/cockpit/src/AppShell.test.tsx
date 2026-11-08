@@ -912,7 +912,7 @@ describe("Cockpit license alarm triangle", () => {
     alarmRead.answer = NONE;
   });
 
-  it("shows no triangle and no bar when the Gateway has no alarm open", async () => {
+  it("shows no triangle when the Gateway has no alarm open", async () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <AppShell />
@@ -921,7 +921,6 @@ describe("Cockpit license alarm triangle", () => {
 
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId("license-alarm-indicator")).toBeNull();
-    expect(document.querySelector(".license-alarm-banner")).toBeNull();
   });
 
   it("shows the Gateway's count in the rail head beside the bell, named in its own words", async () => {
@@ -938,15 +937,14 @@ describe("Cockpit license alarm triangle", () => {
     expect(triangle.getAttribute("aria-label")).toBe("1 license problem - Open Licenses");
     expect(triangle.getAttribute("href")).toBe("/licenses");
     expect(screen.queryByText(line)).toBeNull();
-    // In the rail head, beside the bell - never a row of its own above the frame, never inside the page.
+    // In the rail head, beside the bell - never inside the page.
     const head = document.querySelector(".rail-head")!;
     expect(head.contains(triangle)).toBe(true);
     expect(head.contains(screen.getByTestId("alerts-bell"))).toBe(true);
     expect(screen.getByTestId("routed-page").contains(triangle)).toBe(false);
-    expect(document.querySelector(".license-alarm-banner")).toBeNull();
   });
 
-  it("lists each problem in the Gateway's own words while hovered, and nothing once the pointer leaves", async () => {
+  it("lists each problem in the Gateway's own words while hovered, and closes once the pointer leaves", async () => {
     const first = "Renewing the sign-in for dev@example.com on machine-a failed. Put right what the reason says.";
     const second = "machine-b holds no spare. Sign machine-b in to a second account.";
     alarmRead.answer = { ...NONE, count: 2, summary: "2 license problems", linkText: "Open Licenses", alarms: [alarm("a1", first), alarm("a2", second)], tone: "warning" };
@@ -967,8 +965,25 @@ describe("Cockpit license alarm triangle", () => {
     expect(within(card).getAllByTestId("license-alarm-card-line").map((l) => l.textContent)).toEqual([first, second]);
     expect(card.textContent).toContain("2 license problems");
     expect(card.textContent).toContain("Open Licenses");
+    // It waits a moment before closing, so the pointer can cross onto the card.
     fireEvent.mouseLeave(triangle);
-    expect(screen.queryByTestId("license-alarm-card")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("license-alarm-card")).toBeNull());
+  });
+
+  it("stays in reach in the collapsed rail", async () => {
+    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", "A problem.")], tone: "warning" };
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId("license-alarm-indicator");
+    fireEvent.click(screen.getByTestId("rail-toggle"));
+    await waitFor(() => expect(screen.getByTestId("rail-toggle").getAttribute("aria-expanded")).toBe("false"));
+    const triangle = screen.getByTestId("license-alarm-indicator");
+    expect(document.querySelector(".rail-head")!.contains(triangle)).toBe(true);
+    expect(within(triangle).getByTestId("license-alarm-count").textContent).toBe("1");
   });
 
   it("opens Licenses in the app when clicked", async () => {
