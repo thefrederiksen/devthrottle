@@ -83,6 +83,10 @@ internal static class YourInboxEndpoints
     /// <param name="PlaceOf">Where a session ran - its Director and its folder - or null when the Gateway has no record.</param>
     /// <param name="DeliverToSession">Write a notice from the Gateway into a session's inbox; its doorbell rings it when it
     /// is free.</param>
+    /// <param name="SendAsAgent">An AGENT's reply to a session: an ordinary fleet message FROM that agent (sender, then
+    /// recipient, then text), judged by the normal message policy - who may write to whom, and how often - with the agent
+    /// recorded as its sender. Never a Gateway notice: a notice waives the policy and names no sender, which would let any
+    /// session key write into any running session unattributed.</param>
     /// <param name="SendToFactory">Leave the owner's message in a factory's Factory inbox (<c>FactoryInboxStore.SendAsync</c>).</param>
     /// <param name="MessageSent">Tells the factory inbox wake a message was left (<c>FactoryInboxWake.MessageSent</c>), exactly
     /// as the owner's own send to a factory does, so a reply from Your inbox is looked at when its gather window closes and
@@ -97,6 +101,7 @@ internal static class YourInboxEndpoints
         Func<TenantId, string, DevReportSessionLiveness> Liveness,
         Func<TenantId, string, YourInboxSessionPlace?> PlaceOf,
         Func<TenantId, string, string, FleetSendOutcome> DeliverToSession,
+        Func<TenantId, string, string, string, FleetSendOutcome> SendAsAgent,
         Func<TenantId, FactoryInboxSendInput, CancellationToken, Task<FactoryInboxMessageEntity>> SendToFactory,
         Action<TenantId, string, DateTime> MessageSent,
         Func<DateTime> NowUtc);
@@ -165,7 +170,13 @@ internal static class YourInboxEndpoints
             if (Find(parts, tenant, id) is not { } message) return NotFound(id);
             // READING IS RECORDED, AND IT DOES NOT MARK THE MESSAGE READ: the owner has still not read it.
             parts.Store.RecordAgentRead(tenant, message.Id, agent!, parts.NowUtc());
-            return Results.Json(new { message = FoldOne(parts, tenant, message.Id) });
+            var folded = FoldOne(parts, tenant, message.Id);
+            return Results.Json(new
+            {
+                message = folded,
+                replyGoesTo = folded.ReplyTo?.Label ?? YourInboxWords.NoReplyLine,
+                note = YourInboxWords.AgentReadNote,
+            });
         });
 
         app.MapPost("/sessions/{sid}/inbox/{id}/state", async (string sid, string id, HttpContext ctx, CancellationToken ct) =>
@@ -176,17 +187,19 @@ internal static class YourInboxEndpoints
             var (body, bad) = await ReadAsync<StateBody>(ctx, ct);
             if (bad is not null) return bad;
             var asked = (body?.State ?? "").Trim().ToLowerInvariant();
-            // RESTORE is the undo of an agent's delete: the message goes back to the inbox as it was - unread if nobody
-            // ever marked it read, read if somebody did. An agent's archive never makes the owner miss a message.
-            var state = asked == YourInboxWords.AgentRestore
-                ? (message.State != YourInboxWords.States.Archived ? message.State
-                    : message.ReadAtUtc is null ? YourInboxWords.States.Unread : YourInboxWords.States.Read)
-                : asked;
+            // RESTORE is the undo of an agent's delete: the message goes back to the inbox as it was (the store decides how,
+            // from what it holds). Every other word is a state.
             return Refusals(() =>
             {
-                var after = parts.Store.SetStateByAgent(tenant, message.Id, state, agent!, parts.NowUtc());
-                if (after is null) return NotFound(id);
-                return Results.Json(new { message = FoldOne(parts, tenant, after.Id, withReplies: false) });
+                var change = asked == YourInboxWords.AgentRestore
+                    ? parts.Store.RestoreByAgent(tenant, message.Id, agent!, parts.NowUtc())
+                    : parts.Store.SetStateByAgent(tenant, message.Id, asked, agent!, parts.NowUtc());
+                if (change is null) return NotFound(id);
+                return Results.Json(new
+                {
+                    message = FoldOne(parts, tenant, change.Value.Message.Id, withReplies: false),
+                    done = YourInboxWords.AgentDone(change.Value.Act, change.Value.Message.State),
+                });
             });
         });
 
@@ -338,12 +351,27 @@ internal static class YourInboxEndpoints
         // THE ORDER IS DELIBERATE, here and in the factory reply below: deliver first, then record. If the record fails, the
         // reply has gone and the owner sees an error and no record - he is told. The other order would leave a record of a
         // reply that never went, which tells him something false. Do not swap them.
-        var notice = by.Agent is { } agent ? YourInboxFold.AgentReplyForSession(message, text, agent) : YourInboxFold.ReplyForSession(message, text);
-        var outcome = parts.DeliverToSession(tenant, sessionId, notice);
-        if (outcome.Outcome is not (FleetMessageOutcome.Queued or FleetMessageOutcome.DuplicateDropped))
-            throw new InvalidOperationException(
-                $"A reply from Your inbox to session {sessionId} was refused by the fleet inbox ({outcome.Outcome}: {outcome.Response.Error}); " +
-                "a notice from the Gateway is refused only for its text, which this route checked.");
+        FleetSendOutcome outcome;
+        if (by.Agent is { } agent)
+        {
+            // AN AGENT'S REPLY IS AN ORDINARY MESSAGE FROM THAT AGENT, held to the normal policy: who may write to whom, and
+            // how often. A refusal is the answer, in the policy's words, and nothing is recorded.
+            outcome = parts.SendAsAgent(tenant, agent.SessionId, sessionId, YourInboxFold.AgentReplyForSession(message, text, agent));
+            if (outcome.Outcome is not (FleetMessageOutcome.Queued or FleetMessageOutcome.DuplicateDropped))
+            {
+                FileLog.Write($"[YourInboxEndpoints] agent reply REFUSED on {message.Id}: session {agent.SessionId} to {sessionId}: {outcome.Outcome}");
+                return Error(outcome.StatusCode, "reply_refused",
+                    $"{outcome.Response.Error} Nothing was sent. {YourInboxWords.AgentReplyRefusedInstead}");
+            }
+        }
+        else
+        {
+            outcome = parts.DeliverToSession(tenant, sessionId, YourInboxFold.ReplyForSession(message, text));
+            if (outcome.Outcome is not (FleetMessageOutcome.Queued or FleetMessageOutcome.DuplicateDropped))
+                throw new InvalidOperationException(
+                    $"A reply from Your inbox to session {sessionId} was refused by the fleet inbox ({outcome.Outcome}: {outcome.Response.Error}); " +
+                    "a notice from the Gateway is refused only for its text, which this route checked.");
+        }
         var reply = parts.Store.AddReply(tenant, message, text, YourInboxWords.ReplyTargets.Session, sessionId, null,
             outcome.Response.MessageId, null, by.SentBy, parts.NowUtc(), by.Agent);
         FileLog.Write($"[YourInboxEndpoints] reply {reply.Id} on {message.Id} went to session {sessionId} as fleet message {outcome.Response.MessageId} ({outcome.Outcome}); by {(by.Agent is null ? "the owner" : "session " + by.Agent.SessionId)}");
@@ -399,6 +427,7 @@ internal static class YourInboxEndpoints
         {
             reply = YourInboxFold.Reply(reply, after, titles, replyAct),
             message = YourInboxFold.Message(after, titles, parts.Store.Replies(tenant, messageId), acts),
+            done = replyAct is null ? null : YourInboxWords.AgentReplyDone,
         }, statusCode: StatusCodes.Status201Created);
     }
 

@@ -1343,23 +1343,31 @@ USAGE: cc-devthrottle inbox list [--view unread|inbox|archived] [--count N | -n 
   read it. The read is recorded on the message as this session's.
 - `delete <id>` - **delete is ARCHIVE** (the owner, 7 November 2026: "Delete means Archive. The message
   leaves your inbox, and you can still find it, and undo it, under Archived."). Nothing is ever deleted.
-  Prints `archived: delete is archive ...` and offers `inbox restore <id>`.
-- `restore <id>` - moves an archived message back to the inbox: unread if nobody ever marked it read, read
-  if somebody did.
+  Prints the Gateway's sentence saying so and offers `inbox restore <id>`.
+- `restore <id>` - moves an archived message back to the inbox as it was: unread if nobody ever marked it
+  read, read if somebody did, with its read time unchanged. A message that is not archived is left alone.
 - `mark <id> --read|--unread` - exactly one of the two, or it is a usage error (exit 2). Mark only when
-  you are told to: the owner uses unread to know what he has not seen.
+  you are told to: the owner uses unread to know what he has not seen. Marking an archived message read or
+  unread puts it back in the inbox, as that state.
 - `reply <id> "<text>"` - routed exactly as the owner's reply is: a session's message into that session's
   fleet inbox while it runs; a factory's message into that factory's Factory inbox. If the session has
   ended nothing is sent: the Gateway's sentence and its offers are printed (exit 1), and `--to-factory`
   takes the offer to leave the reply in that session's factory. A reply to this session's own message, or
-  into a factory this session is a seat of, is refused. The reply is shown as from this session - the
-  session that receives it is told an agent wrote it, never the owner - and the message stays unread.
+  into a factory this session is a seat of, is refused. A reply to a session is an ordinary message FROM
+  this session, held to the normal message rules: it goes only where this session may send a message
+  (`message send`), and a refusal is the Gateway's sentence (`reply_refused`, nothing sent). The reply is
+  shown as from this session - the session that receives it is told an agent wrote it, never the owner -
+  and the message stays unread.
   Give the text or `--body-file` (see Inbox Send for why a script's multi-line text must use the file).
 
 EVERY ACT IS RECORDED AND SHOWN. A read, a mark, an archive, a restore and a reply are each kept with this
 session's number and name and the time, and the message shows them on the owner's phone and Cockpit as
 the Gateway's line, for example `Archived by an agent: session 114 "Factory Inbox - Delivery Lead",
-2026-11-07 14:02 UTC`. A mark that changes nothing records nothing.
+2026-11-07 14:02 UTC`. A mark that changes nothing records nothing, and reading a message again records
+nothing new while this session's read is still the newest act on it.
+
+What each command says it did - the read note, where a reply goes, the delete, restore, mark and reply
+confirmations - is the Gateway's sentence, printed as it came.
 
 Every word is the Gateway's; `--json` prints its answer unchanged. Outside a session (no `CC_SESSION_ID`)
 each command fails before calling the Gateway (exit 1). A refusal is the Gateway's sentence, exit 1.

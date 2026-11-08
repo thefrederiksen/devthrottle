@@ -60,6 +60,10 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
     private static readonly RegisteredFactoryDto Booking = new() { Factory = "booking", Title = "Booking", BossSeat = "boss" };
     private static readonly RegisteredFactoryDto Website = new() { Factory = "website", Title = "Website", BossSeat = "boss" };
 
+    /// <summary>Who started whom, as the roster says: the Lead started the Developer, so they may message each other; the
+    /// Booking Boss is related to neither.</summary>
+    private static readonly Dictionary<string, string> ControllerOf = new(StringComparer.Ordinal) { [Developer] = Lead };
+
     private static readonly Dictionary<string, DevReportSessionNaming> Names = new(StringComparer.Ordinal)
     {
         [Lead] = new(114, "Factory Inbox - Delivery Lead"),
@@ -100,6 +104,10 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
                 _deliveries++;
                 return _fleet.Send(tenant, null, new FleetParty(sid, null, null, null), text, FleetMessageKinds.System, FleetMessageExemption.System);
             },
+            SendAsAgent: (tenant, from, to, text) => _fleet.Send(tenant,
+                new FleetParty(from, ControllerOf.GetValueOrDefault(from), Names.GetValueOrDefault(from)?.Name, null),
+                new FleetParty(to, ControllerOf.GetValueOrDefault(to), Names.GetValueOrDefault(to)?.Name, null),
+                text, FleetMessageKinds.Message, FleetMessageExemption.None),
             SendToFactory: (tenant, input, ct) => _factoryInbox.SendAsync(tenant, input, ct),
             MessageSent: (tenant, factory, sentAtUtc) => _wakes.Add((tenant, factory, sentAtUtc)),
             NowUtc: () => _now));
@@ -220,6 +228,40 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
             m.GetProperty("agentLine").GetString());
         Assert.Equal(YourInboxWords.States.Unread, _store.Get(A, Guid.Parse(id))!.State);
         Assert.Equal(1, _store.UnreadCount(A));
+        Assert.Equal("Reply to 412 Release - Developer", body.GetProperty("replyGoesTo").GetString());
+        Assert.Equal(YourInboxWords.AgentReadNote, body.GetProperty("note").GetString());
+    }
+
+    [Fact]
+    public async Task Read_AgainAndAgain_IsRecordedOnce_UntilSomethingElseHappens()
+    {
+        var id = await SendFrom(Developer);
+
+        for (var i = 0; i < 5; i++)
+        {
+            _now = _now.AddMinutes(1);
+            await Get($"/sessions/{Lead}/inbox/{id}", Lead);
+        }
+        Assert.Single(_store.AgentActions(A, [Guid.Parse(id)])[Guid.Parse(id)]);
+
+        // Another session's read, or another act, is a new row; then this session's next read is one too.
+        await Get($"/sessions/{BookingBoss}/inbox/{id}", BookingBoss);
+        _now = _now.AddMinutes(1);
+        await Get($"/sessions/{Lead}/inbox/{id}", Lead);
+        await Get($"/sessions/{Lead}/inbox/{id}", Lead);
+
+        var acts = _store.AgentActions(A, [Guid.Parse(id)])[Guid.Parse(id)];
+        Assert.Equal([Lead, BookingBoss, Lead], acts.Select(a => a.SessionId).ToArray());
+    }
+
+    [Fact]
+    public async Task Read_AMessageFromTheGateway_SaysNobodyReadsAReply()
+    {
+        var row = _store.Add(A, YourInboxStore.ForScheduleFailure(A, null, "A schedule failed", "It failed.", _now));
+
+        var (_, body) = await Get($"/sessions/{Lead}/inbox/{row.Id}", Lead);
+
+        Assert.Equal(YourInboxWords.NoReplyLine, body.GetProperty("replyGoesTo").GetString());
     }
 
     [Fact]
@@ -307,6 +349,8 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
         Assert.Equal("archived", deleted.GetProperty("message").GetProperty("state").GetString());
         Assert.Equal("Archived by an agent: session 114 \"Factory Inbox - Delivery Lead\", 2026-11-07 14:02 UTC",
             deleted.GetProperty("message").GetProperty("agentLine").GetString());
+        Assert.Equal("Archived. Delete is archive: the message left the inbox and is under Archived, where it can be restored. Nothing was deleted.",
+            deleted.GetProperty("done").GetString());
 
         _now = _now.AddMinutes(3);
         var (restoreStatus, restored) = await Post($"/sessions/{Lead}/inbox/{id}/state", Lead, new { state = "restore" });
@@ -321,18 +365,38 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
             ],
             Lines(m));
         Assert.Equal(1, _store.UnreadCount(A));
+        Assert.Equal("Moved back to the inbox, unread.", restored.GetProperty("done").GetString());
     }
 
     [Fact]
-    public async Task Restore_PutsAMessageSomebodyMarkedReadBackRead()
+    public async Task Restore_PutsAMessageSomebodyMarkedReadBackRead_AndLeavesItsReadTimeAsItWas()
     {
         var id = await SendFrom(Developer);
+        var readAt = _now;
         await Post($"/gateway/inbox/{id}/state", Phone, new { state = "read" });
+        _now = _now.AddMinutes(5);
         await Post($"/sessions/{Lead}/inbox/{id}/state", Lead, new { state = "archived" });
+        _now = _now.AddMinutes(5);
 
         var (_, restored) = await Post($"/sessions/{Lead}/inbox/{id}/state", Lead, new { state = "restore" });
 
         Assert.Equal("read", restored.GetProperty("message").GetProperty("state").GetString());
+        var row = _store.Get(A, Guid.Parse(id))!;
+        Assert.Equal(readAt, row.ReadAtUtc);
+        Assert.Null(row.ArchivedAtUtc);
+    }
+
+    [Fact]
+    public async Task Restore_AMessageThatIsNotArchived_ChangesAndRecordsNothing()
+    {
+        var id = await SendFrom(Developer);
+
+        var (status, body) = await Post($"/sessions/{Lead}/inbox/{id}/state", Lead, new { state = "restore" });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("unread", body.GetProperty("message").GetProperty("state").GetString());
+        Assert.Equal("Nothing changed: the message was already unread.", body.GetProperty("done").GetString());
+        Assert.Empty(_store.AgentActions(A, [Guid.Parse(id)]));
     }
 
     [Fact]
@@ -392,7 +456,8 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
         var (status, body) = await Post($"/sessions/{Lead}/inbox/{id}/reply", Lead, new { text = "Yes, tag it." });
 
         Assert.Equal(HttpStatusCode.Created, status);
-        Assert.Equal(1, _deliveries);
+        Assert.Equal(0, _deliveries);
+        Assert.Equal(YourInboxWords.AgentReplyDone, body.GetProperty("done").GetString());
         Assert.Equal("Sent to 412 Release - Developer, which reads it when it is free. Written by an agent: session 114 \"Factory Inbox - Delivery Lead\"",
             body.GetProperty("reply").GetProperty("label").GetString());
         var m = body.GetProperty("message");
@@ -404,9 +469,30 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
         Assert.Contains("Yes, tag it.", delivered.Text);
         Assert.Contains("session 114 \"Factory Inbox - Delivery Lead\"", delivered.Text);
         Assert.Contains("The owner did not write this reply", delivered.Text);
+        // An ordinary message FROM the agent, never an unattributed Gateway notice (review of #4767, finding 1).
+        Assert.Equal(Lead, delivered.FromSessionId);
+        Assert.Equal(FleetMessageKinds.Message, delivered.Kind);
         Assert.DoesNotContain("The owner replied", delivered.Text);
         var reply = Assert.Single(_store.Replies(A, Guid.Parse(id)));
         Assert.Equal(Lead, reply.SentBy);
+    }
+
+    [Fact]
+    public async Task Reply_FromAnUnrelatedSession_IsRefusedByTheMessagePolicy_AndNothingIsDeliveredOrRecorded()
+    {
+        // The Booking Boss neither started the Developer nor was started by it, and holds no message link: the normal
+        // policy refuses it, and that refusal is the route's answer.
+        var id = await SendFrom(Developer, "Shall I tag v2.25?");
+
+        var (status, body) = await Post($"/sessions/{BookingBoss}/inbox/{id}/reply", BookingBoss, new { text = "Tag it." });
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("reply_refused", Code(body));
+        Assert.Contains("Nothing was sent.", body.GetProperty("error").GetString());
+        Assert.Empty(_fleet.ReadInbox(A, Developer, includeRecent: false).Unread);
+        Assert.Empty(_store.Replies(A, Guid.Parse(id)));
+        Assert.Empty(_store.AgentActions(A, [Guid.Parse(id)]));
+        Assert.Equal(0, _deliveries);
     }
 
     [Fact]
@@ -474,7 +560,7 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
         var m = body.GetProperty("message");
         Assert.Equal("session", m.GetProperty("surface").GetString());
         Assert.Equal("From an agent: session 114 \"Factory Inbox - Delivery Lead\"", m.GetProperty("fromLabel").GetString());
-        Assert.Equal("Left by an agent: session 114 \"Factory Inbox - Delivery Lead\", 2026-11-07 14:02 UTC",
+        Assert.Equal("Left by an agent: session 114 \"Factory Inbox - Delivery Lead\"",
             m.GetProperty("trail")[0].GetProperty("label").GetString());
         var left = Assert.Single(_factoryInbox.Thread(A, "booking", 10).Messages);
         Assert.Equal("Please check the Friday bookings.", left.Text);

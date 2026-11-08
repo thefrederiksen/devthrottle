@@ -249,10 +249,11 @@ public static class FactoryInboxWords
     };
 
     /// <summary>The first step of a message's trail: where it was sent from, and for an agent's message which agent, so
-    /// the trail never reads as the owner's.</summary>
-    public static string SentStepLabel(string surface, int? sessionNumber, string? sessionName, DateTime sentAtUtc)
+    /// the trail never reads as the owner's. No time: the step carries its own, which the screens print beside it.</summary>
+    public static string SentStepLabel(string surface, int? sessionNumber, string? sessionName)
         => surface == Surfaces.Session
-            ? CcDirector.Gateway.Inbox.YourInboxWords.AgentLine(CcDirector.Gateway.Inbox.YourInboxWords.AgentActs.LeftInFactory, sessionNumber, sessionName, sentAtUtc)
+            ? $"{CcDirector.Gateway.Inbox.YourInboxWords.AgentActLabel(CcDirector.Gateway.Inbox.YourInboxWords.AgentActs.LeftInFactory)}: " +
+              CcDirector.Gateway.Inbox.YourInboxWords.AgentSession(sessionNumber, sessionName)
             : $"Sent {SurfacePhrase(surface)}";
 
     /// <summary>Where a message came from, as a phrase.</summary>

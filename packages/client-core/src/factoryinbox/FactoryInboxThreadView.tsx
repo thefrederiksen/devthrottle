@@ -164,6 +164,9 @@ function ThreadMessage({ message }: { message: FactoryInboxMessage }) {
     <li className="fi-message" data-testid="fi-message" data-tone={message.tone}>
       <div className="fi-bubble">{message.text}</div>
       <div className="fi-meta">
+        <span className="fi-from" data-testid="fi-from">
+          {message.fromLabel}
+        </span>
         {message.noteLabel !== "" && (
           <span className="fi-note-label" data-note={message.note}>
             {message.noteLabel}

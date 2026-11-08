@@ -4299,7 +4299,8 @@ def inbox_mark(
 ) -> None:
     """Mark a message read or unread. Pass exactly one of --read and --unread.
 
-    Do this only when you are told to: the owner uses 'unread' to know what he has not seen.
+    Do this only when you are told to: the owner uses 'unread' to know what he has not seen. Marking
+    an ARCHIVED message read or unread puts it back in the inbox, as that state.
     """
     inbox_ops.mark(message_id, read, unread, json_output)
 

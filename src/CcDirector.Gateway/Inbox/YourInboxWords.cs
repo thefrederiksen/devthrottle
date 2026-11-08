@@ -225,6 +225,35 @@ public static class YourInboxWords
     /// It goes back unread if nobody ever marked it read, and read if somebody did.</summary>
     public const string AgentRestore = "restore";
 
+    /// <summary>What an agent is told after reading a message.</summary>
+    public const string AgentReadNote =
+        "Reading did not mark it read: the owner has still not read it. Mark it read only when you are told to.";
+
+    /// <summary>Where a reply goes, for a message nobody reads a reply to (one from the Gateway itself).</summary>
+    public const string NoReplyLine = "Nobody: this message is from the Gateway itself, and nobody reads a reply to it.";
+
+    /// <summary>What an agent is told after its reply went.</summary>
+    public const string AgentReplyDone =
+        "Replied. The reply is shown as from this session, never from the owner, and the message's state is unchanged.";
+
+    /// <summary>What an agent is told when the message policy refused its reply to a session.</summary>
+    public const string AgentReplyRefusedInstead =
+        "A reply from an agent is a message from that agent, so it goes only where that agent may send a message.";
+
+    /// <summary>
+    /// What an agent is told after it set a message's state: what it did, in words - an archive says it is the "delete"
+    /// and can be undone - or that nothing changed. <paramref name="act"/> is null when nothing changed.
+    /// </summary>
+    public static string AgentDone(string? act, string state) => act switch
+    {
+        null => $"Nothing changed: the message was already {StateLabel(state).ToLowerInvariant()}.",
+        AgentActs.Archived => "Archived. Delete is archive: the message left the inbox and is under Archived, where it can be restored. Nothing was deleted.",
+        AgentActs.Restored => $"Moved back to the inbox, {StateLabel(state).ToLowerInvariant()}.",
+        AgentActs.MarkedRead => "Marked read.",
+        AgentActs.MarkedUnread => "Marked unread.",
+        _ => throw new ArgumentOutOfRangeException(nameof(act), act, "not an agent act on a message's state"),
+    };
+
     /// <summary>What an agent's act is shown as, before who did it.</summary>
     public static string AgentActLabel(string act) => act switch
     {

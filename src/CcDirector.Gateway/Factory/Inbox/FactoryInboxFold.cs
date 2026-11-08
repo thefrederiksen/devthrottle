@@ -115,7 +115,7 @@ public static class FactoryInboxFold
     {
         var trail = new List<FactoryInboxTrailStepDto>
         {
-            new(FactoryInboxWords.Steps.Sent, FactoryInboxWords.SentStepLabel(m.Surface, m.SentBySessionNumber, m.SentBySessionName, m.SentAtUtc), m.SentAtUtc),
+            new(FactoryInboxWords.Steps.Sent, FactoryInboxWords.SentStepLabel(m.Surface, m.SentBySessionNumber, m.SentBySessionName), m.SentAtUtc),
         };
         if (m.ReceivedAtUtc is { } received)
             trail.Add(new(FactoryInboxWords.Steps.Received, "Received by the Secretary", received));

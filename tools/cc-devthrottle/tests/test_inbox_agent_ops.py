@@ -142,7 +142,9 @@ def test_list_outside_a_session_fails_without_calling_the_gateway(monkeypatch):
 # ---------- read ----------
 
 def test_read_prints_the_whole_message_and_says_it_did_not_mark_it_read(monkeypatch, plain):
-    calls = _stub(monkeypatch, get={"message": _message(agent="Read by an agent: session 114, 2026-11-07 14:02 UTC")})
+    calls = _stub(monkeypatch, get={"message": _message(agent="Read by an agent: session 114, 2026-11-07 14:02 UTC"),
+                                    "replyGoesTo": "Reply to 412 Release - Developer (gateway)",
+                                    "note": "Reading did not mark it read (gateway)."})
 
     result = runner.invoke(app, ["inbox", "read", MID])
 
@@ -153,7 +155,8 @@ def test_read_prints_the_whole_message_and_says_it_did_not_mark_it_read(monkeypa
     assert "state: Unread" in out
     assert "when you can." in out
     assert "Read by an agent: session 114" in out
-    assert "Reading did not mark it read" in out
+    assert "Reading did not mark it read (gateway)." in out
+    assert "reply goes to: Reply to 412 Release - Developer (gateway)" in out
     assert f"cc-devthrottle inbox mark {MID} --read" in out
 
 
@@ -179,15 +182,15 @@ def test_read_a_refusal_reaches_the_caller_in_words(monkeypatch):
 # ---------- delete, restore, mark ----------
 
 def test_delete_archives_and_says_so(monkeypatch, plain):
-    calls = _stub(monkeypatch, post={"message": _message("archived", "Archived", LINE)})
+    calls = _stub(monkeypatch, post={"message": _message("archived", "Archived", LINE), "done": "Archived. Delete is archive: the message left the inbox and is under Archived, where it can be restored. Nothing was deleted."})
 
     result = runner.invoke(app, ["inbox", "delete", MID])
 
     assert result.exit_code == 0, result.output
     assert calls == [("POST", f"sessions/{ME}/inbox/{MID}/state", {"state": "archived"})]
     out = plain(result.output)
-    assert "delete is archive" in out
-    assert "nothing was deleted" in out
+    assert "Delete is archive" in out
+    assert "Nothing was deleted." in out
     assert f"cc-devthrottle inbox restore {MID}" in out
     assert LINE in out
 
@@ -200,17 +203,17 @@ def test_delete_help_says_it_archives():
 
 
 def test_restore_sends_restore(monkeypatch):
-    calls = _stub(monkeypatch, post={"message": _message()})
+    calls = _stub(monkeypatch, post={"message": _message(), "done": "Moved back to the inbox, unread (gateway)."})
 
     result = runner.invoke(app, ["inbox", "restore", MID])
 
     assert result.exit_code == 0, result.output
     assert calls == [("POST", f"sessions/{ME}/inbox/{MID}/state", {"state": "restore"})]
-    assert "restored" in result.output
+    assert "Moved back to the inbox, unread (gateway)." in result.output
 
 
 def test_mark_read_and_unread(monkeypatch):
-    calls = _stub(monkeypatch, post={"message": _message("read", "Read")})
+    calls = _stub(monkeypatch, post={"message": _message("read", "Read"), "done": "Marked (gateway)."})
 
     assert runner.invoke(app, ["inbox", "mark", MID, "--read"]).exit_code == 0
     assert runner.invoke(app, ["inbox", "mark", MID, "--unread"]).exit_code == 0
@@ -232,14 +235,30 @@ def test_a_state_answer_without_the_message_never_reads_as_done(monkeypatch):
     result = runner.invoke(app, ["inbox", "delete", MID])
 
     assert result.exit_code == 1
-    assert "archived:" not in result.output
+    assert "Archived" not in result.output
+
+
+def test_a_state_answer_without_the_gateways_sentence_is_not_reported_in_words_of_its_own(monkeypatch):
+    _stub(monkeypatch, post={"message": _message("archived", "Archived")})
+
+    result = runner.invoke(app, ["inbox", "delete", MID])
+
+    assert result.exit_code == 1
+    assert "without saying what it did" in result.output
+
+
+def test_mark_help_says_marking_an_archived_message_puts_it_back():
+    result = runner.invoke(app, ["inbox", "mark", "--help"], env={"COLUMNS": "200"})
+
+    assert result.exit_code == 0
+    assert "puts it back in the inbox" in " ".join(result.output.split())
 
 
 # ---------- reply ----------
 
 def test_reply_posts_the_text_and_prints_where_it_went(monkeypatch, plain):
     answer = {"reply": {"id": "r-1", "label": "Sent to 412 Release - Developer. Written by an agent: session 114"},
-              "message": _message()}
+              "message": _message(), "done": "Replied, as this session (gateway)."}
     calls = _stub(monkeypatch, post=answer)
 
     result = runner.invoke(app, ["inbox", "reply", MID, "Yes, tag it."])
@@ -247,6 +266,7 @@ def test_reply_posts_the_text_and_prints_where_it_went(monkeypatch, plain):
     assert result.exit_code == 0, result.output
     assert calls == [("POST", f"sessions/{ME}/inbox/{MID}/reply", {"text": "Yes, tag it."})]
     assert "Written by an agent: session 114" in plain(result.output)
+    assert "Replied, as this session (gateway)." in plain(result.output)
 
 
 def test_reply_to_factory_sends_to_factory(monkeypatch):

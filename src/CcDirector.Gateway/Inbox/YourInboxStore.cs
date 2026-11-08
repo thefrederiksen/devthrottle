@@ -472,10 +472,20 @@ public sealed class YourInboxStore
     /// Record that an agent opened and read a message. The message's state is NOT changed: reading does not mark it read
     /// (the design the owner was shown, 7 November 2026) - an agent marks read only when it is told to.
     /// </summary>
+    /// <remarks>ONE ROW PER RUN OF READS, NOT PER READ: when the newest act on the message is already this session's read,
+    /// nothing new is written and that row is returned - so an agent that reads a message over and over cannot grow the
+    /// table without bound, and the owner still sees each time a read follows some other act.</remarks>
     public YourInboxAgentActionEntity RecordAgentRead(TenantId tenant, Guid messageId, YourInboxAgent agent, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(agent);
         using var ctx = _db.CreateContext(tenant);
+        var newest = ctx.YourInboxAgentActions.AsNoTracking().Where(a => a.MessageId == messageId)
+            .OrderByDescending(a => a.AtUtc).FirstOrDefault();
+        if (newest is not null && newest.Action == YourInboxWords.AgentActs.Read && newest.SessionId == agent.SessionId)
+        {
+            FileLog.Write($"[YourInboxStore] RecordAgentRead: {messageId} read again by session {agent.SessionId}; its read is already the newest act");
+            return newest;
+        }
         var act = NewAct(tenant, messageId, YourInboxWords.AgentActs.Read, agent, null, nowUtc);
         ctx.YourInboxAgentActions.Add(act);
         ctx.SaveChanges();
@@ -488,7 +498,7 @@ public sealed class YourInboxStore
     /// recorded in the same save, so the change and who made it are written together or not at all. Setting the state it
     /// already has changes nothing and records nothing. Null when the account holds no such message.
     /// </summary>
-    public YourInboxMessageEntity? SetStateByAgent(TenantId tenant, Guid id, string state, YourInboxAgent agent, DateTime nowUtc)
+    public (YourInboxMessageEntity Message, string? Act)? SetStateByAgent(TenantId tenant, Guid id, string state, YourInboxAgent agent, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(agent);
         if (!YourInboxWords.States.All.Contains(state))
@@ -502,7 +512,7 @@ public sealed class YourInboxStore
         if (act is null)
         {
             FileLog.Write($"[YourInboxStore] SetStateByAgent: {id} is already {state}; session {agent.SessionId} changed nothing");
-            return row;
+            return (row, null);
         }
         row.State = state;
         if (state == YourInboxWords.States.Read) row.ReadAtUtc = nowUtc;
@@ -510,7 +520,31 @@ public sealed class YourInboxStore
         ctx.YourInboxAgentActions.Add(NewAct(tenant, id, act, agent, null, nowUtc));
         ctx.SaveChanges();
         FileLog.Write($"[YourInboxStore] SetStateByAgent: {id} {was} -> {state} by session {agent.SessionId} ({act})");
-        return row;
+        return (row, act);
+    }
+
+    /// <summary>
+    /// An agent moves an archived message back to the inbox - the undo of its "delete" - AS IT WAS: unread if nobody ever
+    /// marked it read, read if somebody did, and the read time left exactly as it was (a restore is not a read). A message
+    /// that is not archived is left alone and nothing is recorded. Null when the account holds no such message.
+    /// </summary>
+    public (YourInboxMessageEntity Message, string? Act)? RestoreByAgent(TenantId tenant, Guid id, YourInboxAgent agent, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        using var ctx = _db.CreateContext(tenant);
+        var row = ctx.YourInboxMessages.FirstOrDefault(m => m.Id == id);
+        if (row is null) return null;
+        if (row.State != YourInboxWords.States.Archived)
+        {
+            FileLog.Write($"[YourInboxStore] RestoreByAgent: {id} is not archived ({row.State}); session {agent.SessionId} changed nothing");
+            return (row, null);
+        }
+        row.State = row.ReadAtUtc is null ? YourInboxWords.States.Unread : YourInboxWords.States.Read;
+        row.ArchivedAtUtc = null;
+        ctx.YourInboxAgentActions.Add(NewAct(tenant, id, YourInboxWords.AgentActs.Restored, agent, null, nowUtc));
+        ctx.SaveChanges();
+        FileLog.Write($"[YourInboxStore] RestoreByAgent: {id} archived -> {row.State} by session {agent.SessionId}");
+        return (row, YourInboxWords.AgentActs.Restored);
     }
 
     private static YourInboxAgentActionEntity NewAct(TenantId tenant, Guid messageId, string act, YourInboxAgent agent, Guid? replyId, DateTime nowUtc)

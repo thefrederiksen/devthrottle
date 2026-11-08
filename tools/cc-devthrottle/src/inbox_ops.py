@@ -278,8 +278,7 @@ def read(message_id: str, json_output: bool) -> None:
         f"state: {_text(message.get('stateLabel'))}",
         f"sent: {_text(message.get('sentAtUtc'))}",
     ]
-    reply_to = message.get("replyTo")
-    lines.append(f"reply goes to: {_label(reply_to) if isinstance(reply_to, dict) else 'nobody - a reply to this message is not read'}")
+    lines.append(f"reply goes to: {_text(answer.get('replyGoesTo'))}")
     links = message.get("links") if isinstance(message.get("links"), list) else []
     lines.append(f"links: {len(links)}")
     lines.extend(f"  {_label(link)}" for link in links if isinstance(link, dict))
@@ -293,19 +292,25 @@ def read(message_id: str, json_output: bool) -> None:
             lines.append(f"  {_text(r.get('sentAtUtc'))} {_text(r.get('label'))}: {_text(r.get('text'))}")
     lines.append("body:")
     lines.extend(f"  {_text(line)}" for line in str(message.get("body") or "").splitlines() or [""])
-    lines.append("Reading did not mark it read. Mark it read only when you are told to.")
+    if answer.get("note"):
+        lines.append(_text(answer.get("note")))
     axi_cli.write_lines(*lines)
     commands = [f"{_INBOX} reply {mid} \"<text>\"", f"{_INBOX} mark {mid} --read", f"{_INBOX} delete {mid}"]
     axi_cli.print_next(commands)
 
 
-def _set_state(message_id: str, state: str, json_output: bool, done: str, next_commands: Sequence[str]) -> None:
+def _set_state(message_id: str, state: str, json_output: bool, next_commands: Sequence[str]) -> None:
     answer = _call("POST", _message_route(message_id, "state"), {"state": state}, [f"{_INBOX} list"])
     message = _message_of(answer)
+    done = answer.get("done") if isinstance(answer, dict) else None
+    if not isinstance(done, str) or not done.strip():
+        # What happened is the Gateway's sentence (rule 7); without it this command will not say.
+        axi_cli.fail("the Gateway answered without saying what it did, so this command cannot report it.",
+                     [f"{_INBOX} read {axi_cli.bare(message_id.strip(), '<id>')}"])
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    lines = [done, f"id: {message.get('id')}", f"state: {_text(message.get('stateLabel'))}"]
+    lines = [_text(done), f"id: {message.get('id')}", f"state: {_text(message.get('stateLabel'))}"]
     if message.get("agentLine"):
         lines.append(f"recorded: {_text(message.get('agentLine'))}")
     axi_cli.write_lines(*lines)
@@ -316,14 +321,13 @@ def delete(message_id: str, json_output: bool) -> None:
     """ARCHIVE a message - an agent's delete (the owner, 7 November 2026: "Delete means Archive")."""
     mid = (message_id or "").strip()
     _set_state(mid, "archived", json_output,
-               "archived: delete is archive - the message left the inbox and is under Archived; nothing was deleted",
                [f"{_INBOX} restore {axi_cli.bare(mid, '<id>')}", f"{_INBOX} list --view archived"])
 
 
 def restore(message_id: str, json_output: bool) -> None:
     """Move an archived message back to the inbox: unread if nobody ever marked it read, read if somebody did."""
     mid = (message_id or "").strip()
-    _set_state(mid, "restore", json_output, "restored: back in the inbox",
+    _set_state(mid, "restore", json_output,
                [f"{_INBOX} read {axi_cli.bare(mid, '<id>')}", f"{_INBOX} list"])
 
 
@@ -333,7 +337,7 @@ def mark(message_id: str, read_flag: bool, unread_flag: bool, json_output: bool)
         axi_cli.usage_error("pass exactly one of --read and --unread.")
     mid = (message_id or "").strip()
     state = "read" if read_flag else "unread"
-    _set_state(mid, state, json_output, f"marked: {state}", [f"{_INBOX} list"])
+    _set_state(mid, state, json_output, [f"{_INBOX} list"])
 
 
 def reply(message_id: str, text: str, to_factory: bool, json_output: bool) -> None:
@@ -364,10 +368,8 @@ def reply(message_id: str, text: str, to_factory: bool, json_output: bool) -> No
         print(json.dumps(answer, indent=2))
         return
     sent = answer["reply"]
-    axi_cli.write_lines(
-        "replied",
-        f"reply: {sent.get('id')}",
-        f"went: {_text(sent.get('label'))}",
-        "The message's state is unchanged: replying as an agent does not mark it read for the owner.",
-    )
+    lines = [f"reply: {sent.get('id')}", f"went: {_text(sent.get('label'))}"]
+    if answer.get("done"):
+        lines.insert(0, _text(answer.get("done")))
+    axi_cli.write_lines(*lines)
     axi_cli.print_next([f"{_INBOX} read {axi_cli.bare(mid, '<id>')}"])
