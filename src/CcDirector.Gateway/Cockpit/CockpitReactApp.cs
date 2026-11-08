@@ -54,8 +54,10 @@ public static class CockpitReactApp
     ///   are three segments or more and stay the Gateway's; the ticket route is a POST.</item>
     /// <item><c>missions</c> - <c>MapGet("/missions")</c> (the mission list) vs the Cockpit's <c>/missions</c>, which
     ///   sends the person to the Fleet Map. Without it a reload or an old bookmark of <c>/missions</c> showed the raw
-    ///   list (Web UI Polish, 7 November 2026). Only programs read <c>/missions/{mid}</c>, never a browser, and the notes
-    ///   routes under a mission are three segments or more and stay the Gateway's.</item>
+    ///   list (Web UI Polish, 7 November 2026). A browser load of one mission, <c>/missions/{mid}</c>, gets the
+    ///   Cockpit too, which sends it to the same Fleet Map; the shipped programs that read <c>/missions/{mid}</c>
+    ///   (client-core missions.ts, cc-devthrottle mission_ops.py) send Accept application/json and still get JSON. The
+    ///   writes are POST and PATCH and stay the Gateway's.</item>
     /// </list>
     /// The match is on the FIRST segment for one- or two-segment paths only: the list page
     /// (<c>/sessions</c>) and its detail page (<c>/sessions/{sid}</c>) - one id segment, never deeper.

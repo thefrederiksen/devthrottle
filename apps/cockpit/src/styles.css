@@ -3745,11 +3745,13 @@ body {
   padding: 24px 28px;
 }
 
-/* A REPORT LINK OPENED ON A PHONE (Web UI Polish, 7 November 2026). The printed `<gateway>/r/{id}` address lands on
-   this page whatever the screen, and at phone width the 340px conversation beside the report left the report about
-   50 pixels: the back link ran one letter per line and the report did not show at all. Narrow, the report takes the
-   full width and the conversation moves below it, in its own scroll, at most a third of the screen. The back link
-   then has the bar's whole width and wraps as words. On a big screen nothing changes. */
+/* THIS PAGE IN A NARROW WINDOW (Web UI Polish, 7 November 2026). A phone the Gateway recognises is sent to the mobile
+   app's own report page (DevReportLinkRoute, MobileRedirect), which already stacks. This page is reached narrow by a
+   small desktop window, or a phone whose browser the Gateway does not recognise as one - and there the 340px
+   conversation beside the report left the report about 50 pixels: the back link ran one letter per line and the report
+   did not show at all. Narrow, the report takes the full width and the conversation moves below it, in its own scroll,
+   at most a third of the screen. The back link then has the bar's whole width and wraps as words. On a big screen
+   nothing changes. */
 @media (max-width: 700px) {
   .report-page .dev-report-viewer {
     flex-direction: column;
