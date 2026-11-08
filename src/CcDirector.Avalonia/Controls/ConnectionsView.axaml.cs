@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.ErrorReports;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -41,15 +42,15 @@ public class ConnectionItem : INotifyPropertyChanged
     public bool Busy { get; set; }
     public int? ChromePid { get; set; }
 
-    private static readonly SolidColorBrush BrushAmber = new(Color.Parse("#CCA700"));
-    private static readonly SolidColorBrush BrushGreen = new(Color.Parse("#22C55E"));
-    private static readonly SolidColorBrush BrushGray = new(Color.Parse("#666666"));
-    private static readonly SolidColorBrush BrushGrayText = new(Color.Parse("#888888"));
-    private static readonly SolidColorBrush BrushDisabledBg = new(Color.Parse("#555555"));
-    private static readonly SolidColorBrush BrushCloseBg = new(Color.Parse("#3C3C3C"));
-    private static readonly SolidColorBrush BrushOpenBg = new(Color.Parse("#007ACC"));
-    private static readonly SolidColorBrush BrushLightText = new(Color.Parse("#CCCCCC"));
-    private static readonly SolidColorBrush BrushWhite = new(Colors.White);
+    private static readonly ImmutableSolidColorBrush BrushAmber = new(Color.Parse("#CCA700"));
+    private static readonly ImmutableSolidColorBrush BrushGreen = new(Color.Parse("#22C55E"));
+    private static readonly ImmutableSolidColorBrush BrushGray = new(Color.Parse("#666666"));
+    private static readonly ImmutableSolidColorBrush BrushGrayText = new(Color.Parse("#888888"));
+    private static readonly ImmutableSolidColorBrush BrushDisabledBg = new(Color.Parse("#555555"));
+    private static readonly ImmutableSolidColorBrush BrushCloseBg = new(Color.Parse("#3C3C3C"));
+    private static readonly ImmutableSolidColorBrush BrushOpenBg = new(Color.Parse("#007ACC"));
+    private static readonly ImmutableSolidColorBrush BrushLightText = new(Color.Parse("#CCCCCC"));
+    private static readonly ImmutableSolidColorBrush BrushWhite = new(Colors.White);
 
     public IBrush StatusBrush => Busy ? BrushAmber : Connected ? BrushGreen : BrushGray;
 

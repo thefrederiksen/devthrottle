@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Background;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
@@ -22,10 +23,10 @@ namespace CcDirector.Avalonia;
 /// </summary>
 public partial class BackgroundWorkDialog : Window
 {
-    private static readonly IBrush TextBrush = new SolidColorBrush(Color.Parse("#CCCCCC"));
-    private static readonly IBrush DimBrush = new SolidColorBrush(Color.Parse("#888888"));
-    private static readonly IBrush HeaderBrush = new SolidColorBrush(Color.Parse("#AAAAAA"));
-    private static readonly IBrush OverBrush = new SolidColorBrush(Color.Parse("#EF4444"));
+    private static readonly IBrush TextBrush = new ImmutableSolidColorBrush(Color.Parse("#CCCCCC"));
+    private static readonly IBrush DimBrush = new ImmutableSolidColorBrush(Color.Parse("#888888"));
+    private static readonly IBrush HeaderBrush = new ImmutableSolidColorBrush(Color.Parse("#AAAAAA"));
+    private static readonly IBrush OverBrush = new ImmutableSolidColorBrush(Color.Parse("#EF4444"));
     private static readonly string[] Headers = { "Job", "Tier", "Cadence", "Last run", "Runs in the last hour", "Skipped", "Failed" };
 
     /// <summary>How often the page re-reads the scheduler while it can be seen. The footer says this in words.</summary>

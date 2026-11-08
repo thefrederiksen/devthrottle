@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -60,12 +61,12 @@ internal sealed class ProviderGitChangesGit : IGitChangesGit
 
 public partial class GitChangesView : UserControl
 {
-    private static readonly ISolidColorBrush BrushModified = new SolidColorBrush(Color.FromRgb(0xCC, 0xA7, 0x00));
-    private static readonly ISolidColorBrush BrushAdded = new SolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
-    private static readonly ISolidColorBrush BrushDeleted = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
-    private static readonly ISolidColorBrush BrushRenamed = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
-    private static readonly ISolidColorBrush BrushUntracked = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
-    private static readonly ISolidColorBrush BrushDefault = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
+    private static readonly ISolidColorBrush BrushModified = new ImmutableSolidColorBrush(Color.FromRgb(0xCC, 0xA7, 0x00));
+    private static readonly ISolidColorBrush BrushAdded = new ImmutableSolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
+    private static readonly ISolidColorBrush BrushDeleted = new ImmutableSolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+    private static readonly ISolidColorBrush BrushRenamed = new ImmutableSolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
+    private static readonly ISolidColorBrush BrushUntracked = new ImmutableSolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+    private static readonly ISolidColorBrush BrushDefault = new ImmutableSolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
 
     private readonly IGitChangesGit _git;
     private DispatcherTimer? _pollTimer;

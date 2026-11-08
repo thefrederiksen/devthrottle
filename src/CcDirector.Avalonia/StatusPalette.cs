@@ -1,6 +1,7 @@
 ﻿using Avalonia.Media;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
@@ -125,17 +126,17 @@ public static class StatusPalette
     /// </summary>
     public const string Neutral    = "#E5E7EB";  // gray-200 - NOT a state; "this build does not know that colour name"
 
-    private static readonly ISolidColorBrush RedBrush        = new SolidColorBrush(Color.Parse(Red));
-    private static readonly ISolidColorBrush BlueBrush       = new SolidColorBrush(Color.Parse(Blue));
-    private static readonly ISolidColorBrush GreenBrush      = new SolidColorBrush(Color.Parse(Green));
-    private static readonly ISolidColorBrush CyanBrush       = new SolidColorBrush(Color.Parse(Cyan));
-    private static readonly ISolidColorBrush YellowBrush     = new SolidColorBrush(Color.Parse(Yellow));
-    private static readonly ISolidColorBrush OrangeBrush     = new SolidColorBrush(Color.Parse(Orange));
-    private static readonly ISolidColorBrush SupportingBrush = new SolidColorBrush(Color.Parse(Supporting));
-    private static readonly ISolidColorBrush ErrorBrush      = new SolidColorBrush(Color.Parse(Error));
-    private static readonly ISolidColorBrush GreyBrush       = new SolidColorBrush(Color.Parse(Grey));
-    private static readonly ISolidColorBrush BrokenBrush     = new SolidColorBrush(Color.Parse(Broken));
-    private static readonly ISolidColorBrush NeutralBrush    = new SolidColorBrush(Color.Parse(Neutral));
+    private static readonly ISolidColorBrush RedBrush        = new ImmutableSolidColorBrush(Color.Parse(Red));
+    private static readonly ISolidColorBrush BlueBrush       = new ImmutableSolidColorBrush(Color.Parse(Blue));
+    private static readonly ISolidColorBrush GreenBrush      = new ImmutableSolidColorBrush(Color.Parse(Green));
+    private static readonly ISolidColorBrush CyanBrush       = new ImmutableSolidColorBrush(Color.Parse(Cyan));
+    private static readonly ISolidColorBrush YellowBrush     = new ImmutableSolidColorBrush(Color.Parse(Yellow));
+    private static readonly ISolidColorBrush OrangeBrush     = new ImmutableSolidColorBrush(Color.Parse(Orange));
+    private static readonly ISolidColorBrush SupportingBrush = new ImmutableSolidColorBrush(Color.Parse(Supporting));
+    private static readonly ISolidColorBrush ErrorBrush      = new ImmutableSolidColorBrush(Color.Parse(Error));
+    private static readonly ISolidColorBrush GreyBrush       = new ImmutableSolidColorBrush(Color.Parse(Grey));
+    private static readonly ISolidColorBrush BrokenBrush     = new ImmutableSolidColorBrush(Color.Parse(Broken));
+    private static readonly ISolidColorBrush NeutralBrush    = new ImmutableSolidColorBrush(Color.Parse(Neutral));
 
     /// <summary>
     /// The brush for a fold colour name. Case-insensitive, because the names cross the wire.

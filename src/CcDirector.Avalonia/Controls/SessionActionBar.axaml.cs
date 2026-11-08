@@ -9,6 +9,7 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Core.ErrorReports;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -32,9 +33,9 @@ public partial class SessionActionBar : UserControl
     private static readonly TimeSpan ContextPollInterval = TimeSpan.FromSeconds(4);
 
     // Band fill brushes (frozen-equivalent immutable brushes), reused across refreshes.
-    private static readonly IBrush NeutralFill = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly IBrush AmberFill = new SolidColorBrush(Color.Parse("#F59E0B"));
-    private static readonly IBrush RedFill = new SolidColorBrush(Color.Parse("#EF4444"));
+    private static readonly IBrush NeutralFill = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly IBrush AmberFill = new ImmutableSolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly IBrush RedFill = new ImmutableSolidColorBrush(Color.Parse("#EF4444"));
 
     private Session? _session;
     private SessionManager? _sessionManager;

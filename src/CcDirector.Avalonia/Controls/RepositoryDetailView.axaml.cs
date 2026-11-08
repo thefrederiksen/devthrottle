@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.ErrorReports;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -54,18 +55,18 @@ public sealed class CommitRowItem
 /// </summary>
 public partial class RepositoryDetailView : UserControl
 {
-    private static readonly IBrush GreenFg = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly IBrush GreenBg = new SolidColorBrush(Color.Parse("#1B3A2A"));
-    private static readonly IBrush GreenBr = new SolidColorBrush(Color.Parse("#1E5138"));
-    private static readonly IBrush AmberFg = new SolidColorBrush(Color.Parse("#F59E0B"));
-    private static readonly IBrush AmberBg = new SolidColorBrush(Color.Parse("#3A2A1B"));
-    private static readonly IBrush AmberBr = new SolidColorBrush(Color.Parse("#5A4326"));
-    private static readonly IBrush RedFg = new SolidColorBrush(Color.Parse("#F0A6A6"));
-    private static readonly IBrush RedBg = new SolidColorBrush(Color.Parse("#3A1B1B"));
-    private static readonly IBrush RedBr = new SolidColorBrush(Color.Parse("#5A2830"));
-    private static readonly IBrush MutedFg = new SolidColorBrush(Color.Parse("#8A8A8A"));
-    private static readonly IBrush MutedBg = new SolidColorBrush(Color.Parse("#2D2D30"));
-    private static readonly IBrush MutedBr = new SolidColorBrush(Color.Parse("#3C3C3C"));
+    private static readonly IBrush GreenFg = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly IBrush GreenBg = new ImmutableSolidColorBrush(Color.Parse("#1B3A2A"));
+    private static readonly IBrush GreenBr = new ImmutableSolidColorBrush(Color.Parse("#1E5138"));
+    private static readonly IBrush AmberFg = new ImmutableSolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly IBrush AmberBg = new ImmutableSolidColorBrush(Color.Parse("#3A2A1B"));
+    private static readonly IBrush AmberBr = new ImmutableSolidColorBrush(Color.Parse("#5A4326"));
+    private static readonly IBrush RedFg = new ImmutableSolidColorBrush(Color.Parse("#F0A6A6"));
+    private static readonly IBrush RedBg = new ImmutableSolidColorBrush(Color.Parse("#3A1B1B"));
+    private static readonly IBrush RedBr = new ImmutableSolidColorBrush(Color.Parse("#5A2830"));
+    private static readonly IBrush MutedFg = new ImmutableSolidColorBrush(Color.Parse("#8A8A8A"));
+    private static readonly IBrush MutedBg = new ImmutableSolidColorBrush(Color.Parse("#2D2D30"));
+    private static readonly IBrush MutedBr = new ImmutableSolidColorBrush(Color.Parse("#3C3C3C"));
 
     private readonly GitBranchService _branches = new();
     private readonly PullRequestService _pullRequests = new();

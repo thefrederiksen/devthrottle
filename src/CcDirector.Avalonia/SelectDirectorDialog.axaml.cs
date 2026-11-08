@@ -7,14 +7,15 @@ using Avalonia.Threading;
 using CcDirector.Core.Instances;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
 public partial class SelectDirectorDialog : Window
 {
-    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly IBrush StoppedBrush = new SolidColorBrush(Color.Parse("#888888"));
-    private static readonly IBrush CheckingBrush = new SolidColorBrush(Color.Parse("#AAAAAA"));
+    private static readonly IBrush RunningBrush = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly IBrush StoppedBrush = new ImmutableSolidColorBrush(Color.Parse("#888888"));
+    private static readonly IBrush CheckingBrush = new ImmutableSolidColorBrush(Color.Parse("#AAAAAA"));
 
     private readonly ObservableCollection<InstanceRow> _rows = new();
 

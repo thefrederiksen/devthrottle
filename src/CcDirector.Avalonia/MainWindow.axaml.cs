@@ -37,6 +37,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Core.ErrorReports;
 using CcDirector.Terminal.Avalonia;
 using FileViewerControls = CcDirector.Avalonia.Controls;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
@@ -1878,19 +1879,19 @@ public partial class MainWindow : Window
 
     // Indicator palettes (issue #829). Inline one-off colors for this single rail control, as the
     // VisualStyle guide permits for one-offs; kept here as named brushes so each state reads clearly.
-    private static readonly IBrush SyncOrangeBorder = new SolidColorBrush(Color.Parse("#E0822E"));
-    private static readonly IBrush SyncOrangeBackground = new SolidColorBrush(Color.Parse("#3A2B17"));
-    private static readonly IBrush SyncOrangeText = new SolidColorBrush(Color.Parse("#F0A040"));
-    private static readonly IBrush SyncOrangeSub = new SolidColorBrush(Color.Parse("#C99A6A"));
-    private static readonly IBrush WarnAmberBorder = new SolidColorBrush(Color.Parse("#F0B848"));
-    private static readonly IBrush WarnAmberBackground = new SolidColorBrush(Color.Parse("#3A331B"));
-    private static readonly IBrush WarnAmberText = new SolidColorBrush(Color.Parse("#F0B848"));
-    private static readonly IBrush WarnAmberSub = new SolidColorBrush(Color.Parse("#B59868"));
-    private static readonly IBrush AttentionRedBorder = new SolidColorBrush(Color.Parse("#E0574A"));
-    private static readonly IBrush AttentionRedBackground = new SolidColorBrush(Color.Parse("#3A1E1B"));
-    private static readonly IBrush AttentionRedText = new SolidColorBrush(Color.Parse("#F0746A"));
-    private static readonly IBrush AttentionRedSub = new SolidColorBrush(Color.Parse("#C98A82"));
-    private static readonly IBrush GlyphForeground = new SolidColorBrush(Color.Parse("#1E1E1E"));
+    private static readonly IBrush SyncOrangeBorder = new ImmutableSolidColorBrush(Color.Parse("#E0822E"));
+    private static readonly IBrush SyncOrangeBackground = new ImmutableSolidColorBrush(Color.Parse("#3A2B17"));
+    private static readonly IBrush SyncOrangeText = new ImmutableSolidColorBrush(Color.Parse("#F0A040"));
+    private static readonly IBrush SyncOrangeSub = new ImmutableSolidColorBrush(Color.Parse("#C99A6A"));
+    private static readonly IBrush WarnAmberBorder = new ImmutableSolidColorBrush(Color.Parse("#F0B848"));
+    private static readonly IBrush WarnAmberBackground = new ImmutableSolidColorBrush(Color.Parse("#3A331B"));
+    private static readonly IBrush WarnAmberText = new ImmutableSolidColorBrush(Color.Parse("#F0B848"));
+    private static readonly IBrush WarnAmberSub = new ImmutableSolidColorBrush(Color.Parse("#B59868"));
+    private static readonly IBrush AttentionRedBorder = new ImmutableSolidColorBrush(Color.Parse("#E0574A"));
+    private static readonly IBrush AttentionRedBackground = new ImmutableSolidColorBrush(Color.Parse("#3A1E1B"));
+    private static readonly IBrush AttentionRedText = new ImmutableSolidColorBrush(Color.Parse("#F0746A"));
+    private static readonly IBrush AttentionRedSub = new ImmutableSolidColorBrush(Color.Parse("#C98A82"));
+    private static readonly IBrush GlyphForeground = new ImmutableSolidColorBrush(Color.Parse("#1E1E1E"));
 
     /// <summary>
     /// Paint the rail's cc-* tools indicator from the active state machine (issue #829). InSync hides the
@@ -3717,8 +3718,8 @@ public partial class MainWindow : Window
     }
 
     // Top bar accent: sidebar-colored when idle, blue when a session is active.
-    private static readonly IBrush TopBarIdleBrush = new SolidColorBrush(Color.Parse("#252526"));
-    private static readonly IBrush TopBarActiveBrush = new SolidColorBrush(Color.Parse("#007ACC"));
+    private static readonly IBrush TopBarIdleBrush = new ImmutableSolidColorBrush(Color.Parse("#252526"));
+    private static readonly IBrush TopBarActiveBrush = new ImmutableSolidColorBrush(Color.Parse("#007ACC"));
 
     // Show or hide the per-session identity block in the unified top bar. The bar
     // itself is always visible (so the global tools can never be occluded); only the
@@ -3871,8 +3872,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private static readonly ISolidColorBrush VerifiedBadgeBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
-    private static readonly ISolidColorBrush WarningBadgeBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
+    private static readonly ISolidColorBrush VerifiedBadgeBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
+    private static readonly ISolidColorBrush WarningBadgeBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
 
     private void UpdateHeaderVerification(SessionViewModel vm)
     {
@@ -4738,10 +4739,10 @@ public partial class MainWindow : Window
         BtnRailOrderAttention.Foreground = mine ? RailOrderOffTextBrush : RailOrderOnTextBrush;
     }
 
-    private static readonly ISolidColorBrush RailOrderOnBrush = new SolidColorBrush(Color.FromRgb(0x00, 0x7A, 0xCC));
-    private static readonly ISolidColorBrush RailOrderOffBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
-    private static readonly ISolidColorBrush RailOrderOnTextBrush = new SolidColorBrush(Colors.White);
-    private static readonly ISolidColorBrush RailOrderOffTextBrush = new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0x9A));
+    private static readonly ISolidColorBrush RailOrderOnBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x00, 0x7A, 0xCC));
+    private static readonly ISolidColorBrush RailOrderOffBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+    private static readonly ISolidColorBrush RailOrderOnTextBrush = new ImmutableSolidColorBrush(Colors.White);
+    private static readonly ISolidColorBrush RailOrderOffTextBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0x9A));
 
     /// <summary>Recompute first/last group flags (issue #225) so the header + bracket reflow
     /// after any list change. Cheap; safe to call on every CollectionChanged.</summary>
@@ -5508,7 +5509,7 @@ public partial class MainWindow : Window
     // The terminal grid size at the moment the Terminal tab was left; null while the Terminal tab is showing.
     private (int Cols, int Rows)? _terminalGridWhenHidden;
     private static readonly IBrush TransparentBrush = Brushes.Transparent;
-    private static readonly IBrush InactiveTextBrush = new SolidColorBrush(Color.Parse("#888888"));
+    private static readonly IBrush InactiveTextBrush = new ImmutableSolidColorBrush(Color.Parse("#888888"));
 
     private void TerminalTabButton_Click(object? sender, RoutedEventArgs e)
     {

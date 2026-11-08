@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using CcDirector.Avalonia.Helpers;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -14,7 +15,7 @@ namespace CcDirector.Avalonia.Controls;
 /// </summary>
 public sealed class MarkdownTextBlock : ContentControl
 {
-    private static readonly IBrush FallbackBrush = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4));
+    private static readonly IBrush FallbackBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4));
 
     public static readonly StyledProperty<string?> MarkdownProperty =
         AvaloniaProperty.Register<MarkdownTextBlock, string?>(nameof(Markdown));
