@@ -157,15 +157,19 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
   return (
     <>
       <header className="app-bar session-app-bar">
+        {/* The same Back every other phone screen has (Web UI Polish, 7 November 2026): the word "Back" in the shared
+            .back-link chrome. It was "<- Sessions" in a style of its own, and that extra width is part of what pushed
+            the bell to nothing and the menu off the screen. Its accessible name still says where it goes. */}
         <button
           type="button"
-          className="back-link session-back"
+          className="back-link"
+          data-testid="session-back"
           onClick={() =>
             navigate("/", backState !== undefined ? { state: backState, replace: true } : undefined)
           }
           aria-label="Back to sessions"
         >
-          &larr; Sessions
+          Back
         </button>
 
         {/* The spacer pushes the menu button to the corner and guesses no widths. It used to be two

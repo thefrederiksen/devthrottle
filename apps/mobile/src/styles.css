@@ -3188,13 +3188,6 @@ a.banner-btn {
   margin-left: 8px;
 }
 
-/* Back is NAVIGATION, so it is quiet chrome, not a saturated slab competing with the actions. It
-   keeps the >= 44x44 tap target .back-link has always guaranteed (issue #1004). */
-.session-back {
-  padding: 8px 12px;
-  font-size: 14px;
-}
-
 .session-menu-wrap {
   position: relative;
   flex: 0 0 auto;

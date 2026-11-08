@@ -43,7 +43,9 @@ export function ViewTabs({ sessionId, active }: ViewTabsProps) {
         aria-selected={active === "voice"}
         to={`/session/${sid}/voice`}
       >
-        Voice mode
+        {/* "Voice", not "Voice mode" (Web UI Polish, 7 November 2026): the longer word wrapped onto two lines and
+            made this one tab twice as tall as the other three. */}
+        Voice
       </Link>
       <Link
         className={`view-tab${active === "reports" ? " active" : ""}`}
