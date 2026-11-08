@@ -217,8 +217,9 @@ def check_no_start_link(texts: dict, host_link: Optional[str] = None) -> None:
     for option, text in texts.items():
         if text and (START_LINK_MARK in text or (host_link and host_link in text)):
             raise DtZohoError(f"{option} carries a Zoho Meeting start link, which starts the meeting as its owner and "
-                              "would reach every invitee. Give guests the join link instead. Nothing was sent.",
-                              exit_code=2)
+                              "would reach every invitee. Give guests the join link instead. If the event already "
+                              f"holds it, drop it with {option} \"\" or {option} \"<the text without it>\". "
+                              "Nothing was sent.", exit_code=2)
 
 
 def event_record(raw: dict) -> dict:

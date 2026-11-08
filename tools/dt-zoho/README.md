@@ -5,8 +5,10 @@ standard tools: `dt-email` (IMAP and SMTP) and `dt-calendar` (CalDAV) work with 
 
 This version reads and writes mail (accounts, folders, labels, lists, search, reading, attachments,
 sending, replying, drafts, flags, moves, archive, delete, spam, threads, scheduled send) and works the
-calendar (calendars and sharing, events, invitations, reminders, repeats, Zoho Meeting). The admin calls
-come next, and only what was proven to work against a real Zoho organisation (8 November 2026) is built.
+calendar (calendars and sharing, events, invitations, reminders, repeats, Zoho Meeting), and holds the admin
+calls (the organisation, domains, users and groups to read; aliases, the IMAP switch, forwarding, the vacation
+reply and signatures to change). Only what was proven to work against a real Zoho organisation (8 November
+2026) is built.
 
 ## The key comes from cc-secrets, never a file
 
@@ -157,3 +159,33 @@ invitee - because Zoho mails each of them (an invitation, or a "Cancelled" notic
   checked five minutes after), so it is not checked against test mode.
 - **Free/busy** needs a scope the key does not have, and is not built.
 - An empty range comes back as a "No events found." message; dt-zoho shows `count: 0`.
+
+## Commands (admin)
+
+| Command | What it does |
+|---|---|
+| `org` / `domains` / `users` / `groups` | Read the organisation, its domains (verified, mail records), its users (role, IMAP, aliases) and groups |
+| `alias list` / `alias add A` / `alias remove A` | The account's aliases; an alias can receive mail and be a `--from` at once |
+| `imap status` / `imap on` / `imap off` | Switch IMAP access to the account; `dt-email` needs it on |
+| `forwarding list` / `forwarding add A` / `forwarding remove A` | Forward incoming mail; the target must confirm first |
+| `vacation show` / `vacation set --subject --content --from YYYY-MM-DD --to YYYY-MM-DD` / `vacation remove` | The automatic vacation reply; `set` replaces one already set |
+| `signature list` / `signature add --name --content` / `signature change ID [--name] [--content]` / `signature delete ID` | Signatures |
+
+Every change is read back from Zoho before it is reported done; a change Zoho answered OK but did not make exits
+1. The changes act on the signed-in account (`--account` picks one the key reaches); dt-zoho does not change
+another user. Test mode checks a forward's target, because Zoho mails it a confirmation and then every incoming
+message. A vacation reply answers whoever writes in, which no allowed list can check, so in test mode it must
+start after today, and is to be removed before it starts.
+
+## What Zoho's admin API does that you should know
+
+- **Domains are read only here.** dt-zoho never adds, verifies or changes a domain or its DNS.
+- **A forward starts UNCONFIRMED**: Zoho mails the target to confirm, and forwards nothing until it does.
+- **A vacation reply answers everyone.** Zoho's documented "only my organisation" value answers 500, so it is not
+  offered. Zoho keeps the days, not the times.
+- **Switching IMAP off** makes every IMAP sign-in fail ("You are yet to enable IMAP for your account"), dt-email's
+  included, until it is switched on again.
+- **Groups**: the organisation the proof ran on has none, so only the list's own shape is known; a group's name,
+  address and id are read from the fields Zoho documents.
+- **Not offered**: changing the display name, filters (Zoho's API has none; make them in Zoho's web settings),
+  and any change to another user.

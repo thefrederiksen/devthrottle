@@ -276,6 +276,18 @@ def test_meeting_StartLink_NeverReachesWhatAGuestReceives(env):
     assert host not in _everything_sent(env)
 
 
+def test_meeting_EventAlreadyHoldingTheStartLink_RefusalSaysHowToDropIt(env):
+    # An event made elsewhere can already carry the start link in its text; every change is refused, so the
+    # refusal names the way out.
+    data = _create(env, "--meeting", "--invite", OTHER)
+    stored = env.zoho.calendar.events[DEFAULT_CAL][data["uid"]]
+    stored["description"] = "host: " + data["start_link_owner_only"]
+    refused = env.run("event", "change", data["uid"], "--title", "renamed")
+    assert refused.exit_code == 2 and '--description ""' in refused.output and _calls(env, "PUT") == []
+    env.ok("event", "change", data["uid"], "--title", "renamed", "--description", "")
+    assert data["start_link_owner_only"] not in _everything_sent(env)
+
+
 def test_occurrence_ChangeOneThenDeleteOneThenTheSeries(env):
     data = _create(env, "--repeat", "FREQ=DAILY;COUNT=3", "--duration", "30")
     listed = json.loads(env.ok("event", "list", "--from", "2026-11-19", "--to", "2026-11-25", "--instances",

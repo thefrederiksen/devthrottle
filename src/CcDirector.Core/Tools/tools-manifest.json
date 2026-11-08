@@ -67,7 +67,7 @@
     {
       "name": "dt-zoho",
       "category": "Email",
-      "description": "Read, search and send Zoho mail through Zoho's own API - replies, drafts, flags, labels, folders, threads and scheduled send - and the Zoho calendar, including events with a Zoho Meeting, with the key kept in cc-secrets and a test mode that refuses unlisted recipients.",
+      "description": "Read, search and send Zoho mail through Zoho's own API - replies, drafts, flags, labels, folders, threads and scheduled send - and the Zoho calendar, including events with a Zoho Meeting, and the account's aliases, IMAP switch, forwarding, vacation reply and signatures, with the key kept in cc-secrets and a test mode that refuses unlisted recipients.",
       "smoke": { "args": ["--help"], "expectContains": "Zoho Mail, Calendar and admin" },
       "note": null
     },
