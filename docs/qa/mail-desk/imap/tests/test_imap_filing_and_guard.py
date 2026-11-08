@@ -129,7 +129,11 @@ def test_Guard_ReadsAreLetOut(iw):
 
 
 def test_Source_AProcessStartsInOnePlace_AfterTheGuard(iw):
+    """The one process start is run_dt_tool(); the IMAP reader reaches it only through tool(), after check_dt_email()."""
     source = open(iw.screen.__file__, encoding="utf-8").read()
     assert source.count("subprocess.run(") == 1
-    tool = source.split("    def tool(self, args, what")[1].split("\n    def ")[0]
-    assert tool.index("check_dt_email(") < tool.index("subprocess.run(")
+    assert "subprocess.run(" in source.split("\ndef run_dt_tool(")[1].split("\ndef ")[0]
+    body = source.split("\nclass ImapReader:")[1].split("\nclass ")[0]
+    assert body.count("run_dt_tool(") == 1
+    tool = body.split("    def tool(self, args, what")[1].split("\n    def ")[0]
+    assert tool.index("check_dt_email(") < tool.index("run_dt_tool(")

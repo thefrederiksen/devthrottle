@@ -2748,7 +2748,7 @@ COMMANDS:
   status [--json]
   providers [PROVIDER] [--json]
   channel list [--all] [--json]
-  channel add ADDRESS --provider outlook|gmail|imap --machine MACHINE [--machine BACKUP] --why "TEXT"
+  channel add ADDRESS --provider outlook|gmail|imap|zoho --machine MACHINE [--machine BACKUP] --why "TEXT"
   channel remove ADDRESS --why "TEXT"
   mode ADDRESS observe|live --why "TEXT"
   rules show [--version N] [--json]
@@ -2992,7 +2992,7 @@ cc-secrets run zoho-api-client-secret --with zoho-api-client-id --with zoho-api-
 | `dt-zoho allowed-recipients set <a>...\|show\|clear` | Test mode: refuse any other To, CC or BCC before sending |
 | `dt-zoho send --to --subject --body\|--body-file\|--html-file [--cc] [--bcc] [--attach] [--from <alias>] [--at "YYYY-MM-DD HH:MM"]` | Send now or later |
 | `dt-zoho reply ID [--all]` / `draft save\|list\|delete` | Reply in the thread; drafts |
-| `dt-zoho mark ID... --as read\|unread\|important\|info\|followup\|unflagged` / `move` / `archive` / `unarchive` / `delete [--permanent]` / `spam` / `not-spam` | Manage messages |
+| `dt-zoho mark ID... --as read\|unread\|important\|info\|followup\|unflagged` / `move [--from-folder F]` / `archive` / `unarchive` / `delete [--permanent]` / `spam` / `not-spam` | Manage messages; `move --from-folder` moves nothing unless every message is in that folder now |
 | `dt-zoho label create\|rename\|delete\|apply\|remove\|clear` / `folder create\|rename\|move\|mark-read\|empty\|imap\|delete` / `thread mark\|label` | Labels, folders, threads |
 
 `--count` (1 to 200) and `--start` page through. Every command takes `--json`; the mail commands take

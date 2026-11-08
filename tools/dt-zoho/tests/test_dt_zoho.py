@@ -144,7 +144,8 @@ def test_redirect_IsRefusedAndNeverFollowed(env):
 def test_zohoError_IsOneSentenceWithZohosCode(env):
     result = env.run("read", "999", "--folder", "Inbox")
     assert result.exit_code == 1
-    assert "INVALID_MESSAGE" in result.output and "Traceback" not in result.output
+    assert "Zoho answered 400" in result.output and "messageId is invalid" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_unknownOption_IsUsageError(env):

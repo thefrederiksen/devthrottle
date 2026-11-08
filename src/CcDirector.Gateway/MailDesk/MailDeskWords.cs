@@ -20,7 +20,7 @@ public static class MailDeskWords
         public static readonly IReadOnlyList<string> All = new[] { Email };
     }
 
-    /// <summary>The providers a channel accepts: Outlook and Gmail (D20).</summary>
+    /// <summary>The providers a channel accepts: Outlook and Gmail (D20), IMAP and Zoho (mission "Zoho Mail Skill").</summary>
     public static class Providers
     {
         public const string Outlook = "outlook";
@@ -29,7 +29,10 @@ public static class MailDeskWords
         /// <summary>Any mailbox that speaks IMAP, read by screen.py with dt-email (mission "Zoho Mail Skill").</summary>
         public const string Imap = "imap";
 
-        public static readonly IReadOnlyList<string> All = new[] { Outlook, Gmail, Imap };
+        /// <summary>A Zoho mailbox, read by screen.py through Zoho's own API with dt-zoho (mission "Zoho Mail Skill").</summary>
+        public const string Zoho = "zoho";
+
+        public static readonly IReadOnlyList<string> All = new[] { Outlook, Gmail, Imap, Zoho };
 
         /// <summary>Each provider's name as a reader sees it (phase 7). Every provider in <see cref="All"/> has one;
         /// the channel fold refuses a provider without one rather than show the raw word.</summary>
@@ -38,22 +41,25 @@ public static class MailDeskWords
             [Outlook] = "Outlook",
             [Gmail] = "Gmail",
             [Imap] = "IMAP",
+            [Zoho] = "Zoho",
         };
 
         /// <summary>
         /// Who keeps each provider's sign-in on the machine that checks it, as the start of a sentence (mission "Zoho Mail
         /// Skill", section 4). cc-outlook and cc-gmail save theirs in the Director's folder on that machine, which is
-        /// where screen.py reads them; an IMAP mailbox's password is in cc-secrets on that machine, which hands it to
-        /// dt-email for one command at a time. Every provider in <see cref="All"/> has one; none of them is on the Gateway.
+        /// where screen.py reads them; an IMAP mailbox's password, and the Zoho key, are in cc-secrets on that machine, which
+        /// hands them to dt-email or dt-zoho for one command at a time. Every provider in <see cref="All"/> has one; none of
+        /// them is on the Gateway.
         /// </summary>
         public static readonly IReadOnlyDictionary<string, string> SignInKeepers = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [Outlook] = "Saved by cc-outlook",
             [Gmail] = "Saved by cc-gmail",
             [Imap] = "Kept in cc-secrets",
+            [Zoho] = "Kept in cc-secrets",
         };
 
-        /// <summary>The providers as the <c>--provider</c> placeholder of a command shows them: <c>outlook|gmail|imap</c>.</summary>
+        /// <summary>The providers as the <c>--provider</c> placeholder of a command shows them: <c>outlook|gmail|imap|zoho</c>.</summary>
         public static string Placeholder => string.Join("|", All);
     }
 

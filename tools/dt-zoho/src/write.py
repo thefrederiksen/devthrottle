@@ -254,6 +254,31 @@ def check_in_folder(client: ZohoClient, account_id: str, folder: dict, message_i
                           "Nothing was deleted. Pass the folder it is in with --folder.", exit_code=2)
 
 
+# How Zoho answers a details call for a message id it does not have (seen live on 8 November 2026).
+MESSAGE_ID_INVALID = "messageId is invalid"
+
+
+def check_still_in(client: ZohoClient, account_id: str, folder: dict, folders: List[dict], message_ids: List[str]) -> None:
+    """Refuse, before anything changes, unless Zoho places every message in `folder` now. A move by id alone would
+    take a message from wherever it is; a caller that read it in the Inbox and files it later (the Mail Desk) must not
+    move it out of a folder the owner put it in since. Zoho's details call answers with the message wherever it is,
+    whatever folder is in its path (seen live), so its folderId is the message's real folder."""
+    paths = {f["id"]: f["path"] for f in folders}
+    for message_id in message_ids:
+        try:
+            found = client.mail("GET", f"/api/accounts/{account_id}/folders/{folder['id']}/messages/{message_id}/details")
+        except DtZohoError as exc:
+            if MESSAGE_ID_INVALID not in exc.message:
+                raise
+            raise DtZohoError(f"message {message_id} is not in {folder['path']} (Zoho does not have it). Nothing was "
+                              "moved.") from exc
+        actual = str((found.get("data") or {}).get("folderId") or "")
+        if actual != folder["id"]:
+            where = paths.get(actual) or (f"folder {actual}" if actual else "no folder")
+            raise DtZohoError(f"message {message_id} is not in {folder['path']} (Zoho places it in {where}). Nothing "
+                              "was moved.")
+
+
 def delete_message(client: ZohoClient, account_id: str, folder_id: str, message_id: str, permanent: bool) -> None:
     client.mail("DELETE", f"/api/accounts/{account_id}/folders/{folder_id}/messages/{message_id}",
                 query={"expunge": "true"} if permanent else None)

@@ -44,12 +44,26 @@ public sealed class MailDeskProvidersTests
     }
 
     [Fact]
-    public void MailDesk_ZohoToday_IsNotYet_AndImapIsOnTheMailDesk()
+    public void MailDesk_ZohoAndImap_AreBothOnTheMailDesk()
     {
-        Assert.Equal(MailDeskProviders.MailDeskStates.NotYet, MailDeskProviders.Find("zoho")!.MailDesk.State);
+        Assert.Equal(MailDeskProviders.MailDeskStates.Yes, MailDeskProviders.Find("zoho")!.MailDesk.State);
+        Assert.Equal("Yes. Add a mailbox with: cc-devthrottle maildesk channel add <address> --provider zoho --machine <machine> --why \"<text>\"",
+            MailDeskProviders.Find("zoho")!.MailDesk.Label);
         Assert.Equal(MailDeskProviders.MailDeskStates.Yes, MailDeskProviders.Find("imap")!.MailDesk.State);
         Assert.Equal("Yes. Add a mailbox with: cc-devthrottle maildesk channel add <address> --provider imap --machine <machine> --why \"<text>\"",
             MailDeskProviders.Find("imap")!.MailDesk.Label);
+    }
+
+    [Fact]
+    public void Zoho_Needs_TheZohoKeyInCcSecretsAndDtZoho_AndNotImap()
+    {
+        var needs = MailDeskProviders.Find("zoho")!.Needs;
+
+        Assert.Contains(needs, n => n.StartsWith("The Zoho key in cc-secrets", StringComparison.Ordinal)
+            && n.Contains("zoho-api-client-id, zoho-api-client-secret and zoho-api-refresh-token", StringComparison.Ordinal)
+            && n.Contains("never stored on the Gateway", StringComparison.Ordinal));
+        Assert.Contains(needs, n => n.StartsWith("dt-zoho on that machine", StringComparison.Ordinal));
+        Assert.DoesNotContain(needs, n => n.StartsWith("IMAP turned on", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -88,17 +102,33 @@ public sealed class MailDeskProvidersTests
     }
 
     [Fact]
-    public void Zoho_NothingFromItsOwnApiIsListedAsWorking()
+    public void Zoho_WhatTheProofAndDtZohosRealRunsPassed_IsListedAsWorking()
     {
         var zoho = MailDeskProviders.Find("zoho")!;
 
-        Assert.Empty(zoho.Email.Works);
-        Assert.Empty(zoho.Calendar.Works);
-        Assert.All(zoho.Email.NotWorking.Concat(zoho.Calendar.NotWorking), f => Assert.Equal(MailDeskProviders.States.NotTested, f.State));
-        Assert.StartsWith("Not tested", zoho.Admin);
+        Assert.Contains("List folders and messages, read a message, search", zoho.Email.Works);
+        Assert.Contains("Send from an alias", zoho.Email.Works);
+        Assert.Contains("Scheduled send", zoho.Email.Works);
+        Assert.Contains("Create, change and delete an event", zoho.Calendar.Works);
+        Assert.Contains("Zoho Meeting on an event: a join link for guests, and a start link for the owner only", zoho.Calendar.Works);
+        // Review finding 2: pull request 4784's real run found Zoho marks unread and labels only the received messages.
+        Assert.Contains(zoho.Email.Works, w => w.StartsWith("Threads:", StringComparison.Ordinal)
+            && w.Contains("only the received messages", StringComparison.Ordinal));
+        Assert.StartsWith("Works through dt-zoho:", zoho.Admin);
+        Assert.Contains("Fails: changing the display name", zoho.Admin);
     }
 
     [Theory]
+    [InlineData("zoho", "email", "Forward", MailDeskProviders.States.Fail)]
+    [InlineData("zoho", "email", "Filters", MailDeskProviders.States.Fail)]
+    [InlineData("zoho", "email", "Unarchive with Zoho's own call", MailDeskProviders.States.Fail)]
+    [InlineData("zoho", "email", "Send or change a saved draft", MailDeskProviders.States.Fail)]
+    [InlineData("zoho", "email", "List or cancel a scheduled message", MailDeskProviders.States.Fail)]
+    [InlineData("zoho", "email", "Mail Desk filing (live mode) on a real Zoho mailbox", MailDeskProviders.States.NotTested)]
+    [InlineData("zoho", "calendar", "Invite people; invitation comes from the right address", MailDeskProviders.States.Fail)]
+    [InlineData("zoho", "calendar", "Accept or decline an invitation", MailDeskProviders.States.Fail)]
+    [InlineData("zoho", "calendar", "Free or busy times", MailDeskProviders.States.NotTested)]
+    [InlineData("zoho", "calendar", "Change a whole repeating series", MailDeskProviders.States.NotTested)]
     [InlineData("imap", "email", "Send from an alias", MailDeskProviders.States.NotTested)]
     [InlineData("imap", "calendar", "Invite people; invitation comes from the right address", MailDeskProviders.States.Fail)]
     [InlineData("gmail", "email", "Download attachments", MailDeskProviders.States.Fail)]
@@ -129,7 +159,8 @@ public sealed class MailDeskProvidersTests
     {
         Assert.Equal("9 work, 1 not tested", MailDeskProviders.Find("imap")!.Email.Summary);
         Assert.Equal("3 work, 1 fail", MailDeskProviders.Find("imap")!.Calendar.Summary);
-        Assert.Equal("0 work, 1 not tested", MailDeskProviders.Find("zoho")!.Email.Summary);
+        Assert.Equal("14 work, 5 fail, 1 not tested", MailDeskProviders.Find("zoho")!.Email.Summary);
+        Assert.Equal("7 work, 2 fail, 3 not tested", MailDeskProviders.Find("zoho")!.Calendar.Summary);
     }
 
     [Fact]
