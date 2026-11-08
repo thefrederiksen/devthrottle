@@ -1284,7 +1284,8 @@ USAGE: cc-devthrottle inbox send [OPTIONS]
 
 OPTIONS:
   --subject TEXT  One line saying what the message is about [required]
-  --body TEXT     What the owner needs to know; it may span lines [required]
+  --body TEXT     What the owner needs to know
+  --body-file PATH  Read the body from this file; '-' reads standard input
   --report TEXT   A dev report the message is about, by its id; the message links to it
   --json, -j      Output the Gateway's answer as JSON
 ```
@@ -1295,6 +1296,13 @@ this session's number and name - with links back to this session, to its factory
 as a factory seat, and to the report named with `--report`. The Gateway reads who sent it from its own
 record of the calling session; nothing on the command line can change that. Prints `sent: Your inbox`
 with the message id, the subject, who it is from, its state and its links (exit 0).
+
+Give exactly one of `--body` and `--body-file` (both, or neither, is a usage error, exit 2). **A body of
+more than one line written by a script goes in `--body-file`**: on Windows the `cc-devthrottle.cmd` shim
+cuts a command-line argument at its first line break, silently, and the command still exits 0 - proven on
+7 November 2026. A file, or standard input with `--body-file -`, carries every line. A file that does not
+exist or is not UTF-8 text is a usage error that names it. The same option is on `inbox reply` and
+`factory inbox send`.
 
 Run it only from inside a session: without `CC_SESSION_ID` it fails before calling the Gateway (exit
 1). An empty subject or body, or a subject of more than one line, is a usage error (exit 2). A subject
@@ -1321,7 +1329,7 @@ USAGE: cc-devthrottle inbox list [--view unread|inbox|archived] [--count N | -n 
        cc-devthrottle inbox delete <id> [--json]
        cc-devthrottle inbox restore <id> [--json]
        cc-devthrottle inbox mark <id> --read|--unread [--json]
-       cc-devthrottle inbox reply <id> "<text>" [--to-factory] [--json]
+       cc-devthrottle inbox reply <id> "<text>" | --body-file PATH|- [--to-factory] [--json]
 ```
 
 - `list` - one view, newest first: `inbox` (unread and read; the default), `unread`, or `archived`. Prints
@@ -1346,6 +1354,7 @@ USAGE: cc-devthrottle inbox list [--view unread|inbox|archived] [--count N | -n 
   takes the offer to leave the reply in that session's factory. A reply to this session's own message, or
   into a factory this session is a seat of, is refused. The reply is shown as from this session - the
   session that receives it is told an agent wrote it, never the owner - and the message stays unread.
+  Give the text or `--body-file` (see Inbox Send for why a script's multi-line text must use the file).
 
 EVERY ACT IS RECORDED AND SHOWN. A read, a mark, an archive, a restore and a reply are each kept with this
 session's number and name and the time, and the message shows them on the owner's phone and Cockpit as
@@ -2547,7 +2556,7 @@ decides each item. Every factory with a Boss seat has one. A session leaves a me
 (the owner's decision of 7 November 2026); the owner's own send stays refused to a session key.
 
 ```
-USAGE: cc-devthrottle factory inbox send <factory> "<text>" [--json]
+USAGE: cc-devthrottle factory inbox send <factory> "<text>" | --body-file PATH|- [--json]
 
        cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
        cc-devthrottle factory inbox thread <factory> [--count N | -n N] [--fields F,...] [--full] [--json]
@@ -2567,7 +2576,9 @@ USAGE: cc-devthrottle factory inbox send <factory> "<text>" [--json]
 this session - `From an agent: session 114 "..."`, and on its trail `Left by an agent: session 114 "...",
 <time> UTC` - never as from the owner. The factory's Secretary and Boss handle it like any message. A session
 that is a seat of that same factory is refused (`own_factory`): a factory does not write work to itself. An
-unknown, archived or Boss-less factory is refused in words. Prints `sent:`, the id, `from:`, the state and the
+unknown, archived or Boss-less factory is refused in words. Give the text or `--body-file PATH` (`-` for
+standard input); a multi-line message from a script must use the file, because the Windows shim cuts an
+argument at its first line break. Prints `sent:`, the id, `from:`, the state and the
 trail; outside a session it fails before calling the Gateway. Route: `POST /sessions/{sid}/factories/{factory}/inbox`
 (body `{text}`).
 

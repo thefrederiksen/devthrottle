@@ -58,6 +58,32 @@ OLD_GATEWAY = ("the Gateway does not let a session use the inbox yet (it answere
                "it is older than this command.")
 
 
+def body_from(inline: Optional[str], body_file: Optional[str], inline_name: str) -> str:
+    """The text, from the command line or from --body-file. Exactly one must be given.
+
+    WHY --body-file EXISTS (proven 7 November 2026 on Windows): a multi-line argument passed through the
+    cc-devthrottle.cmd shim is cut at its first line break, silently, and the command exits 0 - so a script's
+    multi-line body arrived as its first line only. A file, or standard input with '-', carries every line.
+    """
+    if inline is not None and body_file is not None:
+        axi_cli.usage_error(f"give {inline_name} or --body-file, not both.")
+    if body_file is None:
+        if inline is None:
+            axi_cli.usage_error(f"give {inline_name}, or --body-file <path> ('-' for standard input).")
+        return inline
+    path = body_file.strip()
+    if not path:
+        axi_cli.usage_error("--body-file needs a path, or '-' for standard input.")
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        axi_cli.usage_error(f"--body-file: there is no file {path}.")
+    except (OSError, UnicodeDecodeError) as exc:
+        axi_cli.usage_error(f"--body-file: {path} could not be read as UTF-8 text: {exc}")
+
+
 def route(session_id: str) -> str:
     """The Gateway route a session sends to the owner's inbox through."""
     return f"sessions/{gateway.path_segment(session_id)}/inbox"

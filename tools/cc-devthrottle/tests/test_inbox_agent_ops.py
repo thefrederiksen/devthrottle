@@ -318,3 +318,87 @@ def test_factory_send_empty_text_or_no_session_sends_nothing(monkeypatch):
     result = runner.invoke(app, ["factory", "inbox", "send", "booking", "Hi"])
     assert result.exit_code == 1
     assert calls == []
+
+
+# ---------- --body-file (the Windows shim cuts a multi-line argument at its first line break) ----------
+
+MULTI = "First line.\nSecond line.\n\nFourth line, after a blank one.\n"
+
+
+def _sent_answer():
+    return {"message": {"id": "m-1", "subject": "s", "stateLabel": "Unread", "from": {"label": "x"}, "links": []},
+            "reply": {"id": "r-1", "label": "Sent"}}
+
+
+def test_send_body_file_carries_every_line(monkeypatch, tmp_path):
+    body = tmp_path / "body.txt"
+    body.write_text(MULTI, encoding="utf-8")
+    calls = _stub(monkeypatch, post=_sent_answer())
+
+    result = runner.invoke(app, ["inbox", "send", "--subject", "s", "--body-file", str(body)])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("POST", f"sessions/{ME}/inbox", {"subject": "s", "body": MULTI})]
+
+
+def test_send_body_file_dash_reads_standard_input(monkeypatch):
+    calls = _stub(monkeypatch, post=_sent_answer())
+
+    result = runner.invoke(app, ["inbox", "send", "--subject", "s", "--body-file", "-"], input=MULTI)
+
+    assert result.exit_code == 0, result.output
+    assert calls[0][2]["body"] == MULTI
+
+
+def test_reply_body_file_carries_every_line(monkeypatch, tmp_path):
+    body = tmp_path / "reply.txt"
+    body.write_text(MULTI, encoding="utf-8")
+    calls = _stub(monkeypatch, post=_sent_answer())
+
+    result = runner.invoke(app, ["inbox", "reply", MID, "--body-file", str(body)])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("POST", f"sessions/{ME}/inbox/{MID}/reply", {"text": MULTI})]
+
+
+def test_factory_send_body_file_dash_reads_standard_input(monkeypatch):
+    answer = {"message": {"id": "f-1", "factory": "booking", "stateLabel": "Sent", "fromLabel": "From an agent", "trail": []}}
+    calls = _stub(monkeypatch, post=answer)
+
+    result = runner.invoke(app, ["factory", "inbox", "send", "booking", "--body-file", "-"], input=MULTI)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("POST", f"sessions/{ME}/factories/booking/inbox", {"text": MULTI})]
+
+
+def test_body_file_and_inline_text_together_or_neither_is_a_usage_error(monkeypatch, tmp_path):
+    body = tmp_path / "b.txt"
+    body.write_text("x", encoding="utf-8")
+    calls = _stub(monkeypatch, post=_sent_answer())
+
+    assert runner.invoke(app, ["inbox", "send", "--subject", "s", "--body", "b", "--body-file", str(body)]).exit_code == 2
+    assert runner.invoke(app, ["inbox", "send", "--subject", "s"]).exit_code == 2
+    assert runner.invoke(app, ["inbox", "reply", MID, "hi", "--body-file", str(body)]).exit_code == 2
+    assert runner.invoke(app, ["inbox", "reply", MID]).exit_code == 2
+    assert runner.invoke(app, ["factory", "inbox", "send", "booking", "hi", "--body-file", str(body)]).exit_code == 2
+    assert runner.invoke(app, ["factory", "inbox", "send", "booking"]).exit_code == 2
+    assert calls == []
+
+
+def test_body_file_that_does_not_exist_is_a_usage_error_that_names_it(monkeypatch, tmp_path):
+    calls = _stub(monkeypatch, post=_sent_answer())
+    missing = tmp_path / "nope.txt"
+
+    result = runner.invoke(app, ["inbox", "send", "--subject", "s", "--body-file", str(missing)])
+
+    assert result.exit_code == 2
+    assert "nope.txt" in result.output
+    assert calls == []
+
+
+def test_help_tells_a_script_to_use_body_file_for_more_than_one_line():
+    for command in (["inbox", "send"], ["inbox", "reply"], ["factory", "inbox", "send"]):
+        result = runner.invoke(app, [*command, "--help"], env={"COLUMNS": "200"})
+        assert result.exit_code == 0
+        assert "--body-file" in result.output
+        assert "first line break" in " ".join(result.output.split())

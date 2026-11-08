@@ -4201,10 +4201,19 @@ def message_request(
     link_ops.request(target, reason, amount, json_output)
 
 
+_BODY_FILE_HELP = (
+    "Read the text from this file instead ('-' reads standard input). Use it for any text of more than one line "
+    "written by a script: on Windows the cc-devthrottle.cmd shim cuts an argument at its first line break, "
+    "silently, so a multi-line text on the command line arrives as its first line only."
+)
+
+
 @inbox_app.command("send")
 def inbox_send(
     subject: str = typer.Option(..., "--subject", help="One line saying what the message is about."),
-    body: str = typer.Option(..., "--body", help="What the owner needs to know. It may span lines."),
+    body: Optional[str] = typer.Option(
+        None, "--body", help="What the owner needs to know. For more than one line from a script, use --body-file."),
+    body_file: Optional[str] = typer.Option(None, "--body-file", help=_BODY_FILE_HELP),
     report: str = typer.Option("", "--report", help="A dev report the message is about, by its id; the message links to it."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
@@ -4212,9 +4221,10 @@ def inbox_send(
 
     It replaces emailing him: it arrives unread on his phone and in the Cockpit, says which session
     sent it, and links back to this session, its factory, and the report named with --report. The
-    Gateway records who sent it; nothing here can change that. No email is sent.
+    Gateway records who sent it; nothing here can change that. No email is sent. Pass exactly one of
+    --body and --body-file; a multi-line body from a script goes in --body-file.
     """
-    inbox_ops.send(subject, body, report or None, json_output)
+    inbox_ops.send(subject, inbox_ops.body_from(body, body_file, "--body"), report or None, json_output)
 
 
 _INBOX_ID_HELP = "The message's id, from 'cc-devthrottle inbox list'."
@@ -4297,7 +4307,9 @@ def inbox_mark(
 @inbox_app.command("reply")
 def inbox_reply(
     message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
-    text: str = typer.Argument(..., help="The reply, exactly as it should be read."),
+    text: Optional[str] = typer.Argument(
+        None, help="The reply, exactly as it should be read. For more than one line from a script, use --body-file."),
+    body_file: Optional[str] = typer.Option(None, "--body-file", help=_BODY_FILE_HELP),
     to_factory: bool = typer.Option(
         False, "--to-factory", help="Leave the reply in the Factory inbox of the factory the sending session was a "
         "seat of - the offer made when that session has ended."),
@@ -4308,8 +4320,9 @@ def inbox_reply(
     A session's message: into that session's inbox while it runs; if it has ended, nothing is sent and
     the Gateway says where the reply can go instead. A factory's message: into that factory's Factory
     inbox. The reply is shown as from this session, never from the owner, and the message stays unread.
+    Give the text or --body-file, not both; a multi-line reply from a script goes in --body-file.
     """
-    inbox_ops.reply(message_id, text, to_factory, json_output)
+    inbox_ops.reply(message_id, inbox_ops.body_from(text, body_file, "the reply text"), to_factory, json_output)
 
 
 @link_app.command("add")
@@ -5253,15 +5266,19 @@ _INBOX_MESSAGE_FIELDS_HELP = (
 @factory_inbox_app.command("send")
 def factory_inbox_send(
     factory: str = typer.Argument(..., help=_INBOX_FACTORY_HELP),
-    text: str = typer.Argument(..., help="The message, exactly as the factory should read it."),
+    text: Optional[str] = typer.Argument(
+        None, help="The message, exactly as the factory should read it. For more than one line from a script, use "
+        "--body-file."),
+    body_file: Optional[str] = typer.Option(None, "--body-file", help=_BODY_FILE_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
 ) -> None:
     """Leave a message in a factory's Factory inbox, as this session.
 
     The factory's Secretary and Boss handle it like any message. It is shown as from this session, never
-    from the owner. A factory's own seats cannot send into their own factory's inbox.
+    from the owner. A factory's own seats cannot send into their own factory's inbox. Give the text or
+    --body-file, not both; a multi-line message from a script goes in --body-file.
     """
-    factory_inbox_ops.send(factory, text, json_output)
+    factory_inbox_ops.send(factory, inbox_ops.body_from(text, body_file, "the message text"), json_output)
 
 
 @factory_inbox_app.command("list")
