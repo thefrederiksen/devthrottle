@@ -10,6 +10,10 @@ zoho-mail-batch2.txt and zoho-mail-batch3.txt, and the read-only probe of 8 Nove
   there is none;
 - a vacation reply with `sendTo: "org"` answers 500; the stored days are MM/DD/YYYY with no time, `sendTo` 0;
 - a signature answers `{"name", "signatureType", "id", "position", "content"}`.
+
+INVENTED, not seen at Zoho: the error codes DOMAIN_NOT_IN_ORG, INVALID_ZUID, INVALID_ACCOUNT and VACATION_STATE.
+The proof never sent Zoho those mistakes, so a test that meets one proves dt-zoho's handling of an error answer,
+not what Zoho would say.
 """
 
 from __future__ import annotations

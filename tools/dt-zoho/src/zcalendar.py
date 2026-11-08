@@ -211,14 +211,19 @@ def meeting_links(raw: dict) -> dict:
     return {JOIN_KEY: guest, START_KEY: host}
 
 
-def check_no_start_link(texts: dict, host_link: Optional[str] = None) -> None:
+def check_no_start_link(texts: dict, host_link: Optional[str] = None, changing: bool = False) -> None:
     """Refuse text bound for the invitation that carries a meeting's start link: whoever has it starts the
-    meeting as its owner."""
+    meeting as its owner. On a change the text may be the event's own, so the refusal says how to drop it."""
     for option, text in texts.items():
         if text and (START_LINK_MARK in text or (host_link and host_link in text)):
+            way_out = ""
+            if changing and option == "--title":
+                way_out = "If the event's title already holds it, give a new one with --title \"<new title>\". "
+            elif changing:
+                way_out = (f"If the event already holds it, drop it with {option} \"\" or {option} "
+                           "\"<the text without it>\". ")
             raise DtZohoError(f"{option} carries a Zoho Meeting start link, which starts the meeting as its owner and "
-                              "would reach every invitee. Give guests the join link instead. If the event already "
-                              f"holds it, drop it with {option} \"\" or {option} \"<the text without it>\". "
+                              f"would reach every invitee. Give guests the join link instead. {way_out}"
                               "Nothing was sent.", exit_code=2)
 
 

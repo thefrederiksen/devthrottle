@@ -380,7 +380,7 @@ def event_change(uid: str = EventArg,
                                 attendees, reminders, None, False)
     zcalendar.check_no_start_link({"--title": data.get("title"), "--location": data.get("location"),
                                    "--description": data.get("description")},
-                                  zcalendar.meeting_links(current)[zcalendar.START_KEY])
+                                  zcalendar.meeting_links(current)[zcalendar.START_KEY], changing=True)
     data["etag"] = etag
     if occurrence:
         data.update({"isrep": True, "recurrenceid": occurrence, "recurrence_edittype": "only"})

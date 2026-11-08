@@ -2,7 +2,7 @@
 aliases, the IMAP switch, forwarding, the vacation reply and signatures. They register on the one Typer app in cli.py,
 which imports this module at its end.
 
-Every change is read back from Zoho before dt-zoho reports it done."""
+Every change is read back from Zoho, field by field, before dt-zoho reports it done."""
 
 from __future__ import annotations
 
@@ -160,8 +160,9 @@ def _switch_imap(account: Optional[str], enabled: bool, json_output: bool) -> No
     # Switching on shows in Zoho's answer only after a second or two, so the read-back waits a bounded time.
     now = admin.read_back(lambda: _reread(client, acct)["imap_enabled"], enabled)
     if now is not enabled:
-        raise DtZohoError(f"Zoho answered OK but IMAP for {acct['email']} still reads back as "
-                          f"{'on' if now else 'off'} after {admin.READ_BACK_TRIES} reads.")
+        shown = "missing" if now is None else ("on" if now else "off")
+        raise DtZohoError(f"Zoho answered OK but IMAP for {acct['email']} still reads back as {shown} after "
+                          f"{admin.READ_BACK_TRIES} reads.")
     _report({"account": acct["email"], "imap_enabled": enabled, "was": acct["imap_enabled"]}, json_output)
 
 
@@ -266,17 +267,25 @@ def vacation_set(subject: str = typer.Option(..., "--subject"),
     first_day, last_day = _day(first, "--from"), _day(last, "--to")
     if last_day < first_day:
         raise DtZohoError("--to must be the same day as --from or later.", exit_code=2)
-    if config.load().allowed_recipients is not None and first_day <= date.today():
-        # An automatic reply goes to whoever writes in, which no allowed list can check.
-        raise DtZohoError("test mode is on, and a vacation reply answers whoever writes in, which the allowed list "
-                          "cannot check. In test mode it must start after today, and be removed before it starts "
-                          "(dt-zoho vacation remove). Nothing was changed.", exit_code=2)
+    test_mode = config.load().allowed_recipients is not None
     client, acct = _account(account)
+    if test_mode:
+        # An automatic reply goes to whoever writes in, which no allowed list can check. Zoho keeps the window in the
+        # account's time zone, so "today" is the account's.
+        earliest = admin.earliest_test_mode_start(acct["time_zone"])
+        if first_day < earliest:
+            raise DtZohoError("test mode is on, and a vacation reply answers whoever writes in, which the allowed list "
+                              f"cannot check. In test mode --from must be {earliest.isoformat()} or later (two days "
+                              f"after today in {acct['time_zone']}), and the reply removed before it starts "
+                              "(dt-zoho vacation remove). Nothing was changed.", exit_code=2)
     exists = admin.vacation(admin.account_settings(client, acct["account_id"])) is not None
     admin.set_vacation(client, acct["account_id"], admin.vacation_body(subject, content, first_day, last_day), exists)
     found = admin.vacation(admin.account_settings(client, acct["account_id"]))
-    if found is None or found["subject"] != subject:
-        raise DtZohoError("Zoho answered OK but the vacation reply does not read back as set.")
+    wanted = {"subject": subject, "content": content, "from": first_day.isoformat(), "to": last_day.isoformat()}
+    differs = [key for key, value in wanted.items() if found is None or found.get(key) != value]
+    if differs:
+        raise DtZohoError("Zoho answered OK but the vacation reply does not read back as set (differs: "
+                          f"{', '.join(differs)}).")
     _report(dict(found, account=acct["email"], replaced=exists), json_output)
 
 
@@ -312,7 +321,18 @@ def signature_list(json_output: bool = JsonOpt) -> None:
 def signature_add(name: str = typer.Option(..., "--name"), content: str = typer.Option(..., "--content"),
                   json_output: bool = JsonOpt) -> None:
     """Add a signature. (Its position is Zoho's 0, the only one proven.)"""
-    _report(dict(admin.add_signature(_client(), name, content, 0), added=True), json_output)
+    client = _client()
+    added = admin.add_signature(client, name, content, 0)
+    _check_signature(client, added["id"], name, content)
+    _report(dict(added, added=True), json_output)
+
+
+def _check_signature(client, sig_id: str, name: str, content: str) -> None:
+    stored = [s for s in admin.signatures(client) if s["id"] == sig_id]
+    if not stored:
+        raise DtZohoError(f"Zoho answered OK but signature {sig_id} is not there when read back.")
+    if (stored[0]["name"], stored[0]["content"]) != (name, content):
+        raise DtZohoError(f"Zoho answered OK but signature {sig_id} does not read back as set.")
 
 
 @signature_app.command("change")
@@ -326,9 +346,10 @@ def signature_change(sig_id: str = typer.Argument(..., help="The signature's id 
         raise DtZohoError("nothing to change: pass --name or --content.", exit_code=2)
     client = _client()
     current = admin.find_signature(client, sig_id)
-    changed = admin.change_signature(client, sig_id, name if name is not None else current["name"],
-                                     content if content is not None else current["content"],
-                                     int(current["position"] or 0))
+    new_name = name if name is not None else current["name"]
+    new_content = content if content is not None else current["content"]
+    changed = admin.change_signature(client, sig_id, new_name, new_content, int(current["position"] or 0))
+    _check_signature(client, sig_id, new_name, new_content)
     _report(dict(changed, changed=True), json_output)
 
 

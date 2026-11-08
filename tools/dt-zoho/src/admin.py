@@ -19,8 +19,9 @@ shaped the code:
 from __future__ import annotations
 
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .client import ZohoClient
 from .errors import DtZohoError
@@ -145,8 +146,34 @@ def _iso_day(value: Optional[str]) -> Optional[str]:
     """Zoho's MM/DD/YYYY as YYYY-MM-DD."""
     if not value:
         return None
-    month, day, year = value.split(" ")[0].split("/")
-    return f"{year}-{month}-{day}"
+    try:
+        return datetime.strptime(value.split(" ")[0], "%m/%d/%Y").date().isoformat()
+    except ValueError:
+        raise DtZohoError(f"Zoho answered the vacation reply's day as '{value}', not MM/DD/YYYY as it did in the "
+                          "proof; dt-zoho cannot read it.") from None
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# The clock, injected so no test depends on the machine's date.
+_now: Callable[[], datetime] = _utc_now
+
+VACATION_TEST_MODE_LEAD_DAYS = 2
+
+
+def earliest_test_mode_start(time_zone: Optional[str]) -> date:
+    """The first day a vacation reply may start in test mode: two days after today in the account's own time zone,
+    which leaves at least a whole day to remove it before it can answer anyone."""
+    if not time_zone:
+        raise DtZohoError("Zoho's account answer carries no time zone, which the test-mode check on a vacation reply "
+                          "needs.")
+    try:
+        zone = ZoneInfo(time_zone)
+    except ZoneInfoNotFoundError:
+        raise DtZohoError(f"the account's time zone '{time_zone}' is not one this machine knows.") from None
+    return _now().astimezone(zone).date() + timedelta(days=VACATION_TEST_MODE_LEAD_DAYS)
 
 
 def vacation_body(subject: str, content: str, first: date, last: date) -> dict:

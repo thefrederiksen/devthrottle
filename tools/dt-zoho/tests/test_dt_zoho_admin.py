@@ -15,8 +15,12 @@ def _puts(env):
     return [r for r in env.zoho.admin.requests if r[0] == "PUT"]
 
 
+# The injected clock (conftest.py): 8 November 2026 in the account's time zone, 9 November in UTC.
+ACCOUNT_TODAY = date(2026, 11, 8)
+
+
 def _day(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (ACCOUNT_TODAY + timedelta(days=offset)).isoformat()
 
 
 # --------------------------------------------------------------------------------------------- read
@@ -120,6 +124,14 @@ def test_imap_On_WaitsForZohosAnswerToShowIt(env):
     assert env.zoho.pauses == [0.5, 0.5, 0.5]
 
 
+def test_imap_FieldMissingWhenReadBack_SaysMissing(env, monkeypatch):
+    real = env.zoho.admin.account_answer
+    monkeypatch.setattr(env.zoho.admin, "account_answer",
+                        lambda: {k: v for k, v in real().items() if k != "imapAccessEnabled"})
+    result = env.run("imap", "off")
+    assert result.exit_code == 1 and "still reads back as missing" in result.output
+
+
 def test_imap_NotSwitchedWhenReadBack_IsAnError(env, monkeypatch):
     monkeypatch.setattr(env.zoho.admin, "_admin_put", lambda rest, body: __import__("fake_admin")._ok())
     result = env.run("imap", "off")
@@ -180,13 +192,38 @@ def test_vacation_SetUpdateRemove_AlwaysSendToAll(env):
     assert json.loads(env.ok("vacation", "show", "--json").stdout)["set"] is False
 
 
-def test_vacation_TestModeAndStartingToday_IsRefusedBeforeAnyCall(env):
-    # A vacation reply answers whoever writes in, which no allowed list can check.
+def test_vacation_TestMode_MustStartTwoDaysOutInTheAccountsTimeZone(env):
+    # A vacation reply answers whoever writes in, which no allowed list can check, so test mode leaves a whole day to
+    # remove it; "today" is the account's (Toronto, 8 November), not UTC's (9 November).
     env.ok("allowed-recipients", "set", ME, OTHER)
-    before = len(env.zoho.calls)
-    result = env.run("vacation", "set", "--subject", "s", "--content", "c", "--from", _day(0), "--to", _day(1))
-    assert result.exit_code == 2 and "test mode" in result.output and len(env.zoho.calls) == before
-    env.ok("vacation", "set", "--subject", "s", "--content", "c", "--from", _day(1), "--to", _day(1))
+    for first in (_day(0), _day(1)):
+        result = env.run("vacation", "set", "--subject", "s", "--content", "c", "--from", first, "--to", _day(3))
+        assert result.exit_code == 2 and "2026-11-10 or later" in result.output and "America/Toronto" in result.output
+    assert _puts(env) == []
+    env.ok("vacation", "set", "--subject", "s", "--content", "c", "--from", _day(2), "--to", _day(3))
+
+
+def test_vacation_NotTestMode_MayStartToday(env):
+    env.ok("vacation", "set", "--subject", "s", "--content", "c", "--from", _day(0), "--to", _day(0))
+
+
+def test_vacation_ReadBackChecksEveryField(env, monkeypatch):
+    # Zoho answering OK to an update but keeping the old reply must not be reported as replaced.
+    env.ok("vacation", "set", "--subject", "Away", "--content", "old text", "--from", _day(2), "--to", _day(3))
+    real = env.zoho.admin._user_put
+    monkeypatch.setattr(env.zoho.admin, "_user_put",
+                        lambda body: __import__("fake_admin")._ok() if body["mode"] == "updateVacationReply"
+                        else real(body))
+    result = env.run("vacation", "set", "--subject", "Away", "--content", "new text", "--from", _day(4), "--to",
+                     _day(5))
+    assert result.exit_code == 1 and "differs: content, from, to" in result.output
+
+
+def test_vacation_UnreadableDayFromZoho_IsOneSentence(env):
+    env.zoho.admin.vacation = {"sendTo": 0, "subject": "s", "content": "c", "fromDate": "2026-11-10",
+                               "toDate": "11/11/2026", "vacationId": "1"}
+    result = env.run("vacation", "show")
+    assert result.exit_code == 1 and "not MM/DD/YYYY" in result.output and "Traceback" not in result.output
 
 
 def test_vacation_BadDays_AreRefused(env):
@@ -218,6 +255,23 @@ def test_signature_AddChangeDelete(env):
     env.ok("signature", "delete", sid)
     assert json.loads(env.ok("signature", "list", "--json").stdout)["count"] == 0
     assert any(r[0] == "DELETE" and r[2] == {"id": sid} for r in env.zoho.admin.requests)
+
+
+def test_signature_NotStoredWhenReadBack_IsAnError(env, monkeypatch):
+    # Zoho echoing the body but storing nothing must not be reported as added, nor a change it ignored as made.
+    real = env.zoho.admin._signature
+    monkeypatch.setattr(env.zoho.admin, "_signature",
+                        lambda method, query, body: (__import__("fake_admin")._ok(dict(body, id="77"), code=201)
+                                                     if method == "POST" else real(method, query, body)))
+    result = env.run("signature", "add", "--name", "n", "--content", "c")
+    assert result.exit_code == 1 and "not there when read back" in result.output
+    monkeypatch.setattr(env.zoho.admin, "_signature", real)
+    sid = json.loads(env.ok("signature", "add", "--name", "n", "--content", "c", "--json").stdout)["id"]
+    monkeypatch.setattr(env.zoho.admin, "_signature",
+                        lambda method, query, body: (__import__("fake_admin")._ok(dict(body))
+                                                     if method == "PUT" else real(method, query, body)))
+    result = env.run("signature", "change", sid, "--content", "c2")
+    assert result.exit_code == 1 and "does not read back as set" in result.output
 
 
 def test_signature_UnknownId_IsRefused(env):

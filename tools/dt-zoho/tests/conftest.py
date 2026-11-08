@@ -2,6 +2,7 @@
 environment as cc-secrets would supply it, and the network replaced by the in-memory Zoho in fakes.py."""
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,8 @@ def bare(tmp_path, monkeypatch):
     # No test waits on the clock: the read-back pauses are recorded, not slept.
     zoho.pauses = []
     monkeypatch.setattr(admin, "_sleep", zoho.pauses.append)
+    # Nor on the machine's date: 03:00 UTC on 9 November is still 8 November in the account's Toronto.
+    monkeypatch.setattr(admin, "_now", lambda: datetime(2026, 11, 9, 3, 0, tzinfo=timezone.utc))
     monkeypatch.setenv(config.CLIENT_ID_ENV, zoho.client_id)
     monkeypatch.setenv(config.CLIENT_SECRET_ENV, zoho.client_secret)
     monkeypatch.setenv(config.REFRESH_TOKEN_ENV, zoho.refresh_token)

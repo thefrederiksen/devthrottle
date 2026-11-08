@@ -171,11 +171,13 @@ invitee - because Zoho mails each of them (an invitation, or a "Cancelled" notic
 | `vacation show` / `vacation set --subject --content --from YYYY-MM-DD --to YYYY-MM-DD` / `vacation remove` | The automatic vacation reply; `set` replaces one already set |
 | `signature list` / `signature add --name --content` / `signature change ID [--name] [--content]` / `signature delete ID` | Signatures |
 
-Every change is read back from Zoho before it is reported done; a change Zoho answered OK but did not make exits
-1. The changes act on the signed-in account (`--account` picks one the key reaches); dt-zoho does not change
+Every change is read back from Zoho, field by field, before it is reported done; a change Zoho answered OK but did
+not make exits 1. Switching IMAP on shows in Zoho's answer only after a second or two, so that read-back waits, at
+most 30 reads half a second apart. The changes act on the signed-in account (`--account` picks one the key reaches); dt-zoho does not change
 another user. Test mode checks a forward's target, because Zoho mails it a confirmation and then every incoming
 message. A vacation reply answers whoever writes in, which no allowed list can check, so in test mode it must
-start after today, and is to be removed before it starts.
+start two days or more after today in the account's own time zone (leaving a whole day to remove it), and is to be
+removed before it starts.
 
 ## What Zoho's admin API does that you should know
 

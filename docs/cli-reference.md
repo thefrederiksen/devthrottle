@@ -2994,7 +2994,7 @@ them. Test mode checks invitees on create, change and delete (Zoho mails invitat
 | `dt-zoho org` / `domains` / `users` / `groups` | Read the organisation; domains are never changed |
 | `dt-zoho alias list\|add <a>\|remove <a>` / `imap status\|on\|off` | The account's aliases and IMAP switch |
 | `dt-zoho forwarding list\|add <a>\|remove <a>` | Forwarding; the target confirms first, test mode checks it |
-| `dt-zoho vacation show\|set --subject --content --from --to\|remove` | The vacation reply; answers everyone; in test mode it must start after today |
+| `dt-zoho vacation show\|set --subject --content --from --to\|remove` | The vacation reply; answers everyone; in test mode it must start two days out, in the account's time zone |
 | `dt-zoho signature list\|add\|change\|delete` | Signatures |
 
 Every admin change is read back before it is reported done. Errors exit 1, usage errors 2.
