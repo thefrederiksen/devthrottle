@@ -773,6 +773,12 @@
       ".drn-mic-state { padding: 2px 6px; border-radius: 6px; background: " + REPORT_FLOW_THEME.chip + "; color: " + REPORT_FLOW_THEME.text + "; }",
       ".drn-mic-state:empty { display: none; }",
       ".drn-mic.drn-failed .drn-mic-state { color: " + REPORT_FLOW_THEME.failed + "; }",
+      // The note box floats over the report on the app's surface, so its microphone row keeps the app's theme. These
+      // rules are less specific than the live and failed ones above, so the red recording button still wins.
+      ".drn-notebox .drn-mic { color: " + t.text + "; }",
+      ".drn-notebox .drn-mic-btn { background: " + t.surface2 + "; border-color: " + t.border + "; color: " + t.text + "; }",
+      ".drn-notebox .drn-mic-state { background: " + t.surface2 + "; color: " + t.text + "; }",
+      ".drn-notebox .drn-mic.drn-failed .drn-mic-state { color: #f87171; }",
       "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
     ].join("\n");
   }

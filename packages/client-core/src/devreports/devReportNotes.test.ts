@@ -654,6 +654,11 @@ describe("the tray's theme", () => {
         expect(rule(selector), `${selector} uses the host's ${key}`).not.toContain(theme[key]);
       }
     }
+    // The note box floats over the report on the app's surface: its microphone row keeps the host theme.
+    expect(rule(".drn-notebox .drn-mic-btn")).toContain(`background: ${theme.surface2}`);
+    expect(rule(".drn-notebox .drn-mic-btn")).toContain(`color: ${theme.text}`);
+    expect(rule(".drn-notebox .drn-mic-state")).toContain(`background: ${theme.surface2}`);
+    expect(rule(".drn-notebox .drn-mic")).toContain(`color: ${theme.text}`);
   });
 
   it("refuses a theme that is not exactly the documented shape, whole", () => {
