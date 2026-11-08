@@ -58,6 +58,10 @@ public sealed class YourInboxMessageEntity : GatewayMintedKeyEntity
 
     /// <summary>When the owner archived it (UTC), or null while it is in the inbox.</summary>
     public DateTime? ArchivedAtUtc { get; set; }
+
+    /// <summary>The website's own key for this message (brief E), so a retried run writes it once: a second message with
+    /// the same key in the same account is answered with the first. Null for every message the website did not write.</summary>
+    public string? WebsiteKey { get; set; }
 }
 
 /// <summary>

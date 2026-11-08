@@ -6472,6 +6472,39 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("turn_verdict_traces", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.WebsiteInboxKeyEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedByDeviceId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastUsedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId");
+
+                    b.HasIndex("KeyHash")
+                        .IsUnique();
+
+                    b.ToTable("website_inbox_keys", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.WingmanInstructionEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6968,9 +7001,16 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("tenant_id");
 
+                    b.Property<string>("WebsiteKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "WebsiteKey")
+                        .IsUnique();
 
                     b.HasIndex("TenantId", "State", "SentAtUtc");
 

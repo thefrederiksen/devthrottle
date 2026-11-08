@@ -10,6 +10,7 @@ import {
 import { formatSnoozeLength, snoozeDraftFrom, snoozeMinutesFrom, type SnoozeUnit } from "./snoozeFormat";
 import { ACCOUNT_SCOPE, CardHead, errText, useGatewaySettings } from "./settingsShared";
 import { disablePush, enablePush, isPushSubscribed, notificationPermission, pushSupported } from "../push/register";
+import { WebsiteInboxCard } from "./WebsiteInboxCard";
 import "./settings.css";
 
 // ---- "Notifications" tab: how a session that needs you reaches you --------------------------------
@@ -31,6 +32,7 @@ export function NotificationsTab() {
       <NotificationsCard />
       <DailyReportCard />
       <MentorReportCard />
+      <WebsiteInboxCard />
     </>
   );
 }

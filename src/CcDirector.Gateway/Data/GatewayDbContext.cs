@@ -508,6 +508,10 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>What an agent did to a Your inbox message, one row per act (the owner's decision of 7 November 2026).</summary>
     public DbSet<YourInboxAgentActionEntity> YourInboxAgentActions => Set<YourInboxAgentActionEntity>();
 
+    /// <summary>The website's key to one account's Your inbox (<c>website_inbox_keys</c>, brief E). Global: a presented key
+    /// is found by its hash before any account is known, and the account is read off the row.</summary>
+    public DbSet<WebsiteInboxKeyEntity> WebsiteInboxKeys => Set<WebsiteInboxKeyEntity>();
+
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
     /// days.</summary>
@@ -1415,6 +1419,10 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.State).HasMaxLength(16);
             // The list reads one view (inbox or archived) newest first, and the Inbox entry counts the unread.
             b.HasIndex(e => new { e.TenantId, e.State, e.SentAtUtc });
+            // The website's retry key (brief E): one message per key per account. Every other message holds null, and
+            // both providers let a unique index hold many nulls.
+            b.Property(e => e.WebsiteKey).HasMaxLength(200);
+            b.HasIndex(e => new { e.TenantId, e.WebsiteKey }).IsUnique();
         });
 
         modelBuilder.Entity<YourInboxReplyEntity>(b =>
@@ -1429,6 +1437,18 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.SentBy).HasMaxLength(200);
             // A message's replies are read beside it, in the order they were sent.
             b.HasIndex(e => new { e.TenantId, e.MessageId, e.SentAtUtc });
+        });
+
+        modelBuilder.Entity<WebsiteInboxKeyEntity>(b =>
+        {
+            b.ToTable("website_inbox_keys");
+            // ONE key per account: making a new one replaces the hash, so the old one stops working at once.
+            b.HasKey(e => e.TenantId);
+            b.Property(e => e.TenantId).HasMaxLength(200);
+            b.Property(e => e.KeyHash).HasMaxLength(64);
+            b.Property(e => e.CreatedByDeviceId).HasMaxLength(200);
+            // The lookup every website request makes: a presented key's hash to its account.
+            b.HasIndex(e => e.KeyHash).IsUnique();
         });
 
         modelBuilder.Entity<YourInboxAgentActionEntity>(b =>
@@ -2906,6 +2926,10 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.FromKind).UseCollation("C");
             modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.WebsiteKey).UseCollation("C");
+            // The website's key (brief E): the hash lookup and the account key must match byte for byte on both providers.
+            modelBuilder.Entity<WebsiteInboxKeyEntity>().Property(e => e.TenantId).UseCollation("C");
+            modelBuilder.Entity<WebsiteInboxKeyEntity>().Property(e => e.KeyHash).UseCollation("C");
             modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.RoutedTo).UseCollation("C");
             modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.Factory).UseCollation("C");

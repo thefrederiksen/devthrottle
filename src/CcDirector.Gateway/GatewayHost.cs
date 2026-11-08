@@ -379,6 +379,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Your inbox: the owner's own mailbox, written by sessions and factories (Factory Inbox mission, phase 3).</summary>
     internal Inbox.YourInboxStore YourInbox { get; }
 
+    /// <summary>The website's key to one account's Your inbox (brief E).</summary>
+    internal Inbox.WebsiteInboxKeyStore WebsiteInboxKeys { get; }
+
     /// <summary>The push to the phones of a system alert written into Your inbox.</summary>
     internal Push.YourInboxAlertPushNotifier YourInboxAlertPush { get; }
 
@@ -2742,6 +2745,7 @@ public sealed class GatewayHost : IAsyncDisposable
         FactoryInbox = new Factory.Inbox.FactoryInboxStore(_gatewayDb, Transcription.TenantGlossary.Load);
         FactoryInboxWakes = new Factory.Inbox.FactoryInboxWakeStore(_gatewayDb);
         YourInbox = new Inbox.YourInboxStore(_gatewayDb);
+        WebsiteInboxKeys = new Inbox.WebsiteInboxKeyStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -6990,6 +6994,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // of the calling session. A reply to a running session goes into its inbox as a notice from the Gateway - read when
         // it is free, never typed mid-turn; a reply to an ended one is not sent, and the owner is offered a new session.
         // The agent's send to a factory is a factory route, so it goes on the factory gate's group (issue #4774).
+        // Brief E: the website adds a message to the owner's Your inbox with its own key, which the owner makes from his phone
+        // or Cockpit. No push to the phone.
+        Api.WebsiteInboxEndpoints.Map(_app, new Api.WebsiteInboxEndpoints.Parts(
+            Keys: WebsiteInboxKeys,
+            Inbox: YourInbox,
+            ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            NowUtc: () => DateTime.UtcNow));
+
         Api.YourInboxEndpoints.Map(_app, factoryGate, new Api.YourInboxEndpoints.Parts(
             Store: YourInbox,
             ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),

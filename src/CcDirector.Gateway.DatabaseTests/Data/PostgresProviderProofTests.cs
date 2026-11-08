@@ -449,6 +449,11 @@ public sealed class PostgresProviderProofTests
             // the session id an exact key.
             ("your_inbox_agent_actions", "Action"),
             ("your_inbox_agent_actions", "SessionId"),
+            // The website's key to one account's Your inbox (brief E): the hash lookup and the account key, and the retry
+            // key on a website message, must match byte for byte as they do on SQLite.
+            ("website_inbox_keys", "KeyHash"),
+            ("website_inbox_keys", "TenantId"),
+            ("your_inbox_messages", "WebsiteKey"),
             ("your_inbox_messages", "Factory"),
             ("your_inbox_messages", "FromKind"),
             ("your_inbox_messages", "SessionId"),

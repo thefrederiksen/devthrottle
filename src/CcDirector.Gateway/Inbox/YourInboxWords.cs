@@ -31,7 +31,49 @@ public static class YourInboxWords
         /// <see cref="LicensesSeat"/>, <see cref="SessionSupervisorSeat"/>), and a message through the owner email route from a
         /// caller that named no session (<see cref="OwnerEmailSeat"/>). Nobody reads a reply to it.</summary>
         public const string Gateway = "gateway";
+
+        /// <summary>The website, devthrottle.com, telling the owner something it used to email him (brief E, 8 November
+        /// 2026), with its own key to this one account (<c>POST /gateway/website/inbox</c>). Shown from "DevThrottle website
+        /// - &lt;what&gt;" (<see cref="WebsiteFromLabel"/>). Nobody reads a reply to it.</summary>
+        public const string Website = "website";
     }
+
+    /// <summary>WHAT THE WEBSITE MAY TELL THE OWNER (brief E): the closed list of its messages, stored as the message's seat.
+    /// A new one is one edit here; anything else is refused by the route.</summary>
+    public static class WebsiteSeats
+    {
+        /// <summary>The daily AI cost check, when the cost does not match the provider's bill (api/ai-cost.js).</summary>
+        public const string AiCost = "ai-cost";
+
+        /// <summary>The Sunday weekly conversion report (api/weekly-report.js).</summary>
+        public const string WeeklyReport = "weekly-report";
+
+        /// <summary>A Managed Factory signup (api/factory-apply.js).</summary>
+        public const string FactoryApplication = "factory-application";
+
+        /// <summary>The booking page: a new booking, and the hourly check that guests can book (api/_lib/booking).</summary>
+        public const string Booking = "booking";
+
+        /// <summary>The internal summary of the creator report, run by hand (api/creator-report.js).</summary>
+        public const string CreatorReport = "creator-report";
+
+        public static readonly IReadOnlyList<string> All = [AiCost, WeeklyReport, FactoryApplication, Booking, CreatorReport];
+    }
+
+    /// <summary>Who a website message is from, as the owner reads it.</summary>
+    public static string WebsiteFromLabel(string? seat) => "DevThrottle website - " + seat switch
+    {
+        WebsiteSeats.AiCost => "AI cost check",
+        WebsiteSeats.WeeklyReport => "Weekly report",
+        WebsiteSeats.FactoryApplication => "Factory application",
+        WebsiteSeats.Booking => "Booking",
+        WebsiteSeats.CreatorReport => "Creator report",
+        _ => throw new ArgumentOutOfRangeException(nameof(seat), seat, "not a seat a website message is written from"),
+    };
+
+    /// <summary>What the reply route answers when a reply is posted to a website message.</summary>
+    public const string NoReplyToWebsite =
+        "This message is from the DevThrottle website, not from a session or a factory, so nobody reads a reply to it. Nothing was sent.";
 
     /// <summary>The seat a Gateway message is written from: the 08:00 morning report.</summary>
     public const string MorningReportSeat = "morning report";

@@ -391,6 +391,51 @@ public sealed class YourInboxStore
         };
     }
 
+    /// <summary>
+    /// A MESSAGE FROM THE WEBSITE (brief E, 8 November 2026): from devthrottle.com, seat one of
+    /// <see cref="YourInboxWords.WebsiteSeats"/>, unread, carrying the website's own retry key when it gave one. Nothing is
+    /// cut: the route measures the subject and body first and refuses what is over the limits, so the website emails it
+    /// instead. A value over a limit here is a defect.
+    /// </summary>
+    public static YourInboxMessageEntity ForWebsite(TenantId tenant, string seat, string subject, string body, string? websiteKey, DateTime nowUtc)
+    {
+        if (!YourInboxWords.WebsiteSeats.All.Contains(seat))
+            throw new ArgumentOutOfRangeException(nameof(seat), seat, "not a seat a website message is written from");
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+        subject = subject.Trim();
+        if (subject.Length > MaxSubjectLength || subject.Contains('\n') || subject.Contains('\r'))
+            throw new ArgumentException($"A website subject must be one line of at most {MaxSubjectLength} characters; the route measures it first.", nameof(subject));
+        if (body.Length > MaxBodyLength)
+            throw new ArgumentException($"A website body of {body.Length} characters is over the limit of {MaxBodyLength}; the route measures it first.", nameof(body));
+        return new YourInboxMessageEntity
+        {
+            TenantId = tenant.Value,
+            Subject = subject,
+            Body = body,
+            FromKind = YourInboxWords.Senders.Website,
+            Seat = seat,
+            WebsiteKey = string.IsNullOrWhiteSpace(websiteKey) ? null : websiteKey.Trim(),
+            State = YourInboxWords.States.Unread,
+            SentAtUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+        };
+    }
+
+    /// <summary>The message the website already wrote with <paramref name="websiteKey"/> in this account, or null.</summary>
+    public YourInboxMessageEntity? WebsiteMessageOf(TenantId tenant, string websiteKey)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.YourInboxMessages.AsNoTracking().FirstOrDefault(m => m.WebsiteKey == websiteKey);
+    }
+
+    /// <summary>How many messages the website wrote in this account since <paramref name="sinceUtc"/>.</summary>
+    public int WebsiteCountSince(TenantId tenant, DateTime sinceUtc)
+    {
+        var since = DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc);
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.YourInboxMessages.AsNoTracking().Count(m => m.FromKind == YourInboxWords.Senders.Website && m.SentAtUtc >= since);
+    }
+
     /// <summary>The 08:00 message about problems in no factory already written for the boundary, or null.</summary>
     public YourInboxMessageEntity? NoFactoryMorningOf(TenantId tenant, DateTime boundaryUtc)
     {
