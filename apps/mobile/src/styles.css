@@ -133,6 +133,9 @@ body {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
+  /* A Back that is a <button> (the session screens', which carries router state) draws in the page's font like the
+     <a> ones, not the browser's default button font. */
+  font-family: inherit;
   color: var(--accent);
   font-size: 15px;
   font-weight: 700;
@@ -3139,15 +3142,14 @@ a.banner-btn {
 }
 
 /* ===== The session app bar (owner design review, "Option A") =====
-   One header for Chat, Terminal and Voice mode: back-to-Sessions on the left (navigation, identical
-   on every screen), the title in the middle, and an overflow menu on the right holding the rare
+   One header for Chat, Terminal and Voice: Back on the left (navigation, identical on every screen), the title in the middle, and an overflow menu on the right holding the rare
    verbs. This replaces the old three-slab .session-manage row, in which navigation, Snooze and a
    destructive Remove were the same size and colour, sitting directly under the Voice mode tab -
    which is how Remove got mis-tapped.
 
    Layout, and why it is two rows:
 
-     row 1:  [<- Sessions] ..... ( o Fast ) ..... [...]    navigation left, indicator centre, menu right
+     row 1:  [Back] ...... [Mission] [!4] [bell] [...]     navigation left, menu right
      row 2:  102 devthrottle / f9e7                        the name gets the whole row
 
    The corner belongs to the CONTROL, not an indicator. This bar used to put the menu button on the
@@ -3186,13 +3188,6 @@ a.banner-btn {
 /* The small red "Not delivered" chip rides the end of the title row, so it adds no row of its own. */
 .session-title-row .nd-root {
   margin-left: 8px;
-}
-
-/* Back is NAVIGATION, so it is quiet chrome, not a saturated slab competing with the actions. It
-   keeps the >= 44x44 tap target .back-link has always guaranteed (issue #1004). */
-.session-back {
-  padding: 8px 12px;
-  font-size: 14px;
 }
 
 .session-menu-wrap {

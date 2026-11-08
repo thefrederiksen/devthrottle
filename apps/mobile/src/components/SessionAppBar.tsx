@@ -30,7 +30,7 @@ import { AppBarAlerts } from "./AppBarAlerts";
 // (see ConnectionBanner - the app says nothing while the connection is fine). The corner is the
 // button's for good. Nothing guesses any widths: both rows are plain flex.
 //
-//   row 1:  [<- Sessions] ................... [...]     navigation left, menu right
+//   row 1:  [Back] ...... [Mission] [!4] [bell] [...]   navigation left, menu right
 //   row 2:  102 devthrottle / f9e7 .....................  the name gets the whole row
 //
 // THE STOP SHEET IS A PLAIN CONFIRMATION (issue internal#1992). It was built as the Cockpit's stop
@@ -157,15 +157,18 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
   return (
     <>
       <header className="app-bar session-app-bar">
+        {/* The same Back every other phone screen has (Web UI Polish, 7 November 2026): the word "Back" in the shared
+            .back-link chrome. It was "<- Sessions" in a style of its own, and that extra width is part of what pushed
+            the bell to nothing and the menu off the screen. Its accessible name still says where it goes. */}
         <button
           type="button"
-          className="back-link session-back"
+          className="back-link"
           onClick={() =>
             navigate("/", backState !== undefined ? { state: backState, replace: true } : undefined)
           }
           aria-label="Back to sessions"
         >
-          &larr; Sessions
+          Back
         </button>
 
         {/* The spacer pushes the menu button to the corner and guesses no widths. It used to be two
