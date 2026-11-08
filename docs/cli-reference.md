@@ -2722,6 +2722,7 @@ USAGE: cc-devthrottle maildesk [--gateway URL] COMMAND [ARGS]...
 
 COMMANDS:
   status [--json]
+  providers [PROVIDER] [--json]
   channel list [--all] [--json]
   channel add ADDRESS --provider outlook|gmail --machine MACHINE [--machine BACKUP] --why "TEXT"
   channel remove ADDRESS --why "TEXT"
@@ -2740,6 +2741,12 @@ COMMANDS:
 ```
 
 A `PATTERN` is an exact address or `*@domain`. A block entry's own reason is its `--why`.
+
+- **`providers` is the one list of what is supported.** For each provider it prints the tool an agent uses, how many email and calendar features were proven to work
+  and how many failed or were not tested, and whether the Mail Desk reads it. `providers PROVIDER` prints
+  one in full: every proven feature, every one that failed or was not tested and why, and what the
+  provider needs before a mailbox can be added. The list is the Gateway's
+  (`GET /gateway/mail-desk/providers`); nothing is listed as working without proof.
 
 - **Every change needs `--why`.** A change without one, or with a blank one, fails with exit 2 before
   anything is sent.

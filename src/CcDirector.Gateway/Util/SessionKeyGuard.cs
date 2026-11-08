@@ -1451,7 +1451,8 @@ public static class SessionKeyGuard
             // /status and /decisions are reads; /channels is read and added to; /rules is a read.
             3 => s[2] switch
             {
-                "status" or "decisions" or "rules" => read,
+                // /providers - what is supported, by provider (mission "Zoho Mail Skill"): a read.
+                "status" or "decisions" or "rules" or "providers" => read,
                 "channels" => read || write,
                 // /settings - the thresholds and the spend limit: read, and changed (phase 3).
                 "settings" => read || write,

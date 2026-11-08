@@ -1594,6 +1594,15 @@ _ACTIONS = [
         "args": [],
     },
     {
+        "id": "maildesk-providers",
+        "description": "What is supported, by provider: the tool, what was proven for email and calendar, whether "
+        "the Mail Desk reads it, and what the provider needs before a mailbox can be added. Read this before "
+        "saying a provider works.",
+        "command": "cc-devthrottle maildesk providers [<provider>]",
+        "mutatesState": False,
+        "args": [{"name": "provider", "required": False}],
+    },
+    {
         "id": "maildesk-channel-list",
         "description": "List the mailboxes the Mail Desk reads, with the mode, sign-in and last check the Gateway decided.",
         "command": "cc-devthrottle maildesk channel list [--all]",
@@ -6121,6 +6130,17 @@ def maildesk_decisions(
 ) -> None:
     """What the Mail Desk decided, newest first."""
     maildesk_ops.decisions(since, layer, decision, channel, count, json_output)
+
+
+@maildesk_app.command("providers")
+def maildesk_providers(
+    provider: Optional[str] = typer.Argument(
+        None, help="One provider in full. The Gateway holds the list; run with no provider to see them all."
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON. The provider filter still applies."),
+) -> None:
+    """What is supported, by provider: tool, proven features, Mail Desk, needs."""
+    maildesk_ops.providers(provider, json_output)
 
 
 @maildesk_channel_app.command("list")

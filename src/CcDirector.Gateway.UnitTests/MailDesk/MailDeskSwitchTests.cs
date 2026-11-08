@@ -258,6 +258,7 @@ public sealed class MailDeskSwitchTests : IDisposable
         "GET " + MailDeskGate.Prefix + "/decisions",
         "GET " + MailDeskGate.Prefix + "/settings",
         "POST " + MailDeskGate.Prefix + "/settings",
+        "GET " + MailDeskGate.Prefix + "/providers",
     };
 
     private static IReadOnlyList<RouteEndpoint> Endpoints(WebApplication app)

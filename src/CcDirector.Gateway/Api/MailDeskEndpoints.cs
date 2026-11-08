@@ -124,9 +124,10 @@ internal static class MailDeskEndpoints
         gate.MapPost(p + "/rules/{list}/remove", (HttpContext ctx, string list, CancellationToken ct) => RemoveEntryAsync(ctx, list, resolveTenant, parts, ct));
         gate.MapGet(p + "/decisions", (HttpContext ctx, CancellationToken _) => ListDecisions(ctx, resolveTenant, parts));
         gate.MapGet(p + "/settings", (HttpContext ctx, CancellationToken _) => ReadSettings(ctx, resolveTenant, parts));
+        gate.MapGet(p + "/providers", (HttpContext ctx, CancellationToken _) => ListProviders(ctx, resolveTenant));
         gate.MapPost(p + "/settings", (HttpContext ctx, CancellationToken ct) => SetSettingAsync(ctx, resolveTenant, parts, ct));
 
-        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions and settings");
+        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions, settings and providers");
     }
 
     // ---------- reads ----------
@@ -171,6 +172,38 @@ internal static class MailDeskEndpoints
                 steps = MailDeskChannelFold.HowItWorksSteps,
             },
             help = folded.Channels.Count == 0 ? NoChannelHelp : Array.Empty<string>(),
+        });
+    }
+
+    /// <summary>
+    /// What is supported, by provider (<see cref="MailDeskProviders"/>): every provider, or the one <c>?provider=</c>
+    /// names. An unknown provider is refused, naming the ones there are.
+    /// </summary>
+    internal static IResult ListProviders(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant)
+    {
+        const string route = "GET /providers";
+        var tenant = Tenant(ctx, resolveTenant);
+        var all = MailDeskProviders.All;
+        var asked = ctx.Request.Query["provider"].ToString();
+        IReadOnlyList<MailDeskProvider> shown = all;
+        if (asked.Length > 0)
+        {
+            var one = MailDeskProviders.Find(asked.Trim());
+            if (one is null)
+                return Refuse(route, StatusCodes.Status400BadRequest, "no_such_provider",
+                    $"'{asked}' is not a provider; the providers are {string.Join(", ", all.Select(p => p.Provider))}");
+            shown = new[] { one };
+        }
+        FileLog.Write($"[{Tag}] {route}: account={tenant.ToLogString()} provider={(asked.Length > 0 ? asked : "all")} count={shown.Count}");
+        var onDesk = all.Count(p => p.MailDesk.State == MailDeskProviders.MailDeskStates.Yes);
+        return Results.Json(new
+        {
+            count = shown.Count,
+            total = all.Count,
+            mailDesk = onDesk,
+            notYet = all.Count - onDesk,
+            summary = MailDeskProviders.SummaryOf(all),
+            providers = shown,
         });
     }
 
