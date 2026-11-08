@@ -86,7 +86,7 @@ public sealed class AccountEmailInMailTests : IAsyncLifetime
         _db = _h.Open();
         _store = new YourInboxStore(_db);
         var account = new DevThrottleAccountService(new InMemoryTokenStore(), new JwtAccessTokenValidator(GatewayTestJwt.SigningSecret), new NoRefresher());
-        account.StoreTokens(new DevThrottleTokens(GatewayTestJwt.CreateWithIdentity(DateTime.UtcNow.AddDays(1), "owner@example.com", "github"), "refresh-1"));
+        account.StoreTokens(new DevThrottleTokens(GatewayTestJwt.CreateWithIdentity(new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), "owner@example.com", "github"), "refresh-1"));
         var boundary = new Tenancy.HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
 
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
