@@ -162,8 +162,10 @@ public sealed class YourInboxStore
     /// already decided - can never write a second one. The subject says what was decided about which message; the body
     /// is the Boss's why, in its words, and the owner's own message beneath it.
     /// </summary>
+    /// <param name="leftByAgent">For a message an agent left in the factory (the owner's decision of 7 November 2026), that
+    /// agent as the message names it - <c>session 114 "..."</c> - so the body never calls it the owner's; null for his own.</param>
     public static YourInboxMessageEntity ForBossDecision(TenantId tenant, string factory, string bossSessionId, Guid factoryMessageId,
-        string ownerText, DateTime ownerSentAtUtc, string kind, string why, DateTime nowUtc)
+        string ownerText, DateTime ownerSentAtUtc, string kind, string why, DateTime nowUtc, string? leftByAgent = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(factory);
         ArgumentException.ThrowIfNullOrWhiteSpace(bossSessionId);
@@ -176,7 +178,8 @@ public sealed class YourInboxStore
         var firstLine = ownerText.Trim().Split('\n')[0].Trim();
         var subject = $"{label}: {firstLine}";
         if (subject.Length > MaxSubjectLength) subject = subject[..(MaxSubjectLength - 3)].TrimEnd() + "...";
-        var body = $"{label}. The Boss's reason:\n{why.Trim()}\n\nYour message (sent {ownerSentAtUtc:yyyy-MM-dd HH:mm} UTC):\n{ownerText}";
+        var whose = leftByAgent is null ? "Your message" : $"The message an agent left, {leftByAgent}";
+        var body = $"{label}. The Boss's reason:\n{why.Trim()}\n\n{whose} (sent {ownerSentAtUtc:yyyy-MM-dd HH:mm} UTC):\n{ownerText}";
         if (body.Length > MaxStoredBodyLength)
             throw new InvalidOperationException(
                 $"A Boss's decision made a Your inbox body of {body.Length} characters, over the stored limit of {MaxStoredBodyLength}; the why and message limits should make that impossible.");

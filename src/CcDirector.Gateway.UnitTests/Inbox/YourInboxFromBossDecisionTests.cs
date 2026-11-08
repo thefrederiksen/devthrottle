@@ -76,6 +76,25 @@ public sealed class YourInboxFromBossDecisionTests : IDisposable
     }
 
     [Fact]
+    public async Task Decide_Declined_OnAMessageAnAgentLeft_NamesTheAgent_NeverCallsItTheOwnersMessage()
+    {
+        // The owner's decision of 7 November 2026: a message an agent leaves in a factory is shown as from that agent,
+        // never as from the owner - and that holds for what the Boss's decline tells the owner too.
+        var id = (await _factoryInbox.SendAsync(A, new FactoryInboxSendInput(Factory, "Check the invoice totals.", FactoryInboxWords.Notes.None,
+            FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Session, Worker, T0,
+            SessionNumber: 114, SessionName: "Factory Inbox - Delivery Lead"))).Id;
+        ReceiveAndHand(null, id);
+
+        Decide(id, FactoryInboxWords.Decisions.Declined, "We already do this every Monday.");
+
+        var message = Assert.Single(_yourInbox.List(A, YourInboxWords.Views.Inbox, 10).Messages);
+        Assert.Equal("Declined. The Boss's reason:\nWe already do this every Monday.\n\n" +
+                     "The message an agent left, session 114 \"Factory Inbox - Delivery Lead\" (sent 2026-11-04 09:00 UTC):\n" +
+                     "Check the invoice totals.", message.Body);
+        Assert.DoesNotContain("Your message", message.Body);
+    }
+
+    [Fact]
     public void Decide_Declined_TellsTheOwnerWhatWasDecided_Why_AndHisOwnMessage()
     {
         var id = Send("Check the invoice totals.\nThe March ones look wrong.");

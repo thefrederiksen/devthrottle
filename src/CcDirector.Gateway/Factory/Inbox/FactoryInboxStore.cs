@@ -557,7 +557,10 @@ public sealed class FactoryInboxStore
             // decision and its message stand or fall together. Delegated, To do and Noted write none.
             if (FactoryInboxWords.Decisions.TellsTheOwner(kind))
                 ctx.YourInboxMessages.Add(CcDirector.Gateway.Inbox.YourInboxStore.ForBossDecision(
-                    tenant, factory, bossSessionId, message.Id, message.Text, message.SentAtUtc, kind, reason!, nowUtc));
+                    tenant, factory, bossSessionId, message.Id, message.Text, message.SentAtUtc, kind, reason!, nowUtc,
+                    message.Surface == FactoryInboxWords.Surfaces.Session
+                        ? CcDirector.Gateway.Inbox.YourInboxWords.AgentSession(message.SentBySessionNumber, message.SentBySessionName)
+                        : null));
             try
             {
                 ctx.SaveChanges();
