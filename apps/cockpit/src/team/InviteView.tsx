@@ -6,6 +6,7 @@ import {
   listInvitations,
   resendInvitation,
   sendInvitation,
+  type InvitationAdded,
   type InvitationSent,
   type InviteOptions,
   type TeamInvitation,
@@ -44,7 +45,7 @@ export function InviteView({ teamId }: { teamId: string }) {
   const [role, setRole] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [sent, setSent] = useState<InvitationSent | null>(null);
+  const [sent, setSent] = useState<InvitationAdded | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [rowNote, setRowNote] = useState<string | null>(null);
   // The new link a Resend made, shown once beside the waiting invitations.
@@ -181,11 +182,9 @@ export function InviteView({ teamId }: { teamId: string }) {
         {sendError !== null && <ErrorBanner message={sendError} />}
         {sent !== null && (
           <p className={sent.email.sent ? "team-ok" : "team-warn"} role="status">
-            {sent.email.sent ? `Invitation sent to ${sent.invitation.email} as a ${sent.invitation.role}. ` : ""}
             {sent.email.message}
           </p>
         )}
-        {sent !== null && <InvitationLinkPanel link={sent.link} />}
       </section>
 
       <section className="team-card" aria-label="Waiting invitations">

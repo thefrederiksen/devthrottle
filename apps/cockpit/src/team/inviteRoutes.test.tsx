@@ -13,15 +13,15 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { Outlet, RouterProvider, createMemoryRouter } from "react-router-dom";
-import type { InviteOptions, TeamInvitation } from "@devthrottle/client-core/teams/invitationsClient";
+import type { InvitationAdded, InviteOptions, TeamInvitation } from "@devthrottle/client-core/teams/invitationsClient";
 import { rememberEnrollNext, takeEnrollNext } from "@devthrottle/client-core/auth/enrollRequest";
 
 const TOKEN = "q3J8vZ_x-0aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uVw";
 const TEAM = "3f1d2c9e-0000-4000-8000-000000000001";
-// The link as the Gateway's create and resend answers carry it (TeamInvitationLinkTests).
+// The link as the Gateway's resend answer carries it (TeamInvitationLinkTests). The answer to an add carries none.
 const LINK = {
   url: `https://gateway.example/invite/${TOKEN}`,
-  note: "Send this link to rob@any-domain.io yourself. Anyone signed in who opens it can join the team as Developer, so share it only with them. It is shown only now - if it is lost, Resend the invitation for a new link; the old one then stops working.",
+  note: "Send this link to rob@any-domain.io yourself. It works only for someone signed in with rob@any-domain.io, who can then join the team as Developer. It is shown only now - if it is lost, Resend the invitation for a new link; the old one then stops working.",
 };
 
 let deviceKey: string | null = null;
@@ -101,6 +101,14 @@ function invitation(overrides: Partial<TeamInvitation> = {}): TeamInvitation {
     canRespond: true,
     refusal: null,
     ...overrides,
+  };
+}
+
+// The answer to an add, as the Gateway sends it - the same whether or not the address had an account.
+function added(message: string): InvitationAdded {
+  return {
+    added: { teamId: TEAM, teamName: "Acme", email: "rob@any-domain.io", role: "Developer" },
+    email: { sent: true, message },
   };
 }
 
@@ -211,11 +219,7 @@ describe("the invite form (S2)", () => {
     deviceKey = "a-device-key";
     client.getInviteOptions.mockResolvedValue(options());
     client.listInvitations.mockResolvedValue([]);
-    client.sendInvitation.mockResolvedValue({
-      invitation: invitation({ email: "rob@any-domain.io" }),
-      email: { sent: true, message: "The invitation email is on its way." },
-      link: LINK,
-    });
+    client.sendInvitation.mockResolvedValue(added("An email is on its way to rob@any-domain.io about joining Acme as Developer."));
 
     mountAt(`/team/${TEAM}/invite`);
 
@@ -228,28 +232,40 @@ describe("the invite form (S2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
 
     await waitFor(() => expect(client.sendInvitation).toHaveBeenCalledWith(TEAM, "rob@any-domain.io", "Developer"));
-    expect(await screen.findByText(/Invitation sent to rob@any-domain\.io as a Developer\./)).toBeTruthy();
+    expect(await screen.findByText("An email is on its way to rob@any-domain.io about joining Acme as Developer.")).toBeTruthy();
   });
 
-  it("shows the sender the accept link once, with the Gateway's sentence, and Copy invitation link copies it", async () => {
+  it("shows no link after an add - the email carries it - and the Gateway's sentence when the email was not sent", async () => {
+    deviceKey = "a-device-key";
+    client.getInviteOptions.mockResolvedValue(options());
+    client.listInvitations.mockResolvedValue([]);
+    const notSent = "This is saved, but the email to rob@any-domain.io was not sent: not configured.";
+    client.sendInvitation.mockResolvedValue({ ...added(notSent), email: { sent: false, message: notSent } });
+
+    mountAt(`/team/${TEAM}/invite`);
+    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: "rob@any-domain.io" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    expect(await screen.findByText(notSent)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy invitation link" })).toBeNull();
+    expect(screen.queryByLabelText("The invitation link")).toBeNull();
+  });
+
+  it("shows the sender the accept link once after Resend, with the Gateway's sentence, and Copy invitation link copies it", async () => {
     deviceKey = "a-device-key";
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue();
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     client.getInviteOptions.mockResolvedValue(options());
-    client.listInvitations.mockResolvedValue([]);
-    client.sendInvitation.mockResolvedValue({
-      invitation: invitation({ email: "rob@any-domain.io" }),
-      email: { sent: false, message: "The invitation is saved, but its email was not sent: not configured. Resend it from the team's invitations." },
+    client.listInvitations.mockResolvedValue([invitation()]);
+    client.resendInvitation.mockResolvedValue({
+      invitation: invitation(),
+      email: { sent: true, message: "The invitation email is on its way." },
       link: LINK,
     });
 
     mountAt(`/team/${TEAM}/invite`);
-    // Before anything is sent there is no link on the page.
-    await screen.findByRole("button", { name: "Send invitation" });
-    expect(screen.queryByRole("button", { name: "Copy invitation link" })).toBeNull();
-
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "rob@any-domain.io" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+    // Before anything is resent there is no link on the page.
+    fireEvent.click(await screen.findByRole("button", { name: "Resend" }));
 
     const field = (await screen.findByLabelText("The invitation link")) as HTMLInputElement;
     expect(field.value).toBe(LINK.url);
@@ -265,29 +281,21 @@ describe("the invite form (S2)", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) }, configurable: true });
     client.getInviteOptions.mockResolvedValue(options());
     client.listInvitations.mockResolvedValue([invitation()]);
-    client.sendInvitation.mockResolvedValue({
-      invitation: invitation({ email: "rob@any-domain.io" }),
-      email: { sent: true, message: "The invitation email is on its way." },
-      link: LINK,
-    });
     const noAddress = "The invitation is saved, but this Gateway has no public address right now, so its link cannot be shown. Resend it once the address is back.";
-    client.resendInvitation.mockResolvedValue({
-      invitation: invitation(),
-      email: { sent: true, message: "The invitation email is on its way." },
-      link: { url: null, note: noAddress },
-    });
+    client.resendInvitation
+      .mockResolvedValueOnce({ invitation: invitation(), email: { sent: true, message: "The invitation email is on its way." }, link: LINK })
+      .mockResolvedValueOnce({ invitation: invitation(), email: { sent: true, message: "The invitation email is on its way." }, link: { url: null, note: noAddress } });
 
     mountAt(`/team/${TEAM}/invite`);
-    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: "rob@any-domain.io" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resend" }));
     fireEvent.click(await screen.findByRole("button", { name: "Copy invitation link" }));
     // The refusal is reported (describeAndReport) and said in place, with the way round it.
     const refusal = await screen.findByText(/Select the link above and copy it yourself\./);
     expect(refusal.textContent).toContain("the browser did not allow copying to the clipboard");
 
-    fireEvent.click(screen.getByRole("button", { name: "Resend" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resend" }));
     expect(await screen.findByText(noAddress)).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Copy invitation link" })).toHaveLength(1);   // only the send's
+    expect(screen.queryByRole("button", { name: "Copy invitation link" })).toBeNull();
   });
 
   it("says why nothing can be sent when the Gateway blocks the form, and keeps Send disabled", async () => {

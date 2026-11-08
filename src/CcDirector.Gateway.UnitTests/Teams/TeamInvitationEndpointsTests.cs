@@ -25,6 +25,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly GatewayDatabase _db;
+    private readonly TenantRegistry _tenants;
     private readonly TeamRegistry _teams;
     private readonly RecordingMailer _mailer = new();
     private readonly string _team;
@@ -32,9 +33,9 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     public TeamInvitationEndpointsTests()
     {
         _db = _harness.Open();
-        var tenants = new TenantRegistry(_db);
-        tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
-        _teams = new TeamRegistry(_db, tenants, readTeamBill: _ => new TeamBill(true, true, "active", 1));
+        _tenants = new TenantRegistry(_db);
+        _tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
+        _teams = new TeamRegistry(_db, _tenants, readTeamBill: _ => new TeamBill(true, true, "active", 1));
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _teams.AddMember(_team, Developer, TeamRole.Developer);
     }
@@ -42,40 +43,75 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     public void Dispose() => _harness.Dispose();
 
     [Fact]
-    public async Task CreateAsync_Stored_IsCreatedAndAsksTheMailerForThatInvitationOnly()
+    public async Task CreateAsync_NewAddress_IsCreatedAndAsksTheMailerForTheInvitationOnly()
     {
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Owner, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("Anna@Example.com", "developer"), CancellationToken.None));
 
         Assert.Equal(201, status);
-        var invitation = body.GetProperty("invitation");
-        Assert.Equal("anna@example.com", invitation.GetProperty("email").GetString());
-        Assert.Equal("Developer", invitation.GetProperty("role").GetString());
-        Assert.Equal("sent", invitation.GetProperty("state").GetString());
-        Assert.False(invitation.TryGetProperty("acceptToken", out _));
+        var added = body.GetProperty("added");
+        Assert.Equal("anna@example.com", added.GetProperty("email").GetString());
+        Assert.Equal("Developer", added.GetProperty("role").GetString());
         var sent = Assert.Single(_mailer.Sent);
-        Assert.Equal(invitation.GetProperty("id").GetString(), sent.Id);
-        // The link's secret went to the mailer, and into the answer only inside the link shown to the sender (Teams v1,
-        // copy the invitation link - TeamInvitationLinkTests); never as a field of its own.
+        Assert.Equal("invitation", sent.Kind);
         Assert.False(string.IsNullOrEmpty(sent.Token));
-        Assert.DoesNotContain(sent.Token, invitation.GetRawText());
-        Assert.DoesNotContain(sent.Token, body.GetProperty("email").GetRawText());
-        Assert.EndsWith("/invite/" + sent.Token, body.GetProperty("link").GetProperty("url").GetString());
+        Assert.DoesNotContain(sent.Token, body.GetRawText());
         Assert.True(body.GetProperty("email").GetProperty("sent").GetBoolean());
+        Assert.Null(_teams.RoleOf(_team, "sub-anna"));
     }
 
     [Fact]
-    public async Task CreateAsync_EmailNotSent_StillCreated_AndSaysWhyAndToResend()
+    public async Task CreateAsync_ExistingAccount_IsAddedWithoutALink_AndSentTheAddedEmail()
+    {
+        _tenants.MintOrLookupBySubject("sub-anna", "anna@example.com");
+
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
+            new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", "Developer"), CancellationToken.None));
+
+        Assert.Equal(201, status);
+        Assert.Equal(TeamRole.Developer, _teams.RoleOf(_team, "sub-anna"));
+        Assert.Equal("added", Assert.Single(_mailer.Sent).Kind);
+        Assert.False(body.TryGetProperty("link", out _));
+        Assert.DoesNotContain("/invite/", body.GetRawText());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CreateAsync_ExistingAccountOrNot_TheAnswerIsTheSame(bool emailSent)
+    {
+        // Arrange: two teams that differ only in whether the address already has an account.
+        if (!emailSent)
+            _mailer.Answer = new TeamInvitationMailResult(false, "The email service is down.", 503, null);
+        var other = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
+        _tenants.MintOrLookupBySubject("sub-anna", "anna@example.com");
+
+        // Act: the same add, to an address with an account and to one without.
+        var (withStatus, withAccount) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, other,
+            new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", "Developer"), CancellationToken.None));
+        var (withoutStatus, withoutAccount) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
+            new TeamInvitationEndpoints.CreateInvitationRequest("brand.new@example.com", "Developer"), CancellationToken.None));
+
+        // Assert: one was added at once and one invited, and the answers differ only by the address and the team id typed.
+        Assert.Equal(new[] { "added", "invitation" }, _mailer.Sent.Select(s => s.Kind));
+        Assert.Equal(withoutStatus, withStatus);
+        var normalisedWith = withAccount.GetRawText().Replace("anna@example.com", "X").Replace(other, "T");
+        var normalisedWithout = withoutAccount.GetRawText().Replace("brand.new@example.com", "X").Replace(_team, "T");
+        Assert.Equal(normalisedWithout, normalisedWith);
+    }
+
+    [Fact]
+    public async Task CreateAsync_EmailNotSent_StillCreated_AndSaysWhy()
     {
         _mailer.Answer = new TeamInvitationMailResult(false, "The email service is down.", 503, null);
 
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Owner, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", "Collaborator"), CancellationToken.None));
 
         Assert.Equal(201, status);
         var email = body.GetProperty("email");
         Assert.False(email.GetProperty("sent").GetBoolean());
-        Assert.Equal("The invitation is saved, but its email was not sent: The email service is down. Resend it from the team's invitations.",
+        Assert.Equal("This is saved, but the email to anna@example.com was not sent: The email service is down. The team's page shows where they stand; a waiting invitation can be resent from there.",
             email.GetProperty("message").GetString());
     }
 
@@ -85,7 +121,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     [InlineData("Boss")]
     public async Task CreateAsync_NoRecognisableRole_IsABadRequestAndSendsNothing(string? role)
     {
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Owner, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", role), CancellationToken.None));
 
         Assert.Equal(400, status);
@@ -96,7 +132,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     [Fact]
     public async Task CreateAsync_DeveloperInviting_IsForbiddenAndSendsNothing()
     {
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Developer, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Developer, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", "Collaborator"), CancellationToken.None));
 
         Assert.Equal(403, status);
@@ -191,12 +227,18 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
 
     private sealed class RecordingMailer : ITeamInvitationMailer
     {
-        public List<(string Id, string Token)> Sent { get; } = new();
+        public List<(string Kind, string Id, string Token)> Sent { get; } = new();
         public TeamInvitationMailResult Answer { get; set; } = new(true, null, 200, null);
 
         public Task<TeamInvitationMailResult> SendAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default)
         {
-            Sent.Add((invitationId, acceptToken));
+            Sent.Add(("invitation", invitationId, acceptToken));
+            return Task.FromResult(Answer);
+        }
+
+        public Task<TeamInvitationMailResult> SendAddedAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default)
+        {
+            Sent.Add(("added", invitationId, acceptToken));
             return Task.FromResult(Answer);
         }
     }

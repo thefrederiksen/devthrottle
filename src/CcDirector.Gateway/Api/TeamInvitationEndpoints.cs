@@ -25,10 +25,17 @@ namespace CcDirector.Gateway.Api;
 /// records every path and query. (The accept PAGE's own address carries it; that one line is redacted in the access
 /// log - see <see cref="RedactForLog"/>.)
 ///
-/// THE LINK IS SHOWN ONCE, TO THE SENDER (Teams v1, copy the invitation link). The create and resend answers carry the
-/// full accept link, because the Gateway holds the raw secret only at that moment - it stores its hash - and the
-/// invitation email cannot be sent until the website's sender is live (devthrottle_internal#2316). It is in no other
-/// answer, never stored and never logged; a lost link is recovered by Resend, which makes a new one and retires the old.
+/// THE ANSWER TO AN ADD IS THE SAME WHETHER OR NOT THE ADDRESS HAD AN ACCOUNT (security review Risk 1, no account
+/// discovery). An address with exactly one account is made a member at once and sent a "you were added" email; any other
+/// is sent an invitation tied to that address. So the create answer carries NO accept link - a link in one case and none
+/// in the other would tell the person adding whether the address has an account - and the email carries it instead.
+/// (The team's own page shows members and waiting invitations; only its Owner and Managers add people, and that was
+/// ruled acceptable.)
+///
+/// THE LINK IS SHOWN TO THE SENDER ON RESEND. Resend applies only to a waiting invitation, which the team's page already
+/// shows as waiting, so its answer carries the new accept link once: the Gateway holds the raw secret only at that
+/// moment - it stores its hash. It is in no other answer, never stored and never logged; Resend makes a new one and
+/// retires the old.
 ///
 /// WHO IS ASKING comes from the caller's device key, exactly as on the other team routes
 /// (<see cref="TeamEndpoints.ResolveCaller"/>). DARK until the owner releases Teams: these routes are mapped only when
@@ -80,7 +87,7 @@ internal static class TeamInvitationEndpoints
             if (caller.Denial is not null) return caller.Denial;
             var body = await ReadBody<CreateInvitationRequest>(ctx, "{\"email\": \"<address>\", \"role\": \"Developer\"}").ConfigureAwait(false);
             if (body.Denial is not null) return body.Denial;
-            return await CreateAsync(teams, mailer, publicBase, caller.Subject!, teamId, body.Value, ctx.RequestAborted).ConfigureAwait(false);
+            return await CreateAsync(teams, mailer, caller.Subject!, teamId, body.Value, ctx.RequestAborted).ConfigureAwait(false);
         }));
 
         app.MapPost(root + "/{invitationId}/resend", (HttpContext ctx, string teamId, string invitationId) => Guarded("POST invitations/resend", async () =>
@@ -135,11 +142,17 @@ internal static class TeamInvitationEndpoints
         return Results.Json(new { count = list.Count, invitations = list.Select(Describe).ToList() });
     }
 
-    /// <summary>Invite, then ask the website to send the email. The invitation is stored before the email is asked
-    /// for, so an email that could not be sent is REPORTED with its reason (201 with <c>email.sent=false</c>) and the
-    /// invitation can be resent - it is never reported as sent, and never lost. The answer also carries the accept link,
-    /// for the sender to copy (<see cref="DescribeLink"/>).</summary>
-    internal static async Task<IResult> CreateAsync(TeamRegistry teams, ITeamInvitationMailer mailer, Func<string?> publicBase,
+    /// <summary>
+    /// Add someone by address, then ask the website to send the email: "you were added" to an address that has exactly
+    /// one account (it is a member already), the invitation to any other. The row is stored before the email is asked
+    /// for, so an email that could not be sent is REPORTED with its reason (201 with <c>email.sent=false</c>) - it is
+    /// never reported as sent, and nothing is lost.
+    ///
+    /// THE ANSWER IS THE SAME SHAPE AND WORDS EITHER WAY (<see cref="DescribeAdd"/>): the address, team and role the
+    /// person asked for, and whether an email went out. No state, no invitation id, no accept link and no account name -
+    /// any of them would tell the person adding whether the address already had an account.
+    /// </summary>
+    internal static async Task<IResult> CreateAsync(TeamRegistry teams, ITeamInvitationMailer mailer,
         string callerSubject, string teamId, CreateInvitationRequest? body, CancellationToken ct)
     {
         if (!TryParseRole(body?.Role, out var role))
@@ -149,10 +162,32 @@ internal static class TeamInvitationEndpoints
         if (result.Outcome != TeamInvitationOutcome.Done)
             return Answer(result, "create");
 
-        var mail = await mailer.SendAsync(result.Invitation!.Id, result.Invitation.TeamId, result.AcceptToken!, ct).ConfigureAwait(false);
-        var link = DescribeLink(publicBase, result.Invitation, result.AcceptToken!);
-        FileLog.Write($"[TeamInvitationEndpoints] POST invitations: stored, email sent={mail.Sent}, link shown={link.Url is not null}");
-        return Results.Json(new { invitation = Describe(result.Invitation), email = DescribeMail(mail), link }, statusCode: StatusCodes.Status201Created);
+        var invitation = result.Invitation!;
+        var mail = result.AddedAtOnce
+            ? await mailer.SendAddedAsync(invitation.Id, invitation.TeamId, result.AcceptToken!, ct).ConfigureAwait(false)
+            : await mailer.SendAsync(invitation.Id, invitation.TeamId, result.AcceptToken!, ct).ConfigureAwait(false);
+        FileLog.Write($"[TeamInvitationEndpoints] POST invitations: stored, addedAtOnce={result.AddedAtOnce}, email sent={mail.Sent}");
+        return Results.Json(DescribeAdd(invitation, mail), statusCode: StatusCodes.Status201Created);
+    }
+
+    /// <summary>
+    /// The answer to an add, built from what the person adding typed and chose - never from what the Gateway found. It
+    /// is the SAME for an address that had an account and one that did not (no account discovery).
+    /// </summary>
+    internal static object DescribeAdd(TeamInvitation invitation, CcDirector.Core.Account.TeamInvitationMailResult mail)
+    {
+        var role = TeamRoles.Label(invitation.Role);
+        return new
+        {
+            added = new { teamId = invitation.TeamId, teamName = invitation.TeamName, email = invitation.Email, role },
+            email = new
+            {
+                sent = mail.Sent,
+                message = mail.Sent
+                    ? $"An email is on its way to {invitation.Email} about joining {invitation.TeamName} as {role}."
+                    : $"This is saved, but the email to {invitation.Email} was not sent: {mail.Error} The team's page shows where they stand; a waiting invitation can be resent from there.",
+            },
+        };
     }
 
     /// <summary>Resend: a new 7 days and a new link, then the email again. The answer carries the new link for the sender
@@ -219,8 +254,9 @@ internal static class TeamInvitationEndpoints
     };
 
     /// <summary>
-    /// The accept link for the sender to copy, worded here (rule 7): <c>{base}/invite/{token}</c> and the sentence shown
-    /// beside it. Anyone signed in who opens the link may accept, so the sentence says who to send it to. When this
+    /// The accept link for the sender to copy after a Resend, worded here (rule 7): <c>{base}/invite/{token}</c> and the
+    /// sentence shown beside it. Only someone signed in with the invited address can open or accept it (security review
+    /// Risk 1), so the sentence says so. When this
     /// Gateway has no public address (a self-hosted Gateway whose tailnet is down) there is no link to show, and the
     /// sentence says so - the invitation itself is saved either way. The link is never written to a log.
     /// </summary>
@@ -232,8 +268,8 @@ internal static class TeamInvitationEndpoints
             return new InvitationLink(null, "The invitation is saved, but this Gateway has no public address right now, so its link cannot be shown. Resend it once the address is back.");
         var url = root.Trim().TrimEnd('/') + CockpitAcceptPagePrefix + Uri.EscapeDataString(acceptToken);
         return new InvitationLink(url,
-            $"Send this link to {invitation.Email} yourself. Anyone signed in who opens it can join the team as {TeamRoles.Label(invitation.Role)}, " +
-            "so share it only with them. It is shown only now - if it is lost, Resend the invitation for a new link; the old one then stops working.");
+            $"Send this link to {invitation.Email} yourself. It works only for someone signed in with {invitation.Email}, who can then join the team as {TeamRoles.Label(invitation.Role)}. " +
+            "It is shown only now - if it is lost, Resend the invitation for a new link; the old one then stops working.");
     }
 
     /// <summary>The accept link shown once to the sender, and the sentence beside it. <paramref name="Url"/> is null when

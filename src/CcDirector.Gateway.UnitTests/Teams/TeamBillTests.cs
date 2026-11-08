@@ -466,8 +466,9 @@ public sealed class TeamBillTests : IDisposable
         _teams.CancelTeamPlan(_team, Owner);
         var end = Bill().CurrentPeriodEndUtc;
         _now = end.AddDays(-1);
-        var waiting = _teams.CreateInvitation(_team, Owner, "anna@acme.example", TeamRole.Developer);
+        var waiting = _teams.CreateInvitation(_team, Owner, "invitee@acme.example", TeamRole.Developer);
         Assert.Equal(TeamInvitationOutcome.Done, waiting.Outcome);
+        _tenants.MintOrLookupBySubject("sub-invitee", "invitee@acme.example");   // signs up after the invitation
 
         _now = end;
         _bills.RenewDue();
@@ -475,8 +476,8 @@ public sealed class TeamBillTests : IDisposable
         Assert.Equal(EntitlementOutcome.NotEntitled, _entitlements.EvaluateTeam(_team, _now).Outcome);
         Assert.Equal(TeamInvitationRefusals.BillCancelled,
             _teams.CreateInvitation(_team, Owner, "after@acme.example", TeamRole.Developer).Refusal);
-        Assert.Equal(TeamInvitationRefusals.BillStopped, _teams.AcceptInvitation(waiting.AcceptToken!, Newcomer).Refusal);
-        Assert.Null(_teams.RoleOf(_team, Newcomer));
+        Assert.Equal(TeamInvitationRefusals.BillStopped, _teams.AcceptInvitation(waiting.AcceptToken!, "sub-invitee").Refusal);
+        Assert.Null(_teams.RoleOf(_team, "sub-invitee"));
     }
 
     // ---- What the Billing section says --------------------------------------------------------------------------------

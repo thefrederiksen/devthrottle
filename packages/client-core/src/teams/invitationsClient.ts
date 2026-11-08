@@ -58,8 +58,9 @@ export interface InvitationEmail {
   message: string;
 }
 
-/** The accept link, shown once to the person who sent or resent the invitation (Teams v1, copy the invitation link).
- *  It is in the create and resend answers only - never in the list of waiting invitations. */
+/** The accept link, shown once to the person who resent the invitation. It is in the resend answer only - never in the
+ *  answer to an add, and never in the list of waiting invitations. It works only for someone signed in with the address
+ *  the invitation was sent to. */
 export interface InvitationLink {
   /** The full accept link, or null when the Gateway has no public address (the note then says so). */
   url: string | null;
@@ -71,6 +72,14 @@ export interface InvitationSent {
   invitation: TeamInvitation;
   email: InvitationEmail;
   link: InvitationLink;
+}
+
+/** The answer to adding someone by address (POST /teams/{teamId}/invitations). It is the SAME whether the address
+ *  already had an account (added at once, told by email) or not (sent an invitation tied to that address), so it says
+ *  nothing about which - no state, no invitation id, no link. `email.message` is the Gateway's sentence, shown verbatim. */
+export interface InvitationAdded {
+  added: { teamId: string; teamName: string; email: string; role: string };
+  email: InvitationEmail;
 }
 
 // `what` names the action in the reader's words; the Gateway's own sentence ("Only the Owner can invite a Manager.")
@@ -112,9 +121,9 @@ export async function listInvitations(teamId: string, signal?: AbortSignal): Pro
   return body.invitations;
 }
 
-/** POST /teams/{teamId}/invitations - invite an email address to a role. */
-export function sendInvitation(teamId: string, email: string, role: string, signal?: AbortSignal): Promise<InvitationSent> {
-  return call<InvitationSent>("POST", team(teamId), "send the invitation", { email, role }, signal);
+/** POST /teams/{teamId}/invitations - add an email address to the team in a role. */
+export function sendInvitation(teamId: string, email: string, role: string, signal?: AbortSignal): Promise<InvitationAdded> {
+  return call<InvitationAdded>("POST", team(teamId), "send the invitation", { email, role }, signal);
 }
 
 /** POST /teams/{teamId}/invitations/{id}/resend - send again; a new 7 days and a new link. */
