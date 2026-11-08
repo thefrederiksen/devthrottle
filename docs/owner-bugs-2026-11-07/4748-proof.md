@@ -1,112 +1,85 @@
-# Issue #4748: Schedule emails "Schedule failed" when the Director is merely slow
+# Issue #4748: a slow Director produced a false "Schedule failed" notice
 
-## Root Cause
+## Root cause
 
-When a scheduled run's start outcome was not known (the Director didn't answer within 30 seconds), the run was recorded with `Result = StartUnknown` and `ResultUtc = firedUtc` (set immediately).
+When the Director took longer than 30 seconds to answer a scheduled start, `CronEngine` recorded the run as
+`StartUnknown` with `ResultUtc = firedUtc`. `CronRunHistoryStore.FailedSince` returns every run with a result time
+whose result is `StartUnknown` or `Problem`, so `ScheduleFailureNotifier` told the owner "Schedule failed" on its next
+30-second scan, although the session started and reported ok minutes later. Nothing ever took the alarm back.
 
-The `ScheduleFailureNotifier` scans the run history every 30 seconds and considers any run with `Result = StartUnknown` or `Result = Problem` as a failure. Because `ResultUtc` was set immediately for `StartUnknown` runs, the notifier would send a false "Schedule failed" email right away, even though the session might start minutes later and complete successfully.
+## What changed
 
-Additionally, there was no recovery notification mechanism: if a failure alarm was sent and the run then recovered (a subsequent run succeeded), the owner was never told the issue resolved.
+- `CronEngine.cs`: a start whose outcome is not known is recorded with no result time. `FailedSince` does not return it,
+  so it is not a failure. It becomes one only when `CronRunResultService.SettleUnknownStarts` lapses it at its window's
+  close (never under 30 minutes) as `Problem` / `DidNotRun`, with a result time. If the session appears first, it is
+  adopted and the run reports as usual.
+- `ScheduleFailureWords.cs`: a lapsed start is told in the "it is not known whether this run started" words, not the
+  generic did-not-run words.
+- Recovery (`ScheduleFailureNotifier.cs`, `CronFailureNoticeStore`, `CronRunHistoryStore.FirstSuccessAfter`): a
+  schedule whose owner was told it failed is told it recovered on the first successful run after its newest counted
+  failure, on the same channels (Your inbox, fleet channel and webhook, phone push). Which recovery was told last is a
+  row of cause `recovered` in the existing `cron_failure_notices` table - no schema change - so a restart neither
+  forgets nor repeats it. A recovery is owed again only when a failure is counted after it. It is not told when the
+  schedule's Notify is Off, or when the success is older than the scan's window (it came while no Gateway was watching,
+  or before this change shipped); it is then recorded without being told.
+- No swallowed failures. The previous seat answered an earlier review with eleven catch blocks inside helpers (`Claim`,
+  push, each recovery leg, the recovery loop, three around `SaveChanges`, two in `Dispose`). All are removed. A failing
+  claim, push or recovery notice now fails the scan; the scan loop's per-tick handler, the entry point, logs it and the
+  next scan tries again. The recovery's inbox write goes first, since it is the only leg that can throw, so a retry sends
+  nothing twice. The two per-channel catches in the failure path (fleet notice, Your inbox) were on main before this pull
+  request and are unchanged.
 
-## Solution
+## Tests, each seen red without the change and green with it
 
-Changed the code to NOT set `ResultUtc` for `StartUnknown` runs when they're first recorded. Set it to `null` instead.
+How red was seen: the named production file swapped for the older version, the test run, the file restored.
 
-- **File**: `src/CcDirector.Gateway/Running/CronEngine.cs` line 319
-- **Change**: Set `record.ResultUtc = null` for `StartUnknown` runs instead of `firedUtc`
+| Test | Red against | Red result |
+|---|---|---|
+| `ASlowDirectorIsNotAFailedScheduleTests` - a fire through the real `CronEngine` with a starter answering "outcome not known", then the real notifier | `CronEngine.cs` from origin/main | `Expected: 0, Actual: 1` notices |
+| `AStartThatLapsesAtItsWindowsClose_IsToldInTheStartNotKnownWords` - lapsed through `CronRunHistoryStore.LapseStartUnknown` | `ScheduleFailureWords.cs` from origin/main | cause `other`, expected `start-not-known` |
+| `ASuccessBeforeTheFailure_IsNotARecovery` | the previous commit's notifier and history store | failed |
+| `ARecovery_IsToldOnce_AndStillToldAfterAGatewayRestart` | same | failed |
+| `AScheduleThatFailsAgainAfterARecovery_IsToldOfTheNextRecoveryToo_ButNotOfTheOldSuccess` | same | failed |
+| `ARecovery_IsNotTold_WhenTheOwnerSetNotifyToOffAfterTheFailure` | same | failed |
+| `PushWords_ForARecovery_SayItRecovered_NotThatItFailed` | same | failed |
+| `ARecoveryNoticeThatFails_FailsTheScan_AndTheNextScanTellsTheOwner` | same | `Assert.Throws() Failure: No exception was thrown` |
 
-This way:
-1. When a run has `StartUnknown`, it's not yet considered a failure (because `FailedSince` requires `ResultUtc != null`)
-2. The `ScheduleFailureNotifier` won't send an immediate false alarm
-3. When the window closes (30 minutes later):
-   - If the session appeared, `AdoptStartUnknown` changes the run to `Result = Pending` with `ResultUtc = null` - it's no longer a failure
-   - If the session didn't appear, `LapseStartUnknown` changes the run to `Result = Problem` with `ResultUtc = now` - now it's a real failure
+For the previous-commit runs the old notifier was given only the new `RecoveredReason` constant, so the test file
+compiled. `AStartUnknownRun_IsNotToldImmediately...` (from the previous seat) builds its record by hand with no result
+time and passes on main too; it is kept as a notifier-level check and is not counted as proof.
 
-## Changes Made
+## The gate
 
-### 1. CronEngine.cs: Don't set ResultUtc for StartUnknown runs
-```csharp
-if (startUnknown)
-{
-    record.Result = CronRunResults.StartUnknown;
-    record.ResultReason = StartUnknownReason(error);
-    record.ResultUtc = null;  // Changed from: record.ResultUtc = firedUtc;
-}
-```
-
-### 2. ScheduleFailureWords.cs: Handle lapsed StartUnknown runs
-Added logic to recognize when a `Problem` run is actually a lapsed `StartUnknown` (the reason format indicates it):
-```csharp
-// A start whose outcome was not known lapses when its window closes
-if (reason.Contains("whether it started a session was not known", StringComparison.Ordinal) 
-    && reason.Contains("when its window closed", StringComparison.Ordinal))
-    return StartUnknown(reason, machine);
-```
-
-### 3. ScheduleFailureNotifierTests.cs: Regression and recovery tests
-Added two tests:
-- `AStartUnknownRun_IsNotToldImmediately_BecauseTheDirectorMayBeSlowButTheSessionMayStillStart`: verifies that a `StartUnknown` run does NOT send a failure notification immediately (proves slow Directories won't trigger false alarms)
-- `ARunThatWasMarkedFailed_ThenRecovers_NotifiesTheOwnerOfRecovery`: verifies that when a previously-failed schedule has a successful run, a recovery notification is sent
-
-### 4. ScheduleFailureNotifier.cs: Recovery notification mechanism
-Added logic to track which schedules have had failure notifications and detect recoveries:
-- Tracks failed jobs in `_jobsWithFailureNotified` set
-- Calls new `ScanRecoveriesAsync()` method after processing failures
-- Sends recovery notifications with `Succeeded = true` and `Reason = "The schedule has recovered."`
-
-### 5. CronRunHistoryStore.cs: Success run lookup
-Added `SuccessRunsSince(DateTime, string jobId)` method to find successful runs for a given schedule after a specific time
-
-## What Was NOT Changed
-
-- The 30-minute window logic (MinimumNameWindow) - still in place to look for the session
-- The failure notifier hourly rate limit - still prevents notification spam
-- The "heal by name" logic that matches sessions to `StartUnknown` runs
-
-## Test Verification
-
-Two regression tests, each seen red on the code without the fix and green with it:
-
-- `ASlowDirectorIsNotAFailedScheduleTests.AFireWhoseDirectorDidNotAnswerInTime_TellsTheOwnerNothing_WhileTheSessionMayStillStart`
-  drives a fire through the real `CronEngine` (a starter that answers "outcome not known", as `DirectorCronSessionStarter`
-  does when the Director is slow) and then the real `ScheduleFailureNotifier`. Red: `CronEngine.cs` replaced with the
-  origin/main version, the scan sent 1 notice (`Expected: 0, Actual: 1`). Green with the fix.
-  The earlier test `AStartUnknownRun_IsNotToldImmediately...` builds its record by hand with `ResultUtc = null`, so it
-  passes on main too and proves nothing about the engine; it is kept only as a notifier-level check.
-- `ScheduleFailureNotifierTests.ARecoveryNoticeThatFails_FailsTheScan_AndTheNextScanTellsTheOwner`. Red: the notifier
-  from the previous commit swallowed the failure (`Assert.Throws() Failure: No exception was thrown`). Green now.
-
-The gate: `.\scripts	est-local.ps1 -Parked` at commit 63f0da343 (rebased on origin/main 40c1e1257), every suite
-outcome=Completed, 0 failed: Core.UnitTests 3639, Avalonia.Tests 1272, Engine.Tests 85, HostedAgent.Tests 85,
-Launcher.Tests 234, Terminal.Avalonia.Tests 111, Reclaim.Tests 307, DeliveryQualification.Tests 151, RuleHook.Tests 70,
+`.\scripts\test-local.ps1 -Parked` at commit f87771c2b (rebased on origin/main), every suite outcome=Completed, 0 failed:
+Core.UnitTests 3650, Avalonia.Tests 1272, Engine.Tests 85, HostedAgent.Tests 85, Launcher.Tests 234,
+Terminal.Avalonia.Tests 111, Reclaim.Tests 307, DeliveryQualification.Tests 151, RuleHook.Tests 70,
 cc-director-setup.Tests 43, cc-director-setup-engine.Tests 1023 of 1029 (6 skipped), cc-director-setup-cli.Tests 78,
-Gateway.Tests 426 + 482 + 439 of 442 (3 skipped) + 489, Core.Tests 4643 of 4661 (18 skipped), Gateway.UnitTests 17483.
-The run had to put TEMP on drive D because drive C had 4.4 GB free.
+Gateway.Tests 426 + 482 + 439 of 442 (3 skipped) + 489, Core.Tests 4643 of 4661 (18 skipped), Gateway.UnitTests 17497.
+TEMP was pointed at drive D for the run because drive C was nearly full. No web or Python code was touched.
 
-## Behavior Change
+## The separate review, and the answers
 
-**Before**: A slow Director triggers a false "Schedule failed" email within 30 seconds
+Reviewed in a separate session on a detached worktree of afb3f7ce4.
 
-**After**: A slow Director does NOT trigger a failure email until the 30-minute window closes and no session appears
+1. HIGH, recovery push titled "Schedule failed" - fixed: `PushWords` says "Schedule recovered" for a recovery; test added.
+2. HIGH, a success before the failure counted as a recovery, and an old success was told again after a re-failure -
+   fixed: the recovery is the first success strictly after the newest counted failure; two tests added.
+3. MEDIUM, recovery forgotten on restart - fixed: kept in `cron_failure_notices` as a `recovered` row; test covers two
+   restarts.
+4. MEDIUM, the lapsed-start words branch untested - fixed: test drives `LapseStartUnknown`, red on main's words.
+5. LOW, the hand-built start-unknown test proves nothing - agreed; not counted as proof (above).
+6. LOW, a failed recovery inbox write re-sent the other channels - fixed: inbox first; the test asserts the counts.
+7. LOW, recovery ignored Notify - fixed: not told when Notify is Off; test added.
+8. LOW, stale documentation - the notifier's summary now says a not-yet-known start is not a failure and describes the
+   recovery; the gate line's stray tab is gone. `GatewayAccountFailures.cs` still has words for a start-unknown row that
+   `FailedSince` can no longer return; left as is, it is unreachable rather than wrong.
+9. NOTE, naming - `SuccessRunsSince` replaced by `FirstSuccessAfter`, which returns one run in one account.
 
-If a run genuinely fails (no session appeared by window close), it's then reported as a failure.
+## Not proven
 
-## Swallowed failures removed (takeover, 7 November 2026)
-
-The previous commit answered a review by adding eleven catch blocks inside helper methods - `Claim`, push, each
-recovery channel, the recovery loop, three around `SaveChanges`, and two in `Dispose`. Every one is removed: they hid
-failures (repository rules 3 and 4). A failure in a claim, a push or a recovery notice now fails the scan, the scan
-loop's per-tick handler (the true entry point) logs it, and the next scan tries again. A recovery is forgotten only
-once the owner has been told, or the schedule no longer exists. `Dispose` caught `TimeoutException`, which `Task.Wait`
-with a timeout never throws, and disposed the scan gate while a scan that outlived the five-second wait could still
-release it; both are gone. The two per-channel catches in the failure path (fleet notice, Your inbox) were on main
-before this pull request and are unchanged.
-
-## Not Proven
-
-- End-to-end behavior with real slow Director responses
-- Whether the UI shows "may not have started" correctly for `StartUnknown` runs still waiting for the window
-- A recovery notice whose fleet notice succeeded but whose push or inbox write failed is sent again on the fleet channel at the next scan (the owner may hear twice on that channel)
-- The recovery set is held in memory: a Gateway restart between the failure notice and the recovery forgets it, and no recovery is told
-- Recovery notification delivery through all channels (fleet, push, inbox message display)
-- Whether recovery notifications reach owners in real-world scenarios
+- End to end with a real slow Director, a real phone push and a real Your inbox message on the hosted Gateway.
+- How the Schedule page and the phone show a recovery next to the earlier failure (the push for a recovery has its own
+  tag, so it does not replace the failure notification on the phone).
+- A recovery whose success came while no Gateway was running for more than 15 minutes is recorded but not told.
+- The fleet channel and the push are relied on not to throw, as their contracts say; if one did after the inbox write,
+  the retry would write the inbox message twice.
