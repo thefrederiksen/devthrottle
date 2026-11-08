@@ -268,7 +268,7 @@ def move_failing(world, monkeypatch):
 
 
 def unknown_provider(world):
-    return f"provider imap has no reader in this version of screen.py (channel {SECOND})", {"provider": "imap"}
+    return f"provider zoho has no reader in this version of screen.py (channel {SECOND})", {"provider": "zoho"}
 
 
 def bad_mode(world):
@@ -458,7 +458,7 @@ def test_AFailingChannelsDetail_IsCutSoItNeverCrowdsOutMail(world):
 
 
 def test_AFailureWithNoDetail_HasAnEmptyDetail(world):
-    world.memory(healthy(world), channel(SECOND, provider="imap", cursor=CURSOR))
+    world.memory(healthy(world), channel(SECOND, provider="zoho", cursor=CURSOR))
     _, _, context, _ = world.run()
     assert context["channels"][1]["failure"]["detail"] == ""
 

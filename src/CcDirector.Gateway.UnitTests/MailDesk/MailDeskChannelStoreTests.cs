@@ -101,7 +101,7 @@ public sealed class MailDeskChannelStoreTests : IDisposable
         var write = Store().Add(A, Mailbox, "carrier-pigeon", Machines, Owner, "why", Now);
 
         Assert.Equal(MailDeskChannelOutcome.BadProvider, write.Outcome);
-        Assert.Equal("provider 'carrier-pigeon' is not one the Mail Desk reads; give 'outlook' or 'gmail'", write.Refusal);
+        Assert.Equal("provider 'carrier-pigeon' is not one the Mail Desk reads; give 'outlook', 'gmail' or 'imap'", write.Refusal);
     }
 
     [Theory]
@@ -111,7 +111,7 @@ public sealed class MailDeskChannelStoreTests : IDisposable
     [InlineData("gmailx")]
     [InlineData("g mail")]
     [InlineData("googlemail")]
-    [InlineData("imap")]
+    [InlineData("zoho")]
     [InlineData("outlook2")]
     public void Add_ABlankOrNearMissProvider_IsRefusedNamingBothAndRecordsNothing(string? provider)
     {
@@ -120,7 +120,7 @@ public sealed class MailDeskChannelStoreTests : IDisposable
         var write = store.Add(A, Mailbox, provider!, Machines, Owner, "why", Now);
 
         Assert.Equal(MailDeskChannelOutcome.BadProvider, write.Outcome);
-        Assert.EndsWith("is not one the Mail Desk reads; give 'outlook' or 'gmail'", write.Refusal);
+        Assert.EndsWith("is not one the Mail Desk reads; give 'outlook', 'gmail' or 'imap'", write.Refusal);
         Assert.Empty(store.List(A, includeRemoved: true));
     }
 
@@ -134,6 +134,17 @@ public sealed class MailDeskChannelStoreTests : IDisposable
 
         Assert.Equal(MailDeskChannelOutcome.Added, write.Outcome);
         Assert.Equal(MailDeskWords.Providers.Gmail, write.Channel!.Provider);
+    }
+
+    [Theory]
+    [InlineData("imap")]
+    [InlineData(" IMAP ")]
+    public void Add_Imap_IsAddedWithTheProviderFolded(string provider)
+    {
+        var write = Store().Add(A, Mailbox, provider, Machines, Owner, "why", Now);
+
+        Assert.Equal(MailDeskChannelOutcome.Added, write.Outcome);
+        Assert.Equal(MailDeskWords.Providers.Imap, write.Channel!.Provider);
     }
 
     [Fact]

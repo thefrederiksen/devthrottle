@@ -175,8 +175,9 @@ def test_list_Json_KeepsEveryField(env):
     env.imap.add("INBOX", make_message(), flags=["\\Seen"])
     data = json.loads(env.ok("list", "--json").stdout)
     assert data["count"] == 1 and data["total"] == 1
-    assert set(data["messages"][0]) == {"uid", "date", "from", "to", "cc", "subject", "message_id", "flags",
-                                       "unread", "flagged", "size"}
+    assert set(data["messages"][0]) == {"uid", "date", "received", "from", "to", "cc", "subject", "message_id",
+                                       "flags", "unread", "flagged", "size"}
+    assert data["uidvalidity"] == 1
     assert data["messages"][0]["unread"] is False
 
 
@@ -315,6 +316,24 @@ def test_move_And_ArchiveFoundByName(env):
     assert len(env.imap.folders["Projects"].messages) == 1
     assert len(env.imap.folders["Archive"].messages) == 1
     assert env.imap.folders["INBOX"].messages == {}
+
+
+@pytest.mark.parametrize("command", [["move", "--to", "Archive"], ["archive"]])
+def test_move_ExpectUidValidity_StillTheSame_Moves(env, command):
+    uid = env.imap.add("INBOX", make_message())
+    env.ok(command[0], str(uid), *command[1:], "--expect-uidvalidity", "1")
+    assert env.imap.folders["INBOX"].messages == {} and len(env.imap.folders["Archive"].messages) == 1
+
+
+@pytest.mark.parametrize("command", [["move", "--to", "Archive"], ["archive"]])
+def test_move_ExpectUidValidity_FolderRenumbered_MovesNothing(env, command):
+    uid = env.imap.add("INBOX", make_message())
+    env.imap.folders["INBOX"].uidvalidity = 2
+    result = env.run(command[0], str(uid), *command[1:], "--expect-uidvalidity", "1")
+    assert result.exit_code == 1
+    assert "the UIDVALIDITY of folder 'INBOX' is 2 now, not 1" in result.output and "Nothing was moved" in result.output
+    assert list(env.imap.folders["INBOX"].messages) == [uid] and env.imap.folders["Archive"].messages == {}
+    assert not any(c[0] == "MOVE" for c in env.imap.commands)
 
 
 def test_move_ServerWithoutMove_ClearError(env):
@@ -480,3 +499,90 @@ def test_list_Unread_TotalIsTheUnreadTotal(env):
 def test_accountCheck_CapabilitiesListedOnce(env):
     caps = json.loads(env.ok("account", "check", "--json").stdout)["imap_capabilities"]
     assert len(caps) == len(set(caps)) and "MOVE" in caps
+
+
+# --------------------------------------------------------------------------------------------- list for a reader
+#
+# What the Mail Desk's IMAP reader asks for: the messages after its cursor, oldest first, with a preview, the folder's
+# UIDVALIDITY beside them, and nothing marked read.
+
+
+def _json(env, *args):
+    return json.loads(env.ok("list", *args, "--json").stdout)
+
+
+def test_list_AfterUid_OnlyLaterMessages_EvenWhenNoneIsLater(env):
+    for i in range(4):
+        env.imap.add("INBOX", make_message(subject=f"m{i}"))
+    assert [m["uid"] for m in _json(env, "--after-uid", "2")["messages"]] == [4, 3]
+    # "5:*" matches the newest message on a real server too; it must not come back as new.
+    empty = _json(env, "--after-uid", "4")
+    assert empty["count"] == 0 and empty["total"] == 0 and empty["messages"] == []
+
+
+def test_list_Oldest_TakesTheOldestCountOldestFirst(env):
+    for i in range(5):
+        env.imap.add("INBOX", make_message(subject=f"m{i}"))
+    data = _json(env, "--after-uid", "1", "--oldest", "--count", "2")
+    assert [m["uid"] for m in data["messages"]] == [2, 3]
+    assert data["total"] == 4
+
+
+def test_list_Received_IsTheServersArrivalTimeInUtc(env):
+    env.imap.add("INBOX", make_message(), internal_date="07-Nov-2026 17:31:20 -0500")
+    assert _json(env)["messages"][0]["received"] == "2026-11-07T22:31:20Z"
+
+
+def test_list_UidValidity_IsTheFolders(env):
+    env.imap.folders["INBOX"].uidvalidity = 1762540000
+    assert _json(env)["uidvalidity"] == 1762540000
+
+
+def test_list_Preview_FirstTextAndAttachmentCount_WithoutMarkingRead(env):
+    uid = env.imap.add("INBOX", make_message(body="Hello   there," + chr(10) * 2 + "second line. " + "x" * 400,
+                                            attachments=[("a.txt", b"a", "text/plain")]))
+    message = _json(env, "--preview")["messages"][0]
+    assert message["preview"].startswith("Hello there, second line. x")
+    assert len(message["preview"]) == 200
+    assert message["attachments"] == 1
+    assert env.imap.folders["INBOX"].messages[uid].flags == []
+
+
+def test_list_Preview_ALargeAttachment_IsNeverDownloaded_ButIsCounted(env):
+    """The preview reads only the first 64 KB: a 2 MB attachment is never downloaded, and still counted."""
+    env.imap.add("INBOX", make_message(body="Short note.", attachments=[("big.bin", b"z" * 2_000_000, "application/octet-stream")]))
+    message = _json(env, "--preview")["messages"][0]
+    assert message["preview"] == "Short note." and message["attachments"] == 1
+    fetches = [c for c in env.imap.commands if c[0] == "FETCH" and "BODY.PEEK[]" in c[2]]
+    assert fetches and all("BODY.PEEK[]<0.65536>" in c[2] for c in fetches)
+
+
+def test_list_Preview_HtmlOnly_TagsAndEntitiesTakenOut(env):
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["From"], msg["To"], msg["Subject"] = "a@example.org", ME, "html"
+    msg.set_content("<html><style>p{color:red}</style><p>Caf&eacute; <b>menu</b></p></html>", subtype="html")
+    env.imap.add("INBOX", msg.as_bytes())
+    assert _json(env, "--preview")["messages"][0]["preview"] == "Caf" + chr(0xE9) + " menu"
+
+
+def test_list_Preview_CalendarOnly_IsEmpty(env):
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["From"], msg["To"], msg["Subject"] = "a@example.org", ME, "Invitation"
+    msg.set_content(chr(10).join(["BEGIN:VCALENDAR", "END:VCALENDAR", ""]), subtype="calendar")
+    env.imap.add("INBOX", msg.as_bytes())
+    assert _json(env, "--preview")["messages"][0]["preview"] == ""
+
+
+def test_list_WithoutPreview_HasNoPreviewField(env):
+    env.imap.add("INBOX", make_message())
+    assert "preview" not in _json(env)["messages"][0]
+
+
+def test_list_Since_IsSentToTheServer(env):
+    env.imap.add("INBOX", make_message())
+    env.ok("list", "--since", "2026-10-09")
+    searches = [c for c in env.imap.commands if c[0] == "SEARCH"]
+    assert searches[-1][2:] == ("SINCE", "09-Oct-2026")
+

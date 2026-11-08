@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import html
 import mimetypes
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 from typing import Iterator, List, Optional
@@ -13,7 +14,14 @@ from typing import Iterator, List, Optional
 from .compose import parse
 from .imap_client import FetchItem
 
-SUMMARY_FIELDS = ["uid", "date", "from", "to", "cc", "subject", "message_id", "flags", "unread", "flagged", "size"]
+SUMMARY_FIELDS = ["uid", "date", "received", "from", "to", "cc", "subject", "message_id", "flags", "unread",
+                  "flagged", "size"]
+
+#: How much of the text a preview (dt-email list --preview) carries.
+PREVIEW_CHARS = 200
+
+#: How much of each message a preview reads: the text and the headers of the first parts, never a whole attachment.
+PREVIEW_BYTES = 65536
 SUMMARY_DEFAULT = ["uid", "date", "from", "subject"]
 
 
@@ -35,6 +43,7 @@ def summary(item: FetchItem) -> dict:
     return {
         "uid": item.uid,
         "date": _date(headers.get("Date"), item.internal_date()),
+        "received": received(item.internal_date()),
         "from": str(headers.get("From", "")) or None,
         "to": str(headers.get("To", "")) or None,
         "cc": str(headers.get("Cc", "")) or None,
@@ -45,6 +54,28 @@ def summary(item: FetchItem) -> dict:
         "flagged": "\\Flagged" in flags,
         "size": item.size(),
     }
+
+
+def received(internal: Optional[str]) -> Optional[str]:
+    """When the server received the message (its INTERNALDATE), in UTC, to the second: 2026-11-07T22:31:20Z. Unlike
+    the Date header it is the server's own clock, so it orders messages the way they arrived."""
+    if not internal:
+        return None
+    moment = datetime.strptime(internal, "%d-%b-%Y %H:%M:%S %z").astimezone(timezone.utc)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def preview(raw: bytes) -> dict:
+    """The first PREVIEW_CHARS characters of a message's text, its spaces collapsed, and how many attachments it has.
+    `raw` may be only the start of the message (PREVIEW_BYTES): attachments are then counted among the parts that
+    start within it.
+    The plain text part is preferred; an HTML-only message has its tags and entities taken out. A message with no text
+    part at all (a calendar invitation) has an empty preview."""
+    message = parse(raw)
+    body_type, text = body(message, prefer_html=False)
+    if body_type == "text/html":
+        text = html.unescape(re.sub(r"(?is)<(script|style)\b.*?</\1>|<[^>]+>", " ", text))
+    return {"preview": " ".join((text or "").split())[:PREVIEW_CHARS], "attachments": len(attachments(message))}
 
 
 @dataclass

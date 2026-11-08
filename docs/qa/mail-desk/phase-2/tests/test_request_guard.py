@@ -93,7 +93,9 @@ def test_GraphRequest_AGet_ReachesTheNetwork(world):
 def test_Source_OnlyTheGuardReachesTheNetwork(world):
     """The guard holds only if nothing goes round it: urlopen appears once, inside transport(); transport() is called
     once from each of the three guards - graph_request(), and since the Gmail reader gmail_request() and
-    google_token_request() (docs/qa/mail-desk/gmail/CONTRACT.md) - and each guard checks before it calls."""
+    google_token_request() (docs/qa/mail-desk/gmail/CONTRACT.md) - and each guard checks before it calls. The IMAP
+    reader starts dt-email, so subprocess is imported, and a process is started in exactly one place, after
+    check_dt_email() (docs/qa/mail-desk/imap/CONTRACT.md)."""
     source = world.screen.__file__ and open(world.screen.__file__, encoding="utf-8").read()
     assert len(re.findall(r"urlopen\(", source)) == 1
     assert len(re.findall(r"(?<!def )transport\(", source)) == 3
@@ -103,8 +105,12 @@ def test_Source_OnlyTheGuardReachesTheNetwork(world):
     assert gmail.index("check_gmail_request(") < gmail.index("transport(")
     token = source.split("def google_token_request(")[1].split("\ndef ")[0]
     assert token.index("raise RefusedRequest(") < token.index("transport(")
-    for forbidden in ("http.client", "requests", "socket.create_connection", "subprocess"):
+    for forbidden in ("http.client", "requests", "socket.create_connection"):
         assert f"import {forbidden}" not in source
+    assert len(re.findall(r"subprocess\.(run|Popen|call|check_call|check_output)\(", source)) == 1
+    assert "os.system(" not in source and "os.popen(" not in source and "os.exec" not in source
+    tool = source.split("    def tool(self, args, what")[1].split("\n    def ")[0]
+    assert tool.index("check_dt_email(") < tool.index("subprocess.run(")
 
 
 def test_FilingQueue_ADestinationOtherThanTheTwo_IsRefusedAndNeverSent(world):

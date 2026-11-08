@@ -43,6 +43,9 @@ app.add_typer(draft_app, name="draft")
 AccountOpt = typer.Option(None, "--account", "-a", help="Account name. Default: the default account.")
 JsonOpt = typer.Option(False, "--json", help="Print JSON with every field.")
 FolderOpt = typer.Option("INBOX", "--folder", "-f", help="The folder the message is in.")
+ExpectOpt = typer.Option(None, "--expect-uidvalidity", min=1,
+                         help="Move nothing unless the folder's uidvalidity (dt-email list --json) is still this, so "
+                              "a UID read before the folder was renumbered never moves another message.")
 
 
 # --------------------------------------------------------------------------------------------- plumbing
@@ -394,15 +397,18 @@ def _report(data: dict, json_output: bool) -> None:
 # ----- reading
 
 
-def _summaries(store: imap_client.MailStore, folder: str, uids: List[int], count: int) -> List[dict]:
-    newest = sorted(uids, reverse=True)[:count]
-    items = store.fetch_summaries(folder, newest)
-    return sorted((messages.summary(i) for i in items), key=lambda r: r["uid"], reverse=True)
+def _summaries(store: imap_client.MailStore, folder: str, uids: List[int], count: int,
+               oldest: bool = False) -> List[dict]:
+    chosen = sorted(uids)[:count] if oldest else sorted(uids, reverse=True)[:count]
+    items = store.fetch_summaries(folder, chosen)
+    return sorted((messages.summary(i) for i in items), key=lambda r: r["uid"], reverse=not oldest)
 
 
-def _print_summaries(records: List[dict], total: int, fields: Optional[str], json_output: bool, folder: str) -> None:
+def _print_summaries(records: List[dict], total: int, fields: Optional[str], json_output: bool, folder: str,
+                     extra: Optional[dict] = None) -> None:
     if json_output:
-        output.emit_json({"count": len(records), "total": total, "folder": folder, "messages": records})
+        output.emit_json({"count": len(records), "total": total, "folder": folder, **(extra or {}),
+                          "messages": records})
         return
     from cc_shared.axi_output import parse_fields_or_exit
 
@@ -419,14 +425,35 @@ FieldsOpt = typer.Option(None, "--fields", help="Fields to show: " + ",".join(me
 @_command
 def list_command(folder: str = typer.Option("INBOX", "--folder", "-f"), count: int = CountOpt,
                  unread: bool = typer.Option(False, "--unread", help="Only unread messages."),
+                 after_uid: Optional[int] = typer.Option(
+                     None, "--after-uid", min=0, help="Only messages with a UID above this one. A UID keeps its "
+                     "meaning while the folder's uidvalidity (in --json) stays the same."),
+                 since: Optional[str] = typer.Option(None, "--since", help="Only messages that arrived on or after "
+                                                     "this date (2026-11-07)."),
+                 oldest: bool = typer.Option(False, "--oldest", help="The oldest --count messages, oldest first, "
+                                             "instead of the newest."),
+                 preview: bool = typer.Option(False, "--preview", help=f"Add each message's first "
+                                              f"{messages.PREVIEW_CHARS} characters of text and its number of "
+                                              f"attachments, from its first {messages.PREVIEW_BYTES // 1024} KB. "
+                                              "Does not mark it read."),
                  fields: Optional[str] = FieldsOpt, account: Optional[str] = AccountOpt,
                  json_output: bool = JsonOpt) -> None:
     """List the newest messages in a folder, newest first."""
+    criteria = ["UNSEEN"] if unread else []
+    if after_uid is not None:
+        criteria += ["UID", f"{after_uid + 1}:*"]
+    if since is not None:
+        criteria += ["SINCE", _imap_date(since, "--since")]
     with _store(account) as store:
-        all_uids = store.search(folder, ["ALL"])
-        uids = store.search(folder, ["UNSEEN"]) if unread else all_uids
-        records = _summaries(store, folder, uids, count)
-    _print_summaries(records, len(uids), fields, json_output, folder)
+        # "n:*" always matches the newest message, even when its UID is not above n, so the range is checked here too.
+        uids = [u for u in store.search(folder, criteria or ["ALL"]) if after_uid is None or u > after_uid]
+        records = _summaries(store, folder, uids, count, oldest)
+        if preview:
+            for record in records:
+                record.update(messages.preview(
+                    store.fetch_start(folder, record["uid"], messages.PREVIEW_BYTES).literal))
+        validity = store.uid_validity(folder)
+    _print_summaries(records, len(uids), fields, json_output, folder, {"uidvalidity": validity})
 
 
 def _imap_date(value: str, label: str) -> str:
@@ -757,23 +784,25 @@ def mark_command(uids: List[str] = typer.Argument(..., help="Message UIDs (space
 @app.command("move")
 @_command
 def move_command(uids: List[str] = typer.Argument(...), to: str = typer.Option(..., "--to", help="Destination folder."),
-                 folder: str = FolderOpt, account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
+                 folder: str = FolderOpt, expect: Optional[int] = ExpectOpt, account: Optional[str] = AccountOpt,
+                 json_output: bool = JsonOpt) -> None:
     """Move messages to another folder."""
     numbers = _uids(uids)
     with _store(account) as store:
-        store.move(folder, numbers, to)
+        store.move(folder, numbers, to, expect)
     _report({"moved": ",".join(map(str, numbers)), "from": folder, "to": to}, json_output)
 
 
 @app.command("archive")
 @_command
 def archive_command(uids: List[str] = typer.Argument(...), folder: str = FolderOpt,
-                    account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
+                    expect: Optional[int] = ExpectOpt, account: Optional[str] = AccountOpt,
+                    json_output: bool = JsonOpt) -> None:
     """Move messages to the Archive folder."""
     numbers = _uids(uids)
     with _store(account) as store:
         archive = store.special_folder("archive")
-        store.move(folder, numbers, archive)
+        store.move(folder, numbers, archive, expect)
     _report({"moved": ",".join(map(str, numbers)), "from": folder, "to": archive}, json_output)
 
 

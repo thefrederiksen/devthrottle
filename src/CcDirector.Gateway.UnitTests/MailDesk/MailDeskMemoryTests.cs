@@ -216,7 +216,7 @@ public sealed class MailDeskMemoryTests : IAsyncLifetime
         Assert.Empty(HandedChannels(handed));
         var run = Assert.Single(_rig.Runs());
         Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
-        var sentence = $"the Mail Desk start runs on {MachineA}, but no channel names it: add it with cc-devthrottle maildesk channel add <address> --provider outlook|gmail --machine {MachineA} --why \"<text>\"";
+        var sentence = $"the Mail Desk start runs on {MachineA}, but no channel names it: add it with cc-devthrottle maildesk channel add <address> --provider outlook|gmail|imap --machine {MachineA} --why \"<text>\"";
         Assert.Equal(sentence, run.Reason);
         var problem = Assert.Single(_rig.OpenProblems());
         Assert.Equal(CronRunProblems.CheckFailed, problem.Kind);

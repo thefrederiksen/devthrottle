@@ -44,10 +44,18 @@ public sealed class MailDeskProvidersTests
     }
 
     [Fact]
-    public void MailDesk_ZohoAndImapToday_AreNotYet()
+    public void MailDesk_ZohoToday_IsNotYet_AndImapIsOnTheMailDesk()
     {
         Assert.Equal(MailDeskProviders.MailDeskStates.NotYet, MailDeskProviders.Find("zoho")!.MailDesk.State);
-        Assert.Equal(MailDeskProviders.MailDeskStates.NotYet, MailDeskProviders.Find("imap")!.MailDesk.State);
+        Assert.Equal(MailDeskProviders.MailDeskStates.Yes, MailDeskProviders.Find("imap")!.MailDesk.State);
+        Assert.Equal("Yes. Add a mailbox with: cc-devthrottle maildesk channel add <address> --provider imap --machine <machine> --why \"<text>\"",
+            MailDeskProviders.Find("imap")!.MailDesk.Label);
+    }
+
+    [Fact]
+    public void Imap_Needs_ADtEmailAccountOnEveryMachineThatChecksIt()
+    {
+        Assert.Contains(MailDeskProviders.Find("imap")!.Needs, n => n.StartsWith("A dt-email account for the mailbox", StringComparison.Ordinal));
     }
 
     [Fact]

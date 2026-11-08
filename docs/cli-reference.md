@@ -2724,7 +2724,7 @@ COMMANDS:
   status [--json]
   providers [PROVIDER] [--json]
   channel list [--all] [--json]
-  channel add ADDRESS --provider outlook|gmail --machine MACHINE [--machine BACKUP] --why "TEXT"
+  channel add ADDRESS --provider outlook|gmail|imap --machine MACHINE [--machine BACKUP] --why "TEXT"
   channel remove ADDRESS --why "TEXT"
   mode ADDRESS observe|live --why "TEXT"
   rules show [--version N] [--json]
@@ -2916,9 +2916,9 @@ the account settings it keeps hold no secret. `tools/dt-email/README.md` has eve
 | `dt-email account list\|check\|default\|remove` | Show, test the sign-in, choose the default, remove |
 | `dt-email allowed-recipients set <a>...\|show\|clear` | Test mode: refuse any other To, CC or BCC before sending |
 | `dt-email folders` / `folder create\|rename\|delete` | Folders |
-| `dt-email list` / `search` / `read <uid>` / `attachments <uid>` / `download <uid> --out <dir>` | Read |
+| `dt-email list [--after-uid N] [--since DATE] [--oldest] [--preview]` / `search` / `read <uid>` / `attachments <uid>` / `download <uid> --out <dir>` | Read; `list --json` carries the folder's `uidvalidity` |
 | `dt-email send` / `reply <uid> [--all]` / `forward <uid>` / `draft save\|list\|send\|delete` | Write |
-| `dt-email mark <uid>... --as read\|unread\|flagged\|unflagged` / `move` / `archive` / `delete [--permanent]` | Manage |
+| `dt-email mark <uid>... --as read\|unread\|flagged\|unflagged` / `move` / `archive [--expect-uidvalidity N]` / `delete [--permanent]` | Manage |
 
 Every command takes `--account` and `--json`. Errors exit 1, usage errors 2.
 
