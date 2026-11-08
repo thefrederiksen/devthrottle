@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 
@@ -8,7 +8,8 @@ import { Link } from "react-router-dom";
  * decides nothing: the row hands it which actions apply, exactly as the row used to draw them inline.
  *
  * The popover is portaled to document.body (like the session menu) so the table's own overflow cannot clip it,
- * and it closes on an outside click, on Escape and after any choice.
+ * and it closes on an outside click, on Escape and after any choice. From the keyboard: opening it puts focus on
+ * the first item, the up and down arrows move between items, and Escape or a choice puts focus back on "...".
  */
 export interface ScheduleRowMenuProps {
   jobName: string;
@@ -32,6 +33,19 @@ export function ScheduleRowMenu({ jobName, factoryHref, onEdit, onDelete }: Sche
   const [popPos, setPopPos] = useState<PopPos | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+
+  const items = () => Array.from(popRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+  const close = (returnFocus: boolean) => {
+    setOpen(false);
+    if (returnFocus) btnRef.current?.focus();
+  };
+
+  // Once the popover is first placed, focus its first item so the keyboard lands inside the menu. Keyed on whether
+  // it is placed, not on where: a scroll moves it, and must not pull focus back to the first item.
+  const placed = popPos !== null;
+  useEffect(() => {
+    if (open && placed) items()[0]?.focus();
+  }, [open, placed]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -63,7 +77,7 @@ export function ScheduleRowMenu({ jobName, factoryHref, onEdit, onDelete }: Sche
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") close(true);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -74,8 +88,18 @@ export function ScheduleRowMenu({ jobName, factoryHref, onEdit, onDelete }: Sche
   }, [open]);
 
   const choose = (action: (() => void) | undefined) => {
-    setOpen(false);
+    close(true);
     action?.();
+  };
+
+  const onMenuKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const list = items();
+    if (list.length === 0) return;
+    const at = list.indexOf(document.activeElement as HTMLElement);
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    list[(at + step + list.length) % list.length].focus();
   };
 
   return (
@@ -100,10 +124,11 @@ export function ScheduleRowMenu({ jobName, factoryHref, onEdit, onDelete }: Sche
             className="session-menu-pop sched-rowmenu-pop"
             role="menu"
             aria-label={`Actions for ${jobName}`}
+            onKeyDown={onMenuKeyDown}
             style={{ position: "fixed", right: popPos.right, top: popPos.top ?? "auto", bottom: popPos.bottom ?? "auto" }}
           >
             {factoryHref !== undefined ? (
-              <Link role="menuitem" className="session-menu-item" to={factoryHref} onClick={() => setOpen(false)}>
+              <Link role="menuitem" className="session-menu-item" to={factoryHref} onClick={() => close(false)}>
                 Edit in factory
               </Link>
             ) : (

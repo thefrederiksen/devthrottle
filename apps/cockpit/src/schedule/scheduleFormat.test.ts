@@ -12,6 +12,7 @@ import {
   promptBody,
   relativeUntil,
   scheduleListOf,
+  lastRunSortKey,
 } from "./scheduleFormat";
 
 // A minimal CronJob builder for the display tests - only the fields these pure helpers read.
@@ -236,5 +237,26 @@ describe("nextRunLabel", () => {
     const active = job({ lifecycle: "active", nextRunUtc: "2026-10-09T15:00:00Z" });
     expect(nextRunLabel(active, now)).toBe("in 3h");
     expect(nextRunInstant(active)).toBe("2026-10-09T15:00:00Z");
+  });
+});
+
+describe("lastRunSortKey", () => {
+  const at = (verdict: string | null, lastFiredUtc: string | null) =>
+    ({ runRecord: verdict === null ? null : { verdict, text: "words" }, lastFiredUtc }) as unknown as CronJob;
+
+  it("lastRunSortKey_SessionsLeftBehind_SortAheadOfEveryOtherRun", () => {
+    const keys = [
+      at("ok", "2026-11-01T00:00:00Z"),
+      at(null, "2026-11-02T00:00:00Z"),
+      at("bad", "2026-11-07T00:00:00Z"),
+    ].map(lastRunSortKey);
+    expect([...keys].sort()).toEqual([keys[2], keys[1], keys[0]]);
+  });
+
+  it("lastRunSortKey_SameVerdict_SortsByWhenTheLastRunWas", () => {
+    const older = lastRunSortKey(at("bad", "2026-10-01T00:00:00Z"));
+    const newer = lastRunSortKey(at("bad", "2026-11-01T00:00:00Z"));
+    const never = lastRunSortKey(at("bad", null));
+    expect([never, newer, older].sort()).toEqual([older, newer, never]);
   });
 });

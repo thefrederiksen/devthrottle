@@ -195,7 +195,9 @@ export function SessionDetail() {
   // They sit on the row UNDER the tabs, at its right (Web UI Polish, fix 6): in the tab strip they pushed "Source
   // Control" onto two lines and ran the Mission button under the Queue panel at 1600 pixels. On Chat they ride the
   // filter row itself; the other tabs have no filter row, so there they get a slim row of their own.
-  const headerExtras = selected ? (
+  // Only when one of the two has something to draw: no empty strip under the tabs.
+  const hasHeaderExtras = selected !== undefined && (modelChipOf(selected) !== null || (selected.missionButton ?? null) !== null);
+  const headerExtras = selected && hasHeaderExtras ? (
     <>
       <SessionModelChip session={selected} />
       <span className="session-mission">

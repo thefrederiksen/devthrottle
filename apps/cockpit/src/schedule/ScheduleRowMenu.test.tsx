@@ -58,4 +58,37 @@ describe("ScheduleRowMenu", () => {
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
   });
+
+  it("ScheduleRowMenu_Opened_FocusesTheFirstItemAndArrowsMove", () => {
+    renderMenu({ jobName: "Morning sweep", onEdit: vi.fn(), onDelete: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Morning sweep" }));
+    const edit = screen.getByRole("menuitem", { name: "Edit" });
+    const del = screen.getByRole("menuitem", { name: "Delete" });
+    expect(document.activeElement).toBe(edit);
+
+    const menu = screen.getByRole("menu");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(del);
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(edit);
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(del);
+  });
+
+  it("ScheduleRowMenu_Escape_ClosesAndReturnsFocusToTheButton", () => {
+    renderMenu({ jobName: "Morning sweep", onEdit: vi.fn(), onDelete: vi.fn() });
+    const button = screen.getByRole("button", { name: "More actions for Morning sweep" });
+    fireEvent.click(button);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("ScheduleRowMenu_ItemChosen_ReturnsFocusToTheButton", () => {
+    renderMenu({ jobName: "Morning sweep", onEdit: vi.fn(), onDelete: vi.fn() });
+    const button = screen.getByRole("button", { name: "More actions for Morning sweep" });
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
+    expect(document.activeElement).toBe(button);
+  });
 });

@@ -345,10 +345,6 @@
   text-decoration: underline;
 }
 
-.sched-linkbtn.del {
-  color: var(--attention);
-}
-
 /* enabled/disabled toggle chip */
 .sched-chip {
   font-size: 9px;

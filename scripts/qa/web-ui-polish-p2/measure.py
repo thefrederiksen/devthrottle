@@ -73,7 +73,11 @@ def session(browser, out):
         abs(m["chipMid"] - m["densityMid"]) <= 3 and abs(m["missionMid"] - m["densityMid"]) <= 3 and m["filterBottom"] - m["filterTop"] <= 48,
         {k: m[k] for k in ("densityMid", "chipMid", "missionMid", "filterTop", "filterBottom")},
     )
-    check("6: LIVE stays inside the filter row", m["liveRight"] <= m["filterRight"] + 1, {"liveRight": m["liveRight"], "filterRight": m["filterRight"]})
+    check(
+        "6: LIVE has breathing room from the panel edge",
+        m["filterRight"] - m["liveRight"] >= 8,
+        {"liveRight": m["liveRight"], "filterRight": m["filterRight"]},
+    )
     check(
         "6: Mission button ends left of the Queue panel",
         m["dockLeft"] is not None and m["missionRight"] <= m["dockLeft"],
@@ -109,10 +113,14 @@ def schedule(browser, out):
         const heads = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim()).filter(Boolean);
         const main = document.querySelector('main') || document.body;
         const lastHead = [...table.querySelectorAll('thead th')].pop().getBoundingClientRect();
+        const nextHead = [...table.querySelectorAll('thead th')].find(th => /next/i.test(th.textContent));
+        const nextLabel = nextHead ? (nextHead.querySelector('button, span') || nextHead) : null;
         return { heads, scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth,
                  docScroll: document.documentElement.scrollWidth, viewport: window.innerWidth,
                  tableRight: table.getBoundingClientRect().right, lastHeadRight: lastHead.right,
                  rows: table.querySelectorAll('tbody tr .sched-cell-name').length,
+                 nextText: nextHead ? nextHead.textContent.trim() : null,
+                 nextCut: nextLabel ? nextLabel.scrollWidth > nextLabel.clientWidth + 1 : null,
                  menus: document.querySelectorAll('.sched-rowmenu-btn').length,
                  runNow: [...document.querySelectorAll('.sched-linkbtn')].filter(b => b.textContent.trim() === 'Run now').length,
                  shiftsUnderTime: [...document.querySelectorAll('.sched-cell-stack .sched-shift')].length,
@@ -125,6 +133,11 @@ def schedule(browser, out):
         m["scrollWidth"] <= m["clientWidth"] + 1 and m["docScroll"] <= m["viewport"],
         {k: m[k] for k in ("scrollWidth", "clientWidth", "docScroll", "viewport", "tableRight")},
     )
+    check(
+        "7: the Next run header reads in full",
+        m["nextText"] is not None and m["nextCut"] is False and "..." not in m["nextText"] and "…" not in m["nextText"],
+        {"text": m["nextText"], "cut": m["nextCut"]},
+    )
     check("7: last column inside the window", m["lastHeadRight"] <= 1600, {"lastHeadRight": m["lastHeadRight"]})
     n = m["rows"]
     check("7: the Active list has rows", n == 5, {"rows": n})
@@ -136,6 +149,8 @@ def schedule(browser, out):
     page.wait_for_selector("[role=menu]")
     items = page.locator("[role=menu] [role=menuitem]").all_inner_texts()
     check("7: the ... menu holds Edit and Delete", items == ["Edit", "Delete"], items)
+    focused = page.evaluate("() => document.activeElement && document.activeElement.textContent.trim()")
+    check("7: opening the menu focuses its first item", focused == "Edit", {"focused": focused})
     page.screenshot(path=str(out / "p2-07-schedule-menu-open.png"))
     page.close()
 

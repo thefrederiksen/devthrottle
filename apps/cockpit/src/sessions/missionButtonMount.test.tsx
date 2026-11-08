@@ -105,4 +105,15 @@ describe("the Cockpit session header", () => {
     const { container } = renderDetail([row(SID, null)]);
     expect(container.querySelector(".mb-root")).toBeNull();
   });
+
+  it("SessionDetail_NoModelAndNoMission_DrawsNoEmptyRowUnderTheTabs", () => {
+    const { container } = renderDetail([row(SID, null)]);
+    expect(container.querySelector(".session-subbar")).toBeNull();
+  });
+
+  it("SessionDetail_ModelOnly_DrawsTheRowWithTheChip", () => {
+    const withModel = { ...row(SID, null), agent: "Codex", modelDisplay: { text: "gpt-5", tooltip: "t", isAbsent: false } } as SessionDto;
+    const { container } = renderDetail([withModel]);
+    expect(container.querySelector(".session-subbar .session-model")?.textContent).toContain("gpt-5");
+  });
 });

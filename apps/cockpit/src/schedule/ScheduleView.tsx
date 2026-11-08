@@ -35,6 +35,7 @@ import {
   cronToEnglish,
   epochOrMax,
   lastOutcome,
+  lastRunSortKey,
   nextRunInstant,
   nextRunLabel,
   promptBody,
@@ -278,7 +279,7 @@ export function ScheduleView() {
       {
         key: "name",
         header: "Name",
-        width: "190px",
+        width: "180px",
         sortable: true,
         sortValue: (job) => job.name.toLowerCase(),
         render: (job) => (
@@ -299,7 +300,7 @@ export function ScheduleView() {
       {
         key: "runs",
         header: "Runs",
-        width: "170px",
+        width: "160px",
         sortable: true,
         sortValue: (job) => actionShortLabel(job).toLowerCase(),
         render: (job) => (
@@ -352,7 +353,7 @@ export function ScheduleView() {
             </span>
             <span
               className={`sched-shift sched-cell-sub ${job.shiftWarning ? "warn" : ""}`}
-              title={job.shiftWarning ?? undefined}
+              title={shiftTitle(job)}
               data-testid={`sched-shift-${job.id}`}
             >
               {job.shiftText ?? "-"}
@@ -363,7 +364,8 @@ export function ScheduleView() {
       {
         key: "next",
         header: "Next run",
-        width: "80px",
+        // Wide enough for "NEXT RUN" and its sort arrow to read in full at 1600 pixels.
+        width: "100px",
         sortable: true,
         sortValue: (job) => epochOrMax(nextRunInstant(job)),
         render: (job) => (
@@ -377,7 +379,9 @@ export function ScheduleView() {
         header: "Last run",
         width: "240px",
         sortable: true,
-        sortValue: (job) => epochOrMax(job.lastFiredUtc),
+        // Since "Closes itself" folded in here (Web UI Polish, fix 7), this column's sort is how to find the
+        // schedules that leave sessions behind: those first, then by when the last run was.
+        sortValue: (job) => lastRunSortKey(job),
         render: (job) => {
           const outcome = lastOutcome(job.lastStatus);
           return (
@@ -928,6 +932,13 @@ function fmtUtc(iso: string | null | undefined): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(
     d.getUTCMinutes(),
   )} UTC`;
+}
+
+// The shift line's hover text: the whole shift text, which the cell may cut off, and the Gateway's warning under it
+// when there is one. Both verbatim.
+function shiftTitle(job: CronJob): string | undefined {
+  const parts = [job.shiftText, job.shiftWarning].filter((p): p is string => typeof p === "string" && p.length > 0);
+  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 // The colour of a run record, from the verdict the Gateway stamped. Layout only: the verdict itself is never

@@ -186,10 +186,12 @@ describe("Schedule page: shifts and the shift-end warning", () => {
     const warned = await screen.findByTestId("sched-shift-cj_own");
     expect(warned.textContent).toBe("Morning shift");
     expect(warned.className).toContain("warn");
-    expect(warned.getAttribute("title")).toBe(WARNING);
+    // The line can be cut off, so its hover says the whole shift, then the Gateway's warning (review of fix 7).
+    expect(warned.getAttribute("title")).toBe(`Morning shift\n${WARNING}`);
     const quiet = screen.getByTestId("sched-shift-cj_orphan");
     expect(quiet.textContent).toBe("Night shift");
     expect(quiet.className).not.toContain("warn");
+    expect(quiet.getAttribute("title")).toBe("Night shift");
 
     fireEvent.click(screen.getByText("Own morning sweep"));
 

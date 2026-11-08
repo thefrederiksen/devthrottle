@@ -2109,6 +2109,10 @@ body {
 .chat-filter-end + .chat-live {
   margin-left: 4px;
 }
+/* LIVE gets breathing room from the panel's right edge (review of the phase 2 pull request). */
+.chat-filter .chat-live {
+  margin-right: 8px;
+}
 /* One line at 1600 pixels: when the pair is on the filter row, the row does not wrap. The detail switch, the
    prompts pill, the model chip and LIVE keep their size; a long Mission name is what gives way, cut off at its end
    (the Gateway's tooltip on the button still says it whole). */
