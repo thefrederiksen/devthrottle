@@ -118,17 +118,21 @@ describe("MissionButton icon keys", () => {
     expect(button.textContent).toBe("Mission");
   });
 
-  it("MissionButton_WarningIconKey_DrawsTheWarningTriangleBeforeTheWord", () => {
+  it("MissionButton_WarningIconKey_DrawsTheExclamationCircleBeforeTheWord", () => {
     render(<MissionButton display={NO_MISSION} />);
     const button = screen.getByRole("button", { name: "Mission" });
     const icons = button.querySelectorAll("svg");
     expect(icons.length).toBe(1);
     expect(icons[0].getAttribute("data-icon")).toBe("warning");
     expect(button.firstElementChild).toBe(icons[0]);
+    // A circle, never a closed triangle: the license warning is a yellow triangle and the two must not look alike.
+    expect(icons[0].querySelector('circle[r="6.5"]')).not.toBeNull();
+    const closedPaths = Array.from(icons[0].querySelectorAll("path")).filter((p) => /z/i.test(p.getAttribute("d") ?? ""));
+    expect(closedPaths).toHaveLength(0);
   });
 
   it("MissionButton_IconKeyIsNotTiedToTheColour_EachKeyIsDrawnAsSent", () => {
-    // The icon is the Gateway's choice, not inferred from the colour: a filled button told "warning" draws the triangle.
+    // The icon is the Gateway's choice, not inferred from the colour: a filled button told "warning" draws the exclamation circle.
     render(<MissionButton display={{ ...WITH_DOCUMENT, iconKey: "warning" }} />);
     const link = screen.getByRole("link", { name: "Mission" });
     expect(link.className).toContain("mb-mission");

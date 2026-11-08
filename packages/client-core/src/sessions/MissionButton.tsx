@@ -56,10 +56,10 @@ const ICONS: Readonly<Record<string, ReactNode>> = {
   ),
   none: null,
   warning: (
-    <svg className="mb-icon" data-icon="warning" viewBox="0 0 16 16" fill="none" stroke="#EAB308" strokeWidth={1.6} strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 1.8L15 14H1z" />
-      <path d="M8 6.2v3.8" />
-      <circle cx="8" cy="12" r=".6" fill="#EAB308" />
+    <svg className="mb-icon" data-icon="warning" viewBox="0 0 16 16" fill="none" stroke="#EAB308" strokeWidth={1.6} strokeLinecap="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M8 4.5v4.3" />
+      <circle cx="8" cy="11.3" r=".6" fill="#EAB308" />
     </svg>
   ),
 };

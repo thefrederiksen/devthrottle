@@ -13,10 +13,10 @@
 
     <Window.Resources>
         <!-- The Mission button's two icons, drawn on a 16 by 16 grid. Both buttons in this window (the toolbar corner and
-             the session tab bar) use these, so the shapes cannot drift apart. The warning triangle's dot is an Ellipse
+             the session tab bar) use these, so the shapes cannot drift apart. The exclamation mark's dot is an Ellipse
              beside it. -->
         <StreamGeometry x:Key="MissionDocumentIconGeometry">M4,1.5 H9.5 L12.5,4.5 V14.5 H4 Z M9.5,1.5 V4.5 H12.5 M6,8 H10.5 M6,10.5 H10.5</StreamGeometry>
-        <StreamGeometry x:Key="MissionWarningIconGeometry">M8,1.8 L15,14 H1 Z M8,6.2 V10</StreamGeometry>
+        <StreamGeometry x:Key="MissionWarningIconGeometry">M1.5,8 A6.5,6.5 0 1 1 14.5,8 A6.5,6.5 0 1 1 1.5,8 Z M8,4.5 V8.8</StreamGeometry>
     </Window.Resources>
 
     <Window.Styles>
@@ -248,13 +248,13 @@
                                       Stroke="{Binding $parent[Button].Foreground}"
                                       Data="{StaticResource MissionDocumentIconGeometry}" />
                             </Viewbox>
-                            <!-- The icon key "warning": a small yellow warning triangle. -->
+                            <!-- The icon key "warning": a small yellow circle with an exclamation mark (not a triangle: the license warning is one). -->
                             <Viewbox x:Name="BtnMissionWarningIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
                                 <Canvas Width="16" Height="16">
-                                    <Path StrokeThickness="1.6" StrokeJoin="Round" Fill="Transparent"
+                                    <Path StrokeThickness="1.6" StrokeLineCap="Round" Fill="Transparent"
                                           Stroke="{DynamicResource MissionWarningIcon}"
                                           Data="{StaticResource MissionWarningIconGeometry}" />
-                                    <Ellipse Canvas.Left="7.3" Canvas.Top="11.3" Width="1.4" Height="1.4"
+                                    <Ellipse Canvas.Left="7.3" Canvas.Top="10.6" Width="1.4" Height="1.4"
                                              Fill="{DynamicResource MissionWarningIcon}" />
                                 </Canvas>
                             </Viewbox>
@@ -1401,13 +1401,13 @@
                                               Stroke="{Binding $parent[Button].Foreground}"
                                               Data="{StaticResource MissionDocumentIconGeometry}" />
                                     </Viewbox>
-                                    <!-- The icon key "warning": a small yellow warning triangle. -->
+                                    <!-- The icon key "warning": a small yellow circle with an exclamation mark (not a triangle: the license warning is one). -->
                                     <Viewbox x:Name="TabBarMissionWarningIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
                                         <Canvas Width="16" Height="16">
-                                            <Path StrokeThickness="1.6" StrokeJoin="Round" Fill="Transparent"
+                                            <Path StrokeThickness="1.6" StrokeLineCap="Round" Fill="Transparent"
                                                   Stroke="{DynamicResource MissionWarningIcon}"
                                                   Data="{StaticResource MissionWarningIconGeometry}" />
-                                            <Ellipse Canvas.Left="7.3" Canvas.Top="11.3" Width="1.4" Height="1.4"
+                                            <Ellipse Canvas.Left="7.3" Canvas.Top="10.6" Width="1.4" Height="1.4"
                                                      Fill="{DynamicResource MissionWarningIcon}" />
                                         </Canvas>
                                     </Viewbox>

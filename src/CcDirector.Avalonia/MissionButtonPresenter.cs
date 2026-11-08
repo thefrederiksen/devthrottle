@@ -188,6 +188,6 @@ public enum MissionButtonIcon
     /// <summary>A small document (a Mission with a document).</summary>
     Document,
 
-    /// <summary>A small yellow warning triangle (a session with no Mission).</summary>
+    /// <summary>A small yellow circle with an exclamation mark (a session with no Mission).</summary>
     Warning,
 }

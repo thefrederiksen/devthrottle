@@ -80,7 +80,7 @@ Design reference for CC Director's dark-theme UI, inspired by VS Code. Use this 
 | Mission outline text (`MissionOutlineText`) | `#C7D2FE` | The Mission button's text and document icon in the outline look (a Mission with no document yet) |
 | No-mission border (`MissionWarningBrush`) | `#CA8A04` | The yellow outline of the Mission button when the session has no Mission. Deliberately yellow, not the warning amber above: the owner asked for yellow |
 | No-mission text (`MissionWarningText`) | `#FDE68A` | The word "Mission" on the transparent no-mission button |
-| No-mission icon (`MissionWarningIcon`) | `#EAB308` | The warning triangle drawn before the word on the no-mission button |
+| No-mission icon (`MissionWarningIcon`) | `#EAB308` | The circle with an exclamation mark drawn before the word on the no-mission button. A circle, not a triangle: the license warning is a triangle and the two must not look alike |
 | License warning yellow | `#EAB308` | The license banner across the top of the Director window while the Gateway's tone is `warning`, with `#1E1E1E` text. The owner: "a warning should be yellow, not red" |
 | License critical red | `#B91C1C` | The same banner when the Gateway's tone is `critical` (a machine stuck above the switching threshold), with `#FFFFFF` text |
 
@@ -729,7 +729,7 @@ SVG-style Path data for a branch icon:
 | Disabled (success) | `#165C30` | `#4D9960` |
 | Mission, filled (`Button.missionBtn.missionFilled`) | `#4338CA`, border `#6366F1` | White |
 | Mission, outline (`Button.missionBtn.missionOutline`) | Transparent, border `#6366F1` | `#C7D2FE` |
-| Mission, no mission (`Button.missionBtn.missionWarning`) | Transparent, border `#CA8A04` | `#FDE68A`, triangle `#EAB308` |
+| Mission, no mission (`Button.missionBtn.missionWarning`) | Transparent, border `#CA8A04` | `#FDE68A`, exclamation circle `#EAB308` |
 
 The three Mission looks are chosen by the Gateway's colour key, never by the view. They keep their own border and
 text colour on hover and press (the shared policy keeps only the background), and they are bordered, like the tab

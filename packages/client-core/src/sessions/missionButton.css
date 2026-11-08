@@ -2,7 +2,7 @@
    copy of these rules. Small - 22 pixels high, the word "Mission" and at most one icon - and the same as the desktop
    Director's (the owner-approved mockup of 7 November 2026): indigo filled with a document icon for a Mission with a
    document, the same indigo as an outline for a Mission with no document yet, and a yellow outline with a yellow
-   warning triangle for a session with no Mission. */
+   circle with an exclamation mark for a session with no Mission (not a triangle: the license warning is a triangle). */
 
 .mb-root {
   position: relative;

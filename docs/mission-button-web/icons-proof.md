@@ -26,7 +26,7 @@ Branch `mission-button-icons`, cut from origin/main and rebased onto 303de6ad8.
   either edge, keeping an 8 pixel gap (`bubbleShift`). A bubble wider than the screen is pinned to the left gap.
 - `packages/client-core/src/sessions/missionButton.css` - 22 pixels high, 12 pixel text, 13 pixel icon, 5 pixel gap,
   6 pixel corners. The looks are the mockup's: filled #4338CA with border #6366F1 and white text; outline #6366F1 with
-  text #C7D2FE; no Mission a transparent button with border #CA8A04 and text #FDE68A, the triangle in #EAB308.
+  text #C7D2FE; no Mission a transparent button with border #CA8A04 and text #FDE68A, the icon in #EAB308.
 - `apps/mobile/src/styles.css` - the phone's own size override for the button (bigger padding and font, a 46 percent
   width cap) is removed, so the button is the same size in every header.
 
@@ -35,7 +35,7 @@ Branch `mission-button-icons`, cut from origin/main and rebased onto 303de6ad8.
 - `src/CcDirector.Avalonia/MissionButtonPresenter.cs` - `Icon` (a `MissionButtonIcon`: None, Document, Warning) from
   the icon key; an unknown or missing icon key is a problem, logged, and no button is drawn, the note shown instead.
 - `src/CcDirector.Avalonia/MainWindow.axaml` - both buttons (the tab bar's and the toolbar corner's) hold a
-  document path icon and a warning triangle path icon before the word; the window shows the one the presenter
+  document path icon and a warning path icon before the word; the window shows the one the presenter
   names. The style is 22 pixels high, padding 9, font 12, corners 6. `App.axaml` holds the mockup's colours.
 
 **Compatibility.** An older Director against this Gateway ignores `iconKey` and shows "Mission" in its old looks
@@ -102,7 +102,7 @@ In `icons-screenshots/`:
 | `02-desktop-mission-with-document-tooltip.png` | The hover: the Mission's name, its goal, and "Click to open the mission document." |
 | `03-desktop-mission-without-document.png`, `03b-...-closeup.png` | Indigo outline, no icon, "Mission". |
 | `04-desktop-mission-without-document-tooltip.png` | The hover: the name and "This Mission has no document yet." |
-| `05-desktop-no-mission.png`, `05b-...-closeup.png` | Yellow outline, yellow triangle, "Mission". |
+| `05-desktop-no-mission.png`, `05b-...-closeup.png` | Yellow outline, yellow icon, "Mission". Taken before the icon became a circle (see "No-Mission icon" below), so it shows the earlier triangle. |
 | `06-desktop-no-mission-tooltip.png` | The hover: how to attach a Mission. |
 
 The click on the document button, from the test Director's log:
@@ -116,6 +116,14 @@ Afterwards the test Director was stopped with its named shutdown signal (which e
 Gateway process this session started was stopped, and the `cc-director-launch` task was removed. Nothing on the hosted
 Gateway was created or changed. The web screenshots are the Delivery Lead's, after the deploy.
 
+## No-Mission icon: a circle, not a triangle
+
+Changed on 7 November 2026 at the Delivery Lead's direction: the no-Mission icon is a yellow circle with an
+exclamation mark, the recommended alternative, because the license warning (issue 4728) is a yellow triangle and the
+two must not look alike. The Gateway's icon key is still `warning`; only the drawing changed, in the shared web
+`MissionButton.tsx` and in the window's `MissionWarningIconGeometry` (a circle of radius 6.5, the bar from 4.5 to 8.8,
+the dot centred at 11.3). The desktop screenshots above were taken before this change.
+
 ## Review
 
 A separate review session reads the change; every finding is answered below.
@@ -124,7 +132,7 @@ The review ran on commit 3afeca16b. The first review seat did not survive the Di
 new one was started; Codex refused its model, so the next seat in the order reviewed. Seven findings, none high.
 
 1. MEDIUM - `docs/VisualStyle.md` still listed the old Mission colours. FIXED: both Mission tables now carry the
-   shipped values (border `#6366F1`, outline text `#C7D2FE`, no-mission border `#CA8A04`, text `#FDE68A`, triangle
+   shipped values (border `#6366F1`, outline text `#C7D2FE`, no-mission border `#CA8A04`, text `#FDE68A`, icon
    `#EAB308`) and the two new brushes `MissionBorderBrush` and `MissionWarningIcon`.
 2. LOW - the hover-style comment in `MainWindow.axaml` gave a stale reason (dark text on yellow). FIXED: it now names
    what the style protects today, the light text and the document icon drawn in it.
