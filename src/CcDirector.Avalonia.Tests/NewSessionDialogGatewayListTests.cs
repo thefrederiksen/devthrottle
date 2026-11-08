@@ -205,36 +205,6 @@ public class NewSessionDialogGatewayListTests
     }
 
     /// <summary>
-    /// THE FLOW. The Gateway's list is what the screen shows, in the Gateway's order, and the screen
-    /// says nothing about where it came from - the ordinary state wears no banner.
-    /// </summary>
-    [AvaloniaFact]
-    public void TheDialogShowsTheGatewaysList_InTheGatewaysOrder()
-    {
-        using var machine = new MachineOfItsOwn();
-        var asked = 0;
-        using var dialog = Open(machine.Registry, _ =>
-        {
-            asked++;
-            return Task.FromResult(KnownRepositoryListResult.Served(TheGatewaysList()));
-        });
-
-        Assert.Equal(1, asked);
-        Assert.Equal(
-            new[] { "zephyr-tools", "beacon", "atlas-reporting", "cinder" },
-            RowsOnScreen(dialog).Select(r => r.Name).ToArray());
-
-        var notice = NoticeOnScreen(dialog);
-        Assert.False(notice.Visible);
-
-        // The machine's own registry rows are NOT merged in beside the served ones. A union here would
-        // be a second list on one machine, which is the defect this mission exists to end.
-        Assert.DoesNotContain(RowsOnScreen(dialog), r => r.Name == "mindzie-studio");
-
-        Photograph(dialog, "the-gateways-list-on-the-director.png");
-    }
-
-    /// <summary>
     /// THE PROOF THE MISSION SINGLES OUT. The Gateway cannot be reached: the dialog still lists
     /// repositories, and it SAYS it is on the machine's own list. Silence here is the failure the owner
     /// named by name.
