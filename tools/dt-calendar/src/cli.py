@@ -144,8 +144,9 @@ def _record(resource: caldav.EventResource, calendar_name: str) -> dict:
     owner = f"event {resource.id}"
     start, start_utc = ics.time_value(event.get("DTSTART"), owner)
     end, _ = ics.time_value(event.get("DTEND"), owner)
-    if end is not None and len(end) == 10:
+    if end is not None and len(end) == 10 and start is not None and len(start) == 10 and end > start:
         # An all-day DTEND is the day AFTER the event; show the last day, the same way --end takes it.
+        # A DTEND equal to DTSTART is a one-day event written loosely, so its last day is its start.
         end = (date.fromisoformat(end) - timedelta(days=1)).isoformat()
     organizer = event.get("ORGANIZER")
     people = ics.attendees(event)
@@ -467,13 +468,13 @@ def change_command(event_id: str = typer.Argument(..., help="The event id, from 
     organizer = event.get("ORGANIZER")
     organizer_address = ics.address(organizer.value).lower() if organizer else None
     i_organise = organizer_address is None or organizer_address == acct.email.lower()
-    if (added or removed) and not i_organise:
-        raise DtCalendarError(f"only the organizer ({organizer_address}) can change who is invited to this event.",
-                              exit_code=2)
-    if i_organise:
-        # A change the organizer saves is sent to everyone still invited, so test mode checks them all.
-        notified = [p["address"].lower() for p in ics.attendees(event) if p["address"].lower() not in removed]
-        config.check_invitees(cfg, [a for a in notified if a != acct.email.lower()] + added)
+    if not i_organise:
+        # Only the organizer may change an event (RFC 5546); an attendee answers with respond.
+        raise DtCalendarError(f"only the organizer ({organizer_address}) can change this event; to answer the "
+                              "invitation use dt-calendar respond.", exit_code=2)
+    # A change the organizer saves is sent to everyone still invited, so test mode checks them all.
+    notified = [p["address"].lower() for p in ics.attendees(event) if p["address"].lower() not in removed]
+    config.check_invitees(cfg, [a for a in notified if a != acct.email.lower()] + added)
     if summary is not None:
         event.set("SUMMARY", ics.escape_text(summary))
     for name, value in (("LOCATION", location), ("DESCRIPTION", description)):

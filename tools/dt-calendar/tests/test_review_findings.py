@@ -135,3 +135,27 @@ def test_change_InviteOnSomeoneElsesEvent_Refused(env):
                                          f"ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:{ME}"])
     result = env.run("change", "theirs.ics", "--invite", OTHER)
     assert result.exit_code == 2 and "organizer" in result.output
+
+
+# round two
+
+def test_discovery_RedirectToSameHostWithDefaultPort_Followed(env):
+    env.server.redirect_well_known = "https://cal.example.com:443/dav/"
+    assert "count: 1" in env.ok("calendars").stdout
+
+
+def test_allDay_EndEqualToStart_ShownAsTheStartDay(env):
+    _put_raw(env, env.me, "one.ics", ["UID:one", f"DTSTART;VALUE=DATE:{STAMP}", f"DTEND;VALUE=DATE:{STAMP}",
+                                      "SUMMARY:one day"])
+    record = json.loads(env.ok("event", "one.ics", "--json").stdout)
+    assert record["end"] == record["start"] == TOMORROW
+
+
+def test_change_SomeoneElsesEvent_AnyChangeRefused(env):
+    _put_raw(env, env.me, "theirs2.ics", ["UID:theirs2", f"DTSTART:{STAMP}T150000Z", f"DTEND:{STAMP}T160000Z",
+                                          "SUMMARY:theirs", f"ORGANIZER:mailto:{OUTSIDER}",
+                                          f"ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:{ME}"])
+    before = len(env.writes())
+    result = env.run("change", "theirs2.ics", "--summary", "mine now")
+    assert result.exit_code == 2 and "organizer" in result.output and "respond" in result.output
+    assert len(env.writes()) == before

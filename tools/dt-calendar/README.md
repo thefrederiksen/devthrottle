@@ -31,12 +31,13 @@ invites anyone else is refused before any request is made.
 | `events [--calendar C] [--from DAY] [--to DAY]` | Events in a range (default: today and the next 30 days), earliest first |
 | `event ID` | One event, with everyone invited and their answers |
 | `create --summary --start [--end\|--duration] [--all-day] [--location] [--description] [--invite A]` | Create; with --invite this account organises it and the server sends the invitations |
-| `change ID [--summary --start --end --duration --location --description --invite --uninvite]` | Change only what is given; everything else, including what the server added, is kept |
+| `change ID [--summary --start --end --duration --location --description --invite --uninvite]` | Change only what is given; everything else, including what the server added, is kept. Only the organizer changes an event; an attendee uses respond |
 | `delete ID` | Delete; for an event this account organised, the server sends the cancellations |
 | `respond ID --as accepted\|declined\|tentative` | Answer an invitation in this account's calendar; the server passes it to the organizer |
 
 Times are typed in this machine's time zone (`2026-11-10 14:00`) or with an offset, and written to the
-server in UTC. Every command takes `--account` and `--json`.
+server in UTC. An all-day event's `end` is its last day, the same way `--end` takes it. Every command takes
+`--account` and `--json`.
 
 ## Things learned on a real server (Zoho)
 
@@ -54,6 +55,7 @@ server in UTC. Every command takes `--account` and `--json`.
 ## Limits
 
 - A recurring event is listed once, at its first start; changing one with changed occurrences is refused.
+  A series' time is changed only when it is in UTC or a time zone this machine knows, and it keeps that zone.
 - No calendar is created or deleted, and tasks (VTODO) are not handled.
 
 ## Tests

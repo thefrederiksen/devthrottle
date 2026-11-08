@@ -103,7 +103,8 @@ class CalDavClient:
                 moved = urllib.parse.urlparse(target)
                 # The password goes with every request, so it never follows a redirect off the account's own
                 # server or down to plain http.
-                if moved.scheme != "https" or moved.netloc.lower() != base.netloc.lower():
+                if moved.scheme != "https" or moved.hostname != base.hostname or \
+                        (moved.port or 443) != (base.port or 443):
                     raise DtCalendarError(
                         f"the CalDAV server redirected to {target}, which is not the account's server "
                         f"({self._base}); the password is not sent there. If that server is right, set it as the "

@@ -2931,7 +2931,9 @@ the account settings it keeps hold no secret. `tools/dt-calendar/README.md` has 
 | `dt-calendar change <id> [...] [--invite] [--uninvite]` / `delete <id>` | Change or delete |
 | `dt-calendar respond <id> --as accepted\|declined\|tentative` | Answer an invitation |
 
-Every command takes `--account` and `--json`. Errors exit 1, usage errors 2. A server that silently drops an
+An all-day event's `end` is its last day, as `--end` takes it. Only the organizer changes an event; a series'
+time is changed only in UTC or a known time zone. Every command takes `--account` and `--json`. Errors exit 1,
+usage errors 2. A server that silently drops an
 invited person (Zoho drops anyone outside its organisation over CalDAV) makes create and change exit 1 and
 name who was dropped.
 
