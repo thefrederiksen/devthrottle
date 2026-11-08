@@ -3,10 +3,10 @@
 Zoho Mail, Calendar and admin through Zoho's own API. It holds what only Zoho's API can do, beside the
 standard tools: `dt-email` (IMAP and SMTP) and `dt-calendar` (CalDAV) work with Zoho too.
 
-This version reads and writes mail: accounts, folders, labels, message lists, search, one message and its
-attachments; sending, replying, drafts, flags, moves, archive, delete, spam, labels, folders, threads and
-scheduled send. The calendar and the admin calls come in the next versions, and only what was proven to
-work against a real Zoho organisation (8 November 2026) is built.
+This version reads and writes mail (accounts, folders, labels, lists, search, reading, attachments,
+sending, replying, drafts, flags, moves, archive, delete, spam, threads, scheduled send) and works the
+calendar (calendars and sharing, events, invitations, reminders, repeats, Zoho Meeting). The admin calls
+come next, and only what was proven to work against a real Zoho organisation (8 November 2026) is built.
 
 ## The key comes from cc-secrets, never a file
 
@@ -111,3 +111,36 @@ Ids may be space or comma separated. Every command takes `--json` and `--account
   unlabelled. Read and flag reach every message.
 - **Moving a folder under another folder** was not proven, so only `folder move --to-top` is offered.
 - `--fields` does not apply to `--json`, which always carries every field; giving both is refused.
+
+## Commands (calendar)
+
+| Command | What it does |
+|---|---|
+| `calendars` | Your calendars and those shared with you |
+| `calendar create NAME [--color] [--time-zone] [--description]` / `rename CAL [--name] [--color]` / `delete CAL` | Calendars; your default calendar is never deleted |
+| `calendar share CAL --with A` / `unshare CAL --with A` / `shares CAL` | Share for viewing (the level proven), stop, list |
+| `event list [--calendar C] [--from D] [--to D] [--instances]` | Events, earliest first; `--instances` lists each occurrence with its id |
+| `event show UID` | Times, invitees and their answers, reminders, repeat rule, changed occurrences, meeting links |
+| `event create --title T --start "YYYY-MM-DD HH:MM" [--end\|--duration] [--time-zone] [--location] [--description] [--invite A] [--reminder email:30] [--repeat RULE] [--meeting]` | Create; `--meeting` adds a Zoho Meeting and prints the guest join link and the host start link |
+| `event change UID [--occurrence ID] [--title] [--start] [--end\|--duration] [--location] [--description] [--invite] [--uninvite] [--reminder\|--no-reminders]` | Change; Zoho replaces the whole event, so dt-zoho sends every field again |
+| `event delete UID [--occurrence ID]` | Delete an event, a series, or one occurrence |
+| `event respond` | Says Zoho's API cannot answer an invitation; use `dt-calendar respond` |
+
+Times are in the calendar's time zone unless `--time-zone`. Test mode checks every invitee and every share
+before anything reaches Zoho - on a change everyone still invited and anyone removed, on a delete every
+invitee - because Zoho mails each of them (an invitation, or a "Cancelled" notice).
+
+## What Zoho's calendar does that you should know
+
+- **Invitations come from noreply@zohocalendar.ca** (Reply-To the organizer), and **Zoho keeps only invitees
+  inside its organisation**, dropping others - and the organizer's own aliases - without an error.
+  `event create` and `event change` read the event back and exit 1 naming whoever was dropped.
+- **A Zoho Meeting** is `--meeting`. The guest join link is in the invitation; the host start link is only
+  in dt-zoho's output. A change keeps the same meeting and links.
+- **Repeating events**: Zoho answers with the rule alone (INTERVAL=1 added). Changing a whole series was not
+  proven - and a change sent without the rule turned a test series into a single event - so dt-zoho changes
+  one occurrence (`--occurrence`) and refuses a series change. Once an occurrence changed, the event's own
+  answer lists the changed occurrences before the series; dt-zoho uses the series' etag. If Zoho ever answers
+  with no etag at all, dt-zoho asks for `--date` (a day an unchanged occurrence falls on).
+- **Free/busy** needs a scope the key does not have, and is not built.
+- An empty range comes back as a "No events found." message; dt-zoho shows `count: 0`.

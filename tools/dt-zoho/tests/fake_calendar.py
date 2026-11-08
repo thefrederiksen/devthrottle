@@ -96,7 +96,8 @@ class FakeCalendar:
             return _ok({"share": [{"message": "Updated Successfully", "status": "success"}]})
         events = self.events[cal["uid"]]
         if p[2:] == ["events"] and method == "GET":
-            return _ok({"events": self._list(events, json.loads(query["range"]), query.get("byinstance") == "true")})
+            found = self._list(events, json.loads(query["range"]), query.get("byinstance") == "true")
+            return _ok({"events": found or [{"message": "No events found."}]})
         if p[2:] == ["events"] and method == "POST":
             return self._create(events, json.loads(query["eventdata"]))
         if len(p) == 4 and p[2] == "events":
@@ -106,7 +107,9 @@ class FakeCalendar:
             if method == "GET":
                 if event.get("_etagless"):
                     return _ok({"events": [{"uid": event["uid"], "estatus": "updated"}]})
-                return _ok({"events": [self._public(event)]})
+                changed = [dict(self._public(event, None, rid, over), etag=over["etag"])
+                           for rid, over in (event.get("overrides") or {}).items() if isinstance(over, dict)]
+                return _ok({"events": changed + [self._public(event)]})
             if method == "PUT":
                 return self._change(event, json.loads(query["eventdata"]))
             if method == "DELETE":
@@ -148,8 +151,11 @@ class FakeCalendar:
                               [{"email": ME, "status": "ACCEPTED", "privilege": 4}]) if invited else []
         event["reminders"] = [{"minutes": str(r["minutes"]), "action": r["action"]} for r in data.get("reminders") or []]
         if data.get("isrep") and data.get("rrule"):
-            event["isrep"] = True
-            event["rrule"] = data["rrule"]
+            # Zoho answers with the rule alone, INTERVAL=1 added, and no isrep.
+            parts = data["rrule"].split(";")
+            if not any(p.startswith("INTERVAL=") for p in parts):
+                parts.insert(1, "INTERVAL=1")
+            event["rrule"] = ";".join(parts)
             event.setdefault("overrides", {})
 
     def _public(self, event: dict, start: Optional[datetime] = None, occurrence: Optional[str] = None,
@@ -180,12 +186,14 @@ class FakeCalendar:
         hi = datetime.strptime(window["end"], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
         found = []
         for event in events.values():
-            if event.get("isrep"):
+            if event.get("rrule"):
                 for rid, begin in self._occurrences(event):
                     over = event["overrides"].get(rid)
                     if over == "deleted":
                         continue
                     shown = self._public(event, begin, rid, over if isinstance(over, dict) else None)
+                    if isinstance(over, dict):
+                        shown["etag"] = over["etag"]
                     moment = datetime.strptime(shown["dateandtime"]["start"], "%Y%m%dT%H%M%S%z")
                     if lo <= moment <= hi:
                         found.append(shown if by_instance else self._public(event))
@@ -202,11 +210,14 @@ class FakeCalendar:
             return _error(400, "ETAG_MISMATCH")
         old_etag = event["etag"]
         if data.get("recurrence_edittype") == "only":
-            event["overrides"][data["recurrenceid"]] = {"title": data["title"], "dateandtime": data["dateandtime"]}
-            event["_etagless"] = True
+            # As Zoho did on 8 November 2026: the changed occurrence gets its own etag, the series a new one.
+            event["overrides"][data["recurrenceid"]] = {"title": data["title"], "dateandtime": data["dateandtime"],
+                                                        "etag": str(int(old_etag) + 1)}
+            event["etag"] = str(int(old_etag) + 7)
+            return _ok({"events": [{"uid": event["uid"], "etag": event["overrides"][data["recurrenceid"]]["etag"]}]})
         else:
             conference = {k: event[k] for k in ("conference", "conference_data", "app_data") if k in event}
-            keep = {k: event[k] for k in ("uid", "organizer", "isrep", "rrule", "overrides") if k in event}
+            keep = {k: event[k] for k in ("uid", "organizer", "overrides") if k in event}
             event.clear()
             event.update(keep)
             self._fill(event, data)

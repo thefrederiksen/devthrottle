@@ -7,14 +7,21 @@ calendar rows and section 3 of "the exact call for every cell"):
 - a delete sends the `etag` as a header; one occurrence of a series is changed or deleted with
   `recurrenceid` and `recurrence_edittype: only`;
 - a repeating event needs `dateandtime.timezone`, or Zoho answers TIMEZONE_MISSING;
-- after an occurrence changes, the event's own GET answers status entries with no `etag`; the list call
-  still carries it;
+- Zoho takes `isrep` with `rrule` on a create but answers with `rrule` alone (no `isrep`), the rule rewritten
+  with INTERVAL=1 added; `rrule` is what marks a repeating event in an answer (run 8 November 2026);
+- after an occurrence changes, the event's own GET answers several entries: each changed occurrence (with its
+  `recurrenceid` and its own etag) and the series itself (no `recurrenceid`), whose etag a series change or
+  delete needs - taking the first entry's etag is refused with 409 CONFLICT_EVENT (run 8 November 2026); in the
+  proof the GET once answered status entries with no etag at all, and the list call still carried it;
 - Zoho keeps only invitees inside its organisation and drops the others without an error, so dt-zoho reads
   the event back and names who was dropped;
 - `conference: zmeeting` creates a Zoho Meeting: `conference_data.meetingdata.meeting_link` is the guest join
-  link and `app_data.meetingdata.meetinglink` the host's start link (run 8 November 2026, 16:37Z);
+  link and `app_data.meetingdata.meetinglink` the host's start link (run 8 November 2026, 16:37Z); the event's
+  GET carries both, and a change that does not mention the meeting keeps the same meeting and links (run 8
+  November 2026: title and time changed, both links unchanged);
 - an invitee cannot answer an invitation through the API (403 OPERATION_NOT_PERMITTED); CalDAV can.
-- the events list answers at most 31 days per call.
+- the events list answers at most 31 days per call, and an empty range as {"events": [{"message": "No events
+  found."}]} - an entry with no uid is that message, not an event.
 """
 
 from __future__ import annotations
@@ -164,6 +171,8 @@ def list_events(client: ZohoClient, cal_uid: str, first: date, last: date, time_
         if instances:
             query["byinstance"] = "true"
         for event in client.calendar("GET", f"/api/v1/calendars/{cal_uid}/events", query=query).get("events") or []:
+            if not event.get("uid"):
+                continue        # Zoho's "No events found." message
             key = (event.get("uid"), event.get("recurrenceid"), (event.get("dateandtime") or {}).get("start"))
             if key not in seen:
                 seen.add(key)
@@ -172,10 +181,15 @@ def list_events(client: ZohoClient, cal_uid: str, first: date, last: date, time_
 
 
 def event(client: ZohoClient, cal_uid: str, uid: str) -> dict:
+    """The event itself: for a series whose occurrences changed, the series entry, not a changed occurrence.
+    The changed occurrences' ids ride along under `_changed_occurrences`."""
     found = client.calendar("GET", f"/api/v1/calendars/{cal_uid}/events/{uid}").get("events") or []
     if not found:
         raise DtZohoError(f"Zoho has no event {uid} in this calendar.", exit_code=2)
-    return found[0]
+    series = [e for e in found if not e.get("recurrenceid")]
+    chosen = series[0] if series else found[0]
+    changed = [e["recurrenceid"] for e in found if e.get("recurrenceid")]
+    return dict(chosen, _changed_occurrences=changed)
 
 
 def meeting_links(raw: dict) -> dict:
@@ -189,12 +203,14 @@ def event_record(raw: dict) -> dict:
     record = {"uid": raw.get("uid"), "title": raw.get("title"), "start": zoho_time(when.get("start")),
               "end": zoho_time(when.get("end")), "time_zone": when.get("timezone"),
               "location": raw.get("location"), "description": raw.get("description"),
-              "organizer": raw.get("organizer"), "repeats": raw.get("rrule") if raw.get("isrep") else None,
+              "organizer": raw.get("organizer"), "repeats": raw.get("rrule") or None,
               "occurrence": raw.get("recurrenceid"), "all_day": bool(raw.get("isallday")),
               "attendees": [{"email": a.get("email"), "status": a.get("status")} for a in raw.get("attendees") or []],
               "reminders": [{"action": r.get("action"), "minutes_before": -int(r.get("minutes"))}
                             for r in raw.get("reminders") or [] if r.get("minutes") not in (None, "")],
               "etag": str(raw["etag"]) if raw.get("etag") is not None else None, "link": raw.get("viewEventURL")}
+    if raw.get("_changed_occurrences"):
+        record["changed_occurrences"] = list(raw["_changed_occurrences"])
     record.update(meeting_links(raw))
     return record
 
@@ -257,11 +273,14 @@ def delete_occurrence(client: ZohoClient, cal_uid: str, uid: str, etag: str, occ
 
 
 def etag_from_list(client: ZohoClient, cal_uid: str, uid: str, day: date, time_zone: str) -> Optional[str]:
-    """The etag of an event as the list call carries it, for the series whose own GET no longer gives one."""
-    for raw in list_events(client, cal_uid, day, day, time_zone, instances=False):
-        if raw.get("uid") == uid and raw.get("etag") is not None:
-            return str(raw["etag"])
-    return None
+    """The series etag as the list call carries it, for a series whose own GET no longer gives one.
+
+    In the list a changed occurrence carries its own etag beside the series'; every occurrence change gives the
+    series a newer etag (8 November 2026: occurrence 1794160158957, series 1794160158963), so the series' etag is
+    the highest of them."""
+    etags = [int(raw["etag"]) for raw in list_events(client, cal_uid, day, day, time_zone, instances=True)
+             if raw.get("uid") == uid and str(raw.get("etag") or "").isdigit()]
+    return str(max(etags)) if etags else None
 
 
 def dropped_invitees(invited: List[str], stored: dict) -> List[str]:

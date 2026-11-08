@@ -87,8 +87,9 @@ def _print_event(record: dict, json_output: bool) -> None:
 def _check_dropped(invited: List[str], stored: dict, uid: str, cal: dict) -> None:
     dropped = zcalendar.dropped_invitees(invited, stored)
     if dropped:
-        raise DtZohoError(f"Zoho dropped {', '.join(dropped)} from the event without saying so: it keeps only invitees "
-                          f"inside its organisation, so they got no invitation. The event {uid} was kept with the "
+        raise DtZohoError(f"Zoho dropped {', '.join(dropped)} from the event without saying so, so they got no "
+                          "invitation: it keeps only invitees inside its organisation, and drops the organizer's own "
+                          f"aliases. The event {uid} was kept with the "
                           f"others. Delete it with: dt-zoho event delete {uid} --calendar {cal['uid']}")
 
 
@@ -282,9 +283,7 @@ def event_create(title: str = typer.Option(..., "--title", "-t"),
                                 reminders, repeat.upper() if repeat else None, meeting)
     created = zcalendar.create_event(client, cal["uid"], data)
     stored = zcalendar.event(client, cal["uid"], created["uid"]) if invitees else created
-    record = zcalendar.event_record(dict(stored, conference_data=created.get("conference_data") or
-                                         stored.get("conference_data"),
-                                         app_data=created.get("app_data") or stored.get("app_data")))
+    record = zcalendar.event_record(stored)
     record["calendar"] = cal["name"]
     _print_event(record, json_output)
     if meeting and not (record["meeting_join_link"] and record["meeting_start_link"]):
@@ -292,13 +291,19 @@ def event_create(title: str = typer.Option(..., "--title", "-t"),
     _check_dropped(invitees, stored, created["uid"], cal)
 
 
+def _invitees(current: dict) -> List[str]:
+    """The event's invitees, without its organizer."""
+    organizer = (current.get("organizer") or "").lower()
+    return [a["email"] for a in current.get("attendees") or [] if a.get("email") and a["email"].lower() != organizer]
+
+
 def _need_etag(client, cal: dict, uid: str, current: dict, day: Optional[str]) -> str:
     if current.get("etag") is not None:
         return str(current["etag"])
     if day is None:
         raise DtZohoError("Zoho gives no etag for this repeating event since one of its occurrences changed, and "
-                          "a change or delete needs it. Pass --date <a day the event occurs, YYYY-MM-DD> so dt-zoho "
-                          "can read it from the list.", exit_code=2)
+                          "a change or delete needs it. Pass --date <a day one of its UNCHANGED occurrences falls on, "
+                          "YYYY-MM-DD> so dt-zoho can read it from the list.", exit_code=2)
     found = zcalendar.etag_from_list(client, cal["uid"], uid, zcalendar.parse_day(day, "--date"), cal["time_zone"])
     if found is None:
         raise DtZohoError(f"event {uid} is not in the list on {day}; pass a --date it occurs on.", exit_code=2)
@@ -337,24 +342,24 @@ def event_change(uid: str = EventArg,
     client = _client()
     cal = zcalendar.resolve_calendar(client, calendar)
     current = zcalendar.event(client, cal["uid"], uid)
-    if current.get("isrep") and occurrence is None:
+    if occurrence is not None and not current.get("rrule") and current.get("etag") is not None:
+        raise DtZohoError(f"event {uid} does not repeat, so it has no occurrences; leave out --occurrence.",
+                          exit_code=2)
+    if current.get("rrule") and occurrence is None:
         raise DtZohoError("this is a repeating event. Change one occurrence with --occurrence <id> (dt-zoho event "
                           "list --instances); changing the whole series was not proven, so dt-zoho does not offer it.",
                           exit_code=2)
-    if current.get("conference_data") or current.get("conference"):
-        raise DtZohoError("this event has a Zoho Meeting, and whether a change keeps the meeting was not proven. "
-                          "Delete it and create it again with --meeting.", exit_code=2)
     etag = _need_etag(client, cal, uid, current, day)
     when = current.get("dateandtime") or {}
     zone = when.get("timezone") or cal["time_zone"]
     old_start = _wall_time(occurrence, zone) if occurrence else _wall_time(when["start"], zone)
     old_end = old_start + (_wall_time(when["end"], zone) - _wall_time(when["start"], zone))
     begin, finish = _times(start, end, duration, (old_start, old_end))
-    organizer = (current.get("organizer") or "").lower()
-    kept = [a["email"] for a in current.get("attendees") or []
-            if a.get("email") and a["email"].lower() != organizer and a["email"].lower() not in removed]
+    invited = _invitees(current)
+    kept = [a for a in invited if a.lower() not in removed]
     attendees = kept + [a for a in added if a.lower() not in {k.lower() for k in kept}]
-    config.check_recipients(config.load(), attendees)
+    # Zoho mails everyone still invited again, and a "Cancelled" notice to anyone removed (8 November 2026).
+    config.check_recipients(config.load(), attendees + [a for a in invited if a.lower() in removed])
     reminders = new_reminders if new_reminders is not None else [
         {"action": r.get("action"), "minutes": int(r.get("minutes"))} for r in current.get("reminders") or []
         if r.get("minutes") not in (None, "")]
@@ -385,6 +390,8 @@ def event_delete(uid: str = EventArg,
     client = _client()
     cal = zcalendar.resolve_calendar(client, calendar)
     current = zcalendar.event(client, cal["uid"], uid)
+    # Deleting an event mails its invitees a "Cancelled" notice (8 November 2026), so test mode checks them.
+    config.check_recipients(config.load(), _invitees(current))
     etag = _need_etag(client, cal, uid, current, day)
     if occurrence:
         zcalendar.delete_occurrence(client, cal["uid"], uid, etag, occurrence)

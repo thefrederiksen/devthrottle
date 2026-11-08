@@ -127,7 +127,7 @@ def test_create_Repeat_SendsTheRuleWithATimeZone(env):
     data = _create(env, "--repeat", "freq=daily;count=3")
     sent = _sent_event(env, "POST")
     assert sent["isrep"] is True and sent["rrule"] == "FREQ=DAILY;COUNT=3" and sent["dateandtime"]["timezone"]
-    assert data["repeats"] == "FREQ=DAILY;COUNT=3"
+    assert data["repeats"] == "FREQ=DAILY;INTERVAL=1;COUNT=3"
 
 
 def test_create_Meeting_PrintsTheJoinAndStartLinks(env):
@@ -162,6 +162,13 @@ def test_list_TextShowsAttendeeCount_AndFieldsWithJsonIsRefused(env):
     text = env.ok("event", "list", "--from", "2026-11-20", "--to", "2026-11-20", "--fields", "title,attendees").stdout
     assert "Plan,2" in text
     assert env.run("event", "list", "--fields", "title", "--json").exit_code == 2
+
+
+def test_list_NoEvents_SaysCountZero(env):
+    # Zoho answers an empty range with a message where the events would be.
+    data = json.loads(env.ok("event", "list", "--from", "2026-11-20", "--to", "2026-11-21", "--json").stdout)
+    assert data["count"] == 0 and data["events"] == []
+    assert "count: 0" in env.ok("event", "list", "--from", "2026-11-20", "--to", "2026-11-21").stdout
 
 
 def test_list_ToBeforeFrom_IsUsageError(env):
@@ -218,16 +225,35 @@ def test_change_ExistingInviteeNotAllowedAnyMore_IsRefused(env):
     assert result.exit_code == 1 and OTHER in result.output and _calls(env, "PUT") == []
 
 
+def test_change_UninviteSomeoneNotAllowed_IsRefused(env):
+    # Removing an invitee mails them a "Cancelled" notice, so they are checked too.
+    data = _create(env, "--invite", OTHER)
+    env.ok("allowed-recipients", "set", ME)
+    result = env.run("event", "change", data["uid"], "--uninvite", OTHER)
+    assert result.exit_code == 1 and OTHER in result.output and _calls(env, "PUT") == []
+
+
+def test_delete_InviteeNotAllowed_IsRefusedAndNothingDeleted(env):
+    # Deleting an event mails its invitees a "Cancelled" notice.
+    data = _create(env, "--invite", OTHER)
+    env.ok("allowed-recipients", "set", ME)
+    result = env.run("event", "delete", data["uid"])
+    assert result.exit_code == 1 and OTHER in result.output and _calls(env, "DELETE") == []
+    env.ok("allowed-recipients", "set", ME, OTHER)
+    env.ok("event", "delete", data["uid"])
+
+
 def test_change_RepeatingWithoutOccurrence_IsRefused(env):
     data = _create(env, "--repeat", "FREQ=DAILY;COUNT=3")
     result = env.run("event", "change", data["uid"], "--title", "x")
     assert result.exit_code == 2 and "--occurrence" in result.output and _calls(env, "PUT") == []
 
 
-def test_change_MeetingEvent_IsRefused(env):
+def test_change_MeetingEvent_KeepsTheMeetingAndShowsItsLinks(env):
     data = _create(env, "--meeting")
-    result = env.run("event", "change", data["uid"], "--title", "x")
-    assert result.exit_code == 2 and "--meeting" in result.output and _calls(env, "PUT") == []
+    changed = json.loads(env.ok("event", "change", data["uid"], "--start", "2026-11-20 11:00", "--json").stdout)
+    assert "conference" not in _sent_event(env, "PUT")
+    assert (changed["meeting_join_link"], changed["meeting_start_link"]) ==            (data["meeting_join_link"], data["meeting_start_link"])
 
 
 def test_occurrence_ChangeOneThenDeleteOneThenTheSeries(env):
@@ -246,14 +272,21 @@ def test_occurrence_ChangeOneThenDeleteOneThenTheSeries(env):
     assert [(e["title"], e["start"]) for e in after] == [("Plan", "2026-11-20T10:00:00-05:00"),
                                                         ("Moved", "2026-11-21T12:00:00-05:00"),
                                                         ("Plan", "2026-11-22T10:00:00-05:00")]
-    # Zoho now answers the event's own GET with no etag: the list call carries it.
-    refused = env.run("event", "delete", data["uid"], "--occurrence", "20261122T150000Z")
-    assert refused.exit_code == 2 and "--date" in refused.output
-    env.ok("event", "delete", data["uid"], "--occurrence", "20261122T150000Z", "--date", "2026-11-20")
+    # The GET now answers the changed occurrence first; the series entry's etag is the one Zoho accepts.
+    shown = json.loads(env.ok("event", "show", data["uid"], "--json").stdout)
+    assert shown["changed_occurrences"] == ["20261121T150000Z"] and shown["title"] == "Plan"
+    series_etag = env.zoho.calendar.events[DEFAULT_CAL][data["uid"]]["etag"]
+    env.ok("event", "delete", data["uid"], "--occurrence", "20261122T150000Z")
+    assert json.loads(_calls(env, "DELETE")[-1][2]["eventdata"])["etag"] == series_etag
     left = json.loads(env.ok("event", "list", "--from", "2026-11-19", "--to", "2026-11-25", "--instances",
                              "--json").stdout)["events"]
     assert [e["title"] for e in left] == ["Plan", "Moved"]
+    # After an occurrence delete the GET can answer status entries with no etag (as in the proof): the list
+    # call carries it, and its highest etag is the series'.
+    refused = env.run("event", "delete", data["uid"])
+    assert refused.exit_code == 2 and "--date" in refused.output
     env.ok("event", "delete", data["uid"], "--date", "2026-11-20")
+    assert _calls(env, "DELETE")[-1][3]["etag"] == series_etag
     assert env.zoho.calendar.events[DEFAULT_CAL] == {}
 
 
