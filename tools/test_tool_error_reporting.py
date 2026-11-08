@@ -207,6 +207,11 @@ def _check_wiring(tool_dir: Path, scan: Scan) -> None:
     scan.wired.add(tool)
 
 
+def _tool_dirs(tools_dir: Path) -> List[Path]:
+    """Every tool folder: the cc-* tools and the dt-* tools (dt-email, dt-calendar)."""
+    return sorted(list(tools_dir.glob("cc-*")) + list(tools_dir.glob("dt-*")))
+
+
 def _exempt(site_or_file: str, tool: str) -> bool:
     if tool in EXEMPT:
         return True
@@ -217,7 +222,7 @@ def _exempt(site_or_file: str, tool: str) -> bool:
 def scan_tools(tools_dir: Path) -> Scan:
     """Read every cc-* tool under `tools_dir`: its exits, its fail helpers and its entry point."""
     scan = Scan()
-    for tool_dir in sorted(p for p in tools_dir.glob("cc-*") if p.is_dir()):
+    for tool_dir in sorted(p for p in _tool_dirs(tools_dir) if p.is_dir()):
         tool = tool_dir.name
         if tool in EXEMPT:
             scan.exempt_tools.append(tool)
@@ -399,7 +404,7 @@ class SuiteScan:
 def _entry_function_names(tools_dir: Path) -> Set[str]:
     """Every console-script function the tools name, plus the hook itself - read from the pyprojects."""
     names = {"run_tool"}
-    for tool_dir in tools_dir.glob("cc-*"):
+    for tool_dir in _tool_dirs(tools_dir):
         target = _console_script(tool_dir) if tool_dir.is_dir() else None
         if target is not None:
             names.add(target[1])
@@ -440,7 +445,7 @@ def scan_suites(tools_dir: Path) -> SuiteScan:
     """Read every test suite under `tools_dir` (a `tests` folder of a tool or of cc_shared)."""
     scan = SuiteScan()
     entry_names = _entry_function_names(tools_dir)
-    tool_names = {p.name for p in tools_dir.glob("cc-*") if p.is_dir()}
+    tool_names = {p.name for p in _tool_dirs(tools_dir) if p.is_dir()}
     for tests_dir in sorted(tools_dir.glob("*/tests")):
         suite = tests_dir.relative_to(tools_dir).as_posix()
         scan.suites.append(suite)

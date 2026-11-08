@@ -2810,6 +2810,24 @@ Publish a dev report (one HTML file) to the owner through the Gateway, and reply
 
 Every command takes `--json`, which always has the keys `ok`, `command`, `report`, `created`, `reply`, `ownerRoute`, `count`, `reports`, `claimed`, `marked`, `missionDocument`, `error`, `code`, `errors`. Errors exit 1.
 
+## dt-email
+
+Email over standard IMAP and SMTP for any provider: read, search, send, reply, forward, drafts, flags,
+folders and delete. The password comes only from cc-secrets (`cc-secrets run <entry> -- dt-email ...`);
+the account settings it keeps hold no secret. `tools/dt-email/README.md` has every command.
+
+| Command | What it does |
+|---|---|
+| `dt-email account add <name> --email <a> --imap-host <h> --smtp-host <h> --secret-entry <e> --password-env <V>` | Set up an account (no secret stored) |
+| `dt-email account list\|check\|default\|remove` | Show, test the sign-in, choose the default, remove |
+| `dt-email allowed-recipients set <a>...\|show\|clear` | Test mode: refuse any other To, CC or BCC before sending |
+| `dt-email folders` / `folder create\|rename\|delete` | Folders |
+| `dt-email list` / `search` / `read <uid>` / `attachments <uid>` / `download <uid> --out <dir>` | Read |
+| `dt-email send` / `reply <uid> [--all]` / `forward <uid>` / `draft save\|list\|send\|delete` | Write |
+| `dt-email mark <uid>... --as read\|unread\|flagged\|unflagged` / `move` / `archive` / `delete [--permanent]` | Manage |
+
+Every command takes `--account` and `--json`. Errors exit 1, usage errors 2.
+
 ## cc-reddit
 
 Reddit CLI via browser automation.
