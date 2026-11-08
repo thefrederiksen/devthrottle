@@ -12,6 +12,8 @@ the decisions on the Gateway; this module reads and changes them under `/gateway
 - `maildesk decisions`                          what the desk decided, newest first, with every filter on the Gateway
 - `maildesk settings`                           the two thresholds, the spend limit, what was spent (phase 3)
 - `maildesk set <name> <value>`                 change one setting; every change is recorded with who and why
+- `maildesk providers [<provider>]`             what is supported, by provider: the tool, what was proven for email
+                                                and calendar, whether the Mail Desk reads it, and what it needs first
 
 THE GATEWAY RULES, THIS MODULE PRINTS (repository rule 7). Every label - a channel's mode, whether it is signed in,
 how its last check went - is printed as the Gateway wrote it, and every refusal is the Gateway's own `error` and
@@ -77,6 +79,7 @@ _RULES = f"{_TOOL} rules show"
 _HISTORY = f"{_TOOL} rules history"
 _DECISIONS = f"{_TOOL} decisions"
 _SETTINGS = f"{_TOOL} settings"
+_PROVIDERS = f"{_TOOL} providers"
 _ROUTE_FORM = "<factory>/<seat>"
 
 
@@ -577,3 +580,73 @@ def set_setting(name: str, value: str, why: Optional[str]) -> None:
         _line(f"spend: {after.get('label') or '-'}"),
     )
     axi_cli.print_next([_SETTINGS, f"{_HISTORY} --kind setting"])
+
+
+# ---------- what is supported ----------
+
+
+def _area_summary(area: Any) -> str:
+    """'9 work, 1 not tested' for one area of a provider, from the Gateway's lists."""
+    area = area if isinstance(area, dict) else {}
+    works = area.get("works") if isinstance(area.get("works"), list) else []
+    not_working = area.get("notWorking") if isinstance(area.get("notWorking"), list) else []
+    failed = sum(1 for f in not_working if isinstance(f, dict) and f.get("state") == "fail")
+    untested = sum(1 for f in not_working if isinstance(f, dict) and f.get("state") == "not-tested")
+    words = [f"{len(works)} work"]
+    if failed:
+        words.append(f"{failed} fail")
+    if untested:
+        words.append(f"{untested} not tested")
+    return ", ".join(words)
+
+
+def providers(provider: Optional[str], json_output: bool) -> None:
+    """What is supported, by provider - the Gateway's one list (MailDeskProviders). Every word is the Gateway's."""
+    answer = _call(lambda: _client().get("/providers", {"provider": provider}), [_PROVIDERS])
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    rows = _list_of(answer, "providers", "/providers")
+    if provider is None:
+        on_desk = answer.get("mailDesk") if isinstance(answer, dict) else None
+        records = []
+        for p in rows:
+            p = p if isinstance(p, dict) else {}
+            desk = p.get("mailDesk") if isinstance(p.get("mailDesk"), dict) else {}
+            records.append({
+                "provider": _cell(p.get("provider")),
+                "tool": _cell(p.get("tool")),
+                "mail-desk": _cell(desk.get("state")),
+                "email": _area_summary(p.get("email")),
+                "calendar": _area_summary(p.get("calendar")),
+            })
+        _write(
+            _line(f"{_count(answer, rows)} (on the Mail Desk {on_desk}, not yet {len(rows) - on_desk})"
+                  if isinstance(on_desk, int) and not isinstance(on_desk, bool) else _count(answer, rows)),
+            axi_output.render_list("providers", ["provider", "tool", "mail-desk", "email", "calendar"], records),
+        )
+        axi_cli.print_next([f"{_PROVIDERS} <provider>", f"{_PROVIDERS} --json"])
+        return
+
+    for p in rows:
+        p = p if isinstance(p, dict) else {}
+        desk = p.get("mailDesk") if isinstance(p.get("mailDesk"), dict) else {}
+        blocks = [
+            _line(f"provider: {_cell(p.get('provider'))}"),
+            _line(f"name: {_cell(p.get('name'))}"),
+            _line(f"tool: {_cell(p.get('tool'))}"),
+            _line(f"mail-desk: {_cell(desk.get('label'))}"),
+            _line(f"proven: {_cell(p.get('provenOn'))}"),
+            _line(f"admin: {_cell(p.get('admin'))}"),
+            axi_output.render_list("needs", ["need"], [{"need": _cell(n)} for n in (p.get("needs") or [])]),
+        ]
+        for area in ("email", "calendar"):
+            got = p.get(area) if isinstance(p.get(area), dict) else {}
+            blocks.append(axi_output.render_list(
+                f"{area}-works", ["feature"], [{"feature": _cell(f)} for f in (got.get("works") or [])]))
+            blocks.append(axi_output.render_list(
+                f"{area}-not-working", ["feature", "state", "why"],
+                [{"feature": _cell(f.get("feature")), "state": _cell(f.get("state")), "why": _cell(f.get("why"))}
+                 for f in (got.get("notWorking") or []) if isinstance(f, dict)]))
+        _write(*blocks)
+    axi_cli.print_next([_PROVIDERS, f'{_TOOL} channel add <address> --provider <provider> --machine <machine> --why "<text>"'])

@@ -54,8 +54,11 @@ public static class MailDeskWords
     /// The command that adds a mailbox, as every sentence that tells a reader to add one shows it - the page's empty
     /// state, the channel list's next step and the failed check's fix - so each names every provider the Gateway accepts.
     /// </summary>
-    public static string ChannelAddCommand(string machine)
-        => $"cc-devthrottle maildesk channel add <address> --provider {Providers.Placeholder} --machine {machine} --why \"<text>\"";
+    public static string ChannelAddCommand(string machine) => ChannelAddCommand(machine, Providers.Placeholder);
+
+    /// <summary>The command that adds a mailbox of one <paramref name="provider"/> (or a placeholder of several).</summary>
+    public static string ChannelAddCommand(string machine, string provider)
+        => $"cc-devthrottle maildesk channel add <address> --provider {provider} --machine {machine} --why \"<text>\"";
 
     /// <summary>A channel's mode: observe decides and records and changes nothing; live acts.</summary>
     public static class Modes

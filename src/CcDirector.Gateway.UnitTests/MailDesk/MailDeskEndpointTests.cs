@@ -1313,7 +1313,7 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
         var before = Recorded();
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
+        Assert.Equal(13, routes.Count); // phase 1's ten, phase 3's GET and POST /settings, and GET /providers
 
         // Act + Assert
         foreach (var endpoint in routes)
@@ -1342,7 +1342,7 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
     {
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
+        Assert.Equal(13, routes.Count); // phase 1's ten, phase 3's GET and POST /settings, and GET /providers
         foreach (var endpoint in routes)
         {
             var method = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Single();
@@ -1358,6 +1358,8 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
     [InlineData("DELETE", "/gateway/mail-desk/channels")]
     [InlineData("PUT", "/gateway/mail-desk/rules")]
     [InlineData("POST", "/gateway/mail-desk/status")]
+    [InlineData("POST", "/gateway/mail-desk/providers")]
+    [InlineData("GET", "/gateway/mail-desk/providers/imap")]
     [InlineData("GET", "/gateway/mail-desk/channels/remove")]
     [InlineData("POST", "/gateway/mail-desk/rules")]
     [InlineData("GET", "/gateway/mail-desk/rules/allow/add")]

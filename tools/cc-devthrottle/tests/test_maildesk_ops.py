@@ -985,3 +985,132 @@ def test_set_SwitchOff_SaysMailDeskIsNotSwitchedOn(fake_gateway):
     # Assert
     assert result.exit_code == 1, result.output
     assert maildesk_ops.SWITCHED_OFF in result.output
+
+
+# ---------- maildesk providers: what is supported, by provider (mission "Zoho Mail Skill", section 4) ----------
+#
+# The list is the Gateway's (MailDeskProviders); the command prints it and decides nothing. The words below are
+# deliberately not the real ones, so a command that wrote its own would fail.
+
+PROVIDER_LONG_NAME = "Any other provider (IMAP, SMTP and CalDAV: a long name that must never be cut short, Purelymail, Fastmail)"
+
+PROVIDER_IMAP = {
+    "provider": "imap",
+    "name": PROVIDER_LONG_NAME,
+    "tool": "dt-email, dt-calendar",
+    "mailDesk": {"state": "not-yet", "label": "Not yet - the owls are still hatching."},
+    "needs": ["A lantern lit on the hill.", "The key under the mat on every machine."],
+    "admin": "None: ask the lighthouse.",
+    "email": {
+        "works": ["Read a letter", "Send a letter, with a ribbon"],
+        "notWorking": [{"feature": "Send from an alias", "state": "not-tested", "why": "No alias owl was found."}],
+    },
+    "calendar": {
+        "works": ["List the moons"],
+        "notWorking": [{"feature": "Invite people", "state": "fail", "why": "Strangers are dropped into the sea."}],
+    },
+    "provenOn": "Proven on a Tuesday under a full moon.",
+}
+PROVIDER_OUTLOOK = dict(PROVIDER_IMAP, provider="outlook", name="Outlook", tool="cc-outlook",
+               mailDesk={"state": "yes", "label": "Yes. Add a mailbox with: something"},
+               email={"works": ["a", "b", "c"], "notWorking": []},
+               calendar={"works": [], "notWorking": [{"feature": "x", "state": "fail", "why": "y"},
+                                                     {"feature": "z", "state": "not-tested", "why": "w"}]})
+PROVIDERS_ALL = {"count": 2, "total": 2, "mailDesk": 1, "providers": [PROVIDER_IMAP, PROVIDER_OUTLOOK]}
+
+
+def test_providers_NoProvider_AsksForAllAndPrintsOneRowEachWithTheirAreasCounted(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/providers", 200, PROVIDERS_ALL)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "providers"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    call = _only_call(fake_gateway)
+    assert (call["method"], call["path"], call["query"]) == ("GET", "/gateway/mail-desk/providers", {})
+    assert "count: 2 (on the Mail Desk 1, not yet 1)" in result.stdout
+    assert "providers[2]{provider,tool,mail-desk,email,calendar}:" in result.stdout
+    assert 'imap,"dt-email, dt-calendar",not-yet,"2 work, 1 not tested","1 work, 1 fail"' in result.stdout
+    assert 'outlook,cc-outlook,yes,3 work,"0 work, 1 fail, 1 not tested"' in result.stdout
+    assert "cc-devthrottle maildesk providers <provider>" in result.stdout
+    assert result.stdout.isascii()
+
+
+def test_providers_OneProvider_SendsTheFilterAndPrintsEveryWordInFull(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/providers", 200, {"count": 1, "total": 2, "mailDesk": 1, "providers": [PROVIDER_IMAP]})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "providers", "imap"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert _only_call(fake_gateway)["query"] == {"provider": "imap"}
+    out = result.stdout
+    assert "provider: imap" in out
+    assert PROVIDER_LONG_NAME in out
+    assert "mail-desk: Not yet - the owls are still hatching." in out
+    assert "proven: Proven on a Tuesday under a full moon." in out
+    assert "admin: None: ask the lighthouse." in out
+    assert "needs[2]{need}:" in out
+    assert "The key under the mat on every machine." in out
+    assert "email-works[2]{feature}:" in out
+    assert "Send a letter, with a ribbon" in out
+    assert "email-not-working[1]{feature,state,why}:" in out
+    assert "Send from an alias,not-tested,No alias owl was found." in out
+    assert "calendar-not-working[1]{feature,state,why}:" in out
+    assert "Invite people,fail,Strangers are dropped into the sea." in out
+    assert out.isascii()
+
+
+def test_providers_Json_IsTheGatewaysAnswerAndTheFilterStillApplies(fake_gateway):
+    # Arrange
+    answer = {"count": 1, "total": 2, "mailDesk": 1, "providers": [PROVIDER_IMAP]}
+    fake_gateway.answer("GET", "/providers", 200, answer)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "providers", "imap", "--json"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert _only_call(fake_gateway)["query"] == {"provider": "imap"}
+    assert json.loads(result.stdout) == answer
+
+
+def test_providers_UnknownProvider_ExitsOneWithTheGatewaysOwnRefusal(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/providers", 400, {
+        "error": "no_such_provider", "detail": "'fastmail' is not a provider; the providers are zoho, imap, gmail, outlook"})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "providers", "fastmail"])
+
+    # Assert
+    assert result.exit_code == 1
+    assert "'fastmail' is not a provider; the providers are zoho, imap, gmail, outlook" in result.output
+
+
+def test_providers_AnswerWithNoList_FailsRatherThanPrintingNone(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/providers", 200, {"count": 0})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "providers"])
+
+    # Assert
+    assert result.exit_code == 1
+    assert "no list of providers" in result.output
+
+
+def test_providers_Help_SaysWhatItIsAndTakesOneOptionalProvider():
+    # Act
+    result = runner.invoke(app, ["maildesk", "providers", "--help"])
+
+    # Assert
+    assert result.exit_code == 0
+    assert "What is supported, by provider" in result.output
+    assert "[PROVIDER]" in result.output
+    for word in ("zoho", "imap", "gmail", "outlook"):
+        assert word in result.output
