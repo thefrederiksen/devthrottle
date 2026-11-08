@@ -6,7 +6,8 @@
 - a change needs the current etag and replaces the event; a repeating event without a time zone is refused
   with TIMEZONE_MISSING;
 - invitees outside the organisation are dropped without an error;
-- after an occurrence changes, the event's own GET answers status entries with no etag;
+- once an occurrence changed or was deleted, the event's own GET lists each changed occurrence (own values and
+  etag), each deleted one (a status entry), then the series (zoho-cal-recur.txt);
 - `conference: zmeeting` adds conference_data and app_data meeting links;
 - an invitee's PATCH answer is refused with 403 OPERATION_NOT_PERMITTED.
 """
@@ -105,11 +106,13 @@ class FakeCalendar:
             if event is None:
                 return _error(404, "EVENT_NOTFOUND")
             if method == "GET":
-                if event.get("_etagless"):
-                    return _ok({"events": [{"uid": event["uid"], "estatus": "updated"}]})
-                changed = [dict(self._public(event, None, rid, over), etag=over["etag"])
-                           for rid, over in (event.get("overrides") or {}).items() if isinstance(over, dict)]
-                return _ok({"events": changed + [self._public(event)]})
+                entries = []
+                for rid, over in (event.get("overrides") or {}).items():
+                    if over == "deleted":
+                        entries.append({"uid": event["uid"], "recurrenceid": rid, "estatus": "deleted"})
+                    else:
+                        entries.append(dict(self._public(event, None, rid, over), etag=over["etag"]))
+                return _ok({"events": entries + [self._public(event)]})
             if method == "PUT":
                 return self._change(event, json.loads(query["eventdata"]))
             if method == "DELETE":
@@ -167,6 +170,11 @@ class FakeCalendar:
         shown = {k: v for k, v in event.items() if not k.startswith("_") and k != "overrides"}
         if over:
             shown["title"] = over["title"]
+            for key in ("location", "description"):
+                if over.get(key):
+                    shown[key] = over[key]
+                else:
+                    shown.pop(key, None)
             begin = _to_utc(over["dateandtime"]["start"], zone)
             length = _to_utc(over["dateandtime"]["end"], zone) - begin
         shown["dateandtime"] = {"timezone": zone, "start": _shown(begin, zone), "end": _shown(begin + length, zone)}
@@ -205,14 +213,23 @@ class FakeCalendar:
                     found.append(self._public(event))
         return found
 
+    @staticmethod
+    def _expected_etag(event: dict, occurrence: Optional[str]) -> str:
+        # A changed occurrence answers to its own etag; the series' draws 409 CONFLICT_EVENT (8 November 2026).
+        over = (event.get("overrides") or {}).get(occurrence) if occurrence else None
+        return over["etag"] if isinstance(over, dict) else event["etag"]
+
     def _change(self, event: dict, data: dict) -> Response:
-        if str(data.get("etag")) != event["etag"]:
-            return _error(400, "ETAG_MISMATCH")
+        occurrence = data.get("recurrenceid") if data.get("recurrence_edittype") == "only" else None
+        if str(data.get("etag")) != self._expected_etag(event, occurrence):
+            return _error(409, "CONFLICT_EVENT")
         old_etag = event["etag"]
-        if data.get("recurrence_edittype") == "only":
+        if occurrence:
             # As Zoho did on 8 November 2026: the changed occurrence gets its own etag, the series a new one.
-            event["overrides"][data["recurrenceid"]] = {"title": data["title"], "dateandtime": data["dateandtime"],
-                                                        "etag": str(int(old_etag) + 1)}
+            event["overrides"][occurrence] = {"title": data["title"], "dateandtime": data["dateandtime"],
+                                              "location": data.get("location"),
+                                              "description": data.get("description"),
+                                              "etag": str(int(old_etag) + 1)}
             event["etag"] = str(int(old_etag) + 7)
             return _ok({"events": [{"uid": event["uid"], "etag": event["overrides"][data["recurrenceid"]]["etag"]}]})
         else:
@@ -228,10 +245,10 @@ class FakeCalendar:
     def _delete(self, events: Dict[str, dict], event: dict, query: dict, headers: Dict[str, str]) -> Response:
         if "eventdata" in query:
             data = json.loads(query["eventdata"])
-            if str(data.get("etag")) != event["etag"]:
-                return _error(400, "ETAG_MISMATCH")
+            if str(data.get("etag")) != self._expected_etag(event, data["recurrenceid"]):
+                return _error(409, "CONFLICT_EVENT")
+            # The series keeps its etag (8 November 2026).
             event["overrides"][data["recurrenceid"]] = "deleted"
-            event["_etagless"] = True
             return _ok({"events": [{"uid": event["uid"], "estatus": "deleted"}]})
         if headers.get("etag") != event["etag"]:
             return _error(400, "ETAG_MISMATCH")

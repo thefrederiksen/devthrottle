@@ -9,10 +9,15 @@ calendar rows and section 3 of "the exact call for every cell"):
 - a repeating event needs `dateandtime.timezone`, or Zoho answers TIMEZONE_MISSING;
 - Zoho takes `isrep` with `rrule` on a create but answers with `rrule` alone (no `isrep`), the rule rewritten
   with INTERVAL=1 added; `rrule` is what marks a repeating event in an answer (run 8 November 2026);
-- after an occurrence changes, the event's own GET answers several entries: each changed occurrence (with its
-  `recurrenceid` and its own etag) and the series itself (no `recurrenceid`), whose etag a series change or
-  delete needs - taking the first entry's etag is refused with 409 CONFLICT_EVENT (run 8 November 2026); in the
-  proof the GET once answered status entries with no etag at all, and the list call still carried it;
+- once an occurrence changed or was deleted, the event's own GET answers several entries: each changed
+  occurrence (its `recurrenceid`, its own values and etag), each deleted one (a status entry with
+  `recurrenceid` and `estatus: deleted`), and the series itself (no `recurrenceid`), whose etag a series change
+  or delete needs - taking the first entry's etag is refused with 409 CONFLICT_EVENT, and so is the series' etag
+  on a second change to an already-changed occurrence, which answers only to its own (run 8 November 2026;
+  proof evidence zoho-cal-recur.txt); deleting an occurrence leaves the series' etag as it was;
+- a change that leaves out the location, the description or the attendees removes them (run 8 November 2026:
+  each was gone on the read-back, and a removed invitee is mailed a "Cancelled" notice), while one that leaves
+  out the meeting keeps it; an invitee's answer (ACCEPTED) survives a change;
 - Zoho keeps only invitees inside its organisation and drops the others without an error, so dt-zoho reads
   the event back and names who was dropped;
 - `conference: zmeeting` creates a Zoho Meeting: `conference_data.meetingdata.meeting_link` is the guest join
@@ -181,15 +186,16 @@ def list_events(client: ZohoClient, cal_uid: str, first: date, last: date, time_
 
 
 def event(client: ZohoClient, cal_uid: str, uid: str) -> dict:
-    """The event itself: for a series whose occurrences changed, the series entry, not a changed occurrence.
-    The changed occurrences' ids ride along under `_changed_occurrences`."""
+    """The event itself: for a series whose occurrences changed, the series entry, never an occurrence's.
+    The changed occurrences' own entries ride along under `_changed`, keyed by occurrence id, and the deleted
+    occurrences' ids under `_deleted`."""
     found = client.calendar("GET", f"/api/v1/calendars/{cal_uid}/events/{uid}").get("events") or []
-    if not found:
-        raise DtZohoError(f"Zoho has no event {uid} in this calendar.", exit_code=2)
     series = [e for e in found if not e.get("recurrenceid")]
-    chosen = series[0] if series else found[0]
-    changed = [e["recurrenceid"] for e in found if e.get("recurrenceid")]
-    return dict(chosen, _changed_occurrences=changed)
+    if not series:
+        raise DtZohoError(f"Zoho has no event {uid} in this calendar.", exit_code=2)
+    deleted = [e["recurrenceid"] for e in found if e.get("recurrenceid") and e.get("estatus") == "deleted"]
+    changed = {e["recurrenceid"]: e for e in found if e.get("recurrenceid") and e.get("estatus") != "deleted"}
+    return dict(series[0], _changed=changed, _deleted=deleted)
 
 
 def meeting_links(raw: dict) -> dict:
@@ -209,8 +215,10 @@ def event_record(raw: dict) -> dict:
               "reminders": [{"action": r.get("action"), "minutes_before": -int(r.get("minutes"))}
                             for r in raw.get("reminders") or [] if r.get("minutes") not in (None, "")],
               "etag": str(raw["etag"]) if raw.get("etag") is not None else None, "link": raw.get("viewEventURL")}
-    if raw.get("_changed_occurrences"):
-        record["changed_occurrences"] = list(raw["_changed_occurrences"])
+    if raw.get("_changed"):
+        record["changed_occurrences"] = sorted(raw["_changed"])
+    if raw.get("_deleted"):
+        record["deleted_occurrences"] = sorted(raw["_deleted"])
     record.update(meeting_links(raw))
     return record
 
@@ -270,17 +278,6 @@ def delete_event(client: ZohoClient, cal_uid: str, uid: str, etag: str) -> None:
 def delete_occurrence(client: ZohoClient, cal_uid: str, uid: str, etag: str, occurrence: str) -> None:
     data = {"uid": uid, "etag": etag, "recurrenceid": occurrence, "recurrence_edittype": "only"}
     client.calendar("DELETE", f"/api/v1/calendars/{cal_uid}/events/{uid}", query={"eventdata": json.dumps(data)})
-
-
-def etag_from_list(client: ZohoClient, cal_uid: str, uid: str, day: date, time_zone: str) -> Optional[str]:
-    """The series etag as the list call carries it, for a series whose own GET no longer gives one.
-
-    In the list a changed occurrence carries its own etag beside the series'; every occurrence change gives the
-    series a newer etag (8 November 2026: occurrence 1794160158957, series 1794160158963), so the series' etag is
-    the highest of them."""
-    etags = [int(raw["etag"]) for raw in list_events(client, cal_uid, day, day, time_zone, instances=True)
-             if raw.get("uid") == uid and str(raw.get("etag") or "").isdigit()]
-    return str(max(etags)) if etags else None
 
 
 def dropped_invitees(invited: List[str], stored: dict) -> List[str]:

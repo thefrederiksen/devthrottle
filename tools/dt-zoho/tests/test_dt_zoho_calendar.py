@@ -6,6 +6,7 @@ import json
 import pytest
 
 from fake_calendar import DEFAULT_CAL
+from src import zcalendar
 
 ME = "soren@devthrottle.com"
 OTHER = "email@devthrottle.com"
@@ -281,13 +282,82 @@ def test_occurrence_ChangeOneThenDeleteOneThenTheSeries(env):
     left = json.loads(env.ok("event", "list", "--from", "2026-11-19", "--to", "2026-11-25", "--instances",
                              "--json").stdout)["events"]
     assert [e["title"] for e in left] == ["Plan", "Moved"]
-    # After an occurrence delete the GET can answer status entries with no etag (as in the proof): the list
-    # call carries it, and its highest etag is the series'.
-    refused = env.run("event", "delete", data["uid"])
-    assert refused.exit_code == 2 and "--date" in refused.output
-    env.ok("event", "delete", data["uid"], "--date", "2026-11-20")
+    # The deleted occurrence now comes back as a status entry: listed apart, never as a changed one.
+    shown = json.loads(env.ok("event", "show", data["uid"], "--json").stdout)
+    assert shown["changed_occurrences"] == ["20261121T150000Z"]
+    assert shown["deleted_occurrences"] == ["20261122T150000Z"]
+    series_etag = env.zoho.calendar.events[DEFAULT_CAL][data["uid"]]["etag"]
+    env.ok("event", "delete", data["uid"])
     assert _calls(env, "DELETE")[-1][3]["etag"] == series_etag
     assert env.zoho.calendar.events[DEFAULT_CAL] == {}
+
+
+def test_occurrence_SecondChange_KeepsTheFirstChange(env):
+    data = _create(env, "--repeat", "FREQ=DAILY;COUNT=3", "--duration", "30")
+    env.ok("event", "change", data["uid"], "--occurrence", "20261121T150000Z", "--title", "Moved",
+           "--start", "2026-11-21 12:00", "--location", "Room 9")
+    own_etag = env.zoho.calendar.events[DEFAULT_CAL][data["uid"]]["overrides"]["20261121T150000Z"]["etag"]
+    shown = json.loads(env.ok("event", "change", data["uid"], "--occurrence", "20261121T150000Z",
+                              "--description", "agenda", "--json").stdout)
+    sent = _sent_event(env, "PUT")
+    # It answers to the occurrence's own etag, and starts from the occurrence's values.
+    assert sent["etag"] == own_etag
+    assert (sent["title"], sent["location"], sent["description"]) == ("Moved", "Room 9", "agenda")
+    assert sent["dateandtime"] == {"start": "20261121T120000", "end": "20261121T123000",
+                                   "timezone": "America/Toronto"}
+    # The answer shows the occurrence, not the series.
+    assert (shown["title"], shown["start"], shown["description"]) == ("Moved", "2026-11-21T12:00:00-05:00", "agenda")
+
+
+def test_occurrence_DeleteAChangedOne_UsesItsOwnEtag(env):
+    data = _create(env, "--repeat", "FREQ=DAILY;COUNT=3")
+    env.ok("event", "change", data["uid"], "--occurrence", "20261121T150000Z", "--title", "Moved")
+    own_etag = env.zoho.calendar.events[DEFAULT_CAL][data["uid"]]["overrides"]["20261121T150000Z"]["etag"]
+    env.ok("event", "delete", data["uid"], "--occurrence", "20261121T150000Z")
+    assert json.loads(_calls(env, "DELETE")[-1][2]["eventdata"])["etag"] == own_etag
+    shown = json.loads(env.ok("event", "show", data["uid"], "--json").stdout)
+    assert shown["deleted_occurrences"] == ["20261121T150000Z"] and "changed_occurrences" not in shown
+
+
+def test_occurrence_ChangeADeletedOne_IsRefused(env):
+    data = _create(env, "--repeat", "FREQ=DAILY;COUNT=3")
+    env.ok("event", "delete", data["uid"], "--occurrence", "20261121T150000Z")
+    result = env.run("event", "change", data["uid"], "--occurrence", "20261121T150000Z", "--title", "x")
+    assert result.exit_code == 2 and "deleted" in result.output and _calls(env, "PUT") == []
+
+
+def test_change_AllDayEvent_IsRefused(env):
+    data = _create(env)
+    env.zoho.calendar.events[DEFAULT_CAL][data["uid"]]["isallday"] = True
+    result = env.run("event", "change", data["uid"], "--title", "x")
+    assert result.exit_code == 2 and "all-day" in result.output and _calls(env, "PUT") == []
+
+
+class _Answers:
+    def __init__(self, events):
+        self._events = events
+
+    def calendar(self, method, path, **_):
+        return {"events": self._events}
+
+
+def test_event_OnlyOccurrenceEntries_IsOneSentenceNotTheFirstEntry():
+    # With no series entry there is no etag to use and no invitees to check; taking an occurrence's entry
+    # would bypass the test-mode check, so it is refused.
+    answers = _Answers([{"uid": "u", "recurrenceid": "20261121T150000Z", "estatus": "deleted"}])
+    with pytest.raises(zcalendar.DtZohoError) as caught:
+        zcalendar.event(answers, "cal", "u")
+    assert "no event u" in str(caught.value)
+
+
+def test_change_SeriesWithoutEtag_IsRefusedAndNothingSent(env, monkeypatch):
+    data = _create(env)
+    real = zcalendar.event
+    monkeypatch.setattr(zcalendar, "event", lambda *a: {k: v for k, v in real(*a).items() if k != "etag"})
+    for args in (("event", "change", data["uid"], "--title", "x"), ("event", "delete", data["uid"])):
+        result = env.run(*args)
+        assert result.exit_code == 1 and "etag" in result.output and "Traceback" not in result.output
+    assert _calls(env, "PUT") == [] and _calls(env, "DELETE") == []
 
 
 def test_change_OccurrenceTitleOnly_KeepsThatOccurrencesTime(env):

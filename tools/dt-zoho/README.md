@@ -120,9 +120,9 @@ Ids may be space or comma separated. Every command takes `--json` and `--account
 | `calendar create NAME [--color] [--time-zone] [--description]` / `rename CAL [--name] [--color]` / `delete CAL` | Calendars; your default calendar is never deleted |
 | `calendar share CAL --with A` / `unshare CAL --with A` / `shares CAL` | Share for viewing (the level proven), stop, list |
 | `event list [--calendar C] [--from D] [--to D] [--instances]` | Events, earliest first; `--instances` lists each occurrence with its id |
-| `event show UID` | Times, invitees and their answers, reminders, repeat rule, changed occurrences, meeting links |
+| `event show UID` | Times, invitees and their answers, reminders, repeat rule, changed and deleted occurrences, meeting links |
 | `event create --title T --start "YYYY-MM-DD HH:MM" [--end\|--duration] [--time-zone] [--location] [--description] [--invite A] [--reminder email:30] [--repeat RULE] [--meeting]` | Create; `--meeting` adds a Zoho Meeting and prints the guest join link and the host start link |
-| `event change UID [--occurrence ID] [--title] [--start] [--end\|--duration] [--location] [--description] [--invite] [--uninvite] [--reminder\|--no-reminders]` | Change; Zoho replaces the whole event, so dt-zoho sends every field again |
+| `event change UID [--occurrence ID] [--title] [--start] [--end\|--duration] [--location] [--description] [--invite] [--uninvite] [--reminder\|--no-reminders]` | Change; Zoho replaces the whole event, so dt-zoho sends every field again. `--start` is read in the event's own time zone; all-day events are refused |
 | `event delete UID [--occurrence ID]` | Delete an event, a series, or one occurrence |
 | `event respond` | Says Zoho's API cannot answer an invitation; use `dt-calendar respond` |
 
@@ -140,7 +140,15 @@ invitee - because Zoho mails each of them (an invitation, or a "Cancelled" notic
 - **Repeating events**: Zoho answers with the rule alone (INTERVAL=1 added). Changing a whole series was not
   proven - and a change sent without the rule turned a test series into a single event - so dt-zoho changes
   one occurrence (`--occurrence`) and refuses a series change. Once an occurrence changed, the event's own
-  answer lists the changed occurrences before the series; dt-zoho uses the series' etag. If Zoho ever answers
-  with no etag at all, dt-zoho asks for `--date` (a day an unchanged occurrence falls on).
+  answer lists each changed occurrence (with its own values and etag), each deleted one, then the series. A
+  series delete takes the series' etag; a changed occurrence answers only to its own (the series' drew 409
+  CONFLICT_EVENT), and a second change to it starts from its current values. A deleted occurrence cannot be
+  changed. If the answer has no series entry, or no etag, dt-zoho refuses.
+- **A change replaces the whole event.** Leaving the location, the description or the invitees out of the
+  request removes them, so dt-zoho always sends them again. An invitee's answer (accepted) survives a change.
+- **All-day events** (made in Zoho Calendar) are shown and can be deleted; dt-zoho does not create them, and
+  changing one was not proven, so it is refused.
+- **Deleting a calendar** mailed no "Cancelled" notice to an invitee of an event in it (run 8 November 2026,
+  checked five minutes after), so it is not checked against test mode.
 - **Free/busy** needs a scope the key does not have, and is not built.
 - An empty range comes back as a "No events found." message; dt-zoho shows `count: 0`.

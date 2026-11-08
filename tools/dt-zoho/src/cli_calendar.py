@@ -297,17 +297,11 @@ def _invitees(current: dict) -> List[str]:
     return [a["email"] for a in current.get("attendees") or [] if a.get("email") and a["email"].lower() != organizer]
 
 
-def _need_etag(client, cal: dict, uid: str, current: dict, day: Optional[str]) -> str:
-    if current.get("etag") is not None:
-        return str(current["etag"])
-    if day is None:
-        raise DtZohoError("Zoho gives no etag for this repeating event since one of its occurrences changed, and "
-                          "a change or delete needs it. Pass --date <a day one of its UNCHANGED occurrences falls on, "
-                          "YYYY-MM-DD> so dt-zoho can read it from the list.", exit_code=2)
-    found = zcalendar.etag_from_list(client, cal["uid"], uid, zcalendar.parse_day(day, "--date"), cal["time_zone"])
-    if found is None:
-        raise DtZohoError(f"event {uid} is not in the list on {day}; pass a --date it occurs on.", exit_code=2)
-    return found
+def _need_etag(uid: str, current: dict) -> str:
+    if current.get("etag") is None:
+        raise DtZohoError(f"Zoho answered event {uid} without its etag, which a change or delete needs. Nothing "
+                          "was changed.")
+    return str(current["etag"])
 
 
 @event_app.command("change")
@@ -316,8 +310,10 @@ def event_change(uid: str = EventArg,
                  occurrence: Optional[str] = typer.Option(None, "--occurrence", help="Change only this occurrence of "
                                                           "a repeating event (its id from event list --instances)."),
                  title: Optional[str] = typer.Option(None, "--title", "-t"),
-                 start: Optional[str] = typer.Option(None, "--start", help="New start; the length is kept unless "
-                                                                           "--end or --duration is given."),
+                 start: Optional[str] = typer.Option(None, "--start", help="New start, YYYY-MM-DD HH:MM in the "
+                                                                           "event's own time zone (event show); the "
+                                                                           "length is kept unless --end or --duration "
+                                                                           "is given."),
                  end: Optional[str] = typer.Option(None, "--end"),
                  duration: Optional[int] = typer.Option(None, "--duration", min=1, help="Minutes."),
                  location: Optional[str] = typer.Option(None, "--location", help="New location ('' removes it)."),
@@ -327,8 +323,6 @@ def event_change(uid: str = EventArg,
                  uninvite: Optional[List[str]] = typer.Option(None, "--uninvite", help="Remove this invitee (repeat)."),
                  reminder: Optional[List[str]] = ReminderOpt,
                  no_reminders: bool = typer.Option(False, "--no-reminders", help="Remove every reminder."),
-                 day: Optional[str] = typer.Option(None, "--date", help="Only when asked for: a day the repeating "
-                                                                        "event occurs, to read its etag."),
                  calendar: Optional[str] = CalendarOpt, json_output: bool = JsonOpt) -> None:
     """Change an event. Zoho replaces the whole event, so dt-zoho sends every field again with your changes."""
     if reminder and no_reminders:
@@ -349,11 +343,23 @@ def event_change(uid: str = EventArg,
         raise DtZohoError("this is a repeating event. Change one occurrence with --occurrence <id> (dt-zoho event "
                           "list --instances); changing the whole series was not proven, so dt-zoho does not offer it.",
                           exit_code=2)
-    etag = _need_etag(client, cal, uid, current, day)
-    when = current.get("dateandtime") or {}
-    zone = when.get("timezone") or cal["time_zone"]
-    old_start = _wall_time(occurrence, zone) if occurrence else _wall_time(when["start"], zone)
-    old_end = old_start + (_wall_time(when["end"], zone) - _wall_time(when["start"], zone))
+    if occurrence in current["_deleted"]:
+        raise DtZohoError(f"occurrence {occurrence} was deleted; there is nothing to change.", exit_code=2)
+    if current.get("isallday"):
+        raise DtZohoError("this is an all-day event; changing one was not proven, so dt-zoho does not offer it. "
+                          "Delete it and create it again, or change it in Zoho Calendar.", exit_code=2)
+    # A changed occurrence starts from its own current values, so a second change keeps the first one, and it
+    # needs its own etag: the series' etag drew 409 CONFLICT_EVENT (8 November 2026).
+    base = current["_changed"].get(occurrence, current) if occurrence else current
+    etag = _need_etag(uid, base)
+    when = base.get("dateandtime") or {}
+    series_when = current.get("dateandtime") or {}
+    zone = when.get("timezone") or series_when.get("timezone") or cal["time_zone"]
+    if occurrence and occurrence not in current["_changed"]:
+        old_start = _wall_time(occurrence, zone)
+        old_end = old_start + (_wall_time(series_when["end"], zone) - _wall_time(series_when["start"], zone))
+    else:
+        old_start, old_end = _wall_time(when["start"], zone), _wall_time(when["end"], zone)
     begin, finish = _times(start, end, duration, (old_start, old_end))
     invited = _invitees(current)
     kept = [a for a in invited if a.lower() not in removed]
@@ -363,16 +369,16 @@ def event_change(uid: str = EventArg,
     reminders = new_reminders if new_reminders is not None else [
         {"action": r.get("action"), "minutes": int(r.get("minutes"))} for r in current.get("reminders") or []
         if r.get("minutes") not in (None, "")]
-    data = zcalendar.event_data(title if title is not None else current.get("title") or "", begin, finish, zone,
-                                location if location is not None else current.get("location"),
-                                description if description is not None else current.get("description"),
+    data = zcalendar.event_data(title if title is not None else base.get("title") or "", begin, finish, zone,
+                                location if location is not None else base.get("location"),
+                                description if description is not None else base.get("description"),
                                 attendees, reminders, None, False)
     data["etag"] = etag
     if occurrence:
         data.update({"isrep": True, "recurrenceid": occurrence, "recurrence_edittype": "only"})
     zcalendar.change_event(client, cal["uid"], uid, data)
     stored = zcalendar.event(client, cal["uid"], uid)
-    record = zcalendar.event_record(stored)
+    record = zcalendar.event_record(stored["_changed"].get(occurrence, stored) if occurrence else stored)
     record.update(calendar=cal["name"], changed=True, occurrence=occurrence)
     _print_event(record, json_output)
     _check_dropped(added, stored, uid, cal)
@@ -383,8 +389,6 @@ def event_change(uid: str = EventArg,
 def event_delete(uid: str = EventArg,
                  occurrence: Optional[str] = typer.Option(None, "--occurrence", help="Delete only this occurrence of "
                                                           "a repeating event (its id from event list --instances)."),
-                 day: Optional[str] = typer.Option(None, "--date", help="Only when asked for: a day the repeating "
-                                                                        "event occurs, to read its etag."),
                  calendar: Optional[str] = CalendarOpt, json_output: bool = JsonOpt) -> None:
     """Delete an event, a whole repeating series, or one occurrence of it."""
     client = _client()
@@ -392,7 +396,7 @@ def event_delete(uid: str = EventArg,
     current = zcalendar.event(client, cal["uid"], uid)
     # Deleting an event mails its invitees a "Cancelled" notice (8 November 2026), so test mode checks them.
     config.check_recipients(config.load(), _invitees(current))
-    etag = _need_etag(client, cal, uid, current, day)
+    etag = _need_etag(uid, current["_changed"].get(occurrence, current) if occurrence else current)
     if occurrence:
         zcalendar.delete_occurrence(client, cal["uid"], uid, etag, occurrence)
     else:
