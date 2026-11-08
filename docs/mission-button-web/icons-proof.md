@@ -122,7 +122,19 @@ Changed on 7 November 2026 at the Delivery Lead's direction: the no-Mission icon
 exclamation mark, the recommended alternative, because the license warning (issue 4728) is a yellow triangle and the
 two must not look alike. The Gateway's icon key is still `warning`; only the drawing changed, in the shared web
 `MissionButton.tsx` and in the window's `MissionWarningIconGeometry` (a circle of radius 6.5, the bar from 4.5 to 8.8,
-the dot centred at 11.3). The desktop screenshots above were taken before this change.
+the dot centred at 11.3). The desktop screenshots above were taken before this change; no screenshot of the circle exists yet on any surface.
+The Delivery Lead's web screenshots after the deploy cover the Cockpit and the phone.
+
+Checked again after the change, on commit 0a51dcb61 rebased onto origin/main 436dc5db0:
+
+- The new assertion (a `circle` of radius 6.5 and no closed path) fails against the triangle drawing and passes on the
+  circle.
+- `.\scripts	est-local.ps1 -Parked` in a separate detached worktree: GREEN, tree clean, all 18 suites Completed,
+  0 failed. Core.UnitTests 3650, Avalonia.Tests 1285 (including the four icon-shape checks), Engine 85, HostedAgent 85,
+  Launcher 234, Terminal.Avalonia 111, Reclaim 307, DeliveryQualification 151, RuleHook 70, setup 43, setup-engine
+  1023 of 1029 (6 skipped), setup-cli 78, Gateway.Tests 426 + 482 + 439 of 442 (3 skipped) + 489, Core.Tests 4643 of
+  4661 (18 skipped), Gateway.UnitTests 17487.
+- Web: client-core 2508 tests, Cockpit 1504, mobile 214, all passed; type checks and eslint clean.
 
 ## Review
 

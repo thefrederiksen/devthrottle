@@ -36,7 +36,8 @@ public sealed class MissionButtonDisplay
     /// <summary>Icon key of a Mission with no document yet: no icon, the word alone.</summary>
     public const string IconNone = "none";
 
-    /// <summary>Icon key of a session with no Mission: a small yellow warning triangle drawn before the word.</summary>
+    /// <summary>Icon key of a session with no Mission: a small yellow circle with an exclamation mark drawn before the word
+    /// (not a triangle: the license warning is a yellow triangle and the two must not look alike).</summary>
     public const string IconWarning = "warning";
 
     /// <summary>One of the three <c>Verdict*</c> values.</summary>
