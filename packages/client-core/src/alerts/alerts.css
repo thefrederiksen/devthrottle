@@ -24,10 +24,15 @@
  * Tokens used beyond those: --ok (a good outcome) and --attention (a bad one), which both shells define.
  */
 
+/* The wrapper never shrinks (flex: none). It used to carry `min-width: 0`, which let a crowded row - a phone app bar
+   with the triangle, an account chip and the filter in it - squeeze the wrapper below the bell inside it: on a 390px
+   phone the wrapper shrank, the 44px bell spilled out of it and was drawn on top of the filter button (bell x 319-363,
+   filter x 343-374), and at 320px the wrapper was 1px wide. A row that runs short of room must give it up from its
+   text, never from a tap target. */
 .alerts {
   position: relative;
   display: inline-flex;
-  min-width: 0;
+  flex: none;
 }
 
 /* ===== The bell ===== */

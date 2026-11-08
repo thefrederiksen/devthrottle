@@ -63,7 +63,9 @@ function renderHome(entry: string | { pathname: string; search?: string; state?:
 }
 
 describe("Alerts on the phone's roster", () => {
-  it("Home_AppBar_HasTheBell_LeftOfTheFilterButton_WithTheGatewaysCount", async () => {
+  // The owner, 8 November 2026: the bell was drawn on top of the filter button in the title bar. The filter acts on the
+  // list, so it lives in the list toolbar now; the bell stays in the title bar, with nothing after it but the account.
+  it("Home_AppBar_HasTheBell_AndTheFilterIsInTheListToolbar_WithTheGatewaysCount", async () => {
     emptyRoster();
     listAlerts.mockResolvedValue({ alerts: [restartAlert(), secretAlert()], needsAnswerCount: 2 });
     renderHome("/");
@@ -73,8 +75,8 @@ describe("Alerts on the phone's roster", () => {
     const bell = screen.getByTestId("alerts-bell");
     const filter = screen.getByRole("button", { name: "Filter sessions" });
     expect(bar?.contains(bell)).toBe(true);
-    // The bell comes right before the filter button in the bar.
-    expect(bell.closest(".alerts")?.nextElementSibling).toBe(filter);
+    expect(bar?.contains(filter)).toBe(false);
+    expect(filter.closest(".roster-toolbar")).not.toBeNull();
     expect(bell.getAttribute("aria-label")).toBe("Alerts, 2 need you");
   });
 

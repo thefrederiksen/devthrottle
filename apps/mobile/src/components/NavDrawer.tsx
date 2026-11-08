@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
+import { ColourLegendDialog } from "@devthrottle/client-core/sessions/ColourLegend";
 import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { useFactoryInboxOffered } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
 import { useYourInboxCount } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
@@ -12,6 +14,10 @@ import { useYourInboxCount } from "@devthrottle/client-core/yourinbox/useYourInb
 export function NavDrawer() {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  // What the colours mean (the owner, 8 November 2026): a menu item now, not a link of its own above the sessions. The
+  // menu closes as the legend opens, and closing the legend puts focus back on the menu button.
+  const [legendOpen, setLegendOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const { active, many } = useAccounts();
   // Offered only while the Gateway answers the Mail Desk page's own read (rule 7); hidden when its switch is off.
   const mailDeskOffered = useMailDeskEntry();
@@ -23,7 +29,7 @@ export function NavDrawer() {
 
   return (
     <>
-      <button type="button" className="hamburger" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}>
+      <button ref={menuButton} type="button" className="hamburger" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}>
         <span />
         <span />
         <span />
@@ -81,6 +87,17 @@ export function NavDrawer() {
                 Mail Desk
               </Link>
             )}
+            <button
+              type="button"
+              className="drawer-item drawer-item-button"
+              aria-haspopup="dialog"
+              onClick={() => {
+                close();
+                setLegendOpen(true);
+              }}
+            >
+              What do the colours mean?
+            </button>
             <div className="drawer-sep" />
             {/* Account sits with Settings and About - the destinations about the app and this phone
                 rather than about the fleet - and mirrors the Cockpit's own Account rail item, which the
@@ -113,6 +130,19 @@ export function NavDrawer() {
           </nav>
         </div>
       )}
+
+      {/* Drawn on the page body, not here: this button sits in the sticky title bar, which is its own stacking level,
+          so a dialog drawn inside it would sit under the voice-mode and recording banners with their buttons live. */}
+      {legendOpen &&
+        createPortal(
+          <ColourLegendDialog
+            onClose={() => {
+              setLegendOpen(false);
+              menuButton.current?.focus();
+            }}
+          />,
+          document.body,
+        )}
     </>
   );
 }

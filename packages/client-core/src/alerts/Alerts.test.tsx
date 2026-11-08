@@ -523,6 +523,18 @@ describe("the list", () => {
   });
 });
 
+// THE BELL OVER THE FILTER (the owner, 8 November 2026). `.alerts { min-width: 0 }` let a crowded flex row squeeze the
+// bell's wrapper below the 44px button inside it, so the bell spilled out and was drawn on top of the next control: on a
+// 390px phone the bell covered x 319-363 and the filter x 343-374, and at 320px the wrapper was 1px wide. jsdom does not
+// lay out, so the rule is checked here; the measured boxes at 390px and 320px are in the pull request.
+describe("the bell's wrapper", () => {
+  it("AlertsWrapper_InACrowdedRow_NeverShrinksBelowTheBell", () => {
+    const rule = cssRule("alerts");
+    expect(rule).toMatch(/flex:\s*none/);
+    expect(rule).not.toMatch(/min-width:\s*0/);
+  });
+});
+
 describe("the provider", () => {
   // Phase 4 review, observation 1: the refusal describes the alert at the moment it was refused. Once the alert is
   // answered, or leaves the list, the sentence is no longer true and must not sit under an Earlier row.

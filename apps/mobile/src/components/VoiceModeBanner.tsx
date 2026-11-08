@@ -77,7 +77,7 @@ export function VoiceModeBanner() {
         onClick={() => void voice.set(false)}
         disabled={voice.busy}
       >
-        {voice.busy ? "Turning off..." : "Turn off"}
+        <span className="voicemode-off-pill">{voice.busy ? "Turning off..." : "Turn off"}</span>
       </button>
     </div>
   );

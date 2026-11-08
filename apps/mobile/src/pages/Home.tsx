@@ -36,7 +36,6 @@ import { NavDrawer } from "../components/NavDrawer";
 import { AccountSwitcher } from "@devthrottle/client-core/auth/AccountSwitcher";
 import { AppBarAlerts } from "../components/AppBarAlerts";
 import { SessionFilterPanel } from "../components/SessionFilterPanel";
-import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
 import { useSessionFilter } from "../hooks/useSessionFilter";
 import {
   enablePush,
@@ -317,34 +316,24 @@ export function Home() {
   }, [autoSpeakNextId, navigate]);
 
   return (
-    <div className="screen">
-      <header className="app-bar">
+    <div className="screen home-screen">
+      {/* THE TITLE BAR (the owner, 8 November 2026): the menu, the title, and at the right end the triangle, the bell
+          and the account badge, each a 44px tap target 12px from the next. The filter used to sit here too, and the
+          bell was drawn on top of it; it acts on the list, so it moved down into the list toolbar. */}
+      <header className="app-bar home-bar">
         <NavDrawer />
         <h1>DevThrottle</h1>
-        {/* Which account's fleet this roster belongs to (devthrottle_internal #1509). Renders NOTHING
-            until a second account is enrolled, so a single-login phone sees the bar it always had. It
-            is on the roster specifically: this is the screen that shows a list of sessions, and a list
-            of the wrong account's sessions is indistinguishable from a list of yours. */}
-        <AccountSwitcher onOpen={() => navigate("/account")} />
-        {/* The spacer pushes the filter button to the right end of the bar. It used to be two spacers
-            with the network status pill centred between them; the pill is gone (see ConnectionBanner). */}
         <div className="app-bar-spacer" />
         {/* Alerts (the Alerts mission): the bell with the red count of what needs the owner - a restart request, a
             secret transfer, a message request. They used to be cards stacked above the sessions; they live in the tray
             now, and nothing that asks the owner for something is drawn in this list. A push notification opens the
             app on ?alert={id}, which opens the tray on that alert. The same bell is in every phone app bar (AppBarAlerts). */}
         <AppBarAlerts />
-        {/* The funnel opens the full-screen filter panel and doubles as the "filter active" indicator
-            (a dot appears when a machine/repo filter is applied), so it is both the one-tap entry point
-            and the status light - no separate menu item needed. */}
-        <button
-          type="button"
-          className={`filter-btn${active ? " filter-btn-on" : ""}`}
-          aria-label={active ? "Sessions filtered - edit filter" : "Filter sessions"}
-          onClick={() => setShowFilter(true)}
-        >
-          <span className="filter-funnel" aria-hidden="true" />
-        </button>
+        {/* Which account's fleet this roster belongs to (devthrottle_internal #1509), as a round initials badge at the
+            right end of the bar. Renders NOTHING until a second account is enrolled, so a single-login phone sees the
+            bar it always had. It is on the roster specifically: this is the screen that shows a list of sessions, and
+            a list of the wrong account's sessions is indistinguishable from a list of yours. */}
+        <AccountSwitcher onOpen={() => navigate("/account")} />
       </header>
 
       {/* When a filter is applied, a thin strip under the app bar names it and offers a one-tap Clear,
@@ -374,74 +363,74 @@ export function Home() {
 
       <EnableAlerts />
 
-      {/* The roster's two lenses, in the same segmented control the session screen uses for its own
-          views, so "Voice mode" means the same thing and looks the same wherever it appears. */}
-      <div className="view-tabs" role="tablist" aria-label="Roster view">
+      {/* THE LIST TOOLBAR: the roster's two lenses, the order and the filter on one row. The lenses are the same
+          segmented control the session screen uses for its own views, so "Voice" means the same thing and looks the
+          same wherever it appears. */}
+      <div className="roster-toolbar">
+        <div className="view-tabs" role="tablist" aria-label="Roster view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "all"}
+            className={`view-tab${tab === "all" ? " active" : ""}`}
+            onClick={() => selectTab("all")}
+          >
+            All
+          </button>
+          {/* "Voice sessions", NOT "Voice mode" (owner, 2026-07-24). This tab is a LENS - the sessions that can speak
+              to you right now. Voice mode is a state of the fleet, and auto-speak is a state of this phone; naming the
+              lens after one of them made all three read as the same thing. It shows the one word "Voice" so the tabs,
+              the order and the filter fit on one row (the owner's mock-up, 8 November 2026); its name is still
+              "Voice sessions". */}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "voice"}
+            aria-label="Voice sessions"
+            className={`view-tab${tab === "voice" ? " active" : ""}`}
+            onClick={() => selectTab("voice")}
+          >
+            Voice
+          </button>
+        </div>
+
+        {/* The order, as ONE pill naming the order shown: attention (the default here, "Needs you first") or your own
+            desktop order. Tapping it switches to the other. Two positions, on purpose - machine, repository and agent
+            are filters (the funnel beside it), not orders. */}
+        {tab === "all" && sessions !== null && total > 0 && (
+          <button
+            type="button"
+            className="order-pill"
+            data-testid="order-pill"
+            aria-label={order === "attention" ? "Order: needs you first. Switch to my order" : "Order: my order. Switch to needs you first"}
+            onClick={() => setOrder(order === "attention" ? "my-order" : "attention")}
+          >
+            {order === "attention" ? "Needs you first" : "My order"}
+          </button>
+        )}
+
+        {/* The funnel opens the full-screen filter panel and doubles as the "filter active" indicator (a dot appears
+            when a machine/repo filter is applied), so it is both the one-tap entry point and the status light. */}
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === "all"}
-          className={`view-tab${tab === "all" ? " active" : ""}`}
-          onClick={() => selectTab("all")}
+          className={`filter-btn${active ? " filter-btn-on" : ""}`}
+          aria-label={active ? "Sessions filtered - edit filter" : "Filter sessions"}
+          onClick={() => setShowFilter(true)}
         >
-          All
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "voice"}
-          className={`view-tab${tab === "voice" ? " active" : ""}`}
-          onClick={() => selectTab("voice")}
-        >
-          {/* "Voice sessions", NOT "Voice mode" (owner, 2026-07-24). This tab is a LENS - the sessions
-              that can speak to you right now. Voice mode is a state of the fleet, and auto-speak is a
-              state of this phone; naming the lens after one of them made all three read as the same
-              thing, which is exactly the confusion this screen has to stop causing. */}
-          Voice sessions
+          <span className="filter-funnel" aria-hidden="true" />
         </button>
       </div>
 
-      {/* "+ New session" entry (issue #812): opens the add-session flow (machine -> repo -> create),
-          a faithful translation of the Android NewSessionPanel. Hidden in the Voice tab: starting a new
-          session is a typing job, and the Voice tab is for the sessions that can talk right now. */}
+      {/* "+ New" (issue #812): opens the add-session flow (machine -> repo -> create), a faithful translation of the
+          Android NewSessionPanel. It floats at the bottom right, in reach of a thumb (the owner, 8 November 2026); the
+          screen keeps room under the last card for it (.home-screen). Hidden in the Voice tab: starting a new session
+          is a typing job, and the Voice tab is for the sessions that can talk right now. What the colours mean is in
+          the menu now. */}
       {tab === "all" && (
-        <Link className="new-session-entry" to="/new">
-          <span className="new-session-plus" aria-hidden="true">+</span>
-          New session
+        <Link className="new-session-fab" to="/new" aria-label="New session" data-testid="new-session">
+          <span className="new-session-fab-plus" aria-hidden="true">+</span>
+          New
         </Link>
-      )}
-
-      {/* The order switch: attention (the default here) or your own desktop order. Two positions, on
-          purpose - machine, repository and agent are filters (the funnel above), not orders. */}
-      {tab === "all" && sessions !== null && total > 0 && (
-        <div className="order-row">
-          <span className="order-label">Order</span>
-          <div className="order-switch" role="group" aria-label="Roster order">
-            <button
-              type="button"
-              className={`order-btn${order === "my-order" ? " on" : ""}`}
-              aria-pressed={order === "my-order"}
-              onClick={() => setOrder("my-order")}
-            >
-              My order
-            </button>
-            <button
-              type="button"
-              className={`order-btn${order === "attention" ? " on" : ""}`}
-              aria-pressed={order === "attention"}
-              onClick={() => setOrder("attention")}
-            >
-              Attention
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* What the dots mean. The same shared legend the Cockpit roster rail mounts. */}
-      {tab === "all" && sessions !== null && total > 0 && (
-        <div className="legend-row">
-          <ColourLegendButton />
-        </div>
       )}
 
       {/* Car Mode's entry point is the nav drawer (top-left), NOT a banner here. It used to be both.
