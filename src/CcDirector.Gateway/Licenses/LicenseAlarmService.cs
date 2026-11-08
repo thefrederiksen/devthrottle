@@ -119,7 +119,7 @@ public static class LicenseOwnerNight
 /// NEW alarm, with its own push and its own email - unless it comes back within the hold-down, below. A check never closes another kind's alarms.
 ///
 /// AN OWNER EMAIL WHEN AN ALARM OPENS, AND AGAIN WITH EACH REPEAT OF A KIND THAT REPEATS, through the same channel and with the same care as the "no account has room" email
-/// (<see cref="LicenseOwnerMailer"/>): recorded as emailed only when the mail service confirmed it, and a send that
+/// (<see cref="LicenseOwnerInbox"/>, a Your inbox message since the owner moved it off email): recorded as told only when the mail service confirmed it, and a send that
 /// failed is tried again on a later check - one minute, two, four, up to an hour, or longer when the mail service asks
 /// - for as long as the alarm is open. Every alarm whose email is due in one check of one tenant goes out in ONE email.
 /// A confirmed send is remembered in this process until its row is marked. The one gap is the same as that email's: a
@@ -189,7 +189,7 @@ public sealed class LicenseAlarmService
     private readonly ConcurrentDictionary<(TenantId Tenant, Guid Alarm), DateTime> _confirmed = new();
 
     /// <param name="db">The Gateway database: <c>license_alarms</c> and the Licenses log.</param>
-    /// <param name="mail">Sends the owner email (<see cref="LicenseOwnerMailer.SendAsync"/>).</param>
+    /// <param name="mail">Tells the owner in Your inbox (<see cref="LicenseOwnerInbox.SendAsync"/>).</param>
     /// <param name="push">Pushes an alarm that opened to the tenant's phones.</param>
     /// <param name="nowUtc">The Gateway's clock.</param>
     /// <param name="isOwnerNight">Whether a moment falls in the night of the tenant's owner

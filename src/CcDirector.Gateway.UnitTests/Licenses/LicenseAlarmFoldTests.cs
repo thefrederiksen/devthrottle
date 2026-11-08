@@ -147,7 +147,7 @@ public sealed class LicenseAlarmFoldTests
             "machine-a holds no spare that could take it off alice@example.com.\r\n\r\n"
             + "Sign machine-a in to a second account.\r\n\r\n"
             + "Open the Licenses page for the details of each problem. The Cockpit shows their count until they are fixed.\r\n"
-            + "\r\nA problem that is fixed and comes back within 6 hours is not emailed again.",
+            + "\r\nA problem that is fixed and comes back within 6 hours is not told again.",
             email.BodyText);
     }
 

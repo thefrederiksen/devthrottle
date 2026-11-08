@@ -26,8 +26,9 @@ public static class YourInboxWords
         public const string Factory = "factory";
 
         /// <summary>The Gateway itself, with no session and no factory behind it: the 08:00 morning report's message about
-        /// open problems whose schedule no factory's morning summary carries, and the notice that a schedule in no factory
-        /// failed. Nobody reads a reply to it.</summary>
+        /// open problems whose schedule no factory's morning summary carries, the notice that a schedule in no factory
+        /// failed, and the system alerts that were emails until the owner moved them here (<see cref="NetworkSeat"/>,
+        /// <see cref="LicensesSeat"/>, <see cref="SessionSupervisorSeat"/>). Nobody reads a reply to it.</summary>
         public const string Gateway = "gateway";
     }
 
@@ -42,12 +43,27 @@ public static class YourInboxWords
     /// one of the owner's machines went under 10 GB free, or came back above it. Always from the Gateway.</summary>
     public const string DiskSpaceSeat = "disk space";
 
+    /// <summary>The seat of the alert that the home network is slow, and that it recovered (the Network Diagnostics
+    /// alerts; an email until the owner ruled "Move them all to Your inbox, with a push to the phone").</summary>
+    public const string NetworkSeat = "network";
+
+    /// <summary>The seat of the License Switching alerts to the owner: a license alarm that opened, and a sign-in whose
+    /// renewal keeps failing (an email until the same ruling).</summary>
+    public const string LicensesSeat = "licenses";
+
+    /// <summary>The seat of the session supervisor's escalation: a session stopped and could not be resumed on its own
+    /// (an email until the same ruling).</summary>
+    public const string SessionSupervisorSeat = "session supervisor";
+
     /// <summary>Who a Gateway message is from, as the owner reads it.</summary>
     public static string GatewayFromLabel(string? seat) => seat switch
     {
         MorningReportSeat => "Morning report - schedules in no factory",
         ScheduleFailureSeat => "Schedule failure - schedule in no factory",
         DiskSpaceSeat => "Disk space - a drive on one of your machines",
+        NetworkSeat => "Network",
+        LicensesSeat => "Licenses",
+        SessionSupervisorSeat => "Session supervisor",
         _ => throw new ArgumentOutOfRangeException(nameof(seat), seat, "not a seat a Gateway message is written from"),
     };
 
@@ -61,6 +77,15 @@ public static class YourInboxWords
         DiskSpaceSeat =>
             "This message is the Gateway's notice about a drive's free space, not a message from a session or a factory, "
             + "so nobody reads a reply to it. Nothing was sent. Free some space on that drive; the machine's page shows every drive.",
+        NetworkSeat =>
+            "This message is the Gateway's alert about your home network, not a message from a session or a factory, "
+            + "so nobody reads a reply to it. Nothing was sent.",
+        LicensesSeat =>
+            "This message is the Gateway's license alert, not a message from a session or a factory, "
+            + "so nobody reads a reply to it. Nothing was sent. The Licenses page shows what is wrong and what to do.",
+        SessionSupervisorSeat =>
+            "This message is the session supervisor's notice that a session could not be resumed, not a message from the session, "
+            + "so nobody reads a reply to it. Nothing was sent. Open the session and answer it there.",
         _ =>
             "This message is from the Gateway's morning report, not from a session or a factory, so nobody reads a reply to it. "
             + "Nothing was sent. Put the schedule into a factory, or fix it on the Schedule page.",

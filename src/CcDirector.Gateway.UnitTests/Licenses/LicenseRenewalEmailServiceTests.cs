@@ -143,7 +143,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Equal((T0, T0 + TwoDays, T0, 1), (row.CreatedAtUtc, row.NotAfterUtc, row.LastSentAtUtc, row.SendCount));
         Assert.Null(row.FinishedAtUtc);
         Assert.Equal("Renewing the sign-in for account-a@example.com on the-mac is failing, and the sign-in ends at 2026-10-13 03:12 UTC "
-                     + "(the last try failed at 2026-10-11 03:07 UTC by the machine's clock; the-mac last reported at 2026-10-11 03:12 UTC); the owner was emailed.", row.Message);
+                     + "(the last try failed at 2026-10-11 03:07 UTC by the machine's clock; the-mac last reported at 2026-10-11 03:12 UTC); the owner was told in Your inbox.", row.Message);
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
             "the-mac could not renew its sign-in for account-a@example.com, and that sign-in expires in 2 days 2 hours (at 2026-10-13 05:12 UTC).",
             "",
             "The last try to renew it failed 5 minutes ago (at 2026-10-11 03:07 UTC by the machine's clock).",
-            "the-mac last reported to DevThrottle less than a minute ago (at 2026-10-11 03:12 UTC). This email is written from that report; what the-mac has done since is not known here.",
+            "the-mac last reported to DevThrottle less than a minute ago (at 2026-10-11 03:12 UTC). This message is written from that report; what the-mac has done since is not known here.",
             "",
             // The Gateway knows this reason, so it says its own sentence and the machine's is left out.
             "Why the last try failed: the machine that approves this account was not connected.",
@@ -168,7 +168,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
             "",
             "Sign the-mac in to account-a@example.com again, from the Licenses page of the Cockpit or on the machine itself.",
             "",
-            "This is the only email for this failure. Another is sent only when the machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails."), email.BodyText);
+            "This is the only message for this failure. Another is sent only when the machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails."), email.BodyText);
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
 
         var body = Assert.Single(_sent).Email.BodyText;
         Assert.Contains("The last try to renew it failed 7 days 2 hours ago (at 2026-10-11 01:12 UTC by the machine's clock).", body);
-        Assert.Contains("the-mac last reported to DevThrottle 7 days ago (at 2026-10-11 03:12 UTC). This email is written from that report; what the-mac has done since is not known here.", body);
+        Assert.Contains("the-mac last reported to DevThrottle 7 days ago (at 2026-10-11 03:12 UTC). This message is written from that report; what the-mac has done since is not known here.", body);
         // The row says the same two moments, as moments: a stored sentence must stay true however long it is read.
         Assert.Contains("(the last try failed at 2026-10-11 01:12 UTC by the machine's clock; the-mac last reported at 2026-10-11 03:12 UTC)", TheRow().Message);
     }
@@ -640,7 +640,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Equal(1, await Tick());
         var row = TheRow();
         Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailFailed, row.ReasonCode);
-        Assert.EndsWith("; the owner has not been emailed yet because the mail sender failed (InvalidOperationException).", row.Message);
+        Assert.EndsWith("; the owner has not been told in Your inbox yet because the mail sender failed (InvalidOperationException).", row.Message);
 
         // Not before one minute has passed; then not before two more.
         _now = T0.AddSeconds(59);
@@ -708,7 +708,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
             "",
             "Sign each machine in to its account again, from the Licenses page of the Cockpit or on the machine itself.",
             "",
-            "This is the only email for these failures. Another is sent about a sign-in only when its machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails."), email.BodyText);
+            "This is the only message for these failures. Another is sent about a sign-in only when its machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails."), email.BodyText);
         // One row for each sign-in, as before: the streak is still each sign-in's own.
         Assert.Equal(new[] { (Mac, A), (Mac, B), (Windows, A) },
             Rows().Select(r => (r.MachineName, r.ToAccountEmail)).OrderBy(r => r.MachineName).ThenBy(r => r.ToAccountEmail));
@@ -726,7 +726,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.All(Rows(), row =>
         {
             Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, T0, 1), (row.ReasonCode, row.LastSentAtUtc, row.SendCount));
-            Assert.EndsWith("; the owner was emailed, in one email about 3 sign-ins.", row.Message);
+            Assert.EndsWith("; the owner was told in Your inbox, in one message about 3 sign-ins.", row.Message);
         });
     }
 
@@ -746,7 +746,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Equal(2, _sent.Count);
         Assert.Equal("DevThrottle: the sign-in for account-c@example.com on the-windows-machine expires in 2 days and could not be renewed", _sent[1].Email.Subject);
         Assert.DoesNotContain("account-a@example.com", _sent[1].Email.BodyText);
-        Assert.EndsWith("; the owner was emailed.", Rows().Single(r => r.ToAccountEmail == C).Message);
+        Assert.EndsWith("; the owner was told in Your inbox.", Rows().Single(r => r.ToAccountEmail == C).Message);
         Assert.Equal(4, Rows().Count);
         Assert.All(Rows(), row => Assert.Equal(1, row.SendCount));
     }
@@ -869,7 +869,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         var row = TheRow();
         Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailFailed, 0), (row.ReasonCode, row.SendCount));
         Assert.Null(row.LastSentAtUtc);
-        Assert.EndsWith("the-mac last reported at 2026-10-11 03:12 UTC); the owner has not been emailed yet because the DevThrottle account service could not be reached.", row.Message);
+        Assert.EndsWith("the-mac last reported at 2026-10-11 03:12 UTC); the owner has not been told in Your inbox yet because the DevThrottle account service could not be reached.", row.Message);
 
         // Not before one minute has passed; then not before two more; then four.
         _now = T0.AddSeconds(59);
@@ -943,7 +943,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Single(_sent);
         var row = TheRow();
         Assert.Equal((LicenseGatewayReasonCodes.NoOwnerAccount, 0, LicenseLogStates.Open), (row.ReasonCode, row.SendCount, row.State));
-        Assert.EndsWith("; no owner email was sent because this self-hosted Gateway has no DevThrottle account to email.", row.Message);
+        Assert.EndsWith("; no Your inbox message was written because this self-hosted Gateway has no DevThrottle account to email.", row.Message);
     }
 
     // ----- one account never hears of another's -----
@@ -988,7 +988,7 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
              open.GetProperty("toAccountEmail").GetString()));
         Assert.Equal(TheRow().Message, open.GetProperty("summary").GetString());
         Assert.Equal(Mac, open.GetProperty("label").GetString());
-        Assert.Equal(("owner-emailed", "The owner was emailed."), (open.GetProperty("reasonCode").GetString(), open.GetProperty("reasonText").GetString()));
+        Assert.Equal(("owner-emailed", "The owner was told."), (open.GetProperty("reasonCode").GetString(), open.GetProperty("reasonText").GetString()));
 
         _now = T0.AddHours(1);
         Reports(One, Mac, Renewed(A, TimeSpan.FromDays(20)));

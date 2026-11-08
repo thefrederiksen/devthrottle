@@ -5,6 +5,8 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Activity;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.DevReports;
+using CcDirector.Gateway.Inbox;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Wingman;
 
@@ -18,7 +20,10 @@ namespace CcDirector.Gateway.Supervision;
 /// pure classifier the voice cluster uses (<see cref="WaitingScreenReader"/>); the activity-state read is the
 /// pushed roster snapshot, so liveness is never established by dialing a session; the send is the ordinary
 /// prompt verb; the recovery log is the durable activity ledger, already tenant-scoped and already served
-/// over an endpoint; the escalation email is the owner-notify channel the network-diagnostics alerts use.
+/// over an endpoint; the escalation is a message in the owner's Your inbox, from "Session supervisor", with a push
+/// to the phones - the same channel the network-diagnostics alerts use (<see cref="SystemAlertInbox"/>). It was an
+/// email until the owner's ruling "Move them all to Your inbox, with a push to the phone"; this class holds no mail
+/// sender of any kind any more.
 ///
 /// TENANT SCOPE. The engine runs its ladder on a background task that outlives the turn-end callback, so
 /// every operation that touches per-tenant storage enters that tenant's scope explicitly rather than
@@ -33,19 +38,20 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
     private readonly Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> _brainProvider;
     private readonly ActivityEventStore? _ledger;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
-    private readonly Func<string, string, CancellationToken, Task<bool>>? _sendOwnerEmail;
+    private readonly SystemAlertInbox? _ownerInbox;
+    private readonly Func<TenantId, string, (int? Number, string? Name)>? _sessionLabel;
     private readonly Func<DateTime> _nowUtc;
 
-    private readonly object _emailGate = new();
-    private DateOnly _emailDay;
-    private int _emailsToday;
+    private readonly object _messageGate = new();
+    private DateOnly _messageDay;
+    private int _messagesToday;
 
     /// <summary>
-    /// How many escalation emails one day may carry. An escalation is already rare - it ends the episode and
-    /// a new one needs a fresh fault - but a cap means a pathological night cannot turn into a mailbox full
+    /// How many escalation messages one day may carry. An escalation is already rare - it ends the episode and
+    /// a new one needs a fresh fault - but a cap means a pathological night cannot turn into an inbox full
     /// of identical messages. Matches the network-diagnostics alert cap in spirit.
     /// </summary>
-    public const int DailyEscalationEmailCap = 10;
+    public const int DailyEscalationMessageCap = 10;
 
     /// <param name="settings">The per-tenant settings resolver the supervisor's knobs are read from.</param>
     /// <param name="route">Resolves a tunnel caller for (tenant, director id); null means that Director is
@@ -58,10 +64,11 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
     /// the process log carries the record alone (older tests), and a ledger fault never stops a recovery.</param>
     /// <param name="enterTenantScope">Enters a tenant's storage scope for the duration of a write. Optional
     /// (self-host has one partition and the scope is inert).</param>
-    /// <param name="sendOwnerEmail">Sends the escalation email (subject, body). Optional: when the Gateway
-    /// has no signed-in account there is nobody to email, and the escalation still lands in the recovery log
-    /// and the process log.</param>
-    /// <param name="nowUtc">Clock seam for the daily email cap.</param>
+    /// <param name="ownerInbox">Writes the escalation into the owner's Your inbox and pushes it to the phones.
+    /// Optional: without it (older tests) the escalation lands in the recovery log and the process log alone.</param>
+    /// <param name="sessionLabel">The session's number and name as the roster last showed them, so the message
+    /// names the session the way the owner knows it; either may be null.</param>
+    /// <param name="nowUtc">Clock seam for the daily message cap.</param>
     public GatewaySupervisorEnvironment(
         TenantSettingsResolver settings,
         Func<TenantId, string, SessionVerbClient?> route,
@@ -69,7 +76,8 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         ActivityEventStore? ledger = null,
         Func<TenantId, IDisposable>? enterTenantScope = null,
-        Func<string, string, CancellationToken, Task<bool>>? sendOwnerEmail = null,
+        SystemAlertInbox? ownerInbox = null,
+        Func<TenantId, string, (int? Number, string? Name)>? sessionLabel = null,
         Func<DateTime>? nowUtc = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -78,7 +86,8 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
         _brainProvider = brainProvider ?? throw new ArgumentNullException(nameof(brainProvider));
         _ledger = ledger;
         _enterTenantScope = enterTenantScope;
-        _sendOwnerEmail = sendOwnerEmail;
+        _ownerInbox = ownerInbox;
+        _sessionLabel = sessionLabel;
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
     }
 
@@ -170,30 +179,43 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
                       $"director={record.DirectorId} tenant={record.Tenant.ToLogString()}: {record.Detail}");
         AppendToLedger(record);
 
-        if (_sendOwnerEmail is null) return;
-        if (!TakeEmailBudget())
+        if (_ownerInbox is null) return;
+        if (!TakeMessageBudget())
         {
-            FileLog.Write($"[SessionSupervisor] escalation email SKIPPED sid={record.SessionId}: daily cap of {DailyEscalationEmailCap} reached");
+            FileLog.Write($"[SessionSupervisor] escalation message SKIPPED sid={record.SessionId}: daily cap of {DailyEscalationMessageCap} reached");
             return;
         }
 
-        var subject = $"DevThrottle: session {record.SessionId} needs you ({record.Cause})";
-        var body =
-            $"A session stopped and DevThrottle could not resume it on its own.{Environment.NewLine}{Environment.NewLine}" +
-            $"Session:  {record.SessionId}{Environment.NewLine}" +
-            $"Director: {record.DirectorId}{Environment.NewLine}" +
-            $"Reason:   {record.Cause}{Environment.NewLine}" +
-            $"Detail:   {record.Detail}{Environment.NewLine}{Environment.NewLine}" +
-            "Open the session to see what it is waiting on.";
         try
         {
-            var sent = await _sendOwnerEmail(subject, body, ct).ConfigureAwait(false);
-            FileLog.Write($"[SessionSupervisor] escalation email sid={record.SessionId}: sent={sent}");
+            var (number, name) = _sessionLabel?.Invoke(record.Tenant, record.SessionId) ?? (null, null);
+            var (subject, body) = EscalationWords(record, number, name);
+            var written = await _ownerInbox.TellAsync(record.Tenant, YourInboxWords.SessionSupervisorSeat, subject, body, ct,
+                record.SessionId, number, name).ConfigureAwait(false);
+            FileLog.Write($"[SessionSupervisor] escalation told in Your inbox sid={record.SessionId}: message={written.Id:D}");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[SessionSupervisor] escalation email FAILED sid={record.SessionId}: {ex.Message}");
+            FileLog.Write($"[SessionSupervisor] escalation message FAILED sid={record.SessionId}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// The escalation's Your inbox subject and body, decided once here. The session is named by its number and name
+    /// (<see cref="DevReportSessionLabel.Session"/>), never by its id; the message carries the way back to it.
+    /// </summary>
+    public static (string Subject, string Body) EscalationWords(SupervisorRecord record, int? sessionNumber, string? sessionName)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        var session = DevReportSessionLabel.Session(sessionNumber, sessionName);
+        var subject = $"Session {session} needs you ({record.Cause})";
+        var body =
+            "A session stopped and DevThrottle could not resume it on its own.\n\n" +
+            $"Session: {session}\n" +
+            $"Reason:  {record.Cause}\n" +
+            $"Detail:  {record.Detail}\n\n" +
+            "Open the session to see what it is waiting on.";
+        return (subject, body);
     }
 
     /// <summary>One record into the durable ledger, inside the owning tenant's scope. The ledger OBSERVES the
@@ -225,19 +247,19 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
         }
     }
 
-    /// <summary>Take one unit of today's escalation email budget, rolling the day over as needed.</summary>
-    private bool TakeEmailBudget()
+    /// <summary>Take one unit of today's escalation message budget, rolling the day over as needed.</summary>
+    private bool TakeMessageBudget()
     {
         var today = DateOnly.FromDateTime(_nowUtc());
-        lock (_emailGate)
+        lock (_messageGate)
         {
-            if (_emailDay != today)
+            if (_messageDay != today)
             {
-                _emailDay = today;
-                _emailsToday = 0;
+                _messageDay = today;
+                _messagesToday = 0;
             }
-            if (_emailsToday >= DailyEscalationEmailCap) return false;
-            _emailsToday++;
+            if (_messagesToday >= DailyEscalationMessageCap) return false;
+            _messagesToday++;
             return true;
         }
     }

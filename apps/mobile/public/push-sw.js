@@ -40,6 +40,12 @@ var LINK_REQUEST_KIND = 'link-request';
 // and the page to open - the Cockpit's Schedule page. It buzzes, and it never touches the "needs you" dot.
 var SCHEDULE_FAILED_KIND = 'schedule-failed';
 
+// A system alert the Gateway wrote into Your inbox - the home network is slow, a license problem, a session the
+// supervisor could not resume (the owner's ruling: "Move them all to Your inbox, with a push to the phone"). The same
+// shape again: the Gateway wrote the title (who it is from), the body (the message's subject), the per-message tag and
+// the page to open - that message in Your inbox on the phone. It buzzes, and it never touches the "needs you" dot.
+var INBOX_ALERT_KIND = 'inbox-alert';
+
 function showGatewayNotification(payload) {
   return self.registration.showNotification(String(payload.title), {
     tag: String(payload.tag),
@@ -59,7 +65,8 @@ self.addEventListener('push', function (event) {
     try {
       var payload = event.data.json();
       if (payload && (payload.kind === SECRET_TRANSFER_KIND || payload.kind === LICENSE_ALARM_KIND
-          || payload.kind === LINK_REQUEST_KIND || payload.kind === SCHEDULE_FAILED_KIND)) {
+          || payload.kind === LINK_REQUEST_KIND || payload.kind === SCHEDULE_FAILED_KIND
+          || payload.kind === INBOX_ALERT_KIND)) {
         event.waitUntil(showGatewayNotification(payload));
         return;
       }

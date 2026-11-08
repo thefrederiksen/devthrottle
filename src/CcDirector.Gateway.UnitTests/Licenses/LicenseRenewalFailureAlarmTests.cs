@@ -177,7 +177,7 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
 
         Assert.Equal(0, await _emails.TickAsync(Tenant, CancellationToken.None));
         var row = Assert.Single(_log.ListOpen(Tenant));
-        Assert.EndsWith("the owner is emailed if it is still failing when 3 days of the sign-in are left.", row.Message);
+        Assert.EndsWith("the owner is told in Your inbox if it is still failing when 3 days of the sign-in are left.", row.Message);
         Assert.DoesNotContain(_mailed, m => !m.Subject.StartsWith("DevThrottle license alarm", StringComparison.Ordinal));
 
         _now = _now.AddDays(4).AddMinutes(1);

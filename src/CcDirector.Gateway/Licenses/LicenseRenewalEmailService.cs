@@ -46,7 +46,7 @@ namespace CcDirector.Gateway.Licenses;
 /// AN OPEN ROW WHOSE EMAIL HAS NOT GONE OUT IS TRIED AGAIN whether or not the machine's last report still carries the
 /// failure time: the owner is owed that email until the streak ends.
 ///
-/// THE SAME CARE AS THE "NO ACCOUNT HAS ROOM" EMAIL. The same channel (<see cref="LicenseOwnerMailer"/>). The row is
+/// THE SAME CARE AS THE LICENSE ALARM. The same channel, now a Your inbox message (<see cref="LicenseOwnerInbox"/>). The row is
 /// recorded as emailed only when the mail service confirmed the send; a send that failed - also a sender that threw -
 /// is tried again on a later check, with the text rebuilt from that check's facts, and the tries move apart: one
 /// minute, two, four, up to an hour, or longer when the mail service asks for longer. Once it has gone out it never
@@ -84,7 +84,7 @@ public sealed class LicenseRenewalEmailService
     /// <param name="store">Asked only whether any machine of the account has ever reported.</param>
     /// <param name="log">The failed-renewal rows of the Licenses log.</param>
     /// <param name="reads">The machines and the sign-ins each holds, as last reported.</param>
-    /// <param name="mail">Sends the owner email (<see cref="LicenseOwnerMailer.SendAsync"/>).</param>
+    /// <param name="mail">Tells the owner in Your inbox (<see cref="LicenseOwnerInbox.SendAsync"/>).</param>
     /// <param name="nowUtc">The Gateway's clock.</param>
     public LicenseRenewalEmailService(LicenseStore store, LicenseRenewalFailureLog log, LicenseReadModel reads,
         LicenseOwnerEmailSender mail, Func<DateTime> nowUtc)
@@ -229,7 +229,7 @@ public sealed class LicenseRenewalEmailService
                 var facts = new Facts(label, holding, expires, machine.LastReportAtUtc);
                 var row = known
                           ?? _log.Open(tenant, machine, holding.AccountEmail, expires, holding.SignedInAtUtc,
-                              WarningMessage(facts, "the owner has not been emailed yet"), now);
+                              WarningMessage(facts, "the owner has not been told in Your inbox yet"), now);
                 if (marked.Contains(row.Id)
                     || row.ReasonCode is LicenseGatewayReasonCodes.OwnerEmailed or LicenseGatewayReasonCodes.NoOwnerAccount)
                     continue;
@@ -263,7 +263,7 @@ public sealed class LicenseRenewalEmailService
     private async Task EmailAsync(TenantId tenant, IReadOnlyList<(Guid RowId, Facts Facts)> warnings, DateTime now, CancellationToken ct)
     {
         // What each row says became of the email: alone, or as one of the sign-ins of one email.
-        var inOneEmail = warnings.Count == 1 ? "" : $", in one email about {warnings.Count} sign-ins";
+        var inOneEmail = warnings.Count == 1 ? "" : $", in one message about {warnings.Count} sign-ins";
         LicenseOwnerEmailResult result;
         try
         {
@@ -285,7 +285,7 @@ public sealed class LicenseRenewalEmailService
                 // ONE confirmation for every row of the email: the same sent time on each. Remembered for all of
                 // them BEFORE any row is marked: if a mark fails, no later check of this process sends again.
                 foreach (var (rowId, facts) in warnings)
-                    _confirmed[(tenant, rowId)] = (WarningMessage(facts, "the owner was emailed" + inOneEmail), recordedAt);
+                    _confirmed[(tenant, rowId)] = (WarningMessage(facts, "the owner was told in Your inbox" + inOneEmail), recordedAt);
                 foreach (var (rowId, _) in warnings)
                     MarkConfirmed(tenant, rowId);
                 break;
@@ -293,7 +293,7 @@ public sealed class LicenseRenewalEmailService
                 foreach (var (rowId, facts) in warnings)
                 {
                     _log.RecordEmail(tenant, rowId, LicenseGatewayReasonCodes.NoOwnerAccount,
-                        WarningMessage(facts, $"no owner email was sent because {result.Detail}"), null);
+                        WarningMessage(facts, $"no Your inbox message was written because {result.Detail}"), null);
                     ForgetEmailWait(tenant, rowId);
                 }
                 break;
@@ -303,7 +303,7 @@ public sealed class LicenseRenewalEmailService
                     _emailNotBefore[(tenant, rowId)] = recordedAt + NextEmailWait(tenant, rowId, result.RetryAfter);
                 foreach (var (rowId, facts) in warnings)
                     _log.RecordEmail(tenant, rowId, LicenseGatewayReasonCodes.OwnerEmailFailed,
-                        WarningMessage(facts, $"the owner has not been emailed yet because {result.Detail}"), null);
+                        WarningMessage(facts, $"the owner has not been told in Your inbox yet because {result.Detail}"), null);
                 break;
         }
         FileLog.Write($"[LicenseRenewalEmailService] owner email for failing renewals: tenant={tenant.ToLogString()}, signIns={warnings.Count}, outcome={result.Outcome}");
@@ -355,7 +355,7 @@ public sealed class LicenseRenewalEmailService
     /// when the machine last reported.</summary>
     /// <summary>What a streak's row says of the email while the sign-in has more than the warning time left.</summary>
     internal static string EmailWaitsClause =>
-        $"the owner is emailed if it is still failing when {LicenseDisplayFold.Span(LicenseContract.SignInExpiryWarning)} of the sign-in are left";
+        $"the owner is told in Your inbox if it is still failing when {LicenseDisplayFold.Span(LicenseContract.SignInExpiryWarning)} of the sign-in are left";
 
     private sealed record Facts(string Label, LicenseHoldingView Holding, DateTime ExpiresAtUtc, DateTime LastReportAtUtc);
 
@@ -387,7 +387,7 @@ public sealed class LicenseRenewalEmailService
                 : $"The last try to renew it failed at {Time(at)} by the machine's clock.\r\n");
         else
             body.Append(CultureInfo.InvariantCulture, $"An earlier report of {label} said the renewal had failed. Its last report does not say when or why, and it does not show a newer sign-in.\r\n");
-        body.Append(CultureInfo.InvariantCulture, $"{label} last reported to DevThrottle {LicenseDisplayFold.Span(nowUtc - lastReportAtUtc)} ago (at {Time(lastReportAtUtc)}). This email is written from that report; what {label} has done since is not known here.\r\n\r\n");
+        body.Append(CultureInfo.InvariantCulture, $"{label} last reported to DevThrottle {LicenseDisplayFold.Span(nowUtc - lastReportAtUtc)} ago (at {Time(lastReportAtUtc)}). This message is written from that report; what {label} has done since is not known here.\r\n\r\n");
 
         // The Gateway's own sentence for the reason. The machine's own sentence only when the Gateway knows no
         // reason, as the Licenses page does - on one line, with nothing that is not text, and cut short.
@@ -411,7 +411,7 @@ public sealed class LicenseRenewalEmailService
             (false, true) => $"{label} holds this account as a spare, and the sign-in has ended: it cannot be switched to it until it is signed in again.\r\n",
         });
         body.Append(CultureInfo.InvariantCulture, $"\r\nSign {label} in to {account} again, from the Licenses page of the Cockpit or on the machine itself.\r\n");
-        body.Append("\r\nThis is the only email for this failure. Another is sent only when the machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails.");
+        body.Append("\r\nThis is the only message for this failure. Another is sent only when the machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails.");
         return new LicenseOwnerEmail(account, subject, body.ToString());
     }
 
@@ -431,7 +431,7 @@ public sealed class LicenseRenewalEmailService
             body.Append(LineOfSeveral(warning, nowUtc)).Append("\r\n");
         body.Append("\r\nEach line is written from that machine's last report; what a machine has done since is not known here.\r\n");
         body.Append("\r\nSign each machine in to its account again, from the Licenses page of the Cockpit or on the machine itself.\r\n");
-        body.Append("\r\nThis is the only email for these failures. Another is sent about a sign-in only when its machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails.");
+        body.Append("\r\nThis is the only message for these failures. Another is sent about a sign-in only when its machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails.");
         return new LicenseOwnerEmail(string.Join(", ", accounts), subject, body.ToString());
     }
 

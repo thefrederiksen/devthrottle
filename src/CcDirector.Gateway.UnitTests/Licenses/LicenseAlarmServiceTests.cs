@@ -398,7 +398,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
         Assert.Single(_pushed);
         var reopened = AlarmLog(One).Last();
         Assert.Equal(LicenseLogKinds.AlarmOpened, reopened.Kind);
-        Assert.Equal("Alarm opened again within 6 hours of closing, so no email or push was sent. machine-a holds no spare that "
+        Assert.Equal("Alarm opened again within 6 hours of closing, so no Your inbox message or push was sent. machine-a holds no spare that "
                      + "could take it off alice@example.com. Sign machine-a in to a second account.", reopened.Message);
         // The minute check owes it nothing either.
         _now += TimeSpan.FromMinutes(5);
