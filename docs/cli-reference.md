@@ -2977,6 +2977,17 @@ cc-secrets run zoho-api-client-secret --with zoho-api-client-id --with zoho-api-
 filters and cannot send a saved draft: `forward`, `filters` and `draft send` say so and name what to use.
 A delete is refused unless Zoho places each message in the folder named, since Zoho does not honour the folder
 in its own message paths.
+
+| Calendar command | What it does |
+|---|---|
+| `dt-zoho calendars` / `calendar create\|rename\|delete\|share\|unshare\|shares` | Calendars and view-only sharing |
+| `dt-zoho event list [--from --to] [--instances]` / `event show <uid>` | Read events, invitees' answers, meeting links |
+| `dt-zoho event create --title --start [--end\|--duration] [--invite] [--reminder email:30] [--repeat RULE] [--meeting]` | Create; `--meeting` prints the join link for guests and the start link (owner only; never give it to a guest) |
+| `dt-zoho event change <uid> [--occurrence <id>] [...]` / `event delete <uid> [--occurrence <id>]` | Change or delete an event, or one occurrence |
+
+Zoho keeps only invitees inside its organisation and drops others silently; create and change exit 1 naming
+them. Test mode checks invitees on create, change and delete (Zoho mails invitations and cancellations).
+`event respond` says Zoho's API cannot answer an invitation and names `dt-calendar respond`.
 Errors exit 1, usage errors 2.
 
 ## cc-reddit

@@ -442,8 +442,8 @@ def download_command(message_id: str = typer.Argument(..., help="The message id 
     output.emit_list("saved", ["name", "bytes", "path"], saved, None, help_lines)
 
 
-# The writing commands register on `app` when their module loads.
-from . import cli_write  # noqa: E402,F401
+# The writing and calendar commands register on `app` when their modules load.
+from . import cli_calendar, cli_write  # noqa: E402,F401
 
 
 def tool_main() -> None:
