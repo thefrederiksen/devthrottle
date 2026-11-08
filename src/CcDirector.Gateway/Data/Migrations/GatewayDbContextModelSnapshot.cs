@@ -1936,6 +1936,13 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("OwnerDealtWithAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerDealtWithBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RawText")
                         .HasMaxLength(20000)
                         .HasColumnType("TEXT");

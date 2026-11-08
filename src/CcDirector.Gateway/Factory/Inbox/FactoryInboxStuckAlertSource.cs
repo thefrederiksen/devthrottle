@@ -1,9 +1,11 @@
 using System.Globalization;
+using System.Linq.Expressions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Alerts;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
+using CcDirector.Gateway.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Factory.Inbox;
@@ -29,6 +31,11 @@ public sealed record FactoryInboxStuckDetail(string Factory, string Title, IRead
 /// messages and bundles, the registry, whether a session has ended, and whether a Director runs on a computer. The alert
 /// exists only while the factory is stuck; once every message is received and every bundle decided it is gone, and the
 /// thread itself is the record of what happened. Every sentence is written here, on the Gateway (CLAUDE.md rule 7).
+///
+/// THE OWNER CAN ALWAYS END IT (issue 4746). An alert only the failing machinery could clear is not one the owner can act
+/// on: when no Secretary can start, nothing receives the message and the alert would stand for ever. "Dealt with it"
+/// (<see cref="FactoryInboxStore.DealtWithByOwner"/>) marks every item this alert counts as decided by the owner, so the
+/// alert is gone; a message that becomes stuck after that raises it again, because it was not part of what he dealt with.
 /// </summary>
 public sealed class FactoryInboxStuckAlertSource : IAlertSource
 {
@@ -46,6 +53,25 @@ public sealed class FactoryInboxStuckAlertSource : IAlertSource
         public const string SecretaryEnded = "secretary-ended";
         public const string BossDidNotDecide = "boss-did-not-decide";
     }
+
+    // ---------------------------------------------------------------- what "stuck" means, once
+    // These three are the one definition of a stuck item. The alert below counts with them, and the owner's "Dealt with
+    // it" (FactoryInboxStore.DealtWithByOwner, issue 4746) marks with them, so the button clears exactly what the alert
+    // reported - never a message sent a minute ago, and never one a running Secretary still holds.
+
+    /// <summary>A message no Secretary received by <paramref name="receiveBy"/>.</summary>
+    internal static Expression<Func<FactoryInboxMessageEntity, bool>> NotReceivedBy(DateTime receiveBy)
+        => m => m.State == FactoryInboxWords.States.Sent && m.SentAtUtc <= receiveBy;
+
+    /// <summary>A message a Secretary received by <paramref name="receiveBy"/> and has not handed on. It is stuck only when
+    /// that Secretary has ended, which the database cannot say; the caller asks.</summary>
+    internal static Expression<Func<FactoryInboxMessageEntity, bool>> HeldSince(DateTime receiveBy)
+        => m => m.State == FactoryInboxWords.States.Received && m.BundleId == null && m.ClaimSessionId != null
+                && m.ReceivedAtUtc != null && m.ReceivedAtUtc <= receiveBy;
+
+    /// <summary>A bundle handed to the Boss by <paramref name="decideBy"/> and still open.</summary>
+    internal static Expression<Func<FactoryInboxBundleEntity, bool>> UndecidedSince(DateTime decideBy)
+        => b => b.ClosedAtUtc == null && b.HandedAtUtc <= decideBy;
 
     // The three kinds of overdue row the one read returns, told apart by a number because the read is one UNION ALL.
     private const int RowUnreceived = 0;
@@ -100,7 +126,7 @@ public sealed class FactoryInboxStuckAlertSource : IAlertSource
         {
             // Not received in time, grouped per factory: how many, and the oldest.
             var unreceived = ctx.FactoryInboxMessages.AsNoTracking()
-                .Where(m => m.State == FactoryInboxWords.States.Sent && m.SentAtUtc <= receiveBy)
+                .Where(NotReceivedBy(receiveBy))
                 .GroupBy(m => m.Factory)
                 .Select(g => new OverdueRow
                 {
@@ -108,8 +134,7 @@ public sealed class FactoryInboxStuckAlertSource : IAlertSource
                 });
             // Received and not handed on, grouped per factory AND Secretary: whether each Secretary ended is asked below.
             var heldBySecretary = ctx.FactoryInboxMessages.AsNoTracking()
-                .Where(m => m.State == FactoryInboxWords.States.Received && m.BundleId == null && m.ClaimSessionId != null
-                            && m.ReceivedAtUtc != null && m.ReceivedAtUtc <= receiveBy)
+                .Where(HeldSince(receiveBy))
                 .GroupBy(m => new { m.Factory, m.ClaimSessionId })
                 .Select(g => new OverdueRow
                 {
@@ -118,7 +143,7 @@ public sealed class FactoryInboxStuckAlertSource : IAlertSource
                 });
             // Bundles with the Boss and not decided in time, grouped per factory, with how many no Boss has read.
             var open = ctx.FactoryInboxBundles.AsNoTracking()
-                .Where(b => b.ClosedAtUtc == null && b.HandedAtUtc <= decideBy)
+                .Where(UndecidedSince(decideBy))
                 .GroupBy(b => b.Factory)
                 .Select(g => new OverdueRow
                 {

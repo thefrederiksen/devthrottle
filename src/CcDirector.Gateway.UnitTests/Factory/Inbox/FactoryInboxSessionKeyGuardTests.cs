@@ -41,6 +41,8 @@ public sealed class FactoryInboxSessionKeyGuardTests
     // THE OWNER'S SPOKEN SEND (phase 4): refused exactly as the typed one is.
     [InlineData("POST", "/gateway/factory/invoices/inbox/voice")]
     [InlineData("POST", "/gateway/factory/invoices/inbox/voice/" + Mid + "/complete")]
+    // THE OWNER'S "DEALT WITH IT" (issue 4746): a session never ends the owner's alert for him.
+    [InlineData("POST", "/gateway/factory/invoices/inbox/dealt-with")]
     // Shapes nobody added.
     [InlineData("GET", "/gateway/factory/invoices/outbox")]
     [InlineData("GET", "/gateway/factory/invoices/inbox/everything")]
