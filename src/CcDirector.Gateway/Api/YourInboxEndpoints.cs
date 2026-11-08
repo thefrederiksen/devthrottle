@@ -33,6 +33,8 @@ internal sealed record YourInboxSessionPlace(string? DirectorId, string? RepoPat
 ///                                               (inbox mark, inbox delete = archive, inbox restore)
 ///   POST /sessions/{sid}/inbox/{id}/reply       body {text, to?} -> 201 {reply, message}, or 409 with offers (inbox reply)
 ///   POST /sessions/{sid}/factories/{factory}/inbox   body {text} -> 201 {message}  (factory inbox send)
+///                                               mapped on the factory gate's group (<see cref="FactoryAgentsGate"/>), so
+///                                               an account without factories is answered 404, as on every factory route
 ///
 /// The owner's routes - the owner's own phone or Cockpit, and nobody else:
 ///
@@ -106,8 +108,14 @@ internal static class YourInboxEndpoints
         Action<TenantId, string, DateTime> MessageSent,
         Func<DateTime> NowUtc);
 
-    public static void Map(IEndpointRouteBuilder app, Parts parts)
+    /// <param name="app">Where the inbox routes are mapped.</param>
+    /// <param name="factoryGate">The factory gate's group (<see cref="FactoryAgentsGate.Group"/>). The one route that
+    /// leaves a message in a factory is mapped on it, so an account without factories is refused there exactly as on
+    /// every other factory route.</param>
+    /// <param name="parts">What the routes read.</param>
+    public static void Map(IEndpointRouteBuilder app, RouteGroupBuilder factoryGate, Parts parts)
     {
+        ArgumentNullException.ThrowIfNull(factoryGate);
         ArgumentNullException.ThrowIfNull(parts);
         FileLog.Write("[YourInboxEndpoints] mapping the Your inbox routes (six session routes, five owner routes)");
 
@@ -217,7 +225,8 @@ internal static class YourInboxEndpoints
             return await RefusalsAsync(() => ReplyAsync(parts, tenant, new Replier(null, agent), message, YourInboxStore.CheckReply(body?.Text), to, ct));
         });
 
-        app.MapPost("/sessions/{sid}/factories/{factory}/inbox", async (string sid, string factory, HttpContext ctx, CancellationToken ct) =>
+        // A factory route, so it is mapped behind the factory gate: an account without factories gets the gate's 404.
+        factoryGate.MapPost("/sessions/{sid}/factories/{factory}/inbox", async (string sid, string factory, HttpContext ctx, CancellationToken ct) =>
         {
             FileLog.Write($"[YourInboxEndpoints] POST /sessions/{sid}/factories/{factory}/inbox: identity={AuthMiddleware.IdentityKind(ctx)}");
             if (Agent(parts, ctx, sid, out var tenant, out var agent) is { } refused) return refused;

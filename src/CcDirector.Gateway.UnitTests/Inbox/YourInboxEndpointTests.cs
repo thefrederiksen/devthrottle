@@ -7,10 +7,12 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.DevReports;
+using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Inbox;
 using CcDirector.Gateway.Inbox;
 using CcDirector.Gateway.Messaging;
 using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
@@ -90,7 +92,10 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
             StandInForAuthentication(ctx);
             await next();
         });
-        YourInboxEndpoints.Map(app, new YourInboxEndpoints.Parts(
+        // The owner's routes are not behind the factory gate; the gate is on for the whole machine here so the one route
+        // that is (an agent's send to a factory) is not what these tests are about.
+        var factoryGate = FactoryAgentsGate.Group(app, new FactoryAgentsSwitch(machineWide: true, new TenantSettingsStore(_db)), Resolve);
+        YourInboxEndpoints.Map(app, factoryGate, new YourInboxEndpoints.Parts(
             Store: _store,
             ResolveTenant: Resolve,
             Factories: _ => [_booking],

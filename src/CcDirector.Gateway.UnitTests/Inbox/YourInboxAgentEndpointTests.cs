@@ -7,10 +7,12 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.DevReports;
+using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Inbox;
 using CcDirector.Gateway.Inbox;
 using CcDirector.Gateway.Messaging;
 using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
@@ -88,7 +90,12 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
             StandInForAuthentication(ctx);
             await next();
         });
-        YourInboxEndpoints.Map(app, new YourInboxEndpoints.Parts(
+        // The factory gate exactly as GatewayHost builds it, off for the machine: account A has factories switched on,
+        // account B does not, so B is refused on the route that leaves a message in a factory.
+        var factorySwitch = new FactoryAgentsSwitch(machineWide: false, new TenantSettingsStore(_db));
+        factorySwitch.Set(A, enabled: true, actor: "test", reason: "account A has factories", _now);
+        var factoryGate = FactoryAgentsGate.Group(app, factorySwitch, Resolve);
+        YourInboxEndpoints.Map(app, factoryGate, new YourInboxEndpoints.Parts(
             Store: _store,
             ResolveTenant: Resolve,
             Factories: _ => [Booking, Website],
@@ -569,6 +576,21 @@ public sealed class YourInboxAgentEndpointTests : IAsyncLifetime
         Assert.Equal(114, left.SentBySessionNumber);
         Assert.Equal("Factory Inbox - Delivery Lead", left.SentBySessionName);
         Assert.Equal((A, "booking", _now), Assert.Single(_wakes));
+    }
+
+    [Fact]
+    public async Task FactorySend_ForAnAccountWithoutFactories_IsRefusedByTheFactoryGate()
+    {
+        // Issue #4774: the route was mapped outside the factory gate, so an account without factories could still leave a
+        // message in a factory's inbox. Account B has factories off; the gate answers 404 with no body, like every
+        // factory route, and nothing is left and nothing is woken.
+        var (status, body) = await Call("POST", $"/sessions/{Lead}/factories/booking/inbox", Lead,
+            new { text = "Please check the Friday bookings." }, tenant: B);
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(JsonValueKind.Undefined, body.ValueKind);
+        Assert.Empty(_factoryInbox.Thread(B, "booking", 10).Messages);
+        Assert.Empty(_wakes);
     }
 
     [Fact]

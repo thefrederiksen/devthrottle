@@ -6973,7 +6973,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // owner reads, marks and replies from his phone or Cockpit. Who sent a message is read from the Gateway's own record
         // of the calling session. A reply to a running session goes into its inbox as a notice from the Gateway - read when
         // it is free, never typed mid-turn; a reply to an ended one is not sent, and the owner is offered a new session.
-        Api.YourInboxEndpoints.Map(_app, new Api.YourInboxEndpoints.Parts(
+        // The agent's send to a factory is a factory route, so it goes on the factory gate's group (issue #4774).
+        Api.YourInboxEndpoints.Map(_app, factoryGate, new Api.YourInboxEndpoints.Parts(
             Store: YourInbox,
             ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             Factories: tenant => FactoryRegistry.List(tenant),
