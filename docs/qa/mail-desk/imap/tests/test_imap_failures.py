@@ -164,3 +164,18 @@ def test_EverySentence_ForALongAddress_AtEveryStep_FitsWhatTheGatewayKeeps(iw, b
     if step != "signing in" and break_it != "timeout":
         assert ("archiving" if step == "archive" else "junk") in sentence
     assert len(sentence) <= iw.screen.SENTENCE_LIMIT, sentence
+
+
+def test_Renumbered_WhereItStoppedCannotBeFound_FailsThatChannel_InASentenceThatFits(iw, monkeypatch):
+    """More mail since the day before the cursor's time than the search reads (one page here, 20 in use): the channel
+    fails saying so, rather than starting anywhere, and the sentence fits even for a long address."""
+    monkeypatch.setattr(iw.screen, "IMAP_MAX_RENUMBERED_PAGES", 1)
+    box = iw.tools.account(LONG)
+    box.inbox(*[mail(f"2026-10-17T{n // 60:02d}:{n % 60:02d}:00Z") for n in range(201)])
+    box.inbox(mail("2026-10-18T09:00:00Z", subject="Reported last"))
+    box.renumber()
+    iw.memory(imap(LONG, cursor=cursor(202, "2026-10-18T09:00:00Z", validity=1)))
+    lines = phase2.channel_failed(iw, LONG).splitlines()
+    assert lines[0] == f"the server renumbered the Inbox of {LONG}; the Mail Desk cannot find where it stopped"
+    assert len(lines[0]) <= iw.screen.SENTENCE_LIMIT
+    assert lines[1] == "read 200 messages oldest first from 2026-10-17 and none arrived at or after 2026-10-18T09:00:00Z"

@@ -1431,10 +1431,10 @@ class ImapReader:
             if answer["total"] <= len(answer["messages"]):
                 return None
             after = max(r["uid"] for r in answer["messages"])
-        raise CheckFailed(f"the server renumbered the Inbox of {self.address}, and the Mail Desk cannot find where it "
-                          f"stopped among the mail since {moment[:10]}",
-                          f"read {IMAP_MAX_RENUMBERED_PAGES * FIRST_RUN_MESSAGES} messages oldest first and none "
-                          f"arrived at or after {moment}")
+        raise CheckFailed(f"the server renumbered the Inbox of {self.address}; the Mail Desk cannot find where it "
+                          f"stopped",
+                          f"read {IMAP_MAX_RENUMBERED_PAGES * FIRST_RUN_MESSAGES} messages oldest first from "
+                          f"{self.day_before(moment)} and none arrived at or after {moment}")
 
     def inbox_since(self, cursor, wanted):
         """Inbox messages above the cursor's UID. When the server has renumbered the Inbox (another uidvalidity), the
