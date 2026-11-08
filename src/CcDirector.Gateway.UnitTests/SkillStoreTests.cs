@@ -500,6 +500,213 @@ public sealed class SkillStoreTests : IDisposable
         Assert.False(ctx.SkillTenantOverrides.Single(o => o.SkillId == "move-session").Enabled);
     }
 
+    // ---- optional built-ins: shipped switched OFF -------------------------------------------------
+
+    /// <summary>Re-run the seeder with one shipped definition marked optional (or not). No shipped skill
+    /// has to be optional for this to be proven, so the tests mark an existing one. The store passed in
+    /// was built BEFORE this call: building another would re-seed from the real list and undo it.</summary>
+    private void SeedWithOptional(string id, bool shipsSwitchedOff) =>
+        SeedWithOptional(shipsSwitchedOff ? new[] { id } : Array.Empty<string>());
+
+    /// <summary>Re-run the seeder as a binary that ships exactly these built-ins optional.</summary>
+    private void SeedWithOptional(params string[] optionalIds)
+    {
+        var definitions = BuiltInSkills.All()
+            .Select(d => d with { ShipsSwitchedOff = optionalIds.Contains(d.Id) })
+            .ToList();
+        using var ctx = _h.Open().CreateContext();
+        BuiltInSkillSeeder.Seed(ctx, definitions);
+    }
+
+    [Fact]
+    public void An_optional_built_in_is_listed_but_off_for_an_account_that_never_chose()
+    {
+        var store = new SkillStore(_h.Open());
+        SeedWithOptional("move-session", shipsSwitchedOff: true);
+
+        // Listed - the register must show it, or nobody can find it to turn it on - but off.
+        var listed = store.ListPublished().Single(s => s.Id == "move-session");
+        Assert.False(listed.Enabled);
+        Assert.False(store.GetPublished("move-session")!.Enabled);
+
+        // Off on the agent path, with words that are true: nobody disabled it.
+        var refusal = Assert.Throws<SkillValidationException>(() => store.GetBody("move-session", null));
+        Assert.Contains("OPTIONAL", refusal.Message);
+        Assert.DoesNotContain("disabled it", refusal.Message);
+        Assert.Contains("cc-devthrottle skill enable move-session", refusal.Message);
+
+        // Every other built-in is untouched.
+        Assert.True(store.ListPublished().Single(s => s.Id == "dev-reports").Enabled);
+    }
+
+    [Fact]
+    public void Turning_an_optional_built_in_on_is_the_accounts_own_choice()
+    {
+        var store = new SkillStore(_h.Open());
+        SeedWithOptional("move-session", shipsSwitchedOff: true);
+
+        Assert.True(store.SetEnabled("move-session", true, "test"));
+
+        Assert.True(store.ListPublished().Single(s => s.Id == "move-session").Enabled);
+        Assert.Equal(BuiltInSkills.BodyFor("move-session"), store.GetBody("move-session", null));
+        using var ctx = _h.Open().CreateContext();
+        // The library still ships it off; only this account's override says on.
+        Assert.False(ctx.Skills.Single(h => h.Id == "move-session").Enabled);
+        Assert.True(ctx.SkillTenantOverrides.Single(o => o.SkillId == "move-session").Enabled);
+    }
+
+    [Fact]
+    public void An_account_that_switches_an_optional_built_in_off_again_gets_the_owner_refusal()
+    {
+        var store = new SkillStore(_h.Open());
+        SeedWithOptional("move-session", shipsSwitchedOff: true);
+        store.SetEnabled("move-session", true, "test");
+
+        store.SetEnabled("move-session", false, "test");
+
+        var refusal = Assert.Throws<SkillValidationException>(() => store.GetBody("move-session", null));
+        Assert.Contains("disabled it", refusal.Message);
+    }
+
+    [Fact]
+    public void The_shipped_switch_follows_the_running_binary_and_never_overrides_an_accounts_choice()
+    {
+        var store = new SkillStore(_h.Open());
+        store.SetEnabled("dev-reports", false, "test");
+
+        SeedWithOptional("move-session", "dev-reports");
+        Assert.False(store.GetPublished("move-session")!.Enabled);
+
+        // A later binary ships them on again: the library follows, the account's off stands.
+        SeedWithOptional();
+
+        Assert.True(store.GetPublished("move-session")!.Enabled);
+        Assert.False(store.GetPublished("dev-reports")!.Enabled);
+    }
+
+    /// <summary>A tenant row under a shipped id, as promotion finds it: published from a session, with the
+    /// owner's on/off on its head. <paramref name="matchShipped"/> gives it exactly the shipped content
+    /// (so the seeder has nothing to republish) or some other content.</summary>
+    private void AddTenantRowForShippedId(string id, bool enabled, bool matchShipped)
+    {
+        var definition = BuiltInSkills.All().Single(d => d.Id == id);
+        using var ctx = _h.Open().CreateContext();
+        ctx.Skills.Add(new SkillEntity
+        {
+            Id = id,
+            TenantId = ctx.ActiveTenant!,
+            IsBuiltIn = false,
+            Archived = false,
+            Enabled = enabled,
+            LatestVersion = 1,
+            PublishedVersion = 1,
+            ShippedContentHash = null,
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+        });
+        ctx.SkillVersions.Add(new SkillVersionEntity
+        {
+            TenantId = ctx.ActiveTenant!,
+            SkillId = id,
+            Version = 1,
+            Status = SkillVersionStatus.Published,
+            Name = matchShipped ? definition.Name : "Published from a session",
+            Summary = matchShipped ? definition.Summary : "Whatever the session wrote.",
+            Triggers = matchShipped ? definition.Triggers.ToList() : new List<string> { "something" },
+            BodyMarkdown = matchShipped ? BuiltInSkills.BodyFor(id) : "# Not the shipped body",
+            ContentHash = matchShipped ? BuiltInSkillSeeder.ShippedHash(definition) : "not-the-shipped-hash",
+            AuthoredBy = "session:whoever",
+            CreatedUtc = DateTime.UtcNow,
+            PublishedUtc = DateTime.UtcNow,
+        });
+        ctx.SaveChanges();
+    }
+
+    private void AssertPromotedWithOwnersChoice(SkillStore store, string id, bool ownerChoice, bool libraryShipped)
+    {
+        Assert.True(store.ListPublished().Single(s => s.Id == id).IsBuiltIn);
+        Assert.Equal(ownerChoice, store.GetPublished(id)!.Enabled);
+        if (ownerChoice)
+        {
+            Assert.Equal(BuiltInSkills.BodyFor(id), store.GetBody(id, null));
+        }
+        else
+        {
+            var refusal = Assert.Throws<SkillValidationException>(() => store.GetBody(id, null));
+            Assert.Contains("disabled it", refusal.Message); // he chose it; never "nobody turned it on"
+        }
+        using var check = _h.Open().CreateContext();
+        Assert.True(check.Skills.Single(h => h.Id == id).IsBuiltIn);
+        Assert.Equal(libraryShipped, check.Skills.Single(h => h.Id == id).Enabled);
+        Assert.Equal(ownerChoice, check.SkillTenantOverrides.Single(o => o.SkillId == id).Enabled);
+    }
+
+    [Theory]
+    [InlineData(true)]  // content must be republished
+    [InlineData(false)] // content already matches: nothing to republish, promotion must still complete
+    public void Promotion_keeps_an_owners_off_choice(bool contentDiffers)
+    {
+        AddTenantRowForShippedId("dev-reports", enabled: false, matchShipped: !contentDiffers);
+
+        var store = new SkillStore(_h.Open());
+
+        AssertPromotedWithOwnersChoice(store, "dev-reports", ownerChoice: false, libraryShipped: true);
+
+        // And it STAYS off across restarts - the defect a review found was a flip back on every boot.
+        var again = new SkillStore(_h.Open());
+        AssertPromotedWithOwnersChoice(again, "dev-reports", ownerChoice: false, libraryShipped: true);
+    }
+
+    [Fact]
+    public void Promotion_into_an_optional_built_in_keeps_an_owners_off_and_a_later_ship_on_does_not_undo_it()
+    {
+        AddTenantRowForShippedId("dev-reports", enabled: false, matchShipped: false);
+        using (var ctx = _h.Open().CreateContext())
+        {
+            var optional = BuiltInSkills.All()
+                .Select(d => d with { ShipsSwitchedOff = d.Id == "dev-reports" }).ToList();
+            BuiltInSkillSeeder.Seed(ctx, optional);
+        }
+        using (var ctx = _h.Open().CreateContext())
+            Assert.False(ctx.SkillTenantOverrides.Single(o => o.SkillId == "dev-reports").Enabled);
+
+        // A later binary ships it on for everyone; the owner's off stands.
+        var store = new SkillStore(_h.Open());
+        AssertPromotedWithOwnersChoice(store, "dev-reports", ownerChoice: false, libraryShipped: true);
+    }
+
+    [Fact]
+    public void Promotion_into_an_optional_built_in_keeps_it_on_for_the_owner_who_published_it()
+    {
+        AddTenantRowForShippedId("dev-reports", enabled: true, matchShipped: false);
+        using (var ctx = _h.Open().CreateContext())
+        {
+            var optional = BuiltInSkills.All()
+                .Select(d => d with { ShipsSwitchedOff = d.Id == "dev-reports" }).ToList();
+            BuiltInSkillSeeder.Seed(ctx, optional);
+        }
+        using (var ctx = _h.Open().CreateContext())
+        {
+            // Shipped optional: off in the library for everyone else, on for him by his own override.
+            Assert.False(ctx.Skills.Single(h => h.Id == "dev-reports").Enabled);
+            Assert.True(ctx.SkillTenantOverrides.Single(o => o.SkillId == "dev-reports").Enabled);
+        }
+
+        var store = new SkillStore(_h.Open()); // ships it on again; check the owner state after both binaries
+        AssertPromotedWithOwnersChoice(store, "dev-reports", ownerChoice: true, libraryShipped: true);
+        using var ctx2 = _h.Open().CreateContext();
+        Assert.Equal("gateway:promotion", ctx2.SkillTenantOverrides.Single(o => o.SkillId == "dev-reports").UpdatedBy);
+    }
+
+    [Fact]
+    public void No_shipped_built_in_is_optional_by_accident()
+    {
+        // Every built-in shipped today is on. A skill becomes optional only by a deliberate line in
+        // BuiltInSkills - when one does, add its id here.
+        var optional = BuiltInSkills.All().Where(d => d.ShipsSwitchedOff).Select(d => d.Id).ToList();
+        Assert.Empty(optional);
+    }
+
     [Fact]
     public void Switching_a_skill_requires_an_actor()
     {
