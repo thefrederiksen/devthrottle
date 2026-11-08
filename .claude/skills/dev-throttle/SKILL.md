@@ -245,7 +245,8 @@ cc-devthrottle inbox send --subject "<one line>" --body "<what they need to know
 ```
 
 - A real email goes out only when the user names someone else to send it to, or says, in those words,
-  "send me an email". Only then use `cc-devthrottle email owner`.
+  "send me an email". Only then use `cc-devthrottle email owner --email`.
+- `cc-devthrottle email owner` without `--email` goes to Your inbox, not to email (the owner, 8 November 2026).
 - A report, a write-up or findings is a dev report (the **dev-reports** skill); tell them it is ready
   with `inbox send`, never by email.
 - Factories do not email them either: each factory's 08:00 morning summary is written into Your inbox,

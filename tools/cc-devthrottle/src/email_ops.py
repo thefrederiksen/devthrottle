@@ -1,6 +1,12 @@
 """Owner-email operations for cc-devthrottle (issue #1318 consumer).
 
-'cc-devthrottle email owner' sends ONE email to the account owner on file. It passes only a subject,
+IN-MAIL BY DEFAULT (the owner, 8 November 2026): "in-mail should be the default. Email, you should have to
+select it specially." 'cc-devthrottle email owner' now delivers to the owner's Your inbox unless --email is
+given. The Gateway decides it - the same route older versions call - and this command prints the Gateway's
+own sentence saying where it went. A request with attachments, or a body too long for Your inbox, is sent as
+an email anyway, and the Gateway leaves a short note in Your inbox saying so.
+
+With --email, 'cc-devthrottle email owner' sends ONE email to the account owner on file. It passes only a subject,
 body, and optional attachments - there is no recipient argument, so the send is single-recipient by
 construction. The escalation channel an unattended or scheduled run uses to reach the human before it
 self-reaps, and the way to send yourself a report (e.g. an HTML file) to read offline.
@@ -15,6 +21,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -32,6 +39,9 @@ from cc_shared.config import CCDirectorConfig  # noqa: E402
 from . import axi_cli  # noqa: E402
 
 LOOPBACK_DEFAULT = "http://127.0.0.1:7878"
+# The header this command hands its own session key in, so the Gateway names the message for this session. The
+# request still authenticates with the account's key: the Gateway refuses a session key on this route.
+SESSION_KEY_HEADER = "X-CC-Session-Key"
 TIMEOUT_SECONDS = 45
 
 gateway_override: Optional[str] = None
@@ -45,7 +55,7 @@ class AttachmentError(Exception):
     """An --attach file is missing or unreadable - the caller's to fix before anything is sent."""
 
 
-_OWNER_USAGE = 'cc-devthrottle email owner --subject "<subject>" --body "<text>"'
+_OWNER_USAGE = 'cc-devthrottle email owner --subject "<subject>" --body "<text>" [--email]'
 
 
 def set_gateway_override(value: Optional[str]) -> None:
@@ -115,6 +125,9 @@ class EmailClient:
         headers = {"Accept": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        session_key = os.environ.get("CC_GATEWAY_SESSION_KEY", "").strip()
+        if session_key:
+            headers[SESSION_KEY_HEADER] = session_key
         return headers
 
     def send_owner(
@@ -123,8 +136,11 @@ class EmailClient:
         body_text: Optional[str],
         body_html: Optional[str],
         attachments: List[Dict[str, str]],
+        email: bool = False,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"subject": subject}
+        if email:
+            payload["deliver"] = "email"
         if body_text:
             payload["bodyText"] = body_text
         if body_html:
@@ -181,8 +197,9 @@ def send_owner(
     html: Optional[str],
     attach: Optional[List[str]],
     json_output: bool,
+    email: bool = False,
 ) -> None:
-    """Send one email to the account owner via the Gateway relay."""
+    """Deliver one message to the account owner: Your inbox by default, a real email with --email."""
     if not subject or not subject.strip():
         axi_cli.usage_error(f"--subject must not be blank. Full form: {_OWNER_USAGE}")
     if not (body and body.strip()) and not (html and html.strip()) and not attach:
@@ -195,7 +212,9 @@ def send_owner(
     except AttachmentError as ex:
         axi_cli.usage_error(f"{ex}. Nothing was sent. --attach must name an existing file.")
     try:
-        result = EmailClient(base_url=gateway_override).send_owner(subject.strip(), body, html, attachments)
+        result = EmailClient(base_url=gateway_override).send_owner(
+            subject.strip(), body, html, attachments, email=email
+        )
     except GatewayError as ex:
         _fail(str(ex))
         return
@@ -204,12 +223,30 @@ def send_owner(
         print(json.dumps(result, indent=2))
         return
 
+    delivered_to = result.get("deliveredTo")
+    words = axi_cli.ascii_text(str(result.get("message") or ""))
+    if delivered_to == "inbox":
+        axi_cli.write_lines("sent: Your inbox", f"id: {result.get('inboxMessageId')}", words)
+        axi_cli.print_next(["cc-devthrottle inbox list", "cc-devthrottle session done"])
+        return
+
     provider_id = result.get("providerId")
     count = len(attach or [])
     suffix = f" with {count} attachment(s)" if count else ""
-    if provider_id:
-        axi_cli.write_lines(f"Sent email to the account owner{suffix} (id {provider_id}).")
+    if delivered_to == "email":
+        lines = [f"sent: email{suffix}"]
+        if provider_id:
+            lines.append(f"id: {provider_id}")
+        if result.get("inboxMessageId"):
+            lines.append(f"note in Your inbox: {result.get('inboxMessageId')}")
+        lines.append(words)
+        axi_cli.write_lines(*lines)
     else:
-        axi_cli.write_lines(f"Sent email to the account owner{suffix}.")
+        # A Gateway from before 8 November 2026 knows only email, so it sent one whatever was asked.
+        lines = [f"Sent email to the account owner{suffix} (id {provider_id})." if provider_id
+                 else f"Sent email to the account owner{suffix}."]
+        if not email:
+            lines.append("This Gateway is older and does not deliver to Your inbox, so it sent an email.")
+        axi_cli.write_lines(*lines)
     # An email is the escalation an unattended run sends before it winds itself down.
     axi_cli.print_next(["cc-devthrottle session done", "cc-devthrottle session whoami"])

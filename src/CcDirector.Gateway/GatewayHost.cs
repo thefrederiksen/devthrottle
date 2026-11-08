@@ -6645,7 +6645,23 @@ public sealed class GatewayHost : IAsyncDisposable
         // than calling the service unauthenticated.
         AccountEmailEndpoint.Map(_app, Hosted, Account, new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
             tenantBoundary: _tenantBoundary, tenants: TenantRegistry,
-            byTenant: new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }));
+            byTenant: new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
+            // In-mail by default (the owner, 8 November 2026): the route writes to the caller's Your inbox unless email is
+            // chosen, naming the session the way POST /sessions/{sid}/inbox does. No push to the phone.
+            inMail: new AccountEmailEndpoint.InMail(
+                Store: YourInbox,
+                ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+                ResolveSessionKey: key => SessionKeys.ResolveCredential(key) is { Kind: Pairing.SessionCredentialResolutionKind.Active, Identity: { } identity }
+                    ? identity
+                    : null,
+                Naming: DevReportSessionNaming,
+                FactorySeatOf: (tenant, sessionId) =>
+                {
+                    using (_tenantBoundary.EnterScope(tenant))
+                        return DevReportFactorySeatOf(tenant, sessionId);
+                },
+                DeviceOf: deviceId => Devices.DisplayOfDevice(deviceId),
+                NowUtc: () => DateTime.UtcNow));
 
 
         // The credential-free cloud sign-in START front door (epic #1069, issue #1076): GET + POST

@@ -363,7 +363,7 @@ public sealed class HostedOwnerEmailByTenantTests : IAsyncLifetime
         var request = new HttpRequestMessage(HttpMethod.Post, "account/email");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
         request.Content = new StringContent(
-            """{"subject":"s","bodyText":"b","tenant_id":"11111111-1111-1111-1111-111111111111","to":"someone@elsewhere.example"}""",
+            """{"subject":"s","bodyText":"b","deliver":"email","tenant_id":"11111111-1111-1111-1111-111111111111","to":"someone@elsewhere.example"}""",
             Encoding.UTF8, "application/json");
 
         var resp = await _http.SendAsync(request);
@@ -381,7 +381,7 @@ public sealed class HostedOwnerEmailByTenantTests : IAsyncLifetime
         // mapped by the real GatewayHost, so this replaces only the outermost network hop.
         var request = new HttpRequestMessage(HttpMethod.Post, "account/email");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
-        request.Content = new StringContent("""{"subject":"issue 986","bodyText":"body"}""",
+        request.Content = new StringContent("""{"subject":"issue 986","bodyText":"body","deliver":"email"}""",
             Encoding.UTF8, "application/json");
         return _http.SendAsync(request);
     }

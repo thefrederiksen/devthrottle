@@ -260,7 +260,7 @@ public sealed class HostedAccountRoutesTellTheTruthTests : IAsyncLifetime
         var request = Authed(new HttpRequestMessage(HttpMethod.Post, "account/email"))
             ;
         request.Content = new StringContent(
-            """{"subject":"issue 984 invariant","bodyText":"body"}""", Encoding.UTF8, "application/json");
+            """{"subject":"issue 984 invariant","bodyText":"body","deliver":"email"}""", Encoding.UTF8, "application/json");
         return _http.SendAsync(request);
     }
 

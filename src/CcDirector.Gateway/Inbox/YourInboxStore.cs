@@ -363,6 +363,34 @@ public sealed class YourInboxStore
         };
     }
 
+    /// <summary>
+    /// A MESSAGE THROUGH THE OWNER EMAIL ROUTE FROM A CALLER THAT NAMED NO SESSION (8 November 2026, <c>POST /account/email</c>
+    /// delivers to Your inbox unless email is chosen): from the Gateway, seat <see cref="YourInboxWords.OwnerEmailSeat"/>,
+    /// unread. Nothing is cut: the route only comes here with a subject and body it has already measured against the
+    /// limits, and anything over them is sent as an email instead, so a value over a limit here is a defect.
+    /// </summary>
+    public static YourInboxMessageEntity ForOwnerEmail(TenantId tenant, string subject, string body, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+        subject = subject.Trim();
+        if (subject.Length > MaxSubjectLength || subject.Contains('\n') || subject.Contains('\r'))
+            throw new ArgumentException($"An owner email subject must be one line of at most {MaxSubjectLength} characters; the route measures it first.", nameof(subject));
+        if (body.Length > MaxBodyLength)
+            throw new ArgumentException($"An owner email body of {body.Length} characters is over the limit of {MaxBodyLength}; the route measures it first.", nameof(body));
+        FileLog.Write($"[YourInboxStore] ForOwnerEmail: bodyLength={body.Length}");
+        return new YourInboxMessageEntity
+        {
+            TenantId = tenant.Value,
+            Subject = subject,
+            Body = body,
+            FromKind = YourInboxWords.Senders.Gateway,
+            Seat = YourInboxWords.OwnerEmailSeat,
+            State = YourInboxWords.States.Unread,
+            SentAtUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+        };
+    }
+
     /// <summary>The 08:00 message about problems in no factory already written for the boundary, or null.</summary>
     public YourInboxMessageEntity? NoFactoryMorningOf(TenantId tenant, DateTime boundaryUtc)
     {
