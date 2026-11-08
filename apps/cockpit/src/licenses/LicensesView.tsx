@@ -25,7 +25,7 @@ import {
   type LicenseSwitchNowResult,
 } from "@devthrottle/client-core/licenses/licensesClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
-import { useLicenseAlarms } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
+import { useLicenseAlarms } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";

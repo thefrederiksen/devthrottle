@@ -20,7 +20,7 @@ import { useFactoryInboxOffered } from "@devthrottle/client-core/factoryinbox/us
 import { useYourInboxCount, type YourInboxCountAnswer } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
 import { useBoxesSwitch } from "@devthrottle/client-core/boxes/useBoxesSwitch";
 import { useDemoMode } from "@devthrottle/client-core/demo/demoMode";
-import { LicenseAlarmBanner } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
+import { LicenseAlarmIndicator, LicenseAlarmsProvider } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
 import { AlertsProvider } from "@devthrottle/client-core/alerts/AlertsProvider";
 import { AlertsTitleCount, RailAlertsBell } from "./alerts/CockpitAlerts";
 
@@ -336,15 +336,19 @@ function ShellFrame() {
   return (
     <AlertsProvider enabled={wholeApp}>
     {wholeApp && <AlertsTitleCount />}
+    {/* The license alarms are read once here, above every page, for the triangle in the rail head. Their words
+        describe the person's own licenses, so the triangle stays on a team's pages too. */}
+    <LicenseAlarmsProvider enabled={!team.resolving}>
     <StopSessionProvider>
       <div className="shell-frame">
-      {/* The notice has its own row above the whole frame, including at phone width. Only the height left after
-          it belongs to the rail and routed page. Its words describe the person's own licenses on team pages too. */}
-      <LicenseAlarmBanner enabled={!team.resolving} href="/licenses" onOpen={() => navigate("/licenses")} />
       <div className={shellClass}>
         <nav className="rail rail-left" aria-label="Primary">
           <div className="rail-head">
             {!collapsed && <div className="brand">DevThrottle</div>}
+            {/* The license triangle (the owner, 7 November 2026): just before the bell, the count of open license alarms,
+                opening Licenses; hovering it lists each problem in the Gateway's words. Nothing at all while none is
+                open. It replaced the bar across the top of every page. */}
+            <LicenseAlarmIndicator details href="/licenses" onOpen={() => navigate("/licenses")} />
             {/* The bell: a red count of what needs the owner, the tray beside it. Collapsed, it stays in reach with its
                 badge, above the control that expands the rail. */}
             {wholeApp && <RailAlertsBell />}
@@ -415,6 +419,7 @@ function ShellFrame() {
       </div>
       </div>
     </StopSessionProvider>
+    </LicenseAlarmsProvider>
     </AlertsProvider>
   );
 }

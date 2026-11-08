@@ -10,14 +10,20 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 // it), and the shared bell does on any screen what it does on the roster - the Gateway's count, and a deep link that
 // lands on the Alerts screen on that alert. The Alerts screen itself is the one app bar without the bell: it IS Alerts.
 
-const { listAlerts } = vi.hoisted(() => ({ listAlerts: vi.fn() }));
+const { listAlerts, getLicenseAlarms } = vi.hoisted(() => ({ listAlerts: vi.fn(), getLicenseAlarms: vi.fn() }));
 
 vi.mock("@devthrottle/client-core/alerts/alertsClient", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("@devthrottle/client-core/alerts/alertsClient");
   return { ...actual, listAlerts, markAlertsSeen: vi.fn(async () => {}) };
 });
 
+vi.mock("@devthrottle/client-core/licenses/licensesClient", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("@devthrottle/client-core/licenses/licensesClient");
+  return { ...actual, getLicenseAlarms };
+});
+
 import { AlertsProvider } from "@devthrottle/client-core/alerts/AlertsProvider";
+import { LicenseAlarmsProvider } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
 import { messageAlert, restartAlert } from "@devthrottle/client-core/alerts/alertsFixtures.testkit";
 import { AppBarAlerts } from "./AppBarAlerts";
 import { Alerts } from "../pages/Alerts";
@@ -45,6 +51,7 @@ function LocationProbe() {
 afterEach(() => {
   cleanup();
   listAlerts.mockReset();
+  getLicenseAlarms.mockReset();
 });
 
 describe("the bell in every phone app bar", () => {
@@ -85,5 +92,57 @@ describe("the bell in every phone app bar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/settings?tab=ai"));
     expect((await screen.findByTestId("alerts-badge")).textContent).toBe("2");
+  });
+});
+
+// The license triangle (the owner, 7 November 2026) rides in the same component as the bell, so every app bar that
+// carries the bell carries it too - the sweep above proves that for the triangle as well. It replaced the bar across
+// the top of every screen.
+describe("the license triangle beside the bell", () => {
+  const NONE = { asOfUtc: "2026-11-07T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [], tone: null };
+  const alarm = (alarmId: string) => ({
+    alarmId, kind: "not-ready-at-80", machineName: "machine-a", accountEmail: null,
+    text: "machine-a is not ready. Add a spare to machine-a.", openedAtUtc: "2026-11-07T07:58:00Z", tone: "warning" as const,
+  });
+
+  function renderBar() {
+    listAlerts.mockResolvedValue({ alerts: [], needsAnswerCount: 0 });
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AlertsProvider>
+          <LicenseAlarmsProvider enabled>
+            <header className="app-bar">
+              <AppBarAlerts />
+            </header>
+          </LicenseAlarmsProvider>
+        </AlertsProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("WithAlarmsOpen_ShowsTheGatewaysCount_BeforeTheBell_AndOpensLicenses", async () => {
+    getLicenseAlarms.mockResolvedValue({ ...NONE, count: 3, summary: "3 license problems", linkText: "Open Licenses", alarms: [alarm("a1"), alarm("a2"), alarm("a3")], tone: "critical" });
+    renderBar();
+
+    const triangle = await screen.findByTestId("license-alarm-indicator");
+    expect(screen.getByTestId("license-alarm-count").textContent).toBe("3");
+    expect(triangle.getAttribute("aria-label")).toBe("3 license problems - Open Licenses");
+    expect(triangle.getAttribute("href")).toBe("/licenses");
+    expect(triangle.getAttribute("data-tone")).toBe("critical");
+    // Beside the bell, just before it, in the app bar - no bar of its own.
+    const bell = screen.getByTestId("alerts-bell");
+    expect(triangle.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(triangle.closest(".app-bar")).not.toBeNull();
+    expect(document.querySelector(".license-alarm-banner")).toBeNull();
+  });
+
+  it("WithNoAlarmOpen_DrawsNothing_ButTheBell", async () => {
+    getLicenseAlarms.mockResolvedValue(NONE);
+    renderBar();
+
+    await waitFor(() => expect(getLicenseAlarms).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("license-alarm-indicator")).toBeNull();
+    expect(screen.getByTestId("alerts-bell")).not.toBeNull();
   });
 });

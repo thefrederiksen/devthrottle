@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 
 // The left rail's ORDER is a product decision, not an accident of the array literal, so it is pinned
@@ -888,9 +888,10 @@ describe("Cockpit demo mode", () => {
   });
 });
 
-// THE LICENSE ALARM BANNER (License Switching phase 6) is in the frame, so it is on every page of the whole app. Its
-// words are the Gateway's, shown exactly as sent; with no alarm open there is no banner at all.
-describe("Cockpit license alarm banner", () => {
+// THE LICENSE TRIANGLE (the owner, 7 November 2026) sits in the rail head beside the bell, so it is on every page of the
+// whole app. It replaced the bar across the top. Its count and words are the Gateway's, shown exactly as sent; with no
+// alarm open there is nothing at all.
+describe("Cockpit license alarm triangle", () => {
   const NONE: typeof alarmRead.answer = { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [], tone: null };
   const alarm = (alarmId: string, text: string) => ({
     alarmId,
@@ -911,7 +912,7 @@ describe("Cockpit license alarm banner", () => {
     alarmRead.answer = NONE;
   });
 
-  it("shows no banner when the Gateway has no alarm open", async () => {
+  it("shows no triangle and no bar when the Gateway has no alarm open", async () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <AppShell />
@@ -919,10 +920,11 @@ describe("Cockpit license alarm banner", () => {
     );
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(screen.queryByTestId("license-alarm-banner")).toBeNull();
+    expect(screen.queryByTestId("license-alarm-indicator")).toBeNull();
+    expect(document.querySelector(".license-alarm-banner")).toBeNull();
   });
 
-  it("shows only the summary and link in the Gateway's own words", async () => {
+  it("shows the Gateway's count in the rail head beside the bell, named in its own words", async () => {
     const line = "machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.";
     alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)], tone: "warning" };
     render(
@@ -931,21 +933,66 @@ describe("Cockpit license alarm banner", () => {
       </MemoryRouter>,
     );
 
-    const banner = await screen.findByTestId("license-alarm-banner");
-    expect(banner.getAttribute("role")).toBe("alert");
-    expect(within(banner).getByTestId("license-alarm-summary").textContent).toBe("1 license problem");
-    expect(banner.textContent).toBe("1 license problem - Open Licenses");
-    expect(within(banner).queryByText(line)).toBeNull();
-    const link = within(banner).getByTestId("license-alarm-link");
-    expect(link.textContent).toBe("Open Licenses");
-    expect(link.getAttribute("href")).toBe("/licenses");
-    // In its own frame row, never inside the page or rail.
-    expect(document.querySelector(".shell-frame")!.contains(banner)).toBe(true);
-    expect(document.querySelector(".main-pane")!.contains(banner)).toBe(false);
+    const triangle = await screen.findByTestId("license-alarm-indicator");
+    expect(within(triangle).getByTestId("license-alarm-count").textContent).toBe("1");
+    expect(triangle.getAttribute("aria-label")).toBe("1 license problem - Open Licenses");
+    expect(triangle.getAttribute("href")).toBe("/licenses");
+    expect(screen.queryByText(line)).toBeNull();
+    // In the rail head, beside the bell - never a row of its own above the frame, never inside the page.
+    const head = document.querySelector(".rail-head")!;
+    expect(head.contains(triangle)).toBe(true);
+    expect(head.contains(screen.getByTestId("alerts-bell"))).toBe(true);
+    expect(screen.getByTestId("routed-page").contains(triangle)).toBe(false);
+    expect(document.querySelector(".license-alarm-banner")).toBeNull();
   });
 
-  // A team's pages on screen change nothing about the person's own machines: the banner stays (review finding 2).
-  it("still shows the banner while a team's pages are on screen", async () => {
+  it("lists each problem in the Gateway's own words while hovered, and nothing once the pointer leaves", async () => {
+    const first = "Renewing the sign-in for dev@example.com on machine-a failed. Put right what the reason says.";
+    const second = "machine-b holds no spare. Sign machine-b in to a second account.";
+    alarmRead.answer = { ...NONE, count: 2, summary: "2 license problems", linkText: "Open Licenses", alarms: [alarm("a1", first), alarm("a2", second)], tone: "warning" };
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const triangle = await screen.findByTestId("license-alarm-indicator");
+    expect(screen.queryByTestId("license-alarm-card")).toBeNull();
+    // Before the bell, as the approved mock-up draws it.
+    expect(triangle.compareDocumentPosition(screen.getByTestId("alerts-bell")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.mouseEnter(triangle);
+    const card = await screen.findByTestId("license-alarm-card");
+    expect(card.getAttribute("role")).toBe("tooltip");
+    expect(triangle.getAttribute("aria-describedby")).toBe(card.id);
+    expect(within(card).getAllByTestId("license-alarm-card-line").map((l) => l.textContent)).toEqual([first, second]);
+    expect(card.textContent).toContain("2 license problems");
+    expect(card.textContent).toContain("Open Licenses");
+    fireEvent.mouseLeave(triangle);
+    expect(screen.queryByTestId("license-alarm-card")).toBeNull();
+  });
+
+  it("opens Licenses in the app when clicked", async () => {
+    alarmRead.answer = { ...NONE, count: 2, summary: "2 license problems", linkText: "Open Licenses", alarms: [alarm("a1", "One."), alarm("a2", "Two.")], tone: "warning" };
+    function Where() {
+      return <span data-testid="where">{useLocation().pathname}</span>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="*" element={<Where />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("where").textContent).toBe("/sessions");
+    fireEvent.click(await screen.findByTestId("license-alarm-indicator"));
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/licenses"));
+  });
+
+  // A team's pages on screen change nothing about the person's own machines: the triangle stays (review finding 2).
+  it("still shows the triangle while a team's pages are on screen", async () => {
     const collaboratorTeam = {
       id: "team-dt",
       name: "DevThrottle",
@@ -961,8 +1008,7 @@ describe("Cockpit license alarm banner", () => {
     } as unknown as TeamSummary;
     myTeams.answer = { kind: "teams", teams: [collaboratorTeam], start: { where: "own-account" } };
     window.localStorage.setItem(currentTeamStorageKey(), collaboratorTeam.id);
-    const line = "machine-a is not ready. Add a spare to machine-a.";
-    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)], tone: "warning" };
+    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", "machine-a is not ready.")], tone: "warning" };
     render(
       <MemoryRouter initialEntries={["/questions"]}>
         <AppShell />
@@ -970,13 +1016,12 @@ describe("Cockpit license alarm banner", () => {
     );
 
     await waitFor(() => expect(document.querySelector(".shell")!.classList.contains("shell-team-pages")).toBe(true));
-    const banner = await screen.findByTestId("license-alarm-banner");
-    expect(banner.textContent).toBe("1 license problem - Open Licenses");
-    expect(within(banner).queryByText(line)).toBeNull();
+    const triangle = await screen.findByTestId("license-alarm-indicator");
+    expect(triangle.getAttribute("aria-label")).toBe("1 license problem - Open Licenses");
   });
 
-  // The colour is the Gateway's verdict: yellow for a warning, red only for a machine stuck above the threshold.
-  it.each([["warning"], ["critical"]] as const)("draws the banner in the Gateway's tone: %s", async (tone) => {
+  // The colour is the Gateway's verdict: amber for a warning, red only for a machine stuck above the threshold.
+  it.each([["warning"], ["critical"]] as const)("draws the triangle in the Gateway's tone: %s", async (tone) => {
     alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", "A problem. Do this.")], tone };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -984,30 +1029,9 @@ describe("Cockpit license alarm banner", () => {
       </MemoryRouter>,
     );
 
-    const banner = await screen.findByTestId("license-alarm-banner");
-    expect(banner.getAttribute("data-tone")).toBe(tone);
-    expect(banner.classList.contains(`license-alarm-banner--${tone}`)).toBe(true);
-  });
-
-  it("keeps several alarms to one summary line and leaves details off the frame", async () => {
-    alarmRead.answer = {
-      ...NONE,
-      count: 2,
-      summary: "2 license problems",
-      linkText: "Open Licenses",
-      alarms: [alarm("a1", "First problem. First thing to do."), alarm("a2", "Second problem. Second thing to do.")],
-      tone: "warning",
-    };
-    render(
-      <MemoryRouter initialEntries={["/directors"]}>
-        <AppShell />
-      </MemoryRouter>,
-    );
-
-    const banner = await screen.findByTestId("license-alarm-banner");
-    expect(banner.textContent).toBe("2 license problems - Open Licenses");
-    expect(within(banner).queryAllByTestId("license-alarm-line")).toHaveLength(0);
-    expect(screen.getByTestId("routed-page").contains(banner)).toBe(false);
+    const triangle = await screen.findByTestId("license-alarm-indicator");
+    expect(triangle.getAttribute("data-tone")).toBe(tone);
+    expect(triangle.classList.contains(`license-alarm-indicator--${tone}`)).toBe(true);
   });
 });
 
