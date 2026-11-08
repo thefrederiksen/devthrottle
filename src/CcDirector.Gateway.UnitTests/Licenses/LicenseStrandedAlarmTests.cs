@@ -12,7 +12,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 
 /// <summary>
 /// A STRANDED MACHINE IS LOUD ONCE, AND ONLY ABOUT WHAT THE GATEWAY CANNOT REPAIR (mission "Licenses - Loud When
-/// Stranded", step 1) - the readiness check raising the stranded alarm over the real license store, the real sign-in
+/// Stranded", step 1). Since 8 November 2026 the alarm these watch is the one license alarm (LicenseCannotSwitchAlarm),
+/// which took the stranded machine over; the stranded kind is retired and never opens. The rest of this summary is
+/// the history of the step - the readiness check raising the stranded alarm over the real license store, the real sign-in
 /// service, the real approver check and the real license alarm on a throwaway SQLite file. The owner email and the push
 /// are recorders; the Directors answer as each test says; the clock is the test's own.
 ///
@@ -129,7 +131,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         return tick;
     }
 
-    private List<LicenseAlarmEntity> Stranded() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseStrandedAlarm.Kind.Key).ToList();
+    // The machine's alarm: since 8 November 2026 the one license alarm (LicenseCannotSwitchAlarm), which took over the
+    // stranded machine at the threshold. The stranded kind itself is retired and never opens.
+    private List<LicenseAlarmEntity> Stranded() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key).ToList();
 
     private List<LicenseAlarmEntity> Warning() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key).ToList();
 
@@ -188,6 +192,146 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
     // ----- it closes, by itself, on each of three facts -----
 
     // ----- review finding 2: loud only about what the Gateway cannot repair -----
+
+    // machine-a's Director is connected and answers every command with a timeout, as the Mac Mini's did on 26 October
+    // (issue #4490). The sign-in the Gateway starts is marked unknown at once; the minute settle asks again every minute
+    // and settles nothing. Once it is older than the wait the sign-in service gives a sign-in, it is not running as far as
+    // anyone can tell, so it is no repair: the alarm opens, says the sign-in got no answer, and stays open for
+    // days - and the owner is told again on every check an hour or more after the last time (the owner, 6 November 2026:
+    // "repeat until fixed"). Opened at 16 minutes; told again at 180, 1500 and 5000, not at 60.
+    [Fact]
+    public async Task Tick_ADirectorThatNeverAnswers_TheSignInIsNoRepair_TheAlarmOpensSayingItGotNoAnswer_AndIsToldAgainHourly()
+    {
+        TheApproverCanApprove();
+        TheDirectorTimesOut();
+        BothReport();
+        var first = await Tick();
+        Assert.Single(first.Started);
+        Assert.Empty(Stranded());
+
+        foreach (var minutes in new[] { 16, 60, 180, 1500, 5000 })
+        {
+            Later(minutes);
+            await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
+            await Tick();
+            Assert.Equal(LicenseLogStates.Unknown, Assert.Single(_log.ListOpen(One)).State);
+            var alarm = Assert.Single(Stranded());
+            Assert.Equal("The sign-in to account-b@example.com that DevThrottle sent to machine-a at 03:12 UTC got no answer from "
+                         + "the machine, so restart the Director on machine-a.", alarm.Action);
+        }
+        Assert.Equal(4, _emails.Count);
+        Assert.Equal(new[] { false, true, true, true }, _pushed.Select(p => p.IsRepeat).ToArray());
+    }
+
+    // The third review: a send that times out, or whose tunnel drops, marks the sign-in unknown at once, while the Director
+    // may be running it well. So an unknown sign-in younger than the unanswered wait is still a repair: no alarm at 1
+    // minute or at 14, and the alarm - saying it got no answer, which is then true - once it is older than 15.
+    [Theory]
+    [InlineData(DirectorCommandStatus.Timeout)]
+    [InlineData(DirectorCommandStatus.TunnelDropped)]
+    public async Task Tick_AnUnknownSignIn_IsARepairUntilTheUnansweredWait_ThenTheAlarmOpens(DirectorCommandStatus status)
+    {
+        TheApproverCanApprove();
+        _directorAnswers = true;
+        _directors.AnswerWith(_ => DirectorCommandResult.Fail(status, "The send got no answer."));
+        BothReport();
+        await Tick();
+
+        foreach (var minutes in new[] { 1, 14 })
+        {
+            Later(minutes);
+            await Tick();
+            Assert.Equal(LicenseLogStates.Unknown, Assert.Single(_log.ListOpen(One)).State);
+            Assert.Empty(Stranded());
+        }
+        Assert.Empty(_emails);
+
+        Later(16);
+        await Tick();
+
+        Assert.StartsWith("The sign-in to account-b@example.com that DevThrottle sent to machine-a at 03:12 UTC got no answer",
+            Assert.Single(Stranded()).Action);
+        Assert.Single(_emails);
+    }
+
+    // A sign-in still pending, with no answer, for longer than the sign-in service waits before settling one is not running
+    // either: the alarm holds back for that wait and opens after it.
+    [Fact]
+    public async Task Tick_ASignInPendingLongerThanTheUnansweredWait_IsNoRepair_TheAlarmOpens()
+    {
+        TheApproverCanApprove();
+        BothReport();
+        await Tick();
+
+        Later(14);
+        await Tick();
+        Assert.Empty(Stranded());
+
+        Later(16);
+        await Tick();
+
+        Assert.Equal(LicenseLogStates.Pending, Assert.Single(_log.ListOpen(One)).State);
+        Assert.Single(Stranded());
+        Assert.Single(_emails);
+    }
+
+    // The Gateway's own sign-in failed: the fix did not work, so the alarm opens, and its action says what failed and when
+    // it is tried again - never "sign it in by hand" as if nothing were happening.
+    [Fact]
+    public async Task Tick_TheGatewaysSignInFailed_OpensTheAlarm_SayingItFailed()
+    {
+        TheApproverCanApprove();
+        TheDirectorFails();
+        BothReport();
+        await Tick();
+        Assert.Empty(Stranded());
+
+        Later(1);
+        await Tick();
+
+        var alarm = Assert.Single(Stranded());
+        Assert.Equal("The last sign-in failed at 03:12 UTC (The approval in the browser did not complete); DevThrottle tries again at 03:14 UTC. "
+                     + "If this stays, sign machine-a in to account-b@example.com from the Licenses page.", alarm.Action);
+        Assert.Single(_emails);
+        Assert.Single(_pushed);
+    }
+
+    // The machine's Director is not connected, so no sign-in can be started there: no automatic fix, so it opens.
+    [Fact]
+    public async Task Tick_TheDirectorIsOffline_NoAutomaticFix_OpensTheAlarm_SayingToStartIt()
+    {
+        TheApproverCanApprove();
+        BothReport();
+        _directors.Disconnect(One, DirA);
+
+        var tick = await Tick();
+
+        Assert.Empty(tick.Started);
+        Assert.Equal("Start the Director on machine-a.", Assert.Single(Stranded()).Action);
+    }
+
+    // Once open, a later retry is not yet a fix: the alarm stays open while it runs, with no second email.
+    [Fact]
+    public async Task Tick_AnOpenAlarm_StaysOpenWhileTheGatewayTriesAgain()
+    {
+        TheApproverCanApprove();
+        TheDirectorFails();
+        BothReport();
+        await Tick();
+        Later(1);
+        await Tick();
+        var opened = Assert.Single(Stranded());
+
+        _directorAnswers = false;
+        _directors.Answer = _ => _neverAnswers.Task; // the retry is sent and does not answer: it runs
+        Later(3);
+        var retry = await Tick();
+
+        Assert.Single(retry.Started);
+        Assert.Equal(opened.Id, Assert.Single(Stranded()).Id);
+        Assert.Single(_emails);
+    }
+
 
     // The Gateway starts its own sign-in on this check: it is repairing the machine, so nothing opens and nobody is told.
     [Fact]
@@ -299,9 +443,10 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Empty(_pushed);
     }
 
-    // Issue #4249: near the limit, under the threshold, a machine that is not ready raises no stranded alarm.
+    // Near the limit, under the threshold, a machine with no next license raises the one alarm, yellow - never the retired
+    // stranded kind (the owner, 8 November 2026).
     [Fact]
-    public async Task Tick_NearTheLimit_AMachineNotReady_RaisesNoStrandedAlarm()
+    public async Task Tick_NearTheLimit_AMachineWithNoNextLicense_RaisesTheOneAlarmYellow_NeverTheStrandedKind()
     {
         _aWeekly = 96.9;
         BothReport();
@@ -309,6 +454,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         var tick = await Tick();
 
         Assert.Equal(0, tick.StrandedAlarms!.Opened);
-        Assert.Empty(Stranded());
+        Assert.DoesNotContain(_alarms.ListOpen(One), a => a.Kind == LicenseStrandedAlarm.Kind.Key);
+        Assert.Equal(LicenseAlarmTones.Warning, Assert.Single(Stranded()).Tone);
     }
 }

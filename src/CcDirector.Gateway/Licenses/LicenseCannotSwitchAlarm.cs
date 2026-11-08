@@ -34,8 +34,12 @@ namespace CcDirector.Gateway.Licenses;
 /// and red from it (<see cref="ToneOf"/>), and pushed at night only once the license is past
 /// <see cref="LoudAtNightAbovePercent"/>.
 ///
-/// IT CLOSES ONLY ON A FACT: the machine leaves the license, the license resets or reads fresh under 80%, or a fresh
-/// judgement finds a ready next license. While it cannot be judged it stays open.
+/// IT CLOSES ONLY ON A FACT: the machine leaves the license, the license resets or reads fresh under 80% (or, for the
+/// expiry rule, its sign-in is renewed), or a fresh judgement finds a ready next license. While it cannot be judged it
+/// stays open.
+///
+/// A MACHINE HELD because its switch keeps failing is judged like any other: with no next license on it, it raises this
+/// alarm; with a ready next license that its switch cannot reach, it does not - that is status on the Licenses page.
 ///
 /// THE NAME. "cannot-switch-at-80" is kept as the stored key, so an alarm open when this shipped stays the same alarm and
 /// is not pushed again as new.
@@ -60,9 +64,13 @@ public static class LicenseCannotSwitchAlarm
         repeatsHourly: true, tone: LicenseAlarmTones.Warning);
 
     /// <summary>The 80% condition: the license the machine is on is at or above <see cref="Percent"/> on a fresh reading,
-    /// and the next-license verdict judges it to need a next license while it holds no ready one.</summary>
+    /// and the next-license verdict judges it to need a next license while it holds no ready one - or judges it held
+    /// because its switch keeps failing (<see cref="LicenseNextLicenseStates.SwitchFailing"/>). A held machine is raised
+    /// only when it ALSO has no next license on it (the readiness judgement, checked by <see cref="Conditions"/>): one
+    /// holding a ready next license whose switch keeps failing does not meet the rule and is status on the page.</summary>
     public static bool AtEightyPercent(LicenseNextLicense? verdict)
-        => verdict is not null && verdict.IsNeeded && verdict.ReadyAccounts.Count == 0;
+        => verdict is not null
+           && ((verdict.IsNeeded && verdict.ReadyAccounts.Count == 0) || verdict.State == LicenseNextLicenseStates.SwitchFailing);
 
     /// <summary>
     /// The expiry condition: when the sign-in of the license <paramref name="state"/> is on ends within
@@ -70,9 +78,14 @@ public static class LicenseCannotSwitchAlarm
     /// Null when <see cref="ExpiringSignInCountsAsRunningOut"/> is false, or the end is not known.
     /// </summary>
     public static DateTime? SignInExpiring(LicenseMachineState state, DateTime nowUtc)
+        => SignInExpiring(state, nowUtc, ExpiringSignInCountsAsRunningOut);
+
+    /// <summary><see cref="SignInExpiring(LicenseMachineState, DateTime)"/> with the owner's answer given, so a test can read
+    /// both answers.</summary>
+    internal static DateTime? SignInExpiring(LicenseMachineState state, DateTime nowUtc, bool countsAsRunningOut)
     {
         ArgumentNullException.ThrowIfNull(state);
-        if (!ExpiringSignInCountsAsRunningOut || state.ActiveAccountEmail is null)
+        if (!countsAsRunningOut || state.ActiveAccountEmail is null)
             return null;
         return state.ActiveSignInExpiresAtUtc is { } endsAt && Utc(endsAt) <= nowUtc + LicenseContract.SignInExpiryWarning
             ? Utc(endsAt)
@@ -109,16 +122,21 @@ public static class LicenseCannotSwitchAlarm
             var active = LicenseStore.NormalizeEmail(judgement.ActiveAccountEmail);
             var target = judgement.TargetAccountEmail
                          ?? throw new InvalidOperationException($"Machine {judgement.MachineId:N} is not ready and names no license.");
+            var why = judgement.NotReadyClause
+                      ?? throw new InvalidOperationException($"Machine {judgement.MachineId:N} is not ready and has no reason.");
             string problem;
+            string subject;
             if (AtEightyPercent(verdict))
             {
-                problem = Fit($"{verdict!.Label} is on {active}, which is at {verdict.Tired}, and it {verdict.Why}: it needs {target} as its next license.",
-                    $"{verdict.Label} is on a license close to its limit and has no next license on it; the Licenses page names the one it needs.");
+                problem = Fit($"{judgement.Label} is on {active}, which is at {verdict!.Tired}, and it {why}: it needs {target} as its next license.",
+                    $"{judgement.Label} is on a license close to its limit and has no next license on it; the Licenses page names the one it needs.");
+                subject = LicenseStrandedAlarm.Subject(judgement.Label, snapshot, active, expectedAtLimit(active));
             }
             else if (Expiring(snapshot, judgement, active) is { } endsAt)
             {
-                problem = Fit($"{judgement.Label} is on {active}, whose sign-in on it ends at {Clock(endsAt)}, and it {judgement.NotReadyClause}: it needs {target} as its next license.",
+                problem = Fit($"{judgement.Label} is on {active}, whose sign-in on it ends at {Clock(endsAt)}, and it {why}: it needs {target} as its next license.",
                     $"{judgement.Label} is on a license whose sign-in ends at {Clock(endsAt)} and has no next license on it; the Licenses page names the one it needs.");
+                subject = ExpirySubject(judgement.Label, endsAt);
             }
             else
             {
@@ -132,25 +150,55 @@ public static class LicenseCannotSwitchAlarm
             var action = LicenseStrandedAlarm.ActionFor(judgement, judgement.Label, openSignIns, repairing);
             conditions.Add(new LicenseAlarmCondition(judgement.MachineId, judgement.Label, active, problem,
                 Fit(action, $"Sign {judgement.Label} in to the license the Licenses page names."),
-                LicenseStrandedAlarm.Subject(judgement.Label, snapshot, active, expectedAtLimit(active)),
-                LicenseStrandedAlarm.PastNightPercent(snapshot, active), ToneOf(snapshot, active)));
+                subject, LicenseStrandedAlarm.PastNightPercent(snapshot, active), ToneOf(snapshot, active)));
         }
-        conditions.AddRange(LicenseStrandedAlarm.StillOpen(snapshot, machines, openAlarms, Kind, Percent, conditions)
-            .Select(c => c with { Tone = ToneOf(snapshot, c.AccountEmail ?? "") }).ToList());
+        // An open alarm that cannot be judged now stays open, in its own words: on the 80% rule's facts (on the license,
+        // still at 80%), or on the expiry rule's (on the license, its sign-in still ending, the machine not judgeable now).
+        var stillOpen = LicenseStrandedAlarm.StillOpen(snapshot, machines, openAlarms, Kind, Percent, conditions).ToList();
+        stillOpen.AddRange(StillOpenExpiring(snapshot, machines, openAlarms, conditions.Concat(stillOpen).ToList()));
+        conditions.AddRange(stillOpen.Select(c => c with { Tone = ToneOf(snapshot, c.AccountEmail ?? "") }));
         return conditions;
     }
 
-    // The expiry condition for a machine that can be judged now: one that is not reporting, mid-switch, refused or held
-    // says nothing true about its next license, exactly as the 80% condition leaves it out.
+    // The expiry condition for a machine that can be judged now: one that is not reporting, mid-switch or refused says
+    // nothing true about what it holds. A held machine IS judged: a switch that keeps failing gives it no next license.
     private static DateTime? Expiring(LicenseSnapshot snapshot, LicenseMachineReadiness judgement, string active)
     {
         var state = snapshot.Machines.FirstOrDefault(m => SameMachine(m, judgement.MachineName, judgement.OsUser));
         if (state is null || SignInExpiring(state, snapshot.NowUtc) is not { } endsAt)
             return null;
-        var judgeable = LicenseDecisionEngine.SwitchableMachines(snapshot, active).Any(m => SameMachine(m, judgement.MachineName, judgement.OsUser))
-                        && !LicenseDecisionEngine.IsHeld(state, snapshot.NowUtc);
-        return judgeable ? endsAt : null;
+        return IsJudgeable(snapshot, state, active) ? endsAt : null;
     }
+
+    private static bool IsJudgeable(LicenseSnapshot snapshot, LicenseMachineState state, string active)
+        => LicenseDecisionEngine.SwitchableMachines(snapshot, active).Any(m => SameMachine(m, state.MachineName, state.OsUser));
+
+    // An open alarm of the expiry rule that cannot be judged now: the machine is still on the license, its sign-in on it
+    // still ends within the warning, and the machine cannot be judged (stale, mid-switch, refused). Closing it then would
+    // read as fixed; it closes only on a fact - it left the license, its sign-in was renewed, or a fresh judgement clears it.
+    private static IEnumerable<LicenseAlarmCondition> StillOpenExpiring(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
+        IReadOnlyList<LicenseAlarmEntity> openAlarms, IReadOnlyList<LicenseAlarmCondition> raised)
+    {
+        foreach (var open in openAlarms.Where(a => a.Kind == Kind.Key && a.ClosedAtUtc is null))
+        {
+            if (raised.Any(c => c.MachineId == open.MachineId && c.AccountEmail == open.AccountEmail))
+                continue;
+            if (machines.FirstOrDefault(m => m.MachineId == open.MachineId) is not { } machine)
+                continue; // the machine is gone from the picture
+            var state = snapshot.Machines.FirstOrDefault(m => SameMachine(m, machine.MachineName, machine.OsUser));
+            if (state?.ActiveAccountEmail is not { } on || LicenseStore.NormalizeEmail(on) != open.AccountEmail)
+                continue; // it moved off the license
+            if (SignInExpiring(state, snapshot.NowUtc) is not { } endsAt || IsJudgeable(snapshot, state, open.AccountEmail))
+                continue; // renewed, or judged afresh above and not raised
+            yield return new LicenseAlarmCondition(open.MachineId, open.MachineName, open.AccountEmail, open.Problem, open.Action,
+                ExpirySubject(open.MachineName, endsAt), LicenseStrandedAlarm.PastNightPercent(snapshot, open.AccountEmail));
+        }
+    }
+
+    /// <summary>The owner email's subject for an alarm the expiry rule raised: the machine and when its sign-in ends, never
+    /// a limit it is not near.</summary>
+    internal static string ExpirySubject(string label, DateTime endsAtUtc)
+        => $"{label} has no next license - its sign-in ends {Clock(endsAtUtc)}";
 
     /// <summary>The banner tone of the alarm for a machine on <paramref name="account"/>: red once either window is at the
     /// switching threshold (the owner, 6 November 2026: "It doesn't go red until it goes above 97%."), yellow below it.</summary>

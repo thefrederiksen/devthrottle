@@ -781,6 +781,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
         Assert.Equal($"machine-a is on account-a@example.com, whose sign-in on it ends at {(_now + _aSignInEndsIn.Value):yyyy-MM-dd HH:mm} UTC, "
                      + "and it holds no sign-in for account-b@example.com: it needs account-b@example.com as its next license.", alarm.Problem);
+        Assert.Equal($"machine-a has no next license - its sign-in ends {(_now + _aSignInEndsIn.Value):yyyy-MM-dd HH:mm} UTC", alarm.Subject);
     }
 
     // The expiry condition needs no next license too: machine-a holds a sign-in for B, so it raises nothing.
@@ -820,6 +821,75 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(now + LicenseContract.SignInExpiryWarning + TimeSpan.FromMinutes(1)), now));
         Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(null), now));
         Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddDays(1)) with { ActiveAccountEmail = null }, now));
+        // The owner's answer NO turns the condition off: the one line it takes.
+        Assert.Equal(now.AddDays(1), LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddDays(1)), now, countsAsRunningOut: true));
+        Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddDays(1)), now, countsAsRunningOut: false));
+    }
+
+    // An alarm the expiry rule opened closes only on a fact (the review of pull request 4791, finding 1): while machine-a
+    // stops reporting it cannot be judged, so it stays open with no second push; once it reports a renewed sign-in it closes.
+    [Fact]
+    public async Task Tick_AnExpiryAlarm_StaysOpenWhileTheMachineCannotBeJudged_AndClosesWhenTheSignInIsRenewed()
+    {
+        _aFiveHour = 10;
+        _aWeekly = 20;
+        _aSignInEndsIn = TimeSpan.FromDays(2);
+        Report();
+        await Tick();
+        var opened = Assert.Single(Warnings());
+
+        _machineASilent = true;
+        _now = T0 + LicenseContract.MachineStaleAfter + TimeSpan.FromMinutes(1);
+        Report();
+        var stale = await Tick();
+
+        Assert.Equal((0, 1, 0), (stale.Alarms!.Opened, stale.Alarms.StillOpen, stale.Alarms.Closed));
+        Assert.Equal(opened.Id, Assert.Single(Warnings()).Id);
+        Assert.Single(_pushed);
+
+        _machineASilent = false;
+        _aSignInEndsIn = TimeSpan.FromDays(30);
+        _now = _now.AddMinutes(1);
+        Report();
+        var renewed = await Tick();
+
+        Assert.Equal(1, renewed.Alarms!.Closed);
+        Assert.Empty(_alarms.ListOpen(One));
+    }
+
+    // A machine HELD because its switch keeps failing, at 90% with no next license on it, meets the rule and raises the one
+    // alarm (the review of pull request 4791, finding 2). The held machine with a READY next license raises nothing: see
+    // Tick_AMachineWhoseSwitchKeepsFailing_RaisesNoAlarm_ButIsRedOnThePageAndTheGrid.
+    [Fact]
+    public async Task Tick_AHeldMachineAt90_WithNoNextLicense_RaisesTheOneAlarm()
+    {
+        _aWeekly = 90;
+        Report();
+        var machineA = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>())
+            .Overview.Machines.Single(m => m.MachineName == MachineA).MachineId;
+        for (var minutesAgo = 3; minutesAgo >= 1; minutesAgo--)
+        {
+            var at = _now.AddMinutes(-minutesAgo);
+            var row = _store.CreatePendingSwitch(One, machineA, A, B, LicenseSwitchReasons.Threshold, at)!;
+            Assert.True(_store.TrySettle(One, new LicenseSwitchResult
+            {
+                SwitchId = row.SwitchId!,
+                Outcome = LicenseSwitchOutcomes.Failed,
+                ReasonCode = LicenseSwitchReasonCodes.ExchangeFailedRestored,
+                Message = "The exchange failed and the account was restored.",
+                ActiveAccountEmailAfter = A,
+                StartedAtUtc = at,
+                FinishedAtUtc = at,
+            }, at.AddSeconds(1)));
+            _store.HoldAfterRepeatedFailure(One, row.SwitchId!);
+        }
+
+        await Tick();
+
+        var alarm = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
+        Assert.Equal("machine-a is on account-a@example.com, which is at 90% of its weekly limit, and it holds no sign-in for "
+                     + "account-b@example.com: it needs account-b@example.com as its next license.", alarm.Problem);
     }
 
     private LicenseReadinessService Readiness()
