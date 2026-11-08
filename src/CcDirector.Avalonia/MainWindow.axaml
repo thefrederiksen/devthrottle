@@ -129,18 +129,30 @@
             <Setter Property="BorderBrush" Value="#FFFFFF" />
         </Style>
 
-        <!-- The license banner's two tones (docs/VisualStyle.md). Which one is the Gateway's verdict; this only colours it. -->
-        <Style Selector="Border#LicenseAlarmBar.warning">
-            <Setter Property="Background" Value="#EAB308" />
+        <!-- The license warning triangle's two tones (docs/VisualStyle.md). Which one is the Gateway's verdict; this only
+             colours it. With neither class it is drawn uncoloured: a tone this build does not know. -->
+        <!-- No local Fill or Foreground on the triangle's parts: a local value outranks every style, and the triangle
+             was drawn grey in both tones until this was moved here. -->
+        <Style Selector="Button#LicenseAlarmTriangle Path">
+            <Setter Property="Fill" Value="#CCCCCC" />
         </Style>
-        <Style Selector="Border#LicenseAlarmBar.warning TextBlock">
-            <Setter Property="Foreground" Value="#1E1E1E" />
+        <Style Selector="Button#LicenseAlarmTriangle TextBlock">
+            <Setter Property="Foreground" Value="#CCCCCC" />
         </Style>
-        <Style Selector="Border#LicenseAlarmBar.critical">
-            <Setter Property="Background" Value="#B91C1C" />
+        <Style Selector="Button#LicenseAlarmTriangle.warning Path">
+            <Setter Property="Fill" Value="#EAB308" />
         </Style>
-        <Style Selector="Border#LicenseAlarmBar.critical TextBlock">
-            <Setter Property="Foreground" Value="#FFFFFF" />
+        <Style Selector="Button#LicenseAlarmTriangle.warning TextBlock">
+            <Setter Property="Foreground" Value="#EAB308" />
+        </Style>
+        <Style Selector="Button#LicenseAlarmTriangle.critical Path">
+            <Setter Property="Fill" Value="#EF4444" />
+        </Style>
+        <Style Selector="Button#LicenseAlarmTriangle.critical TextBlock">
+            <Setter Property="Foreground" Value="#EF4444" />
+        </Style>
+        <Style Selector="Button#LicenseAlarmTriangle:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#3A3A3A" />
         </Style>
     </Window.Styles>
 
@@ -203,6 +215,31 @@
                          Director's name and Cockpit by the owner's placement decision of 2026-10-15. On a
                          narrow window it drops its bars and keeps the percentages (issue #2812). -->
                     <controls:ResourceMeter x:Name="ResourceMeterControl" />
+
+                    <!-- The license warning triangle (issue 4728), in place of the full-width banner the owner found too
+                         big. Shown only while a license alarm is open. The count, the tooltip and the tone are the
+                         Gateway's (GET /gateway/licenses/alarms), verbatim, through LicenseAlarmTriangleView; a click
+                         opens the Cockpit's Licenses page. It does not flash or pulse: a thing moving in the corner of
+                         the eye all day is the same mistake as the strip. -->
+                    <Button x:Name="LicenseAlarmTriangle"
+                            IsVisible="False"
+                            Margin="6,0,0,0"
+                            Padding="4,2"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="4"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            Click="LicenseAlarmTriangle_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <Viewbox Width="14" Height="13" VerticalAlignment="Center">
+                                <Path x:Name="LicenseAlarmTriangleIcon"
+                                      Data="F0 M8,0 L16,14 L0,14 Z M7,5 L9,5 L8.6,10 L7.4,10 Z M7,11 L9,11 L9,13 L7,13 Z" />
+                            </Viewbox>
+                            <TextBlock x:Name="LicenseAlarmTriangleCount" FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
 
                     <Border Width="1" Height="18" Background="#3C3C3C"
                             Margin="6,0" VerticalAlignment="Center" />
@@ -289,29 +326,9 @@
             </DockPanel>
         </Border>
 
-        <!-- ==================== LICENSE BANNER (full width) ====================
-             Mission "Licenses - Always Ready, Loud When Not", step 2: while a license alarm is open it is shown across
-             the top of every Cockpit, Director and phone screen. The words and the tone are the Gateway's
-             (GET /gateway/licenses/alarms); the link opens the Cockpit's Licenses page at the address the Gateway
-             hands back. Hidden while no alarm is open. A machine that cannot
-             switch stops its sessions, which outranks a busy machine. -->
-        <Border x:Name="LicenseAlarmBar"
-                DockPanel.Dock="Top"
-                IsVisible="False"
-                Padding="12,6">
-            <DockPanel>
-                <Button x:Name="LicenseAlarmLink"
-                        DockPanel.Dock="Right"
-                        Background="Transparent" BorderThickness="0" Padding="8,2"
-                        Cursor="Hand"
-                        Click="LicenseAlarmLink_Click">
-                    <TextBlock x:Name="LicenseAlarmLinkText" FontSize="12" FontWeight="SemiBold"
-                               TextDecorations="Underline" />
-                </Button>
-                <TextBlock x:Name="LicenseAlarmSummary" FontSize="12" FontWeight="SemiBold"
-                           VerticalAlignment="Center" TextWrapping="Wrap" />
-            </DockPanel>
-        </Border>
+        <!-- NO LICENSE BANNER. An open license alarm is shown by the warning triangle beside the resource meter in the
+             toolbar (issue 4728): the owner, 7 November 2026, found the full-width strip too big. Nothing here may push
+             MainLayoutGrid down. -->
 
         <!-- NO RESOURCE WARNING BANNER. A resource in trouble is shown by its own bar in the toolbar going
              amber or red, and by the meter's tooltip - never by a strip across the window. The owner removed

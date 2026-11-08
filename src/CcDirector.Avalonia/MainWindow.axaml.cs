@@ -927,7 +927,7 @@ public partial class MainWindow : Window
         // header. The list is read off this thread every 20 seconds; this window stamps every row when it changes.
         host.LinkRequests.Changed += () => Dispatcher.UIThread.Post(ApplyLinkRequests);
 
-        // The license banner (mission "Licenses - Always Ready, Loud When Not", step 2): read off this thread every 30
+        // The license warning triangle (issue 4728; mission "Licenses - Always Ready, Loud When Not", step 2): read off this thread every 30
         // seconds; this window draws the Gateway's words and tone when they change.
         host.LicenseAlarms.Changed += () => Dispatcher.UIThread.Post(ApplyLicenseAlarms);
         ApplyLicenseAlarms();
@@ -3656,7 +3656,7 @@ public partial class MainWindow : Window
             ? baseUrl + "/cockpit"
             : baseUrl + "/cockpit?sessionId=" + Uri.EscapeDataString(sessionId.Trim());
 
-    // The same Gateway request for the Cockpit's Licenses page, which the license banner's link opens. The Gateway resolves
+    // The same Gateway request for the Cockpit's Licenses page, which the license warning triangle opens. The Gateway resolves
     // {base}/licenses and hands it back whole; this composes only the address of the Gateway's own route.
     internal static string BuildCockpitLicensesRequestUrl(string baseUrl)
         => baseUrl + "/cockpit?page=licenses";
@@ -3791,23 +3791,12 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Draw the license banner from the last answer the Gateway gave (<see cref="LicenseAlarmBarView"/>): its summary, its
-    /// link words and its tone, verbatim. Nothing here decides whether an alarm is serious; the Gateway's tone does.
-    /// </summary>
+    /// <summary>Draw the license warning triangle from the last answer the Gateway gave.</summary>
     private void ApplyLicenseAlarms()
     {
         try
         {
-            var answer = (global::Avalonia.Application.Current as App)?.ControlApiHost?.LicenseAlarms.Current;
-            var view = LicenseAlarmBarView.From(answer);
-            LicenseAlarmBar.IsVisible = view.IsVisible;
-            LicenseAlarmSummary.Text = view.Summary;
-            LicenseAlarmLinkText.Text = view.LinkText;
-            LicenseAlarmLink.IsVisible = view.LinkText.Length > 0;
-            foreach (var tone in LicenseAlarmBarView.AllTones)
-                LicenseAlarmBar.Classes.Set(tone, tone == view.Tone);
-            FileLog.Write($"[MainWindow] ApplyLicenseAlarms: visible={view.IsVisible}, tone={view.Tone}");
+            ShowLicenseAlarms((global::Avalonia.Application.Current as App)?.ControlApiHost?.LicenseAlarms.Current);
         }
         catch (Exception ex)
         {
@@ -3815,11 +3804,26 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Draw the license warning triangle for <paramref name="answer"/> (<see cref="LicenseAlarmTriangleView"/>): its count,
+    /// its tooltip and its tone, verbatim. Nothing here decides whether an alarm is serious; the Gateway's tone does.
+    /// </summary>
+    internal void ShowLicenseAlarms(LicenseAlarmsResponse? answer)
+    {
+        var view = LicenseAlarmTriangleView.From(answer);
+        LicenseAlarmTriangle.IsVisible = view.IsVisible;
+        LicenseAlarmTriangleCount.Text = view.Count;
+        ToolTip.SetTip(LicenseAlarmTriangle, view.IsVisible ? view.ToolTip : null);
+        foreach (var tone in LicenseAlarmTriangleView.AllTones)
+            LicenseAlarmTriangle.Classes.Set(tone, tone == view.Tone);
+        FileLog.Write($"[MainWindow] ShowLicenseAlarms: visible={view.IsVisible}, count={view.Count}, tone={view.Tone}");
+    }
+
     /// <summary>Open the Cockpit's Licenses page, at the address the Gateway hands back for it.</summary>
-    private async void LicenseAlarmLink_Click(object? sender, RoutedEventArgs e)
+    private async void LicenseAlarmTriangle_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, "license banner", "open the Licenses page",
+        await BusyAction.RunAsync(button, "license warning triangle", "open the Licenses page",
             () => OpenCockpitWithFeedbackAsync(baseUrl => BuildCockpitLicensesRequestUrl(baseUrl)), "Opening...",
             owner: this, failureTitle: "Cannot Open Cockpit");
     }
