@@ -110,6 +110,41 @@ public sealed class TeamInvitationMailerTests
         Assert.Single(website.Calls);
     }
 
+    [Fact]
+    public async Task SendAddedAsync_PostsTheSameBodyToTheAddedRoute_NamingNoAddress()
+    {
+        var website = new RecordingWebsite(HttpStatusCode.OK, "{\"data\":{\"sent\":true}}");
+        var mailer = new TeamInvitationMailer(new TeamInvitationMailClient(new HttpClient(website), "https://website.test"), () => Token);
+
+        var result = await mailer.SendAddedAsync("inv-1", "team-1", "link-secret");
+
+        Assert.True(result.Sent);
+        var call = Assert.Single(website.Calls);
+        Assert.Equal("https://website.test/api/v1/team-invitations/added-email", call.Request.RequestUri!.ToString());
+        var body = JsonNode.Parse(call.Body)!.AsObject();
+        Assert.Equal(new[] { "invitation_id", "team_id", "token" }, body.Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Mailer_NotSentReasons_AreTheSameForTheInvitationAndTheAddedEmail()
+    {
+        // The reason reaches the person who added someone; a different sentence per email would tell them whether the
+        // address already had an account.
+        var noCredential = new TeamInvitationMailer(new TeamInvitationMailClient(new HttpClient(new ThrowingWebsite()), "https://website.test"), () => null);
+        var unreachable = new TeamInvitationMailer(new TeamInvitationMailClient(new HttpClient(new ThrowingWebsite()), "https://website.test"), () => Token);
+
+        Assert.Equal((await noCredential.SendAsync("inv-1", "team-1", "t")).Error, (await noCredential.SendAddedAsync("inv-1", "team-1", "t")).Error);
+        Assert.Equal((await unreachable.SendAsync("inv-1", "team-1", "t")).Error, (await unreachable.SendAddedAsync("inv-1", "team-1", "t")).Error);
+    }
+
+    [Fact]
+    public async Task SendForInvitationAsync_ARouteThatIsNotAnInvitationEmail_Throws()
+    {
+        var client = new TeamInvitationMailClient(new HttpClient(new ThrowingWebsite()), "https://website.test");
+
+        await Assert.ThrowsAsync<ArgumentException>(() => client.SendForInvitationAsync("/api/v1/notify", Token, "inv-1", "team-1", "t"));
+    }
+
     private sealed class RecordingWebsite(HttpStatusCode status, string answer) : HttpMessageHandler
     {
         public List<(HttpRequestMessage Request, string Body)> Calls { get; } = new();

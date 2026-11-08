@@ -38,6 +38,11 @@ public sealed class TeamInvitationMailClient
     /// <summary>The website route that sends one invitation's email.</summary>
     public const string InvitationEmailPath = "/api/v1/team-invitations/email";
 
+    /// <summary>The website route that sends one "you were added to the team" email: the same body as
+    /// <see cref="InvitationEmailPath"/>, for an invitation stored already accepted by the one account with its address.
+    /// The token proves the Gateway minted the row; the email carries no accept link.</summary>
+    public const string AddedEmailPath = "/api/v1/team-invitations/added-email";
+
 
     /// <summary>The website route that tells a team's Owner the team's bill has ended.</summary>
     public const string BillEndedEmailPath = "/api/v1/team-bill/ended-email";
@@ -59,9 +64,22 @@ public sealed class TeamInvitationMailClient
     /// <param name="invitationId">The invitation's id.</param>
     /// <param name="teamId">The invitation's team, as a cross-check.</param>
     /// <param name="acceptToken">The link's secret, which the website checks against the row's hash. Never logged.</param>
-    public async Task<TeamInvitationMailResult> SendInvitationAsync(string serviceToken, string invitationId, string teamId,
-        string acceptToken, CancellationToken ct = default)
+    public Task<TeamInvitationMailResult> SendInvitationAsync(string serviceToken, string invitationId, string teamId,
+        string acceptToken, CancellationToken ct = default) =>
+        SendForInvitationAsync(InvitationEmailPath, serviceToken, invitationId, teamId, acceptToken, ct);
+
+    /// <summary>
+    /// Ask the website to send one of the two emails an invitation row can have: the invitation
+    /// (<see cref="InvitationEmailPath"/>) or "you were added" (<see cref="AddedEmailPath"/>). Both take the same body,
+    /// so both keep the safety property: no recipient can be named. Throws only on a transport failure; a refusal is
+    /// returned with the website's own message. Neither secret nor the invitation id is logged.
+    /// </summary>
+    /// <param name="path">One of <see cref="InvitationEmailPath"/> or <see cref="AddedEmailPath"/>; anything else throws.</param>
+    public async Task<TeamInvitationMailResult> SendForInvitationAsync(string path, string serviceToken, string invitationId,
+        string teamId, string acceptToken, CancellationToken ct = default)
     {
+        if (path != InvitationEmailPath && path != AddedEmailPath)
+            throw new ArgumentException($"Not an invitation email route: '{path}'.", nameof(path));
         if (string.IsNullOrWhiteSpace(serviceToken))
             throw new ArgumentException("A Gateway service token is required", nameof(serviceToken));
         if (string.IsNullOrWhiteSpace(invitationId))
@@ -71,8 +89,8 @@ public sealed class TeamInvitationMailClient
         if (string.IsNullOrWhiteSpace(acceptToken))
             throw new ArgumentException("The invitation link's token is required", nameof(acceptToken));
 
-        var endpoint = $"{_baseUrl}{InvitationEmailPath}";
-        FileLog.Write($"[TeamInvitationMailClient] SendInvitationAsync: POST {endpoint}");
+        var endpoint = $"{_baseUrl}{path}";
+        FileLog.Write($"[TeamInvitationMailClient] SendForInvitationAsync: POST {endpoint}");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
@@ -87,12 +105,12 @@ public sealed class TeamInvitationMailClient
         if (response.IsSuccessStatusCode)
         {
             var sent = AccountNotifyByTenantClient.ParseSuccess(body, status);
-            FileLog.Write($"[TeamInvitationMailClient] SendInvitationAsync: status={status}, sent={sent.Sent}");
+            FileLog.Write($"[TeamInvitationMailClient] SendForInvitationAsync: status={status}, sent={sent.Sent}");
             return new TeamInvitationMailResult(sent.Sent, sent.Error, status, null);
         }
 
         var (message, code) = AccountNotifyByTenantClient.ParseError(body, status);
-        FileLog.Write($"[TeamInvitationMailClient] SendInvitationAsync: NOT sent, status={status}, code={code ?? "<none>"}");
+        FileLog.Write($"[TeamInvitationMailClient] SendForInvitationAsync: NOT sent, status={status}, code={code ?? "<none>"}");
         return new TeamInvitationMailResult(false, message, status, code);
     }
 

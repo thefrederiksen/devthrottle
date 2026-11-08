@@ -24,19 +24,19 @@ public sealed class OneTeamBillReaderTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly GatewayDatabase _db;
     private readonly EntitlementRegistry _entitlements;
+    private readonly TenantRegistry _tenants;
     private readonly TeamRegistry _teams;
     private readonly string _team;
 
     public OneTeamBillReaderTests()
     {
         _db = _harness.Open();
-        var tenants = new TenantRegistry(_db);
+        _tenants = new TenantRegistry(_db);
         // As the hosted Gateway builds it: live money required, and the registry's bill gate reading the SAME reader.
         _entitlements = new EntitlementRegistry(_db, requireLivemode: true);
-        _teams = new TeamRegistry(_db, tenants, readTeamBill: _entitlements.ReadTeamBill);
+        _teams = new TeamRegistry(_db, _tenants, readTeamBill: _entitlements.ReadTeamBill);
 
-        tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
-        tenants.MintOrLookupBySubject(Newcomer, "newcomer@acme.example");
+        _tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         Assert.True(_teams.AddMember(_team, Developer, TeamRole.Developer).IsDone);
     }
@@ -54,6 +54,7 @@ public sealed class OneTeamBillReaderTests : IDisposable
         var toAccept = _teams.CreateInvitation(_team, Owner, "newcomer@acme.example", TeamRole.Developer);
         Assert.Equal(TeamInvitationOutcome.Done, toResend.Outcome);
         Assert.Equal(TeamInvitationOutcome.Done, toAccept.Outcome);
+        _tenants.MintOrLookupBySubject(Newcomer, "newcomer@acme.example");   // signs up after the invitation
         if (!active)
             TeamBillSeed.Canceled(_db, _team, seats: 2);
 

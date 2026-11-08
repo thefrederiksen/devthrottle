@@ -153,11 +153,12 @@ public sealed class TeamBillEndedTests : IDisposable
     public async Task AcceptInvitation_ABurstOfRefusedAccepts_TellsTheOwnerOnce()
     {
         AnHourBeforeThePeriodEnds();
-        var tokens = Enumerable.Range(1, 5).Select(i =>
-        {
+        // Each address has no account when it is invited (one that did would be added at once); each signs up after.
+        var tokens = Enumerable.Range(1, 5)
+            .Select(i => _teams.CreateInvitation(_team, Owner, $"new{i}@devthrottle-test.internal", TeamRole.Developer).AcceptToken!)
+            .ToList();
+        foreach (var i in Enumerable.Range(1, 5))
             _tenants.MintOrLookupBySubject($"sub-new-{i}", $"new{i}@devthrottle-test.internal");
-            return _teams.CreateInvitation(_team, Owner, $"new{i}@devthrottle-test.internal", TeamRole.Developer).AcceptToken!;
-        }).ToList();
         EndBill();
 
         var answers = tokens.Select((t, i) => _teams.AcceptInvitation(t, $"sub-new-{i + 1}")).ToList();
@@ -172,8 +173,8 @@ public sealed class TeamBillEndedTests : IDisposable
     public async Task OpenInvitation_TheInviteeSeesTheRefusal_TellsTheOwner()
     {
         AnHourBeforeThePeriodEnds();
-        _tenants.MintOrLookupBySubject("sub-anna", "anna@devthrottle-test.internal");
         var token = _teams.CreateInvitation(_team, Owner, "anna@devthrottle-test.internal", TeamRole.Developer).AcceptToken!;
+        _tenants.MintOrLookupBySubject("sub-anna", "anna@devthrottle-test.internal");
         EndBill();
 
         var opened = _teams.OpenInvitation(token, "sub-anna");

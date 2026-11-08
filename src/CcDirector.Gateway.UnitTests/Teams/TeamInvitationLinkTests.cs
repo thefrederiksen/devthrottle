@@ -14,15 +14,14 @@ using Xunit;
 namespace CcDirector.Gateway.Tests.Teams;
 
 /// <summary>
-/// THE OWNER CAN COPY AN INVITATION LINK (Teams v1). The invitation email cannot be sent until the website's sender is
-/// live (devthrottle_internal#2316), so the create and resend answers carry the accept link, once, to the person who
-/// sent it. Over a real, fully migrated Gateway database:
-///  - the link is in the create and resend answers, it is <c>{base}/invite/{token}</c>, and that token accepts;
-///  - resend makes a new link and the old one no longer opens anything;
-///  - the token is in NO other answer (the list, the options, cancel, a refusal), in NO log line, and in NO stored
-///    column - the row keeps only its hash;
+/// THE INVITATION LINK, TIED TO THE ADDRESS (security review Risk 1). Over a real, fully migrated Gateway database:
+///  - the answer to an add carries NO link (a link for one case and none for the other would say whether the address
+///    had an account); the token goes to the mailer only;
+///  - Resend's answer carries the new link once, its sentence says it works only for that address, it accepts for an
+///    account signed in with that address, and the old link no longer opens anything;
+///  - the token is in NO other answer, in NO log line, and in NO stored column - the row keeps only its hash;
 ///  - a Developer still cannot create an invitation, and gets no link;
-///  - with no public address there is no link, and the answer says so.
+///  - with no public address there is no link on resend, and the answer says so.
 /// In the FileLog capture collection because it reads the log lines the routes wrote.
 /// </summary>
 [Collection(FileLogCaptureCollection.Name)]
@@ -35,6 +34,7 @@ public sealed class TeamInvitationLinkTests : IDisposable
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly GatewayDatabase _db;
+    private readonly TenantRegistry _tenants;
     private readonly TeamRegistry _teams;
     private readonly RecordingMailer _mailer = new();
     private readonly string _team;
@@ -42,10 +42,9 @@ public sealed class TeamInvitationLinkTests : IDisposable
     public TeamInvitationLinkTests()
     {
         _db = _harness.Open();
-        var tenants = new TenantRegistry(_db);
-        tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
-        tenants.MintOrLookupBySubject(Newcomer, "anna@example.com");
-        _teams = new TeamRegistry(_db, tenants, readTeamBill: _ => new TeamBill(true, true, "active", 1));
+        _tenants = new TenantRegistry(_db);
+        _tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
+        _teams = new TeamRegistry(_db, _tenants, readTeamBill: _ => new TeamBill(true, true, "active", 1));
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _teams.AddMember(_team, Developer, TeamRole.Developer);
     }
@@ -53,39 +52,48 @@ public sealed class TeamInvitationLinkTests : IDisposable
     public void Dispose() => _harness.Dispose();
 
     [Fact]
-    public async Task Create_TheAnswerCarriesTheAcceptLink_ForTheSender_AndThatLinkAccepts()
+    public async Task Create_TheAnswerCarriesNoLink_AndTheTokenGoesOnlyToTheMailer()
     {
         var (status, body) = await Create(Owner, "anna@example.com", "Developer");
 
         Assert.Equal(201, status);
+        Assert.False(body.TryGetProperty("link", out _));
         var token = Assert.Single(_mailer.Sent).Token;
-        var link = body.GetProperty("link");
-        Assert.Equal($"{Base}/invite/{token}", link.GetProperty("url").GetString());
-        var note = link.GetProperty("note").GetString()!;
-        Assert.Contains("anna@example.com", note);
-        Assert.Contains("as Developer", note);
-        Assert.Contains("Resend", note);
-
-        // The token in the link is the one that opens and accepts the invitation.
-        var accepted = _teams.AcceptInvitation(TokenOf(link), Newcomer);
-        Assert.Equal(TeamInvitationOutcome.Done, accepted.Outcome);
+        Assert.DoesNotContain(token, body.GetRawText());
+        Assert.DoesNotContain("/invite/", body.GetRawText());
     }
 
     [Fact]
-    public async Task Resend_TheAnswerCarriesANewLink_ThatAccepts_AndTheOldLinkNoLongerOpens()
+    public async Task Resend_TheAnswerCarriesANewLink_ThatAcceptsForTheInvitedAddress_AndTheOldLinkNoLongerOpens()
     {
-        var (_, created) = await Create(Owner, "anna@example.com", "Collaborator");
-        var oldToken = TokenOf(created.GetProperty("link"));
-        var id = created.GetProperty("invitation").GetProperty("id").GetString()!;
+        await Create(Owner, "anna@example.com", "Collaborator");
+        var (oldId, oldToken) = Assert.Single(_mailer.Sent);
+        _tenants.MintOrLookupBySubject(Newcomer, "anna@example.com");
 
-        var (status, resent) = await Render(await TeamInvitationEndpoints.ResendAsync(_teams, _mailer, () => Base, Owner, _team, id, CancellationToken.None));
+        var (status, resent) = await Render(await TeamInvitationEndpoints.ResendAsync(_teams, _mailer, () => Base, Owner, _team, oldId, CancellationToken.None));
 
         Assert.Equal(200, status);
-        var newToken = TokenOf(resent.GetProperty("link"));
+        var link = resent.GetProperty("link");
+        var newToken = TokenOf(link);
         Assert.NotEqual(oldToken, newToken);
         Assert.Equal(_mailer.Sent[^1].Token, newToken);
         Assert.Equal(TeamInvitationOutcome.NotFound, _teams.OpenInvitation(oldToken, Newcomer).Outcome);
         Assert.Equal(TeamInvitationOutcome.Done, _teams.AcceptInvitation(newToken, Newcomer).Outcome);
+    }
+
+    [Fact]
+    public async Task DescribeLink_TheSentence_SaysTheLinkWorksOnlyForThatAddress()
+    {
+        await Create(Owner, "anna@example.com", "Developer");
+        var (id, _) = Assert.Single(_mailer.Sent);
+
+        var (_, resent) = await Render(await TeamInvitationEndpoints.ResendAsync(_teams, _mailer, () => Base, Owner, _team, id, CancellationToken.None));
+
+        var note = resent.GetProperty("link").GetProperty("note").GetString()!;
+        Assert.Contains("works only for someone signed in with anna@example.com", note);
+        Assert.Contains("as Developer", note);
+        Assert.Contains("Resend", note);
+        Assert.DoesNotContain("Anyone signed in", note);
     }
 
     [Fact]
@@ -97,13 +105,12 @@ public sealed class TeamInvitationLinkTests : IDisposable
         var others = new List<string>();
         using (var log = FileLog.RedirectForTests())
         {
-            var (_, created) = await Create(Owner, "anna@example.com", "Developer");
-            token = TokenOf(created.GetProperty("link"));
-            id = created.GetProperty("invitation").GetProperty("id").GetString()!;
+            others.Add((await Create(Owner, "anna@example.com", "Developer")).Body.GetRawText());
+            (id, token) = Assert.Single(_mailer.Sent);
 
             others.Add((await Render(TeamInvitationEndpoints.List(_teams, Owner, _team))).Body.GetRawText());
             others.Add((await Render(TeamInvitationEndpoints.Options(_teams, Owner, _team))).Body.GetRawText());
-            others.Add((await Render(TeamInvitationEndpoints.Answer(_teams.OpenInvitation(token, Newcomer), "open"))).Body.GetRawText());
+            others.Add((await Render(TeamInvitationEndpoints.Answer(_teams.OpenInvitation(token, Developer), "open"))).Body.GetRawText());
             // A second invitation to the same address is refused; the refusal carries no link either.
             others.Add((await Create(Owner, "anna@example.com", "Developer")).Body.GetRawText());
             others.Add((await Render(TeamInvitationEndpoints.Answer(_teams.CancelInvitation(_team, id, Owner), "cancel"))).Body.GetRawText());
@@ -114,7 +121,6 @@ public sealed class TeamInvitationLinkTests : IDisposable
         Assert.All(others, answer => Assert.DoesNotContain("/invite/", answer));
         // The routes did log - the proof is not an empty log - and no line carries the secret or the link.
         Assert.Contains(lines, l => l.Contains("[TeamInvitationEndpoints] POST invitations: stored", StringComparison.Ordinal));
-        Assert.Contains(lines, l => l.Contains("link shown=True", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, l => l.Contains(token, StringComparison.Ordinal));
         Assert.DoesNotContain(lines, l => l.Contains("/invite/", StringComparison.Ordinal));
 
@@ -139,20 +145,22 @@ public sealed class TeamInvitationLinkTests : IDisposable
     }
 
     [Fact]
-    public async Task NoPublicAddress_TheInvitationIsSaved_AndTheAnswerSaysTheLinkCannotBeShown()
+    public async Task NoPublicAddress_OnResend_TheInvitationIsStillRenewed_AndTheAnswerSaysTheLinkCannotBeShown()
     {
-        var (status, body) = await Render(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => null, Owner, _team,
-            new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", "Developer"), CancellationToken.None));
+        await Create(Owner, "anna@example.com", "Developer");
+        var (id, _) = Assert.Single(_mailer.Sent);
 
-        Assert.Equal(201, status);
+        var (status, body) = await Render(await TeamInvitationEndpoints.ResendAsync(_teams, _mailer, () => null, Owner, _team, id, CancellationToken.None));
+
+        Assert.Equal(200, status);
         var link = body.GetProperty("link");
         Assert.Equal(JsonValueKind.Null, link.GetProperty("url").ValueKind);
         Assert.Contains("has no public address", link.GetProperty("note").GetString());
-        Assert.Single(_mailer.Sent);
+        Assert.Equal(2, _mailer.Sent.Count);
     }
 
     private async Task<(int Status, JsonElement Body)> Create(string caller, string email, string role) =>
-        await Render(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => Base, caller, _team,
+        await Render(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, caller, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest(email, role), CancellationToken.None));
 
     private static string TokenOf(JsonElement link)
@@ -183,5 +191,8 @@ public sealed class TeamInvitationLinkTests : IDisposable
             Sent.Add((invitationId, acceptToken));
             return Task.FromResult(new TeamInvitationMailResult(true, null, 200, null));
         }
+
+        public Task<TeamInvitationMailResult> SendAddedAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default) =>
+            throw new InvalidOperationException("No address in these tests has an account when it is added.");
     }
 }

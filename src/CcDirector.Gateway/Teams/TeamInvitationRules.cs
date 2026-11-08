@@ -153,6 +153,17 @@ public static class TeamInvitationRefusals
 
     public const string CallerAlreadyMember = "You are already a member of this team, so this invitation cannot be used.";
 
+    /// <summary>Opening, accepting or declining a link that was sent to another address. Names nothing about the
+    /// invitation: a forwarded link shows its holder nothing (security review Risk 1).</summary>
+    public const string NotTheirAddress =
+        "This invitation was sent to a different email address, so it only works for someone signed in with that address. " +
+        "Ask the team's Owner to add you by the address you sign in with.";
+
+    /// <summary>The same, for an account with no email recorded: the check fails closed rather than being skipped.</summary>
+    public const string NoAddressRecorded =
+        "Your account has no email address recorded, so DevThrottle cannot tell whether this invitation was sent to you. " +
+        "Ask the team's Owner to add you by the address you sign in with.";
+
     public static string Expired(DateTime sentAtUtc, string inviter) =>
         $"This invitation has expired. It was sent on {Day(sentAtUtc)} and was good for 7 days. Ask {inviter} to send a new one.";
 

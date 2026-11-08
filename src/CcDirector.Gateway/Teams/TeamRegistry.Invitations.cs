@@ -58,11 +58,21 @@ public sealed partial class TeamRegistry
     }
 
     /// <summary>
-    /// INVITE someone by email. Refused, with the reason in plain words, when the caller is not a member (not found),
+    /// ADD someone by email. Refused, with the reason in plain words, when the caller is not a member (not found),
     /// may not invite that role, the address is not an address, the team's bill has not started, the address already
-    /// has a waiting invitation, or it belongs to someone already in the team. The invitation is stored; sending its
-    /// email is the caller's next step (<see cref="ITeamInvitationMailer"/>), with the link's secret that comes back on
-    /// the result ONLY - it is not stored and cannot be read back.
+    /// has a waiting invitation, or it belongs to someone already in the team.
+    ///
+    /// TIED TO THE ADDRESS (security review Risk 1, owner answer of 8 Nov 2026 "bound-to-address"). When EXACTLY ONE
+    /// account carries the address (compared trimmed and lower-cased), that account is made a member at once: the row
+    /// is stored already accepted by it, the member row is written in the same save through
+    /// <see cref="CommitMembershipChange"/>, and <see cref="TeamInvitationResult.AddedAtOnce"/> is set so the caller sends
+    /// the "you were added" email instead of the invitation. When no account carries it - or more than one does, where
+    /// choosing one would be a guess - the invitation is stored waiting, and only an account signed in with that
+    /// address can open or accept it.
+    ///
+    /// Either way the link's secret comes back on the result ONLY - it is not stored and cannot be read back. For an
+    /// account added at once nobody is ever shown it: it goes to the website alone, which checks it against the row's
+    /// hash before it sends the email, exactly as for an invitation.
     /// </summary>
     public TeamInvitationResult CreateInvitation(string teamId, string inviterSubject, string? email, TeamRole role)
     {
@@ -108,6 +118,26 @@ public sealed partial class TeamRegistry
                 AcceptTokenHash = TeamInvitationRules.HashAcceptToken(token),
             };
             ctx.TeamInvitations.Add(row);
+
+            if (SoleAccountWithAddress(ctx, address) is { } account)
+            {
+                row.State = TeamInvitationStates.Accepted;
+                row.RespondedAtUtc = now;
+                row.AcceptedBySubject = account;
+                ctx.TeamMembers.Add(new TeamMemberEntity
+                {
+                    TeamId = team.Id,
+                    AccountSubject = account,
+                    Role = role,
+                    JoinedAtUtc = now,
+                });
+                // A membership change: the member row and the accepted invitation are written in ONE save, so the seat
+                // count follows exactly as for an accepted invitation.
+                CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded, account, role);
+                FileLog.Write($"[TeamRegistry] CreateInvitation: invitation {row.Id} - the address has exactly one account, added it to team {LogTeam(team.Id)} as {role} at once");
+                return TeamInvitationResult.Done(Describe(ctx, team, row, now)) with { AcceptToken = token, AddedAtOnce = true };
+            }
+
             // Deliberately NOT CommitMembershipChange: an invitation is not a member, and sending one never moves the bill.
             ctx.SaveChanges();
 
@@ -233,6 +263,11 @@ public sealed partial class TeamRegistry
         if (row is null || team is null)
             return InvitationNotFound("OpenInvitation");
 
+        // Checked BEFORE anything about the invitation is described: a forwarded link shows someone else nothing - not
+        // the team's name, who sent it, who pays or the role (security review Risk 1).
+        if (CallerAddressRefusal(ctx, row, caller) is { } notTheirs)
+            return InvitationRefused("OpenInvitation", notTheirs.Outcome, notTheirs.Kind, notTheirs.Text);
+
         var now = _utcNow();
         var view = Describe(ctx, team, row, now);
         var refusal = AcceptRefusal(ctx, row, view, caller);
@@ -302,6 +337,10 @@ public sealed partial class TeamRegistry
             if (row is null || team is null)
                 return InvitationNotFound("DeclineInvitation");
 
+            // Only the person it was sent to may say no for themselves: a forwarded link cannot decline it for them.
+            if (CallerAddressRefusal(ctx, row, caller) is { } notTheirs)
+                return InvitationRefused("DeclineInvitation", notTheirs.Outcome, notTheirs.Kind, notTheirs.Text);
+
             var now = _utcNow();
             var view = Describe(ctx, team, row, now);
             if (StateRefusal(view) is { } refusal)
@@ -336,17 +375,22 @@ public sealed partial class TeamRegistry
         public const string BillCancelled = "bill-cancelled";
         public const string BillUnreadable = "bill-unreadable";
         public const string BillStopped = "bill-stopped";
+        public const string NotTheirAddress = "not-their-address";
+        public const string NoAddressRecorded = "no-address-recorded";
     }
 
     /// <summary>
-    /// Why this invitation cannot be accepted by this caller now, or null when it can: its state, the caller already
-    /// being a member, or the team's bill (Tech Lead ruling on review F5) - an invitation sent while the bill ran
-    /// cannot add a member once the bill has stopped. The same gate as inviting: active or past_due passes. Asked by both
-    /// the accept page and the accept itself, so the Owner is told whichever the invitee reaches - the page hides the
-    /// Accept button once it says no.
+    /// Why this invitation cannot be accepted by this caller now, or null when it can: the caller is not signed in with
+    /// the address it was sent to (checked FIRST, so a refusal about its state - which names who sent it - never reaches
+    /// someone else), its state, the caller already being a member, or the team's bill (Tech Lead ruling on review F5) -
+    /// an invitation sent while the bill ran cannot add a member once the bill has stopped. The same gate as inviting:
+    /// active or past_due passes. Asked by both the accept page and the accept itself, so the Owner is told whichever the
+    /// invitee reaches - the page hides the Accept button once it says no.
     /// </summary>
     private InvitationRefusal? AcceptRefusal(GatewayDbContext ctx, TeamInvitationEntity row, TeamInvitation view, string caller)
     {
+        if (CallerAddressRefusal(ctx, row, caller) is { } notTheirs)
+            return notTheirs;
         if (StateRefusal(view) is { } refusal)
             return new InvitationRefusal(TeamInvitationOutcome.Refused, view.State, refusal);
         if (ctx.TeamMembers.AsNoTracking().Any(m => m.TeamId == row.TeamId && m.AccountSubject == caller))
@@ -359,6 +403,48 @@ public sealed partial class TeamRegistry
                 : new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.BillStopped, TeamInvitationRefusals.BillStopped);
         }
         return null;
+    }
+
+    /// <summary>
+    /// Why this caller may not use this invitation at all, or null when they may: the email recorded on the caller's own
+    /// account must be the address the invitation was sent to, compared trimmed and lower-cased the way the address was
+    /// stored (<see cref="TeamInvitationRules.NormalizeEmail"/>). An account with NO email recorded is refused - the check
+    /// fails closed and is never skipped (security review Risk 1, point 1). The address is the account token's
+    /// <c>email</c> claim as recorded on the account; <c>user_metadata</c> is never read, because a person can edit their
+    /// own. Neither refusal names the invited address, the team or who sent it.
+    /// </summary>
+    private static InvitationRefusal? CallerAddressRefusal(GatewayDbContext ctx, TeamInvitationEntity row, string caller)
+    {
+        var recorded = ctx.Tenants.AsNoTracking().Where(t => t.AccountSubject == caller).Select(t => t.Email).FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(recorded))
+            return new InvitationRefusal(TeamInvitationOutcome.Forbidden, RefusalKinds.NoAddressRecorded, TeamInvitationRefusals.NoAddressRecorded);
+        if (!string.Equals(SameAddress(recorded), SameAddress(row.Email), StringComparison.Ordinal))
+            return new InvitationRefusal(TeamInvitationOutcome.Forbidden, RefusalKinds.NotTheirAddress, TeamInvitationRefusals.NotTheirAddress);
+        return null;
+    }
+
+    /// <summary>An address in the form it is compared in: trimmed and lower-cased, as invitations and member emails are.</summary>
+    private static string SameAddress(string address) => address.Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// The account subject of the ONE account whose recorded email is <paramref name="address"/> (already trimmed and
+    /// lower-cased), or null when none is - or when more than one is, because adding one of several accounts would be a
+    /// guess. Matched in memory, like <see cref="TenantRegistry.LookupByAccount"/>: case folding in SQL depends on the
+    /// database, and the account table is small. The address is never logged.
+    /// </summary>
+    private static string? SoleAccountWithAddress(GatewayDbContext ctx, string address)
+    {
+        var matches = ctx.Tenants.AsNoTracking()
+            .Where(t => t.Email != null)
+            .Select(t => new { t.AccountSubject, t.Email })
+            .ToList()
+            .Where(t => string.Equals(SameAddress(t.Email!), address, StringComparison.Ordinal))
+            .Select(t => t.AccountSubject)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (matches.Count > 1)
+            FileLog.Write($"[TeamRegistry] SoleAccountWithAddress: {matches.Count} accounts carry the address - not guessing, an invitation is sent instead");
+        return matches.Count == 1 ? matches[0] : null;
     }
 
     /// <summary>
@@ -611,8 +697,8 @@ public sealed partial class TeamRegistry
 /// <summary>One invitation as the routes describe it. <see cref="State"/> is what it is NOW (expired included).
 /// The accept token is never part of it.</summary>
 /// <param name="InvitedBy">How the person who sent it is named on screen.</param>
-/// <param name="AcceptedBy">How the account that accepted it is named on screen - which need not be the address it was
-/// sent to - or null while nobody has.</param>
+/// <param name="AcceptedBy">How the account that accepted it is named on screen - always an account whose recorded email
+/// is the address it was sent to - or null while nobody has.</param>
 /// <param name="PaidBy">Who pays for the seat - the Owner - or null for a Collaborator, who is free.</param>
 /// <param name="SignedInAs">On the accept page: how the signed-in account is named. Null elsewhere.</param>
 /// <param name="CanRespond">On the accept page: whether this account can accept or decline it now.</param>
@@ -648,6 +734,13 @@ public sealed record TeamInvitationResult(TeamInvitationOutcome Outcome, string?
     /// the email. It is not stored (only its hash is) and must never be returned to a client or logged.
     /// </summary>
     public string? AcceptToken { get; init; }
+
+    /// <summary>
+    /// Set ONLY by a create that found exactly one account with the address and made it a member at once. The caller
+    /// then asks for the "you were added" email instead of the invitation email. It must never reach the person who
+    /// added them: the answer to the add is the same either way (no account discovery).
+    /// </summary>
+    public bool AddedAtOnce { get; init; }
 
     public static readonly TeamInvitationResult NotFound = new(TeamInvitationOutcome.NotFound, TeamInvitationRefusals.NoSuchInvitation, null);
 
