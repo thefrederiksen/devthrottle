@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -43,15 +44,15 @@ public sealed class RepoRowItem
 /// </summary>
 public partial class RepositoryListView : UserControl
 {
-    private static readonly ISolidColorBrush Green = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly ISolidColorBrush GreenBg = new SolidColorBrush(Color.Parse("#1B3A2A"));
-    private static readonly ISolidColorBrush GreenBr = new SolidColorBrush(Color.Parse("#1E5138"));
-    private static readonly ISolidColorBrush Amber = new SolidColorBrush(Color.Parse("#F59E0B"));
-    private static readonly ISolidColorBrush AmberBg = new SolidColorBrush(Color.Parse("#3A2A1B"));
-    private static readonly ISolidColorBrush AmberBr = new SolidColorBrush(Color.Parse("#5A4326"));
-    private static readonly ISolidColorBrush Muted = new SolidColorBrush(Color.Parse("#8A8A8A"));
-    private static readonly ISolidColorBrush MutedBg = new SolidColorBrush(Color.Parse("#2D2D30"));
-    private static readonly ISolidColorBrush MutedBr = new SolidColorBrush(Color.Parse("#3C3C3C"));
+    private static readonly ISolidColorBrush Green = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly ISolidColorBrush GreenBg = new ImmutableSolidColorBrush(Color.Parse("#1B3A2A"));
+    private static readonly ISolidColorBrush GreenBr = new ImmutableSolidColorBrush(Color.Parse("#1E5138"));
+    private static readonly ISolidColorBrush Amber = new ImmutableSolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly ISolidColorBrush AmberBg = new ImmutableSolidColorBrush(Color.Parse("#3A2A1B"));
+    private static readonly ISolidColorBrush AmberBr = new ImmutableSolidColorBrush(Color.Parse("#5A4326"));
+    private static readonly ISolidColorBrush Muted = new ImmutableSolidColorBrush(Color.Parse("#8A8A8A"));
+    private static readonly ISolidColorBrush MutedBg = new ImmutableSolidColorBrush(Color.Parse("#2D2D30"));
+    private static readonly ISolidColorBrush MutedBr = new ImmutableSolidColorBrush(Color.Parse("#3C3C3C"));
 
     private RepositoryMonitor? _monitor;
 

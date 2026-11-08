@@ -6,6 +6,7 @@ using CcDirector.ControlApi;
 using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
@@ -18,9 +19,9 @@ namespace CcDirector.Avalonia;
 /// </summary>
 internal static class LinkAskFlyout
 {
-    private static readonly IBrush Amber = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
-    private static readonly IBrush Muted = new SolidColorBrush(Color.FromRgb(0xBB, 0xBB, 0xBB));
-    private static readonly IBrush ErrorRed = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
+    private static readonly IBrush Amber = new ImmutableSolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
+    private static readonly IBrush Muted = new ImmutableSolidColorBrush(Color.FromRgb(0xBB, 0xBB, 0xBB));
+    private static readonly IBrush ErrorRed = new ImmutableSolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
 
     public static void ShowAt(Control anchor, SessionViewModel vm, LinkRequestsCache cache, Func<string, string?> localName)
     {

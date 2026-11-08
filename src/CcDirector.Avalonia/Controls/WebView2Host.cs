@@ -7,6 +7,7 @@ using Avalonia.VisualTree;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using Microsoft.Web.WebView2.Core;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -55,7 +56,7 @@ public class WebView2Host : Control
     public CoreWebView2? CoreWebView2 => _controller?.CoreWebView2;
 
     // The area behind the overlay; visible only briefly before the WebView2 paints.
-    private static readonly IBrush BackgroundBrush = new SolidColorBrush(Color.FromRgb(0x1e, 0x1e, 0x1e));
+    private static readonly IBrush BackgroundBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x1e, 0x1e, 0x1e));
 
     public void Navigate(string url)
     {

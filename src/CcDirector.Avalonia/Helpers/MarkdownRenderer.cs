@@ -12,6 +12,7 @@ using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using MdInline = Markdig.Syntax.Inlines.Inline;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Helpers;
 
@@ -64,14 +65,14 @@ public static class MarkdownRenderer
         .Build();
 
     private static readonly FontFamily Mono = new("Cascadia Mono,Cascadia Code,Consolas,Courier New,monospace");
-    private static readonly IBrush BodyBrush = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4));
-    private static readonly IBrush HeadingBrush = new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6));
-    private static readonly IBrush CodeBlockBg = new SolidColorBrush(Color.FromRgb(0x1B, 0x1B, 0x1B));
-    private static readonly IBrush CodeBlockBorder = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
-    private static readonly IBrush InlineCodeBg = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
-    private static readonly IBrush QuoteBar = new SolidColorBrush(Color.FromRgb(0x4E, 0x4E, 0x4E));
-    private static readonly IBrush QuoteText = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
-    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.FromRgb(0x4E, 0xA1, 0xFF));
+    private static readonly IBrush BodyBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4));
+    private static readonly IBrush HeadingBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6));
+    private static readonly IBrush CodeBlockBg = new ImmutableSolidColorBrush(Color.FromRgb(0x1B, 0x1B, 0x1B));
+    private static readonly IBrush CodeBlockBorder = new ImmutableSolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
+    private static readonly IBrush InlineCodeBg = new ImmutableSolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
+    private static readonly IBrush QuoteBar = new ImmutableSolidColorBrush(Color.FromRgb(0x4E, 0x4E, 0x4E));
+    private static readonly IBrush QuoteText = new ImmutableSolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
+    private static readonly IBrush LinkBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x4E, 0xA1, 0xFF));
 
     private const double BaseFontSize = 13;
 

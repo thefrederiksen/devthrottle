@@ -8,6 +8,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
@@ -843,7 +844,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     public bool HasCustomColor => !string.IsNullOrWhiteSpace(CustomColor);
 
-    private static readonly ISolidColorBrush DefaultDragHandleBrush = new SolidColorBrush(Color.Parse("#3C3C3C"));
+    private static readonly ISolidColorBrush DefaultDragHandleBrush = new ImmutableSolidColorBrush(Color.Parse("#3C3C3C"));
 
     public ISolidColorBrush DragHandleBrush => HasCustomColor ? CustomColorBrush : DefaultDragHandleBrush;
 
@@ -906,15 +907,15 @@ public class SessionViewModel : INotifyPropertyChanged
 
     // Agent badge for the session list. Colored pill shown next to the session name
     // so it's visually obvious which agent CLI this session is running.
-    private static readonly ISolidColorBrush ClaudeAgentBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB));
-    private static readonly ISolidColorBrush PiAgentBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6));
-    private static readonly ISolidColorBrush CodexAgentBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xA3, 0x7F));
-    private static readonly ISolidColorBrush GeminiAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
-    private static readonly ISolidColorBrush OpenCodeAgentBrush = new SolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16));
-    private static readonly ISolidColorBrush CursorAgentBrush = new SolidColorBrush(Color.FromRgb(0x06, 0xB6, 0xD4));  // cyan - distinct from Claude blue / Pi violet / RawCli slate, readable on the dark rail
-    private static readonly ISolidColorBrush GrokAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));  // amber - Grok, distinct from OpenCode orange / Gemini red, readable on the dark rail
-    private static readonly ISolidColorBrush CopilotAgentBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));  // emerald - GitHub Copilot, distinct from Cursor cyan / Grok amber, readable on the dark rail
-    private static readonly ISolidColorBrush RawCliAgentBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));  // slate gray - neutral, not tied to any brand
+    private static readonly ISolidColorBrush ClaudeAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB));
+    private static readonly ISolidColorBrush PiAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6));
+    private static readonly ISolidColorBrush CodexAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x10, 0xA3, 0x7F));
+    private static readonly ISolidColorBrush GeminiAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
+    private static readonly ISolidColorBrush OpenCodeAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16));
+    private static readonly ISolidColorBrush CursorAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x06, 0xB6, 0xD4));  // cyan - distinct from Claude blue / Pi violet / RawCli slate, readable on the dark rail
+    private static readonly ISolidColorBrush GrokAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));  // amber - Grok, distinct from OpenCode orange / Gemini red, readable on the dark rail
+    private static readonly ISolidColorBrush CopilotAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));  // emerald - GitHub Copilot, distinct from Cursor cyan / Grok amber, readable on the dark rail
+    private static readonly ISolidColorBrush RawCliAgentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));  // slate gray - neutral, not tied to any brand
 
     public string AgentLabel => LabelFor(Session.AgentKind);
 
@@ -1058,9 +1059,9 @@ public class SessionViewModel : INotifyPropertyChanged
     // to a question the fold already answers, which is the defect this mission exists to remove.
 
     private static readonly global::Avalonia.Media.ISolidColorBrush SectionNeedsYouBrush =
-        new SolidColorBrush(Color.Parse(StatusPalette.Red));
+        new ImmutableSolidColorBrush(Color.Parse(StatusPalette.Red));
     private static readonly global::Avalonia.Media.ISolidColorBrush SectionOrdinaryBrush =
-        new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0x9A));
+        new ImmutableSolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0x9A));
 
     private static readonly IReadOnlyList<ISolidColorBrush> NoCrew = Array.Empty<ISolidColorBrush>();
 
@@ -1170,7 +1171,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     // ===== Group membership (issue #225) =====
 
-    private static readonly ISolidColorBrush GroupAccentBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x6D, 0xA3));
+    private static readonly ISolidColorBrush GroupAccentBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x4A, 0x6D, 0xA3));
 
     /// <summary>The group this session belongs to (issue #225), or null when solo. Set by
     /// MainWindow after construction and on reorder so the bracket/header reflow.</summary>
@@ -1206,7 +1207,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// <summary>The brush for the group's left accent stripe + bracket.</summary>
     public ISolidColorBrush GroupAccent => GroupAccentBrush;
 
-    private static readonly ISolidColorBrush GroupRowTintBrush = new SolidColorBrush(Color.FromRgb(0x1C, 0x23, 0x30));
+    private static readonly ISolidColorBrush GroupRowTintBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x1C, 0x23, 0x30));
 
     /// <summary>Subtle tint behind a group member's row (transparent for solo sessions),
     /// binding the members visually together.</summary>
@@ -1328,9 +1329,9 @@ public class SessionViewModel : INotifyPropertyChanged
                                                                            or TerminalVerificationStatus.Potential
                                                                            or TerminalVerificationStatus.Failed;
 
-    private static readonly ISolidColorBrush VerificationWaitingBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
-    private static readonly ISolidColorBrush VerificationPotentialBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
-    private static readonly ISolidColorBrush VerificationFailedBrush = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+    private static readonly ISolidColorBrush VerificationWaitingBrush = new ImmutableSolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
+    private static readonly ISolidColorBrush VerificationPotentialBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
+    private static readonly ISolidColorBrush VerificationFailedBrush = new ImmutableSolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
 
     public ISolidColorBrush VerificationDotBrush => Session.TerminalVerificationStatus switch
     {

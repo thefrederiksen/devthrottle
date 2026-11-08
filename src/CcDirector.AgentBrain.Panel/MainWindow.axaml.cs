@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using CcDirector.AgentBrain;
 using HostedBrain = CcDirector.HostedAgent.HostedAgent;
 using HostedBrainOptions = CcDirector.HostedAgent.HostedAgentOptions;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.AgentBrain.Panel;
 
@@ -25,10 +26,10 @@ namespace CcDirector.AgentBrain.Panel;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private static readonly IBrush DotDisconnected = new SolidColorBrush(Color.Parse("#666666"));
-    private static readonly IBrush DotAlive = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly IBrush DotBusy = new SolidColorBrush(Color.Parse("#3B82F6"));
-    private static readonly IBrush DotDead = new SolidColorBrush(Color.Parse("#E5484D"));
+    private static readonly IBrush DotDisconnected = new ImmutableSolidColorBrush(Color.Parse("#666666"));
+    private static readonly IBrush DotAlive = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly IBrush DotBusy = new ImmutableSolidColorBrush(Color.Parse("#3B82F6"));
+    private static readonly IBrush DotDead = new ImmutableSolidColorBrush(Color.Parse("#E5484D"));
 
     private HostedBrain? _brain;
     private readonly DispatcherTimer _healthTimer;

@@ -16,6 +16,7 @@ using CcDirector.Core.Settings;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.ErrorReports;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
@@ -458,10 +459,10 @@ public sealed class NamedSessionViewModel
 
 public partial class NewSessionDialog : Window
 {
-    private static readonly ISolidColorBrush ResumeButtonBrush = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly ISolidColorBrush NewSessionButtonBrush = new SolidColorBrush(Color.Parse("#007ACC"));
-    private static readonly ISolidColorBrush DisabledButtonBrush = new SolidColorBrush(Color.Parse("#4A4A4A"));
-    private static readonly ISolidColorBrush DisabledTextBrush = new SolidColorBrush(Color.Parse("#AAAAAA"));
+    private static readonly ISolidColorBrush ResumeButtonBrush = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly ISolidColorBrush NewSessionButtonBrush = new ImmutableSolidColorBrush(Color.Parse("#007ACC"));
+    private static readonly ISolidColorBrush DisabledButtonBrush = new ImmutableSolidColorBrush(Color.Parse("#4A4A4A"));
+    private static readonly ISolidColorBrush DisabledTextBrush = new ImmutableSolidColorBrush(Color.Parse("#AAAAAA"));
     private static readonly ISolidColorBrush EnabledTextBrush = Brushes.White;
 
     private readonly RepositoryRegistry? _registry;

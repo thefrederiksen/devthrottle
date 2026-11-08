@@ -8,6 +8,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -22,7 +23,7 @@ public sealed class DiffFileItem
     public bool Selected { get; set; }
     public ISolidColorBrush StatusBrush { get; init; } = Brushes.Gray;
     public ISolidColorBrush NameBrush => Selected ? Brushes.White : Dim;
-    private static readonly ISolidColorBrush Dim = new SolidColorBrush(Color.Parse("#AAAAAA"));
+    private static readonly ISolidColorBrush Dim = new ImmutableSolidColorBrush(Color.Parse("#AAAAAA"));
 }
 
 /// <summary>One rendered row of the diff pane (a hunk header or a code line).</summary>
@@ -42,16 +43,16 @@ public sealed class DiffRowItem
 /// </summary>
 public partial class ChangesDiffView : UserControl
 {
-    private static readonly IBrush AddBg = new SolidColorBrush(Color.Parse("#12301C"));
-    private static readonly IBrush DelBg = new SolidColorBrush(Color.Parse("#33191B"));
-    private static readonly IBrush HunkBg = new SolidColorBrush(Color.Parse("#1A2330"));
-    private static readonly IBrush AddFg = new SolidColorBrush(Color.Parse("#89D9A2"));
-    private static readonly IBrush DelFg = new SolidColorBrush(Color.Parse("#E39A9A"));
-    private static readonly IBrush CtxFg = new SolidColorBrush(Color.Parse("#B8B8B8"));
-    private static readonly IBrush HunkFg = new SolidColorBrush(Color.Parse("#6A9FD8"));
-    private static readonly ISolidColorBrush Amber = new SolidColorBrush(Color.Parse("#F59E0B"));
-    private static readonly ISolidColorBrush Green = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly ISolidColorBrush Red = new SolidColorBrush(Color.Parse("#EF4444"));
+    private static readonly IBrush AddBg = new ImmutableSolidColorBrush(Color.Parse("#12301C"));
+    private static readonly IBrush DelBg = new ImmutableSolidColorBrush(Color.Parse("#33191B"));
+    private static readonly IBrush HunkBg = new ImmutableSolidColorBrush(Color.Parse("#1A2330"));
+    private static readonly IBrush AddFg = new ImmutableSolidColorBrush(Color.Parse("#89D9A2"));
+    private static readonly IBrush DelFg = new ImmutableSolidColorBrush(Color.Parse("#E39A9A"));
+    private static readonly IBrush CtxFg = new ImmutableSolidColorBrush(Color.Parse("#B8B8B8"));
+    private static readonly IBrush HunkFg = new ImmutableSolidColorBrush(Color.Parse("#6A9FD8"));
+    private static readonly ISolidColorBrush Amber = new ImmutableSolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly ISolidColorBrush Green = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly ISolidColorBrush Red = new ImmutableSolidColorBrush(Color.Parse("#EF4444"));
 
     private readonly GitStatusProvider _status = new();
     private readonly GitDiffService _diff = new();

@@ -6,6 +6,7 @@ using Avalonia.Media;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -45,11 +46,11 @@ public sealed class RecommendationRowItem
 /// </summary>
 public partial class RepositoriesView : UserControl
 {
-    private static readonly IBrush RowBg = new SolidColorBrush(Color.Parse("#252526"));
-    private static readonly IBrush RowBorder = new SolidColorBrush(Color.Parse("#3C3C3C"));
-    private static readonly IBrush Text = new SolidColorBrush(Color.Parse("#CCCCCC"));
-    private static readonly IBrush Blue = new SolidColorBrush(Color.Parse("#4A9EFF"));
-    private static readonly IBrush Muted = new SolidColorBrush(Color.Parse("#666666"));
+    private static readonly IBrush RowBg = new ImmutableSolidColorBrush(Color.Parse("#252526"));
+    private static readonly IBrush RowBorder = new ImmutableSolidColorBrush(Color.Parse("#3C3C3C"));
+    private static readonly IBrush Text = new ImmutableSolidColorBrush(Color.Parse("#CCCCCC"));
+    private static readonly IBrush Blue = new ImmutableSolidColorBrush(Color.Parse("#4A9EFF"));
+    private static readonly IBrush Muted = new ImmutableSolidColorBrush(Color.Parse("#666666"));
     private static readonly FontFamily Mono = new("Cascadia Mono, Consolas");
 
     private bool _attached;

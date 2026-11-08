@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using CcDirector.Core.Utilities;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia;
 
@@ -14,9 +15,9 @@ namespace CcDirector.Avalonia;
 /// </summary>
 public static class MessageBox
 {
-    private static readonly IBrush WindowBackground = new SolidColorBrush(Color.Parse("#252526"));
-    private static readonly IBrush TextForeground = new SolidColorBrush(Color.Parse("#CCCCCC"));
-    private static readonly IBrush ButtonBackground = new SolidColorBrush(Color.Parse("#007ACC"));
+    private static readonly IBrush WindowBackground = new ImmutableSolidColorBrush(Color.Parse("#252526"));
+    private static readonly IBrush TextForeground = new ImmutableSolidColorBrush(Color.Parse("#CCCCCC"));
+    private static readonly IBrush ButtonBackground = new ImmutableSolidColorBrush(Color.Parse("#007ACC"));
 
     /// <summary>Show a modal message dialog with a single OK button and wait for it to close.</summary>
     public static Task ShowAsync(Window owner, string title, string message)

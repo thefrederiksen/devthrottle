@@ -34,8 +34,8 @@ public sealed class SessionViewModelAgentBadgeTests
     [AvaloniaFact]
     public void BadgeBrushFor_Cursor_HasOwnBrush_NotClaudeBlue()
     {
-        var cursor = Assert.IsType<SolidColorBrush>(SessionViewModel.BadgeBrushFor(AgentKind.Cursor));
-        var claude = Assert.IsType<SolidColorBrush>(SessionViewModel.BadgeBrushFor(AgentKind.ClaudeCode));
+        var cursor = Assert.IsAssignableFrom<ISolidColorBrush>(SessionViewModel.BadgeBrushFor(AgentKind.Cursor));
+        var claude = Assert.IsAssignableFrom<ISolidColorBrush>(SessionViewModel.BadgeBrushFor(AgentKind.ClaudeCode));
 
         // Cursor's own cyan badge (#06B6D4), distinct from the Claude default (#2563EB).
         Assert.Equal(Color.FromRgb(0x06, 0xB6, 0xD4), cursor.Color);
@@ -67,7 +67,7 @@ public sealed class SessionViewModelAgentBadgeTests
         var colors = new HashSet<Color>();
         foreach (var kind in kinds)
         {
-            var brush = Assert.IsType<SolidColorBrush>(SessionViewModel.BadgeBrushFor(kind));
+            var brush = Assert.IsAssignableFrom<ISolidColorBrush>(SessionViewModel.BadgeBrushFor(kind));
             Assert.True(colors.Add(brush.Color), $"Brush color for {kind} is not distinct from another provider's.");
         }
     }

@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.ErrorReports;
+using Avalonia.Media.Immutable;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -39,9 +40,9 @@ public sealed class WorktreeRowItem
 /// </summary>
 public partial class WorktreesView : UserControl
 {
-    private static readonly ISolidColorBrush SafeBrush = new SolidColorBrush(Color.Parse("#22C55E"));
-    private static readonly ISolidColorBrush AttentionBrush = new SolidColorBrush(Color.Parse("#F59E0B"));
-    private static readonly ISolidColorBrush InUseBrush = new SolidColorBrush(Color.Parse("#3B82F6"));
+    private static readonly ISolidColorBrush SafeBrush = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly ISolidColorBrush AttentionBrush = new ImmutableSolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly ISolidColorBrush InUseBrush = new ImmutableSolidColorBrush(Color.Parse("#3B82F6"));
 
     private readonly WorktreeReaperService _reaper = new();
     private RepositoryMonitor? _monitor;
