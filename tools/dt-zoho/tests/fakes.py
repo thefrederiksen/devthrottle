@@ -14,6 +14,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from fake_calendar import CAL, FakeCalendar
 from src.transport import Response
 
 ACCOUNTS = "https://accounts.zohocloud.ca"
@@ -93,6 +94,7 @@ class FakeZoho:
         self.next_id = 900000000000000000
         self.labels = [{"labelId": "636823000000007002", "displayName": "LWTBI", "color": "#dd902f"}]
         self.messages: List[Message] = []
+        self.calendar = FakeCalendar()
 
     # ----- the wire
 
@@ -110,6 +112,8 @@ class FakeZoho:
         if not auth.startswith("Zoho-oauthtoken ") or auth.split(" ", 1)[1] not in self.valid_tokens:
             return Response(401, json.dumps({"data": {"errorCode": "INVALID_OAUTHTOKEN"},
                                              "status": {"code": 401, "description": "Invalid Input"}}).encode())
+        if base == CAL:
+            return self.calendar.handle(method, parts.path, query, headers)
         if base != MAIL:
             return _mail_error(404, "URL_RULE_NOT_CONFIGURED")
         return self._mail(method, parts.path, query, body)

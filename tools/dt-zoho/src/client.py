@@ -52,11 +52,12 @@ class ZohoClient:
         return self._call("POST", self.centre.mail + path, query=query, raw_body=data)
 
     def _call(self, method: str, url: str, query: Optional[Dict[str, Any]] = None,
-              json_body: Optional[Any] = None, raw_body: Optional[bytes] = None) -> Any:
+              json_body: Optional[Any] = None, raw_body: Optional[bytes] = None,
+              headers: Optional[Dict[str, str]] = None) -> Any:
         if query:
             url += ("&" if "?" in url else "?") + urllib.parse.urlencode(
                 {k: v for k, v in query.items() if v is not None})
-        headers = {"Accept": "application/json"}
+        headers = dict(headers or {}, Accept="application/json")
         body = None
         if json_body is not None:
             body = json.dumps(json_body).encode("utf-8")

@@ -8,6 +8,7 @@ dependencies = [
     "cryptography>=42.0",
     "cc-shared",
     "cc-storage",
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
