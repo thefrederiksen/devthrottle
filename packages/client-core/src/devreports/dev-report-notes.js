@@ -65,6 +65,20 @@
     monoFont: "\"Cascadia Mono\", Consolas, Menlo, monospace"
   };
 
+  // The pieces drawn INSIDE the report's own flow - the "Something else" box and the microphone row under a box -
+  // sit on the report's page, not on the app, so they take the report's light look from the approved mock-up rather
+  // than the app's dark palette: a white field, dark text, a grey border, a light grey microphone button. They live in
+  // shadow roots whose hosts are reset with "all: initial", so the report's own colours cannot be inherited; these
+  // fixed values are the mock-up's. The notes tray and the note box float over the report and keep the app's theme.
+  var REPORT_FLOW_THEME = {
+    field: "#ffffff",
+    text: "#1f2937",
+    border: "#9ca3af",
+    control: "#e5e7eb",
+    chip: "#f3f4f6",
+    failed: "#b91c1c"
+  };
+
   // A theme is a JSON object with exactly the colour and font keys: colours as #rgb or #rrggbb, fonts as a
   // font list of letters, digits, spaces, commas, hyphens and double quotes. Anything else is refused whole,
   // because every value is written into a stylesheet and a looser value could close the rule it sits in.
@@ -744,21 +758,27 @@
       ".drn-q-state { font-size: 13px; margin-left: 8px; padding: 4px 8px; border-radius: 6px; background: " + t.surface + "; color: " + t.text + "; }",
       ".drn-q-state:empty { display: none; }",
       // The owner's own answer: its box opens under "Something else" when that option is picked.
-      ".drn-own { font-family: " + t.font + "; font-size: 14px; line-height: 1.4; color: " + t.text + "; margin: 4px 0 6px; }",
+      ".drn-own { font-family: " + t.font + "; font-size: 14px; line-height: 1.4; color: " + REPORT_FLOW_THEME.text + "; margin: 4px 0 6px; }",
       ".drn-own[hidden] { display: none; }",
-      ".drn-own textarea { min-height: 56px; }",
+      ".drn-own textarea { min-height: 56px; background: " + REPORT_FLOW_THEME.field + "; color: " + REPORT_FLOW_THEME.text + "; border: 1px solid " + REPORT_FLOW_THEME.border + "; border-radius: 4px; }",
       // A microphone row under a box. One box records at a time; the others' buttons are disabled meanwhile.
-      ".drn-mic { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-family: " + t.font + "; font-size: 13px; line-height: 1.4; color: " + t.text + "; }",
+      ".drn-mic { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-family: " + t.font + "; font-size: 13px; line-height: 1.4; color: " + REPORT_FLOW_THEME.text + "; }",
       ".drn-mic[hidden] { display: none; }",
-      ".drn-mic-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; }",
+      ".drn-mic-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; background: " + REPORT_FLOW_THEME.control + "; border-color: " + REPORT_FLOW_THEME.control + "; color: " + REPORT_FLOW_THEME.text + "; }",
       ".drn-mic-btn svg { width: 16px; height: 16px; fill: currentColor; }",
       ".drn-mic.drn-live .drn-mic-btn { background: #dc2626; border-color: #dc2626; color: #ffffff; }",
       ".drn-mic-level { display: none; align-items: flex-end; gap: 2px; height: 16px; }",
       ".drn-mic.drn-live .drn-mic-level { display: inline-flex; }",
       ".drn-mic-level span { display: inline-block; width: 3px; min-height: 2px; background: #dc2626; border-radius: 1px; }",
-      ".drn-mic-state { padding: 2px 6px; border-radius: 6px; background: " + t.surface + "; }",
+      ".drn-mic-state { padding: 2px 6px; border-radius: 6px; background: " + REPORT_FLOW_THEME.chip + "; color: " + REPORT_FLOW_THEME.text + "; }",
       ".drn-mic-state:empty { display: none; }",
-      ".drn-mic.drn-failed .drn-mic-state { color: #dc2626; }",
+      ".drn-mic.drn-failed .drn-mic-state { color: " + REPORT_FLOW_THEME.failed + "; }",
+      // The note box floats over the report on the app's surface, so its microphone row keeps the app's theme. These
+      // rules are less specific than the live and failed ones above, so the red recording button still wins.
+      ".drn-notebox .drn-mic { color: " + t.text + "; }",
+      ".drn-notebox .drn-mic-btn { background: " + t.surface2 + "; border-color: " + t.border + "; color: " + t.text + "; }",
+      ".drn-notebox .drn-mic-state { background: " + t.surface2 + "; color: " + t.text + "; }",
+      ".drn-notebox .drn-mic.drn-failed .drn-mic-state { color: #f87171; }",
       "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
     ].join("\n");
   }
