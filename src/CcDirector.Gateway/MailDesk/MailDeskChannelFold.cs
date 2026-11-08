@@ -93,14 +93,15 @@ public sealed class MailDeskChannelFold
         ArgumentNullException.ThrowIfNull(channels);
         var day = Today(_timeZoneOf(tenant), nowUtc);
         var counts = _decisions.CountsByChannel(tenant, day.FromUtc, day.ToUtc);
-        var lastCheck = LastCheckOf(_triggersOf(tenant), day.Zone);
+        var start = StartOf(_triggersOf(tenant));
+        var lastCheck = LastCheckOf(start, day.Zone);
         var checks = _checks.ByChannel(tenant);
 
         var rows = channels.Select(c =>
         {
             var kept = checks.TryGetValue(c.Id, out var found) ? found : Array.Empty<MailDeskChannelCheckEntity>();
             var signedIn = SignedInOf(kept);
-            return Row(c, LastCheckFor(lastCheck, signedIn, kept, day.Zone), signedIn,
+            return Row(c, start, LastCheckFor(lastCheck, signedIn, kept, day.Zone), signedIn,
                 counts.TryGetValue(c.Id, out var count) ? count : MailDeskDecisionCounts.Zero);
         }).ToList();
         // The day counts every channel the store has for the account, removed ones too, not only the rows folded.
@@ -148,14 +149,16 @@ public sealed class MailDeskChannelFold
 
     // ---------- the last check of the Mail Desk start ----------
 
-    private static MailDeskLastCheck LastCheckOf(IReadOnlyList<TriggerEntity> triggers, TimeZoneInfo zone)
+    /// <summary>The account's Mail Desk start, or null when the mail-desk factory is not published. One account has one;
+    /// should a second exist, the one checked most recently is the one that says how checks go and who runs them.</summary>
+    private static TriggerEntity? StartOf(IReadOnlyList<TriggerEntity> triggers)
+        => triggers.Where(MailDeskStart.Is).OrderByDescending(t => t.LastCheckUtc ?? DateTime.MinValue).FirstOrDefault();
+
+    private static MailDeskLastCheck LastCheckOf(TriggerEntity? start, TimeZoneInfo zone)
     {
-        var starts = triggers.Where(MailDeskStart.Is).ToList();
-        if (starts.Count == 0)
+        if (start is null)
             return new MailDeskLastCheck(null, null, NotPublishedLabel);
 
-        // One account has one Mail Desk start; should a second exist, the one checked most recently says how it went.
-        var start = starts.OrderByDescending(t => t.LastCheckUtc ?? DateTime.MinValue).First();
         if (start.LastCheckUtc is not { } at)
             return new MailDeskLastCheck(null, null, NeverCheckedLabel);
 
@@ -204,7 +207,7 @@ public sealed class MailDeskChannelFold
 
     // ---------- the row ----------
 
-    private static MailDeskChannelRow Row(MailDeskChannelEntity c, MailDeskLastCheck lastCheck, MailDeskSignedIn signedIn,
+    private static MailDeskChannelRow Row(MailDeskChannelEntity c, TriggerEntity? start, MailDeskLastCheck lastCheck, MailDeskSignedIn signedIn,
         MailDeskDecisionCounts today) => new(
         Id: c.Id,
         Kind: c.Kind,
@@ -229,6 +232,8 @@ public sealed class MailDeskChannelFold
         ProviderLabel = ProviderLabelOf(c.Id, c.Provider),
         MachinesLabel = MachinesLabelOf(c.Id, MailDeskChannelStore.Machines(c)),
         ModeTone = ModeToneOf(c.Id, c.Mode),
+        CheckedBy = MailDeskCheckedBy.Of(c, start),
+        SignInHeld = MailDeskCheckedBy.SignInHeldOf(c),
     };
 
     // ---------- the words and tones the Mail Desk page shows (phase 7 contract, section 2) ----------
@@ -270,6 +275,31 @@ public sealed class MailDeskChannelFold
     /// <summary>What the Mail Desk page shows when the account has no mailbox on it.</summary>
     public static readonly string PageEmptyLabel =
         "No mailbox is on the Mail Desk yet. Add one with: " + MailDeskWords.ChannelAddCommand("<machine>");
+
+    /// <summary>The words of the "How does this work?" button by the page's title.</summary>
+    public const string HowItWorksButton = "How does this work?";
+
+    /// <summary>The heading of the page that button opens.</summary>
+    public const string HowItWorksTitle = "How the Mail Desk checks your mail";
+
+    /// <summary>The steps that page lists, in order (mission "Zoho Mail Skill", section 4).</summary>
+    public static readonly IReadOnlyList<string> HowItWorksSteps = new[]
+    {
+        "The Gateway does not read your mail. Every few minutes it asks a Director on one of your machines to check each mailbox.",
+        "That Director runs a small script, with no AI session, so a check costs nothing. It opens each mailbox with the "
+            + "sign-in kept on that machine and reads the emails that arrived since its last check, oldest first, at most 10 "
+            + "in one check across all your mailboxes. The rest wait for the next check.",
+        "For each email it sends the Gateway only the sender, the subject and the first 200 characters. The Gateway decides: "
+            + "route to a seat, archive, junk, or keep for you. It uses your rules first and a small AI model after, records the "
+            + "decision, and throws the 200 characters away.",
+        "In observe mode nothing in the mailbox changes. In live mode the Director files the email on its next check, and a "
+            + "routed email starts its seat. The script never sends mail.",
+        "The check runs on one machine and moves to the next machine on its list while that one is off. It reads a mailbox "
+            + "only if the mailbox names the machine it is running on, so a mailbox's backup machines are the later machines it "
+            + "names. The mailbox must be signed in on every machine that may check it, and that sign-in is never stored on "
+            + "the Gateway.",
+        "There is no setup screen. Ask your agent to add a mailbox, add a backup machine, change the mode or change the rules.",
+    };
 
     /// <summary>The provider's name as a reader sees it. A provider with no label is refused, never shown raw.</summary>
     internal static string ProviderLabelOf(Guid channel, string provider)
@@ -375,6 +405,13 @@ public sealed record MailDeskChannelRow(
 
     /// <summary><c>neutral</c> in observe mode, <c>attention</c> in live mode.</summary>
     public required string ModeTone { get; init; }
+
+    /// <summary>The main machine and the backups that check the mailbox, a note when one is missing or wrong, and the
+    /// words behind the "?" (<see cref="MailDeskCheckedBy.Of"/>).</summary>
+    public required MailDeskCheckedByRow CheckedBy { get; init; }
+
+    /// <summary>Where the mailbox's sign-in is kept: on which machines, by what, and never on the Gateway.</summary>
+    public required string SignInHeld { get; init; }
 }
 
 /// <summary>Whether the channel's mailbox is signed in: <c>unknown</c>, <c>yes</c> or <c>failing</c>, and the words.</summary>

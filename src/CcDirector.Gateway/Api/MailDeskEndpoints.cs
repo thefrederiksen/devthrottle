@@ -164,6 +164,12 @@ internal static class MailDeskEndpoints
             title = MailDeskChannelFold.PageTitle,
             summary = MailDeskChannelFold.PageSummary,
             emptyLabel = MailDeskChannelFold.PageEmptyLabel,
+            howItWorks = new
+            {
+                button = MailDeskChannelFold.HowItWorksButton,
+                title = MailDeskChannelFold.HowItWorksTitle,
+                steps = MailDeskChannelFold.HowItWorksSteps,
+            },
             help = folded.Channels.Count == 0 ? NoChannelHelp : Array.Empty<string>(),
         });
     }

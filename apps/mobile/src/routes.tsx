@@ -8,7 +8,7 @@ import { FileView } from "./pages/FileView";
 import { VoiceMode } from "./pages/VoiceMode";
 import { DEV_REPORT_ROUTES } from "./pages/reportRoutes";
 import { Settings } from "./pages/Settings";
-import { MailDesk } from "./pages/MailDesk";
+import { MailDesk, MailDeskHowItWorks } from "./pages/MailDesk";
 import { Inbox, InboxThread } from "./pages/Inbox";
 import { Recorder } from "./pages/Recorder";
 import { About } from "./pages/About";
@@ -147,6 +147,7 @@ export const MOBILE_ROUTES: RouteObject[] = [
           // The Mail Desk (Mail Desk mission, phase 7): the same page the Cockpit shows at the same address, from the
           // same client-core component. With the Mail Desk switch off it is the ordinary "Page not found".
           { path: "/mail-desk", element: <MailDesk /> },
+          { path: "/mail-desk/how-it-works", element: <MailDeskHowItWorks /> },
           // The Inbox (Factory Inbox mission, phase 4): the Factory inbox list and one factory's thread. Behind the
           // factory area switch; off, both are the ordinary Page not found.
           { path: "/inbox", element: <Inbox /> },

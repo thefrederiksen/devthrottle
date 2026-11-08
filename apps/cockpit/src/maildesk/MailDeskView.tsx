@@ -1,4 +1,4 @@
-import { MailDeskPage, type MailDeskFrameProps } from "@devthrottle/client-core/maildesk/MailDeskPage";
+import { MailDeskHowItWorksPage, MailDeskPage, type MailDeskFrameProps } from "@devthrottle/client-core/maildesk/MailDeskPage";
 import { NotFound } from "../panes/NotFound";
 
 // The Cockpit's Mail Desk page (Mail Desk mission, phase 7). The page is client-core's, one implementation for both
@@ -20,6 +20,15 @@ export function MailDeskView() {
       Frame={CockpitFrame}
       notFound={<NotFound />}
       errorClassName="ui-error-banner"
+      howItWorksHref={MAIL_DESK_HOW_IT_WORKS_PATH}
     />
   );
+}
+
+/** Where "How does this work?" goes on the Cockpit. */
+export const MAIL_DESK_HOW_IT_WORKS_PATH = "/mail-desk/how-it-works";
+
+/** The Cockpit's "How the Mail Desk checks your mail" page, in the same frame. */
+export function MailDeskHowItWorksView() {
+  return <MailDeskHowItWorksPage Frame={CockpitFrame} notFound={<NotFound />} errorClassName="ui-error-banner" />;
 }
