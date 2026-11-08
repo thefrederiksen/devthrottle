@@ -524,6 +524,9 @@ public sealed class FactoryInboxWake
             return (FactoryInboxWakeAct.ClaimTakenByAnother, now.Add(LookAgain));
 
         Automated(plan.Request, director);
+        // The commands its instructions use, so the Director refuses the start on a machine whose tools lack one
+        // (issue #4744); the refusal comes back as a failed start and is recorded as the factory's waiting reason.
+        plan.Request.RequiredToolCommands = (secretary ? FactoryInboxSecretary.SecretaryToolCommands : FactoryInboxSecretary.BossToolCommands).ToList();
         FileLog.Write($"[FactoryInboxWake] starting the {who} of {factory} on {plan.Machine} (director {director}), "
                       + (plan.NeedsKit ? $"seat {plan.Request.FactorySeat} v{plan.Request.FactoryDefinitionVersion}" : $"in the folder {plan.Request.RepoPath} (no definition)"));
         var attempt = await StartSafeAsync(tenant, plan.Machine, plan.Request, ct).ConfigureAwait(false);

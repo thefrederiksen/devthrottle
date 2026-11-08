@@ -4,6 +4,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Inbox;
+using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Running;
 
@@ -14,6 +15,10 @@ namespace CcDirector.Gateway.Running;
 /// <param name="AlreadyCounted">When not sent: true when this failure was counted before (read again after a restart),
 /// false when it is held back because a notice of its cause went out inside the hour.</param>
 public sealed record CronFailureNoticeClaim(bool Send, int Occurrences, bool AlreadyCounted = false);
+
+/// <summary>A schedule whose owner was told it failed and has not been told since that it recovered.</summary>
+/// <param name="LastFailureUtc">The result time of the newest failure counted for the schedule, on any cause.</param>
+public sealed record CronRecoveryOwed(TenantId Tenant, string JobId, DateTime LastFailureUtc);
 
 /// <summary>
 /// THE HOURLY LIMIT ON A SCHEDULE'S FAILURE NOTICES (issue #4436), in <c>cron_failure_notices</c>. One row per account,
@@ -84,6 +89,65 @@ public sealed class CronFailureNoticeStore
             return new CronFailureNoticeClaim(true, occurrences);
         }
     }
+
+    /// <summary>
+    /// Every schedule, in every account, whose owner was told of a failure and has not been told of a recovery since
+    /// (issue #4748). The recovery last told is the row of cause <see cref="ScheduleFailureCauses.Recovered"/>; it is owed
+    /// again only when a failure was TOLD after it - a failure held back inside the hour was never told, so it owes no
+    /// recovery, and a schedule that flaps is not told it recovered more often than it is told it failed. Kept here, not
+    /// in memory, so a restart does not forget it.
+    /// </summary>
+    public IReadOnlyList<CronRecoveryOwed> RecoveriesOwed()
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            var rows = ctx.CronFailureNotices.IgnoreQueryFilters().AsNoTracking()
+                .Select(e => new { e.TenantId, e.JobId, e.Cause, e.LastSentUtc, e.LastCountedUtc })
+                .ToList();
+            var owed = new List<CronRecoveryOwed>();
+            foreach (var job in rows.GroupBy(r => (r.TenantId, r.JobId)))
+            {
+                var failures = job.Where(r => r.Cause != ScheduleFailureCauses.Recovered).ToList();
+                if (failures.Count == 0) continue;
+                var lastToldFailure = DateTime.SpecifyKind(failures.Max(r => r.LastSentUtc), DateTimeKind.Utc);
+                var recovered = job.FirstOrDefault(r => r.Cause == ScheduleFailureCauses.Recovered);
+                if (recovered is not null && DateTime.SpecifyKind(recovered.LastSentUtc, DateTimeKind.Utc) >= lastToldFailure)
+                    continue;
+                // The success must still come after the newest failure counted, told or held back: one before it is not
+                // a recovery.
+                var lastFailure = DateTime.SpecifyKind(failures.Max(r => r.LastCountedUtc), DateTimeKind.Utc);
+                owed.Add(new CronRecoveryOwed(new TenantId(job.Key.TenantId), job.Key.JobId, lastFailure));
+            }
+            return owed;
+        }
+    }
+
+    /// <summary>
+    /// Record that schedule <paramref name="jobId"/> recovered with the run <paramref name="runId"/>, whose result time is
+    /// <paramref name="successUtc"/>: no recovery is owed until a failure is counted later than it.
+    /// </summary>
+    public void MarkRecovered(TenantId tenant, string jobId, DateTime successUtc, string runId, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+        var at = DateTime.SpecifyKind(successUtc, DateTimeKind.Utc);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronFailureNotices.FirstOrDefault(e => e.JobId == jobId && e.Cause == ScheduleFailureCauses.Recovered);
+            if (row is null)
+            {
+                row = new CronFailureNoticeEntity { TenantId = ctx.ActiveTenant!, JobId = jobId, Cause = ScheduleFailureCauses.Recovered };
+                ctx.CronFailureNotices.Add(row);
+            }
+            row.LastSentUtc = nowUtc;
+            row.HeldBack = 0;
+            row.LastCountedUtc = at;
+            row.LastCountedRunId = runId;
+            ctx.SaveChanges();
+        }
+        FileLog.Write($"[CronFailureNoticeStore] MarkRecovered: tenant={tenant.ToLogString()}, job={jobId}, run={runId}, at={at:o}");
+    }
 }
 
 /// <summary>Pushes one schedule failure notice to the account's phones. Never throws.</summary>
@@ -98,8 +162,10 @@ public delegate void ScheduleFailureInboxWriter(TenantId tenant, YourInboxMessag
 /// the issue found out by watching.
 ///
 /// WHICH FAILURES. Every run <see cref="CronRunHistoryStore.FailedSince"/> returns - one that did not run (missed runs
-/// included: the Gateway was down, the sweep came late, the deadline passed), did not start, whose start is not known,
-/// or whose session ended with a problem - read from the run history on a timer, exactly as the administrator's failure
+/// included: the Gateway was down, the sweep came late, the deadline passed), did not start, whose start was not known
+/// when its window closed, or whose session ended with a problem. A start whose outcome is not yet known is NOT a failure
+/// (issue #4748): a slow Director may still start the session, so the engine records it with no result time and it is
+/// told only if it lapses at its window's close - read from the run history on a timer, exactly as the administrator's failure
 /// reports read it (<see cref="CronRunFailureReporter"/>), because every path that fails a run stamps its result time:
 /// one read sees a failure whichever path recorded it. A schedule whose <see cref="CronJobDto.NotifyOn"/> is
 /// <c>none</c> is not told; failure (the default) and always are.
@@ -117,6 +183,10 @@ public delegate void ScheduleFailureInboxWriter(TenantId tenant, YourInboxMessag
 ///
 /// HOW OFTEN. At most once an hour for each cause of each schedule (<see cref="CronFailureNoticeStore"/>), so a broken
 /// schedule firing every five minutes sends one notice an hour, which says how many failures it stands for.
+///
+/// RECOVERY (issue #4748). A schedule whose owner was told it failed, whose first successful run after its newest
+/// counted failure comes, is told it recovered, on the same channels. Which recovery was told last is a row of cause
+/// <see cref="ScheduleFailureCauses.Recovered"/> in the same table, so a restart neither forgets nor repeats one.
 ///
 /// ONCE PER FAILURE. A run is considered once for each result time it carries. The window reaches back
 /// <see cref="Overlap"/> before the last scan, and the runs already considered inside it are remembered. A new
@@ -180,7 +250,7 @@ public sealed class ScheduleFailureNotifier : IDisposable
 
     /// <summary>
     /// Tell the owner of every failed run recorded since the last scan that has not been considered yet, within the
-    /// hourly limit. Returns how many notices were sent.
+    /// hourly limit. Also check for recoveries on previously-failed schedules. Returns how many notices were sent.
     /// </summary>
     public async Task<int> ScanAsync(CancellationToken ct)
     {
@@ -212,6 +282,9 @@ public sealed class ScheduleFailureNotifier : IDisposable
                     sent++;
             }
 
+            // After the failures, so a failure counted in this scan is the one a recovery must come after.
+            sent += await ScanRecoveriesAsync(from, now, ct).ConfigureAwait(false);
+
             // While a backlog remains the window stays where it is (the seen set keeps it from being told twice); once it
             // is drained the window moves on to now.
             if (!more) _since = now;
@@ -228,6 +301,85 @@ public sealed class ScheduleFailureNotifier : IDisposable
         {
             _scanGate.Release();
         }
+    }
+
+    // A schedule told it failed, whose first successful run after its newest counted failure has come: told it recovered,
+    // when that success is inside this scan's window and its Notify still asks for failure notices. A first success older
+    // than the window came while nothing was watching (or before recoveries were told at all): recorded, not told.
+    private async Task<int> ScanRecoveriesAsync(DateTime from, DateTime now, CancellationToken ct)
+    {
+        var sent = 0;
+        foreach (var owed in _notices.RecoveriesOwed())
+        {
+            var success = _runs.FirstSuccessAfter(owed.Tenant, owed.JobId, owed.LastFailureUtc);
+            if (success is null) continue;
+            var successUtc = success.ResultUtc!.Value;
+            var job = _jobOf(owed.Tenant, owed.JobId);
+            if (job is null)
+                FileLog.Write($"[ScheduleFailureNotifier] recovery of job={owed.JobId}: the schedule no longer exists; not told");
+            else if (successUtc < from)
+                FileLog.Write($"[ScheduleFailureNotifier] recovery of job={job.Id}: run={success.RunId} succeeded at {successUtc:o}, before this scan's window; not told");
+            else if (!CronNotify.ShouldNotify(job.NotifyOn, succeeded: false))
+                FileLog.Write($"[ScheduleFailureNotifier] recovery of job={job.Id}: Notify is {job.NotifyOn}; not told");
+            else
+            {
+                await NotifyRecoveryAsync(owed.Tenant, job, success, now, ct).ConfigureAwait(false);
+                sent++;
+            }
+            // Only after the owner was told: a failure above fails this scan, and the next scan tells them.
+            _notices.MarkRecovered(owed.Tenant, owed.JobId, successUtc, success.RunId, now);
+        }
+        return sent;
+    }
+
+    private async Task NotifyRecoveryAsync(TenantId tenant, CronJobDto job, CronRunRecord run, DateTime now, CancellationToken ct)
+    {
+        var notice = new CronRunCompletedPayload
+        {
+            JobId = job.Id,
+            JobName = job.Name,
+            Succeeded = true,
+            InfraStatus = run.InfraStatus,
+            TaskStatus = run.TaskStatus,
+            Machine = run.Machine,
+            SessionId = string.IsNullOrWhiteSpace(run.SessionId) ? null : run.SessionId,
+            SessionLink = "",
+            Reason = RecoveredReason,
+            Detail = null,
+            Cause = ScheduleFailureCauses.Recovered,
+            Occurrences = 1,
+            FiredUtc = run.FiredUtc,
+        };
+
+        FileLog.Write($"[ScheduleFailureNotifier] telling the owner of a recovery: tenant={tenant.ToLogString()}, job={job.Id}, run={run.RunId}");
+        using (_enterScope(tenant))
+        {
+            // The inbox write first: when it throws nothing has been sent yet, so the next scan's retry sends nothing
+            // twice. A fleet or push leg that throws after it also fails the scan, and the retry writes the inbox again.
+            var (subject, body) = RecoveryInboxWords(job, notice);
+            var written = YourInboxStore.ForScheduleFailure(tenant, job.Factory, subject, body, now);
+            _inbox(tenant, written);
+            FileLog.Write($"[ScheduleFailureNotifier] wrote recovery to Your inbox: job={job.Id}, message={written.Id}");
+            await _fleet.NotifyRunCompletedAsync(job, run.TargetDirectorId ?? "", notice, ct).ConfigureAwait(false);
+            await _push(tenant, notice, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>What a recovery notice says, on every channel.</summary>
+    public const string RecoveredReason = "The schedule has recovered: a run succeeded after the failure you were told about.";
+
+    private static (string Subject, string Body) RecoveryInboxWords(CronJobDto job, CronRunCompletedPayload notice)
+    {
+        var lines = new List<string>
+        {
+            $"Your schedule \"{job.Name}\" has recovered.",
+            "",
+            RecoveredReason,
+            "",
+            $"When: {DateTime.SpecifyKind(notice.FiredUtc, DateTimeKind.Utc):yyyy-MM-dd HH:mm} UTC",
+            "See every run on the Schedule page of DevThrottle.",
+        };
+        return ($"Schedule recovered: {job.Name}", string.Join("\n", lines));
     }
 
     // One failed run: told when its schedule asks for failure notices and the hour for its cause has passed.
@@ -312,6 +464,8 @@ public sealed class ScheduleFailureNotifier : IDisposable
     public static (string Title, string Body) PushWords(CronRunCompletedPayload notice)
     {
         ArgumentNullException.ThrowIfNull(notice);
+        if (notice.Succeeded)
+            return ($"Schedule recovered: {notice.JobName}", RecoveredReason);
         return ($"Schedule failed: {notice.JobName}", notice.Reason + Times(notice.Occurrences));
     }
 

@@ -339,6 +339,27 @@ public class UpdateStatusFoldTests
     }
 
     [Fact]
+    public void AnUpdateHeldBecauseTheToolsAreNotReady_SaysWhy_AndOffersNoInstall()
+    {
+        // Issue #4744: the launcher brings the cc-* tools to the staged version before it installs a Director, and
+        // holds when it cannot. The reason it recorded is the one the person can act on, so it is shown.
+        var view = UpdateStatusFold.Fold(Facts(new UpdaterState
+        {
+            StagedVersion = "2.38.0",
+            LastApplyVersion = "2.38.0",
+            LastApplyDecision = "HeldBecauseToolsNotReady",
+            LastApplyDetail = "the cc-* tools are in use",
+            LastApplyDecisionAt = Now.AddMinutes(-10),
+        }));
+
+        Assert.Equal("StagedWaitingForTools", view.State);
+        Assert.Contains("cc-* tools", view.Detail);
+        Assert.Contains("the cc-* tools are in use", view.Tooltip);
+        Assert.False(view.CanInstallNow);
+        Assert.Null(view.InstallNowLabel);
+    }
+
+    [Fact]
     public void RunningSessionsStillOutrankASleepingDisplay()
     {
         // Both are true at once on a busy machine at night. The sessions message is the one the person

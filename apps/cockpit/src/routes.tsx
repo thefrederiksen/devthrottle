@@ -185,6 +185,9 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // Map (the fleet has one home). The old /missions route redirects there so existing bookmarks
           // still land on the map; the pivot the map opens on is the last one the browser chose.
           { path: "/missions", element: <Navigate to="/fleet-map" replace /> },
+          // One mission's address, pasted into a browser, goes to the same place: the Gateway hands a browser the Cockpit
+          // for /missions/{id} as it does for /missions (CockpitReactApp.BrowserPageRoots), and the map is the mission's home.
+          { path: "/missions/:missionId", element: <Navigate to="/fleet-map" replace /> },
           { path: "/directors", element: <DirectorsView /> },
           { path: "/directors/:directorId", element: <DirectorDetailView /> },
           // The Licenses page (the License Switching mission, phase 3): every Claude account, which machine is on

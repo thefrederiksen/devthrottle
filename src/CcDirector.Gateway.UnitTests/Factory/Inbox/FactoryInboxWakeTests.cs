@@ -259,6 +259,71 @@ public sealed class FactoryInboxWakeTests : IDisposable
         Assert.DoesNotContain(_env.Rings, r => r.SessionId == "door-boss");
     }
 
+    // ---------- the commands the instructions use (issue #4744) ----------
+
+    [Fact]
+    public async Task TheSecretarysStart_NamesEveryCommandItsInstructionsUse_SoTheDirectorCanRefuseToolsThatLackOne()
+    {
+        Send(T0);
+
+        await LookAt(NewWake(), T0.AddSeconds(60));
+
+        var (_, req) = Assert.Single(_env.Starts);
+        Assert.Equal(FactoryInboxSecretary.SecretaryToolCommands, req.RequiredToolCommands);
+        Assert.Contains("factory inbox new", req.RequiredToolCommands!);
+    }
+
+    [Fact]
+    public async Task TheBossesStart_NamesEveryCommandItsBundleWorkUses()
+    {
+        Send(T0);
+        SecretaryHands("sec-1", T0.AddSeconds(70));
+
+        var look = await LookAt(NewWake(), T0.AddSeconds(72));
+
+        Assert.Equal(FactoryInboxWakeAct.Started, look.Boss);
+        var (_, req) = Assert.Single(_env.Starts, s => s.Request.FactorySeat == "boss");
+        Assert.Equal(FactoryInboxSecretary.BossToolCommands, req.RequiredToolCommands);
+    }
+
+    [Fact]
+    public async Task ASecretaryTheDirectorRefusesForItsTools_IsRecordedWithTheDirectorsSentence()
+    {
+        const string refusal = "This session's instructions use 'cc-devthrottle factory inbox new', and the cc-devthrottle on " +
+                               "this machine does not have it (Error: No such command 'inbox'.), so no session was started.";
+        Send(T0);
+        _env.StartAnswer = _ => Task.FromResult(TriggerStartAttempt.Failed(refusal));
+
+        Assert.Equal(FactoryInboxWakeAct.StartFailed, (await LookAt(NewWake(), T0.AddSeconds(60))).Secretary);
+
+        Assert.Contains("No such command 'inbox'", FactoryInboxFold.WaitingOf(_wakes.Find(A, TheFactory)!)!.Secretary);
+    }
+
+    /// <summary>The declared lists cannot drift from the instructions: every "cc-devthrottle ..." the Secretary or the Boss
+    /// is told to run begins with a declared command, and every declared command is one the instructions use.</summary>
+    [Fact]
+    public void TheDeclaredCommands_AreExactlyTheOnesTheInstructionsUse()
+    {
+        AssertDeclaredMatch(FactoryInboxSecretary.Brief("DevThrottle", TheFactory) + " " + FactoryInboxSecretary.RingLine(2),
+            FactoryInboxSecretary.SecretaryToolCommands);
+        AssertDeclaredMatch(FactoryInboxSecretary.BossBundleWork(2) + " " + FactoryInboxSecretary.BossRingLine(2),
+            FactoryInboxSecretary.BossToolCommands);
+    }
+
+    private static void AssertDeclaredMatch(string instructions, IReadOnlyList<string> declared)
+    {
+        var mentions = System.Text.RegularExpressions.Regex.Matches(instructions, "cc-devthrottle((?: [a-z][a-z0-9-]*)+)")
+            .Select(m => m.Groups[1].Value.Trim())
+            .ToList();
+        Assert.NotEmpty(mentions);
+        foreach (var mention in mentions)
+            Assert.True(declared.Any(d => mention == d || mention.StartsWith(d + " ", StringComparison.Ordinal)),
+                $"the instructions use 'cc-devthrottle {mention}', which no declared command covers");
+        foreach (var command in declared)
+            Assert.True(mentions.Any(m => m == command || m.StartsWith(command + " ", StringComparison.Ordinal)),
+                $"'{command}' is declared but the instructions never use it");
+    }
+
     [Fact]
     public async Task ABossTheGatewayRecordedAsStartedByASessionInNoFactory_IsTheInboxsBoss_AndIsRungNotDoubled()
     {

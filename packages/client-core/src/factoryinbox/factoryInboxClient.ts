@@ -160,6 +160,25 @@ export function getFactoryInboxSummary(factory: string, signal?: AbortSignal): P
   return get<FactoryInboxSummary>(factoryPath(factory, "/inbox/summary"), "read the factory's summary", signal);
 }
 
+/** What the owner's "Dealt with it" marked: how many messages the Gateway took off the stuck inbox. */
+export interface FactoryInboxDealtWith {
+  factory: string;
+  marked: number;
+}
+
+/**
+ * The owner dealt with a stuck inbox himself (issue 4746): the Gateway marks every message its stuck alert reports as
+ * dealt with by the owner, and the alert goes. A refusal (nothing is stuck now) throws with the Gateway's words.
+ */
+export async function dealtWithFactoryInbox(factory: string, signal?: AbortSignal): Promise<FactoryInboxDealtWith> {
+  const res = await gatewayFetch(factoryPath(factory, "/inbox/dealt-with"), {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  return readJson<FactoryInboxDealtWith>(res, "mark the factory inbox as dealt with");
+}
+
 /** Leave a typed message in a factory's inbox. A refusal (archived factory, no Boss) throws with the Gateway's words. */
 export async function sendFactoryInboxMessage(
   factory: string,

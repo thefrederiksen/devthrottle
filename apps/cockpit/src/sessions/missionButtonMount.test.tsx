@@ -59,16 +59,17 @@ afterEach(() => cleanup());
 describe("the Cockpit session header", () => {
   it("SessionDetail_SelectedRowWithMission_DrawsIndigoLinkInTheHeaderBeforeTheMenu", () => {
     renderDetail([
-      row(OTHER, { verdict: "no-mission", label: "No mission", colorKey: "warning", tooltip: "none", documentAddress: null }),
+      row(OTHER, { verdict: "no-mission", label: "Mission", colorKey: "warning", iconKey: "warning", tooltip: "none", documentAddress: null }),
       row(SID, {
         verdict: "mission-with-document",
-        label: "Mission Button on the Web",
+        label: "Mission",
         colorKey: "mission",
+        iconKey: "document",
         tooltip: "Mission Button on the Web\nShow each session's Mission",
         documentAddress: "/r/a24e87a1-fd9e-4f8b-87e6-04013cf1e75f",
       }),
     ]);
-    const link = screen.getByRole("link", { name: "Mission Button on the Web" });
+    const link = screen.getByRole("link", { name: "Mission" });
     expect(link.className).toContain("mb-mission");
     expect(link.getAttribute("href")).toBe("/r/a24e87a1-fd9e-4f8b-87e6-04013cf1e75f");
     expect(link.getAttribute("target")).toBe("_blank");
@@ -79,12 +80,12 @@ describe("the Cockpit session header", () => {
     expect(header?.contains(menu)).toBe(true);
     expect(link.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The other row's yellow verdict is not drawn on this session's screen.
-    expect(screen.queryByRole("button", { name: "No mission" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mission" })).toBeNull();
   });
 
   it("SessionDetail_SelectedRowWithNoMission_DrawsYellowNoMission", () => {
-    renderDetail([row(SID, { verdict: "no-mission", label: "No mission", colorKey: "warning", tooltip: "none", documentAddress: null })]);
-    expect(screen.getByRole("button", { name: "No mission" }).className).toContain("mb-warning");
+    renderDetail([row(SID, { verdict: "no-mission", label: "Mission", colorKey: "warning", iconKey: "warning", tooltip: "none", documentAddress: null })]);
+    expect(screen.getByRole("button", { name: "Mission" }).className).toContain("mb-warning");
   });
 
   it("SessionDetail_SelectedRowWithoutVerdict_DrawsNoMissionButton", () => {

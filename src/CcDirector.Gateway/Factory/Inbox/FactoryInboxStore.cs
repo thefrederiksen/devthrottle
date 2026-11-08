@@ -236,7 +236,11 @@ public sealed class FactoryInboxStore
         var (sent, decided) = Since(tenant, factory, sinceUtc, untilUtc);
         var decisionOfSent = DecisionsOf(tenant, sent.Select(m => m.Id).ToList());
         var handed = HandedTimes(tenant, sent.Where(m => m.BundleId is not null).Select(m => m.BundleId!.Value).Distinct().ToList());
-        return FactoryInboxFold.Summary(factory, sinceUtc, untilUtc, sent, decided, decisionOfSent, handed);
+        int ownerDealtWith;
+        using (var ctx = _db.CreateContext(tenant))
+            ownerDealtWith = ctx.FactoryInboxMessages.AsNoTracking()
+                .Count(m => m.Factory == factory && m.OwnerDealtWithAtUtc >= sinceUtc && m.OwnerDealtWithAtUtc <= untilUtc);
+        return FactoryInboxFold.Summary(factory, sinceUtc, untilUtc, sent, decided, decisionOfSent, handed, ownerDealtWith);
     }
 
     /// <summary>One factory's to-do list, newest first.</summary>
@@ -317,8 +321,10 @@ public sealed class FactoryInboxStore
             }
 
             using var tx = ctx.Database.BeginTransaction();
+            // The state is repeated here, not only in the candidate read: another Gateway process (a deploy overlap) may
+            // have marked a candidate dealt with by the owner since (issue 4746 review, finding 2), and it stays decided.
             ctx.FactoryInboxMessages
-                .Where(m => candidateIds.Contains(m.Id) && m.BundleId == null
+                .Where(m => candidateIds.Contains(m.Id) && m.BundleId == null && m.State != FactoryInboxWords.States.Decided
                             && (m.ClaimSessionId == null || m.ClaimSessionId == sessionId || (m.ClaimSessionId != null && endedClaimants.Contains(m.ClaimSessionId))))
                 .ExecuteUpdate(set => set
                     .SetProperty(m => m.State, FactoryInboxWords.States.Received)
@@ -571,6 +577,86 @@ public sealed class FactoryInboxStore
 
             FileLog.Write($"[FactoryInboxStore] Decide: {messageId} -> {kind} (repeats {repeats.Count}, bundle {bundleId} {(open == 0 ? "closed" : $"{open} open")})");
             return new FactoryInboxDecided(message, decisions[0], todo, repeats.Count);
+        }
+    }
+
+    // ---------------------------------------------------------------- the owner
+
+    /// <summary>
+    /// THE OWNER DEALT WITH IT (issue 4746). The factory's inbox is stuck and the owner has handled what it holds himself,
+    /// so he ends the alert by hand. Every item the stuck alert counts (<see cref="FactoryInboxStuckAlertSource"/>'s three
+    /// rules, with the same clock) is marked decided by the owner: a message no Secretary received in time, a message held
+    /// by a Secretary that has ended, and every undecided message of a bundle the Boss has not decided in time - and those
+    /// bundles close. Each marked message records who pressed it and when, has no Boss decision, and leaves every queue,
+    /// so no Secretary files it later. Nothing else is touched: a message sent a minute ago, or held by a Secretary still
+    /// running, goes on as normal, and if it becomes stuck it raises the alert again.
+    ///
+    /// Each update repeats its own condition, so a Secretary that received a message between the read and the write keeps
+    /// it. Refused with 409 when nothing is stuck now - the alert had already gone.
+    /// </summary>
+    /// <param name="isEnded">Whether the Gateway has recorded a session as ended, asked once per Secretary holding a
+    /// message too long.</param>
+    /// <returns>How many messages the owner's press marked.</returns>
+    public int DealtWithByOwner(TenantId tenant, string factory, string ownerDeviceId, Func<string, bool> isEnded, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerDeviceId);
+        ArgumentNullException.ThrowIfNull(isEnded);
+        FileLog.Write($"[FactoryInboxStore] DealtWithByOwner: factory={factory} by={ownerDeviceId}");
+        var receiveBy = nowUtc - FactoryInboxStuckAlertSource.ReceiveWithin;
+        var decideBy = nowUtc - FactoryInboxStuckAlertSource.DecideWithin;
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            using var tx = ctx.Database.BeginTransaction();
+
+            var heldBy = ctx.FactoryInboxMessages.AsNoTracking()
+                .Where(m => m.Factory == factory).Where(FactoryInboxStuckAlertSource.HeldSince(receiveBy))
+                .Select(m => m.ClaimSessionId!).Distinct().ToList();
+            var ended = heldBy.Where(isEnded).ToList();
+            var bundles = ctx.FactoryInboxBundles.AsNoTracking()
+                .Where(b => b.Factory == factory).Where(FactoryInboxStuckAlertSource.UndecidedSince(decideBy))
+                .Select(b => (Guid?)b.Id).ToList();
+
+            var notReceived = ctx.FactoryInboxMessages
+                .Where(m => m.Factory == factory).Where(FactoryInboxStuckAlertSource.NotReceivedBy(receiveBy))
+                .ExecuteUpdate(set => set
+                    .SetProperty(m => m.State, FactoryInboxWords.States.Decided)
+                    .SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc)
+                    .SetProperty(m => m.OwnerDealtWithBy, ownerDeviceId));
+            var heldByEnded = ended.Count == 0 ? 0 : ctx.FactoryInboxMessages
+                .Where(m => m.Factory == factory).Where(FactoryInboxStuckAlertSource.HeldSince(receiveBy))
+                .Where(m => ended.Contains(m.ClaimSessionId!))
+                .ExecuteUpdate(set => set
+                    .SetProperty(m => m.State, FactoryInboxWords.States.Decided)
+                    .SetProperty(m => m.ClaimSessionId, (string?)null)
+                    .SetProperty(m => m.ClaimedAtUtc, (DateTime?)null)
+                    .SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc)
+                    .SetProperty(m => m.OwnerDealtWithBy, ownerDeviceId));
+            var withBoss = bundles.Count == 0 ? 0 : ctx.FactoryInboxMessages
+                .Where(m => m.Factory == factory && bundles.Contains(m.BundleId) && m.State == FactoryInboxWords.States.WithBoss)
+                .ExecuteUpdate(set => set
+                    .SetProperty(m => m.State, FactoryInboxWords.States.Decided)
+                    .SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc)
+                    .SetProperty(m => m.OwnerDealtWithBy, ownerDeviceId));
+            var closed = bundles.Count == 0 ? 0 : ctx.FactoryInboxBundles
+                .Where(b => bundles.Contains(b.Id) && b.ClosedAtUtc == null
+                            && !ctx.FactoryInboxMessages.Any(m => m.BundleId == b.Id && m.State != FactoryInboxWords.States.Decided))
+                .ExecuteUpdate(set => set.SetProperty(b => b.ClosedAtUtc, nowUtc));
+
+            var marked = notReceived + heldByEnded + withBoss;
+            if (marked == 0 && closed == 0)
+            {
+                tx.Rollback();
+                FileLog.Write($"[FactoryInboxStore] DealtWithByOwner: factory={factory} nothing is stuck");
+                throw new FactoryInboxRefusedException("not_stuck",
+                    "This factory's inbox is not stuck now, so nothing was marked. A Secretary or the Boss has taken its messages since.", 409);
+            }
+            tx.Commit();
+            FileLog.Write($"[FactoryInboxStore] DealtWithByOwner: factory={factory} marked={marked} (not received {notReceived}, " +
+                          $"held by an ended Secretary {heldByEnded}, with the Boss {withBoss}), bundles closed={closed}");
+            return marked;
         }
     }
 

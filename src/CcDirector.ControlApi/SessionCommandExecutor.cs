@@ -78,6 +78,13 @@ internal sealed class SessionCommandServices
     /// life of the process.
     /// </summary>
     public CcDirector.Core.Licenses.LicenseSwitching? Licenses { get; init; }
+
+    /// <summary>
+    /// Asks this machine's own cc-devthrottle for the commands a create says its instructions use (issue #4744). Null is
+    /// the production check (<see cref="CcDirector.Core.Setup.ToolCommandCheck.ForThisMachine"/>); a test passes its own
+    /// so a create never runs a real tool.
+    /// </summary>
+    public CcDirector.Core.Setup.ToolCommandCheck? ToolCommands { get; init; }
 }
 
 /// <summary>
@@ -1845,6 +1852,25 @@ internal static class SessionCommandExecutor
 
         if (!Enum.TryParse<AgentKind>(req.Agent, ignoreCase: true, out var kind))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unknown agent: {req.Agent}. Valid: ClaudeCode, Pi, Codex, Gemini, OpenCode, Grok, Copilot, RawCli");
+
+        // THE COMMANDS ITS INSTRUCTIONS USE (issue #4744), asked of this machine's own cc-devthrottle BEFORE anything is
+        // created. A seat told to run a command the tools here lack can do nothing - a factory Secretary told to run
+        // "cc-devthrottle factory inbox" started on tools two releases older on 7 November 2026 and the owner's message sat
+        // unfiled - so it is refused, naming the command, and the Gateway passes the sentence on as a 409.
+        if (req.RequiredToolCommands is { Count: > 0 } required)
+        {
+            var check = services?.ToolCommands ?? CcDirector.Core.Setup.ToolCommandCheck.ForThisMachine();
+            // AWAITED, never waited on: the check starts the tool once per command (about two seconds each, side by side),
+            // and the delivering thread is given back at this first await, so a start never holds the Director's command
+            // channel while the tool answers. It answers within its own timeout.
+            var toolRefusal = await check.WhyTheToolsRefuseAsync(required, CancellationToken.None).ConfigureAwait(false);
+            if (toolRefusal is not null)
+            {
+                FileLog.Write($"[SessionCommandExecutor] create REFUSED: {toolRefusal}");
+                return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, toolRefusal);
+            }
+            FileLog.Write($"[SessionCommandExecutor] create: the tools here have every command the instructions use: {string.Join(", ", required)}");
+        }
 
         // Automatic session roles (chunk 2.5): reject an unknown explicit role BEFORE creating the session,
         // so a mistyped --role never silently drops (the exact --type situation we removed).

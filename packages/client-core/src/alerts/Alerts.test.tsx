@@ -79,6 +79,12 @@ function installGateway() {
         const approve = (JSON.parse(String(init?.body)) as { approve?: boolean }).approve === true;
         return answered("secret-transfer:tr-1", approve ? "Approved" : "Denied", { transfer: {}, note: "" });
       }
+      // The owner dealt with a stuck inbox (issue 4746): the Gateway marks it and the alert is gone from the next read.
+      if (url === "/gateway/factory/invoices/inbox/dealt-with" && method === "POST") {
+        state.alerts = state.alerts.filter((a) => a.id !== "factory-inbox-stuck:invoices");
+        state.needsAnswerCount = state.alerts.filter((a) => a.needsAnswer).length;
+        return json({ factory: "invoices", marked: 1 });
+      }
       if (url === "/fleet/link-requests/lr-1/answer") {
         const approve = (JSON.parse(String(init?.body)) as { approve?: boolean }).approve === true;
         return answered("message-request:lr-1", approve ? "Allowed" : "Declined", { request: {}, note: "" });
@@ -247,7 +253,7 @@ describe("the list", () => {
     expect(card.querySelector("details")?.open).toBe(false);
   });
 
-  it("AlertsList_FactoryInboxStuck_ShowsEveryReasonOnce_InTheGatewaysWords_AndNoButtons", async () => {
+  it("AlertsList_FactoryInboxStuck_ShowsEveryReasonOnce_InTheGatewaysWords_AndOnlyDealtWithIt", async () => {
     const alert = stuckAlert();
     given([alert]);
     renderList();
@@ -258,7 +264,19 @@ describe("the list", () => {
     // The first reason is the summary and the second is listed: each sentence reaches the screen exactly once.
     for (const r of alert.detail.reasons) expect(card.textContent?.split(r.sentence)).toHaveLength(2);
     expect(within(card).queryByText(/cannot answer this kind of alert/)).toBeNull();
-    expect(within(within(card).getByTestId("alert-detail")).queryAllByRole("button")).toHaveLength(0);
+    // Issue 4746: the owner can always end it by hand - one button, and nothing else to press.
+    const buttons = within(within(card).getByTestId("alert-detail")).queryAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Dealt with it"]);
+  });
+
+  it("AlertsList_FactoryInboxStuck_DealtWithIt_PostsToTheFactorysInbox_AndTheCardLeaves", async () => {
+    given([stuckAlert()]);
+    renderList();
+    const card = await screen.findByTestId("alert-card");
+    fireEvent.click(within(card).getByRole("button", { name: "Dealt with it" }));
+
+    await waitFor(() => expect(screen.queryByTestId("alert-card")).toBeNull());
+    expect(calls).toContainEqual(expect.objectContaining({ url: "/gateway/factory/invoices/inbox/dealt-with", method: "POST" }));
   });
 
   it("AlertsList_SecretTransfer_ApprovedFromTheCard_LeavesNeedsYou_WithALineSayingSo_ThenTheLineGoes", async () => {

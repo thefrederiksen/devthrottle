@@ -24,6 +24,7 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /gateway/factory/{factory}/inbox?limit=           one factory's thread, newest first, each message with its trail
 ///   GET  /gateway/factory/{factory}/inbox/summary?since=   what came in since a time and the decision on each (no agent)
 ///   GET  /gateway/factory/{factory}/todo                   the factory's to-do list
+///   POST /gateway/factory/{factory}/inbox/dealt-with       the owner dealt with what the stuck alert reports (issue 4746)
 ///
 /// The session routes - the factory is read from the CALLER'S recorded session history, never from the request:
 ///
@@ -77,7 +78,7 @@ internal static class FactoryInboxEndpoints
     public static void Map(IEndpointRouteBuilder app, Parts parts)
     {
         ArgumentNullException.ThrowIfNull(parts);
-        FileLog.Write("[FactoryInboxEndpoints] mapping the factory inbox routes (five owner routes, five session routes)");
+        FileLog.Write("[FactoryInboxEndpoints] mapping the factory inbox routes (six owner routes, five session routes)");
 
         // ---------------------------------------------------------------- owner routes
 
@@ -218,6 +219,36 @@ internal static class FactoryInboxEndpoints
             if (Registered(parts, tenant, factory, out var registered) is { } missing) return missing;
             var items = parts.Store.Todos(tenant, registered!.Factory).Select(Todo).ToList();
             return Results.Json(new { factory = registered.Factory, count = items.Count, items });
+        });
+
+        // THE OWNER DEALT WITH IT (issue 4746): the "Dealt with it" control on the stuck alert, in the Cockpit and on the
+        // phone. The owner's own device and nobody else - a session key or the machine token never ends the owner's alert
+        // for him. What is marked is the store's ruling (the stuck alert's own three rules); the answer says how many.
+        app.MapPost(OwnerPrefix + "/{factory}/inbox/dealt-with", (string factory, HttpContext ctx) =>
+        {
+            FileLog.Write($"[FactoryInboxEndpoints] POST {OwnerPrefix}/{factory}/inbox/dealt-with: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (parts.ResolveTenant(ctx) is not { } tenant) return NoTenant();
+            if (AuthMiddleware.CallingSession(ctx) is { } session)
+            {
+                FileLog.Write($"[FactoryInboxEndpoints] dealt-with REFUSED to session {session.SessionId:D}");
+                return Error(403, "session_key_out_of_scope", "A session may not end the owner's alert; only the owner's phone or Cockpit does.");
+            }
+            var device = AuthMiddleware.AuthenticatedDevice(ctx);
+            if (device is null || SessionOriginSurfaces.FromDeviceType(device.DeviceType) == SessionOriginSurfaces.Unknown)
+                return Error(403, "owner_device_required", "Only the owner's phone or Cockpit marks a factory inbox as dealt with.");
+            // NOT ONLY A REGISTERED FACTORY (issue 4746 review, finding 1). Deleting a factory leaves its inbox rows, and
+            // the stuck alert is raised from those rows alone, so a deleted factory's alert must be clearable too. The
+            // registry only supplies the stored spelling when it has one; the store refuses when nothing is stuck.
+            if (!Factory.FactoryNames.TryFactory(factory, out var folded, out var badName))
+                return Error(400, "bad_factory", badName ?? $"'{factory}' is not one spelling of a factory id.");
+            var name = parts.Factories(tenant).FirstOrDefault(f => string.Equals(f.Factory, folded, StringComparison.OrdinalIgnoreCase))?.Factory
+                       ?? folded;
+            return Refusals(() =>
+            {
+                var marked = parts.Store.DealtWithByOwner(tenant, name, device.DeviceId,
+                    sid => parts.IsEnded(tenant, sid), parts.NowUtc());
+                return Results.Json(new { factory = name, marked });
+            });
         });
 
         // ---------------------------------------------------------------- session routes

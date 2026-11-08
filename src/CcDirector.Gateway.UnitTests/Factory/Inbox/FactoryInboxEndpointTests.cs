@@ -645,4 +645,100 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         Assert.Equal("Waiting", listed.GetProperty("badge").GetString());
         Assert.Equal("1 waiting for a decision", listed.GetProperty("waitingLine").GetString());
     }
+
+    // ---------- the owner dealt with it (issue 4746) ----------
+
+    [Theory]
+    [InlineData(Phone, "owner-phone-1")]
+    [InlineData(Browser, "owner-browser-1")]
+    public async Task DealtWith_FromThePhoneOrTheCockpit_MarksTheStuckMessage_AndTheThreadSaysWhoAndWhen(string caller, string device)
+    {
+        await Leave("Check the totals");
+        _now = _now.AddMinutes(20);
+
+        var (status, body) = await Post("/gateway/factory/invoices/inbox/dealt-with", caller);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("invoices", body.GetProperty("factory").GetString());
+        Assert.Equal(1, body.GetProperty("marked").GetInt32());
+        var (_, thread) = await Get("/gateway/factory/invoices/inbox", Phone);
+        var message = Assert.Single(thread.GetProperty("messages").EnumerateArray());
+        Assert.Equal("decided", message.GetProperty("state").GetString());
+        Assert.Equal("Dealt with by the owner", message.GetProperty("stateLabel").GetString());
+        Assert.Equal("ok", message.GetProperty("tone").GetString());
+        Assert.Equal(JsonValueKind.Null, message.GetProperty("decision").ValueKind);
+        var last = message.GetProperty("trail").EnumerateArray().Last();
+        Assert.Equal("Dealt with by the owner", last.GetProperty("label").GetString());
+        Assert.Equal(_now, last.GetProperty("atUtc").GetDateTime().ToUniversalTime());
+        var stored = Assert.Single(_store.Thread(A, "invoices", 10).Messages);
+        Assert.Equal(device, stored.OwnerDealtWithBy);
+        // The factory's row no longer counts it as waiting.
+        var (_, list) = await Get("/gateway/factory/inbox", Phone);
+        var row = list.GetProperty("factories").EnumerateArray().Single(f => f.GetProperty("factory").GetString() == "invoices");
+        Assert.Equal(0, row.GetProperty("waiting").GetInt32());
+        Assert.Equal("Dealt with by the owner", row.GetProperty("row").GetProperty("badge").GetString());
+    }
+
+    [Theory]
+    [InlineData(Boss, "session_key_out_of_scope")]
+    [InlineData(Secretary1, "session_key_out_of_scope")]
+    [InlineData(MachineToken, "owner_device_required")]
+    public async Task DealtWith_FromASessionOrTheMachineToken_IsRefused_AndChangesNothing(string caller, string code)
+    {
+        await Leave("Check the totals");
+        _now = _now.AddMinutes(20);
+
+        var (status, body) = await Post("/gateway/factory/invoices/inbox/dealt-with", caller);
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal(code, Code(body));
+        Assert.Equal("sent", Assert.Single(_store.Thread(A, "invoices", 10).Messages).State);
+    }
+
+    [Fact]
+    public async Task DealtWith_WhenNothingIsStuck_IsRefusedInWords()
+    {
+        await Leave("Check the totals");
+
+        var (status, body) = await Post("/gateway/factory/invoices/inbox/dealt-with", Phone);
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("not_stuck", Code(body));
+        Assert.Equal("This factory's inbox is not stuck now, so nothing was marked. A Secretary or the Boss has taken its messages since.",
+            body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task DealtWith_AFactoryWithNoInbox_IsRefusedAsNotStuck()
+    {
+        var (status, body) = await Post("/gateway/factory/nowhere/inbox/dealt-with", Phone);
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("not_stuck", Code(body));
+    }
+
+    [Fact]
+    public async Task DealtWith_ADeletedFactorysStuckInbox_CanStillBeCleared()
+    {
+        // The review of issue 4746, finding 1: deleting a factory leaves its inbox rows, and the stuck alert is raised
+        // from those rows alone. Its "Dealt with it" must not answer "not a factory of this account".
+        var id = (await _store.SendAsync(A, new FactoryInboxSendInput("closed-shop", "Check the totals", FactoryInboxWords.Notes.None,
+            FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Phone, "owner-phone-1", _now))).Id;
+        _now = _now.AddMinutes(20);
+
+        var (status, body) = await Post("/gateway/factory/closed-shop/inbox/dealt-with", Phone);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(1, body.GetProperty("marked").GetInt32());
+        Assert.Equal("decided", _store.Get(A, id)!.State);
+    }
+
+    [Fact]
+    public async Task DealtWith_ABadFactoryName_IsRefused()
+    {
+        var (status, body) = await Post("/gateway/factory/Not%20A%20Name!/inbox/dealt-with", Phone);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("bad_factory", Code(body));
+    }
 }

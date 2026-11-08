@@ -46,7 +46,9 @@
   --pin-bg: #16254a;
   --pin-mark-border: #3a4f7a;
 
-  --rail-left-width: 220px;
+  /* 240, not 220, so the rail head holds the name, the license triangle, the bell and the collapse control side by
+     side without cutting the name short (Web UI Polish, 7 November 2026). The Cockpit is a big-screen product. */
+  --rail-left-width: 240px;
 }
 
 * {
@@ -103,7 +105,7 @@ body {
 .rail-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 0 0 16px;
 }
 
@@ -111,7 +113,8 @@ body {
   font-weight: 700;
   font-size: 16px;
   letter-spacing: 0.2px;
-  padding: 4px 8px;
+  /* No right padding: the triangle, the bell and the collapse control sit right after it, with the row's own gap. */
+  padding: 4px 0 4px 8px;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -359,56 +362,6 @@ body {
   min-height: 0;
   overflow: auto;
   padding: 24px 28px;
-}
-
-/* THE LICENSE ALARM BANNER (License Switching phase 6): on every page, above the routed page. Its colour is the
-   Gateway's verdict (data-tone): YELLOW while it is a warning, RED only when a machine is stuck above the switching
-   threshold (the owner, 6 November 2026). The red is the Cockpit's danger colour (docs/CockpitVisualStyle.md), drawn as
-   the error banner draws it but solid enough to be seen from across the room; the yellow is drawn the same way. */
-.license-alarm-banner {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: safe center;
-  gap: 4px;
-  min-width: 0;
-  overflow-x: auto;
-  white-space: nowrap;
-  padding: 8px;
-  border-bottom: 1px solid var(--attention);
-  background: rgba(241, 76, 76, 0.16);
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.license-alarm-banner-summary {
-  flex: 0 0 auto;
-  margin: 0;
-  font-weight: 700;
-  color: var(--danger-text);
-}
-
-.license-alarm-banner-link {
-  flex: 0 0 auto;
-  color: var(--danger-text);
-  font-weight: 600;
-  text-decoration: underline;
-  white-space: nowrap;
-}
-
-.license-alarm-banner-link:hover {
-  filter: brightness(1.1);
-}
-
-.license-alarm-banner--warning {
-  border-bottom-color: var(--caution);
-  background: rgba(250, 204, 21, 0.16);
-}
-
-.license-alarm-banner--warning .license-alarm-banner-summary,
-.license-alarm-banner--warning .license-alarm-banner-link {
-  color: var(--caution-text);
 }
 
 .pane-title {
@@ -3743,6 +3696,25 @@ body {
 
 .report-page-missing {
   padding: 24px 28px;
+}
+
+/* THIS PAGE IN A NARROW WINDOW (Web UI Polish, 7 November 2026). A phone the Gateway recognises is sent to the mobile
+   app's own report page (DevReportLinkRoute, MobileRedirect), which already stacks. This page is reached narrow by a
+   small desktop window, or a phone whose browser the Gateway does not recognise as one - and there the 340px
+   conversation beside the report left the report about 50 pixels: the back link ran one letter per line and the report
+   did not show at all. Narrow, the report takes the full width and the conversation moves below it, in its own scroll,
+   at most a third of the screen. The back link then has the bar's whole width and wraps as words. On a big screen
+   nothing changes. */
+@media (max-width: 700px) {
+  .report-page .dev-report-viewer {
+    flex-direction: column;
+  }
+  .report-page .reports-conversation {
+    flex: 0 0 auto;
+    max-height: 33vh;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
 }
 
 .reports-tab-body {
