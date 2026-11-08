@@ -649,22 +649,21 @@ a.banner-btn {
 }
 
 /* ===== Session filter (Filter sessions panel + app-bar funnel + summary strip) ===== */
-/* The app-bar funnel button, pushed to the right of the title. margin-left:auto floats it to the far
-   edge; it is a >=34px tap target with the same chrome as the hamburger for visual symmetry. */
+/* The funnel button, at the right end of the roster's list toolbar (the owner, 8 November 2026: it acts on the list, and
+   in the title bar the bell was drawn on top of it). A 44px tap target. */
 .filter-btn {
-  /* The right .app-bar-spacer now pushes this to the edge. An auto left-margin here would instead
-     eat that spacer whole (auto margins consume free space before flex-grow), un-centring the pill. */
   margin-left: 0;
   align-self: center;
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  flex: none;
+  width: 44px;
+  height: 44px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text-dim);
   cursor: pointer;
   touch-action: manipulation;
@@ -1287,6 +1286,12 @@ a.banner-btn {
 .view-tab {
   flex: 1 1 0;
   padding: 8px 12px;
+  /* The roster's tabs are buttons: without this an inactive one is drawn with the browser's white button face and
+     looks more selected than the lit one. Only the selected tab is lit. */
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
   border-radius: 7px;
   font-size: 13px;
   font-weight: 700;
@@ -2542,37 +2547,6 @@ a.banner-btn {
    manage row). All colors come from the theme tokens or reuse the Android-tab palette already
    defined above. */
 
-/* "+ New session" entry on the Home roster: a prominent accent-bordered tap target. */
-.new-session-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 14px;
-  min-height: 52px;
-  background: var(--surface);
-  border: 1px dashed var(--accent);
-  border-radius: 10px;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 15px;
-  font-weight: 700;
-  touch-action: manipulation;
-}
-
-.new-session-plus {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #ffffff;
-  font-size: 18px;
-  line-height: 1;
-}
-
 /* The fleet-wide voice switch at the top of the Voice tab (issue #1765). A big, one-tap target - it is
    reached for on the way out the door - full width, accent-filled for the "turn on" action and a muted
    surface for the "turn off" return trip so the two directions read differently at a glance. */
@@ -2610,6 +2584,10 @@ a.banner-btn {
    Sticky at the top so it survives scrolling - the way out must not be something you scroll past. Green,
    matching Respond and the auto-speak checkbox, because voice mode is a working state and not a warning;
    the "Turn off" button is the one solid thing on it, because that is what the bar is FOR. */
+/* ONE 36px LINE (the owner, 8 November 2026). It was two lines and a big button, about 145 pixels on his phone, on
+   every visit. The sentence under "Voice mode is on" is still read by a screen reader (.voicemode-sub below) but not
+   drawn. An error line, when there is one, wraps the bar onto a second line, and the bar's measured height
+   (--voicemode-h) follows it. */
 .voicemode-banner {
   position: sticky;
   /* Parks below the network banner when that one is up, so scrolling never slides this bar - and its
@@ -2620,15 +2598,16 @@ a.banner-btn {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 14px;
+  min-height: 36px;
+  padding: 0 0 0 14px;
   border-bottom: 1px solid #14614f;
   background: #0d2e28;
 }
 
 .voicemode-dot {
   flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #24c39c;
 }
@@ -2636,18 +2615,24 @@ a.banner-btn {
 .voicemode-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #d8f5ec;
 }
 
+/* Read, never drawn: the bar is one line. */
 .voicemode-sub {
-  font-size: 11px;
-  font-weight: 400;
-  color: #8fc4b6;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .voicemode-error {
@@ -2656,20 +2641,30 @@ a.banner-btn {
   color: var(--attention);
 }
 
-/* A real thumb target (>= 44px tall), because this is the control someone reaches for while a voice is
-   talking over them and they are not looking at the screen. */
+/* A small "Turn off" pill, but the button behind it is the bar's full height and runs to its right edge, so the thumb
+   that reaches for it while a voice talks over it still lands on it without looking. */
 .voicemode-off {
   flex: 0 0 auto;
-  min-height: 44px;
-  padding: 10px 16px;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  /* 35px plus the bar's 1px bottom border: a 36px bar. */
+  min-height: 35px;
+  padding: 0 14px 0 6px;
   border: none;
-  border-radius: 10px;
-  background: #0e7c6b;
+  background: transparent;
   color: #ffffff;
-  font-size: 15px;
+  font: inherit;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   touch-action: manipulation;
+}
+
+.voicemode-off-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #0e7c6b;
 }
 
 .voicemode-off:disabled {
@@ -3408,17 +3403,20 @@ a.banner-btn {
 }
 
 /* ===== Hamburger menu + nav drawer (mobile settings) ===== */
+/* A plain three-line menu icon in a 44px tap target (the owner, 8 November 2026): the bordered 34px box read as a drag
+   handle, and a crowded bar squeezed it to 14px. It never shrinks. */
 .hamburger {
   align-self: center;
   display: inline-flex;
+  flex: none;
   flex-direction: column;
   justify-content: center;
   gap: 4px;
-  width: 34px;
-  height: 34px;
-  padding: 7px 6px;
+  width: 44px;
+  height: 44px;
+  padding: 0 11px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 8px;
   cursor: pointer;
 }
@@ -3484,6 +3482,16 @@ a.banner-btn {
 }
 .drawer-item:active {
   background: var(--surface-2);
+}
+/* A menu row that opens something in place (What do the colours mean?) rather than going somewhere: a button drawn
+   exactly as the link rows are. */
+.drawer-item-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 /* The Gateway's unread count of Your inbox beside the Inbox entry (Factory Inbox mission, step C). */
 .drawer-count {
@@ -4868,44 +4876,83 @@ a.banner-btn {
    its bottom: the chevron, one dot per session under it, the counts, the age. Tapping the band expands
    the children IN PLACE as one-line rows at touch height. No indentation - a second level would steal
    width from names that already wrap. ---- */
-.order-row {
+/* THE ROSTER'S LIST TOOLBAR (the owner, 8 November 2026): the All / Voice tabs, the order pill and the filter on one
+   row, instead of three bands (tabs, "Order", the colours link) with the filter up in the title bar. If a very narrow
+   phone cannot fit them, the tabs take a row of their own and the pill and the filter sit under them, at the right. */
+.roster-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 6px 0 2px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.order-label {
-  flex: 0 0 auto;
-}
-/* The "What do the colours mean?" link under the order switch (client-core/sessions/colourLegend.css styles the
-   button and the legend; this only places it). */
-.legend-row {
-  display: flex;
   justify-content: flex-end;
-  margin: 0 0 2px;
+  gap: 8px;
+  margin: 10px 0 4px;
 }
-.order-switch {
-  display: flex;
-  margin-left: auto;
+.roster-toolbar .view-tabs {
+  flex: 1 1 96px;
+  margin: 0;
+}
+.roster-toolbar .view-tab {
+  padding: 9px 10px;
+}
+/* The order, as one pill naming the order shown; tapping it switches to the other one. */
+.order-pill {
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  overflow: hidden;
-}
-.order-btn {
-  padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
+  border-radius: 22px;
   background: var(--surface-2);
-  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
 }
-.order-btn.on {
-  color: #ffffff;
+/* The roster's title bar: the menu, the title, then the triangle, the bell and the account badge at the right end, each
+   a 44px tap target 12px from the next. When the bar is short of room the TITLE gives it up, never a control. */
+.app-bar.home-bar {
+  gap: 12px;
+  padding: 6px 0;
+}
+.app-bar.home-bar h1 {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-bar.home-bar .app-bar-spacer {
+  margin-left: -12px;
+}
+/* "+ New" floats at the bottom right, in reach of a thumb (the owner, 8 November 2026), in place of the 120px dashed
+   box above the list. The roster screen keeps room under its last card for it, so it never covers a card's tap target. */
+.screen.home-screen {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+.new-session-fab {
+  position: fixed;
+  right: max(16px, calc((100vw - 680px) / 2 + 16px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 52px;
+  padding: 0 20px 0 16px;
+  border-radius: 26px;
   background: var(--accent);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  touch-action: manipulation;
+}
+.new-session-fab-plus {
+  font-size: 22px;
+  line-height: 1;
 }
 .crew-band {
   display: flex;

@@ -147,7 +147,7 @@ describe("the phone roster is the ownership tree", () => {
 
   it("switches to my order, grouped by machine, and remembers the choice on this device", async () => {
     await renderHome([snoozed, alone, architect, worker, stopped, laptop]);
-    fireEvent.click(screen.getByRole("button", { name: "My order" }));
+    fireEvent.click(screen.getByTestId("order-pill"));
 
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings).toEqual(["SOREN_NORTH", "SORENLAPTOP"]);
@@ -186,7 +186,7 @@ describe("the phone roster is the ownership tree", () => {
   it("nests a Worker on another machine under its Architect and names that machine on its row", async () => {
     const remote = session({ sessionId: "R", number: 300, name: "Rule Factory - Worker - remote", sortOrder: 0, controllerSessionId: "108", directorId: "director-two", machineName: "SORENLAPTOP" });
     await renderHome([alone, architect, remote]);
-    fireEvent.click(screen.getByRole("button", { name: "My order" }));
+    fireEvent.click(screen.getByTestId("order-pill"));
 
     // Only SOREN_NORTH has a top-level row; the remote Worker is under 108, not a card of its own.
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["SOREN_NORTH"]);
@@ -261,13 +261,45 @@ describe("the phone roster is the ownership tree", () => {
 });
 
 describe("the colour legend on the phone roster", () => {
-  it("offers the legend under the order switch, and opens it", async () => {
+  // The owner, 8 November 2026: the link took a row of its own above the sessions; it is a menu item now.
+  it("offers the legend in the menu, not above the sessions, and opens it", async () => {
     await renderHome([alone, architect]);
 
+    expect(screen.queryByRole("button", { name: "What do the colours mean?" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     fireEvent.click(screen.getByRole("button", { name: "What do the colours mean?" }));
 
     expect(screen.getByRole("dialog", { name: "What the colours mean" })).toBeTruthy();
-    expect(rule(".legend-row")).toContain("display: flex");
+    expect(screen.queryByRole("navigation", { name: "Navigation" })).toBeNull();
+  });
+});
+
+describe("the phone roster's list toolbar", () => {
+  it("shows the order as one pill naming the order shown, and tapping it switches to the other", async () => {
+    await renderHome([alone, architect]);
+
+    const pill = screen.getByTestId("order-pill");
+    expect(pill.textContent).toBe("Needs you first");
+    fireEvent.click(pill);
+    expect(screen.getByTestId("order-pill").textContent).toBe("My order");
+    fireEvent.click(screen.getByTestId("order-pill"));
+    expect(screen.getByTestId("order-pill").textContent).toBe("Needs you first");
+  });
+
+  it("puts the tabs, the order and the filter on one toolbar, and New floats instead of a box above the list", async () => {
+    await renderHome([alone, architect]);
+
+    const toolbar = document.querySelector(".roster-toolbar");
+    expect(toolbar?.contains(screen.getByRole("tab", { name: "All" }))).toBe(true);
+    expect(toolbar?.contains(screen.getByRole("tab", { name: "Voice sessions" }))).toBe(true);
+    expect(toolbar?.contains(screen.getByTestId("order-pill"))).toBe(true);
+    expect(toolbar?.contains(screen.getByRole("button", { name: "Filter sessions" }))).toBe(true);
+    const fab = screen.getByTestId("new-session");
+    expect(fab.getAttribute("href")).toBe("/new");
+    expect(fab.className).toBe("new-session-fab");
+    expect(rule(".new-session-fab")).toContain("position: fixed");
+    // Room under the last card, so the floating button never covers a card's tap target.
+    expect(rule(".screen.home-screen")).toContain("padding-bottom: calc(96px");
   });
 });
 
@@ -306,7 +338,7 @@ describe("the phone pins the Fleet Manager first", () => {
 
   it("keeps the pinned card first in my order too, and expands its team in place", async () => {
     await renderHome([alone, architect, teamA, fm]);
-    fireEvent.click(screen.getByRole("button", { name: "My order" }));
+    fireEvent.click(screen.getByTestId("order-pill"));
 
     expect(cardNames()[0]).toBe("The Fleet ManagerFleet Manager (fake mark)");
     fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under The Fleet Manager/ }));

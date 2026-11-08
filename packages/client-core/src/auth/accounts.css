@@ -184,38 +184,38 @@
 
 /* The compact identity chip (AccountSwitcher). Sized to sit inside an app bar or a menu header without
    changing its height, and truncating rather than wrapping - an email is long and the bar is not. */
+/* The account badge (AccountSwitcher): a round initials badge at the right end of the phone's roster bar, inside a 44px
+   tap target. It never shrinks - a bar short of room gives up its title text, never a control. */
 .accts-chip {
   display: inline-flex;
+  flex: none;
   align-items: center;
-  gap: 0.35rem;
-  /* Shrinkable, and modest at its widest. It shares the roster app bar with the menu button, the title
-     and the filter button, so a fixed 11rem could push the filter button off a narrow phone. */
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 8rem;
-  padding: 0.2rem 0.55rem;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 0.8rem;
-  line-height: 1.4;
   cursor: pointer;
 }
 
-.accts-chip:hover {
-  background: rgba(255, 255, 255, 0.12);
+.accts-chip-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
-.accts-chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.accts-chip-caret {
-  flex: 0 0 auto;
-  opacity: 0.7;
-  font-size: 0.7rem;
+.accts-chip:hover .accts-chip-initials,
+.accts-chip:focus-visible .accts-chip-initials {
+  background: rgba(255, 255, 255, 0.16);
 }
