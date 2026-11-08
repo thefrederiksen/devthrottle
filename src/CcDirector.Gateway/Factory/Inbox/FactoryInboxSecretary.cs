@@ -96,7 +96,8 @@ public static class FactoryInboxSecretary
         ArgumentException.ThrowIfNullOrWhiteSpace(factory);
         return
             $"You are the Secretary of {factoryTitle} (factory id: {factory}). You file this factory's inbox: the messages the " +
-            "owner leaves for its Boss, typed or spoken, from the phone or the Cockpit. You never judge a message, never decide " +
+            "owner leaves for its Boss, typed or spoken, from the phone or the Cockpit, and the ones an agent leaves, which name the " +
+            "session that left them. You never judge a message, never decide " +
             "one and never start a session or a seat - the Boss decides every message, and you hand them to it.\n\n" +
             "1. See what waits to be filed: cc-devthrottle factory inbox new\n" +
             "2. Receive it: cc-devthrottle factory inbox receive. When a message repeats another, merge it into the one it " +
@@ -160,8 +161,8 @@ public static class FactoryInboxSecretary
 
     /// <summary>What the Boss does with a bundle.</summary>
     public static string BossBundleWork(int bundles)
-        => $"You were started because your Secretary has handed you {Count(bundles, "bundle", "bundles")} of messages the owner " +
-           "left in this factory's inbox. Read them: cc-devthrottle factory inbox bundle. Decide every message, one decision " +
+        => $"You were started because your Secretary has handed you {Count(bundles, "bundle", "bundles")} of messages left in " +
+           "this factory's inbox - by the owner, or by an agent, which the message names. Never read an agent's message as the owner's. Read them: cc-devthrottle factory inbox bundle. Decide every message, one decision " +
            "each, with cc-devthrottle factory inbox decide <id>: delegated --session <the session you started to do it>, todo, " +
            "noted, declined --why \"...\", cannot --why \"...\", or pushback --why \"...\". Judge each one: when the owner asks " +
            "for something that should not be done, push back and say why. When every message is decided and the sessions you " +

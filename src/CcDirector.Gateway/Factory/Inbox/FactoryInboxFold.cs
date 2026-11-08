@@ -34,7 +34,8 @@ public static class FactoryInboxFold
             Decision: decision is null ? null : Decision(decision),
             Trail: Trail(m, decision, handedAtUtc),
             Tone: FactoryInboxWords.Tone(m.State, decision?.Kind),
-            SourceLabel: FactoryInboxWords.SourceLabel(m.Source));
+            SourceLabel: FactoryInboxWords.SourceLabel(m.Source),
+            FromLabel: FactoryInboxWords.FromLabel(m.Surface, m.SentBySessionNumber, m.SentBySessionName));
     }
 
     /// <summary>
@@ -114,7 +115,7 @@ public static class FactoryInboxFold
     {
         var trail = new List<FactoryInboxTrailStepDto>
         {
-            new(FactoryInboxWords.Steps.Sent, $"Sent {FactoryInboxWords.SurfacePhrase(m.Surface)}", m.SentAtUtc),
+            new(FactoryInboxWords.Steps.Sent, FactoryInboxWords.SentStepLabel(m.Surface, m.SentBySessionNumber, m.SentBySessionName), m.SentAtUtc),
         };
         if (m.ReceivedAtUtc is { } received)
             trail.Add(new(FactoryInboxWords.Steps.Received, "Received by the Secretary", received));
@@ -179,7 +180,7 @@ public sealed record FactoryInboxMessageDto(
     string Id, string Factory, string Text, string? RawText, string Note, string NoteLabel, string Source, string Surface,
     DateTime SentAtUtc, string State, string StateLabel, string? MergedInto, IReadOnlyList<FactoryInboxLinkDto> Links,
     string? BundleId, FactoryInboxDecisionDto? Decision, IReadOnlyList<FactoryInboxTrailStepDto> Trail, string Tone,
-    string SourceLabel);
+    string SourceLabel, string FromLabel);
 
 /// <summary>A factory's row on the Factory inbox list: <see cref="Line"/> under its name (its newest message, or that it has
 /// none), <see cref="WaitingLine"/> (null with no messages), a short <see cref="Badge"/> with the <see cref="Tone"/> a

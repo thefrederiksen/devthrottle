@@ -116,6 +116,7 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
                 _deliveries++;
                 return _fleet.Send(tenant, null, new FleetParty(sid, null, null, null), text, FleetMessageKinds.System, FleetMessageExemption.System);
             },
+            SendAsAgent: (_, _, _, _) => throw new InvalidOperationException("the owner's routes never send as an agent"),
             SendToFactory: (tenant, input, ct) => _factoryInbox.SendAsync(tenant, input, ct),
             MessageSent: (tenant, factory, sentAtUtc) => _wakes.Add((tenant, factory, sentAtUtc)),
             NowUtc: () => _now));

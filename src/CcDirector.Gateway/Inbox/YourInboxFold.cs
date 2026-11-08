@@ -21,6 +21,9 @@ public sealed record YourInboxReplyToDto(string Target, string Label);
 /// <summary>One reply the owner sent, with where it went.</summary>
 public sealed record YourInboxReplyDto(string Id, string Text, string RoutedTo, string Label, DateTime SentAtUtc);
 
+/// <summary>One thing an agent did to a message, as the message shows it: the act, the finished line, and when.</summary>
+public sealed record YourInboxAgentActionDto(string Act, string Line, DateTime AtUtc);
+
 /// <summary>One filter on the Your inbox screen: the view it shows, its button's words, and how many messages it holds.</summary>
 public sealed record YourInboxFilterDto(string View, string Label, int Count);
 
@@ -40,7 +43,9 @@ public sealed record YourInboxMessageDto(
     DateTime SentAtUtc,
     DateTime? ReadAtUtc,
     DateTime? ArchivedAtUtc,
-    IReadOnlyList<YourInboxReplyDto>? Replies);
+    IReadOnlyList<YourInboxReplyDto>? Replies,
+    IReadOnlyList<YourInboxAgentActionDto> AgentActions,
+    string? AgentLine);
 
 /// <summary>An offer made when a reply cannot go where it was meant to: what it is, its words, and what the client needs
 /// to act on it.</summary>
@@ -61,12 +66,16 @@ public sealed record YourInboxReplyOfferDto(string Kind, string Label, string? D
 public static class YourInboxFold
 {
     /// <summary>One message, folded. <paramref name="factoryTitles"/> names the account's factories by id;
-    /// <paramref name="replies"/> is given only when one message is read on its own.</summary>
+    /// <paramref name="replies"/> is given only when one message is read on its own. <paramref name="agentActions"/> is
+    /// what agents did to it, oldest first: each act becomes a finished line in <see cref="YourInboxMessageDto.AgentActions"/>,
+    /// and the newest is <see cref="YourInboxMessageDto.AgentLine"/>, the one line a list row shows.</summary>
     public static YourInboxMessageDto Message(YourInboxMessageEntity m, IReadOnlyDictionary<string, string> factoryTitles,
-        IReadOnlyList<YourInboxReplyEntity>? replies = null)
+        IReadOnlyList<YourInboxReplyEntity>? replies = null, IReadOnlyList<YourInboxAgentActionEntity>? agentActions = null)
     {
         ArgumentNullException.ThrowIfNull(m);
         ArgumentNullException.ThrowIfNull(factoryTitles);
+        var acts = (agentActions ?? []).OrderBy(a => a.AtUtc).ThenBy(a => a.Id).Select(AgentAction).ToList();
+        var replyActs = (agentActions ?? []).Where(a => a.ReplyId is not null).ToDictionary(a => a.ReplyId!.Value);
         return new YourInboxMessageDto(
             Id: m.Id.ToString("D"),
             Subject: m.Subject,
@@ -82,7 +91,16 @@ public static class YourInboxFold
             SentAtUtc: m.SentAtUtc,
             ReadAtUtc: m.ReadAtUtc,
             ArchivedAtUtc: m.ArchivedAtUtc,
-            Replies: replies?.Select(r => Reply(r, m, factoryTitles)).ToList());
+            Replies: replies?.Select(r => Reply(r, m, factoryTitles, replyActs.TryGetValue(r.Id, out var by) ? by : null)).ToList(),
+            AgentActions: acts,
+            AgentLine: acts.Count == 0 ? null : acts[^1].Line);
+    }
+
+    /// <summary>One agent act, with its line folded once (<see cref="YourInboxWords.AgentLine"/>).</summary>
+    public static YourInboxAgentActionDto AgentAction(YourInboxAgentActionEntity a)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        return new YourInboxAgentActionDto(a.Action, YourInboxWords.AgentLine(a.Action, a.SessionNumber, a.SessionName, a.AtUtc), a.AtUtc);
     }
 
     /// <summary>
@@ -127,13 +145,17 @@ public static class YourInboxFold
             ? new(YourInboxWords.ReplyTargets.Factory, $"Reply into the Factory inbox of {FactoryTitle(m.Factory!, factoryTitles)}")
             : new(YourInboxWords.ReplyTargets.Session, "Reply to " + DevReportSessionLabel.Session(m.SessionNumber, m.SessionName));
 
-    /// <summary>One reply, with where it went in words.</summary>
-    public static YourInboxReplyDto Reply(YourInboxReplyEntity r, YourInboxMessageEntity m, IReadOnlyDictionary<string, string> factoryTitles)
+    /// <summary>One reply, with where it went in words - and, for a reply an agent sent (<paramref name="byAgent"/>), who
+    /// sent it, so a reply an agent wrote is never read as the owner's.</summary>
+    public static YourInboxReplyDto Reply(YourInboxReplyEntity r, YourInboxMessageEntity m, IReadOnlyDictionary<string, string> factoryTitles,
+        YourInboxAgentActionEntity? byAgent = null)
     {
         ArgumentNullException.ThrowIfNull(r);
         var label = r.RoutedTo == YourInboxWords.ReplyTargets.Factory
             ? $"Left in the Factory inbox of {FactoryTitle(r.Factory!, factoryTitles)}"
             : $"Sent to {DevReportSessionLabel.Session(m.SessionNumber, m.SessionName)}, which reads it when it is free";
+        if (byAgent is not null)
+            label = $"{label}. Written by an agent: {YourInboxWords.AgentSession(byAgent.SessionNumber, byAgent.SessionName)}";
         return new YourInboxReplyDto(r.Id.ToString("D"), r.Text, r.RoutedTo, label, r.SentAtUtc);
     }
 
@@ -144,10 +166,22 @@ public static class YourInboxFold
     public static string ReplyForSession(YourInboxMessageEntity m, string reply)
         => $"The owner replied to the message you sent to his inbox, \"{m.Subject}\" (sent {m.SentAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC):\n\n{reply}";
 
-    /// <summary>The first prompt of a new session started to carry a reply its ended session cannot read.</summary>
-    public static string ReplyForNewSession(YourInboxMessageEntity m, string reply)
+    /// <summary>
+    /// The text an AGENT's reply is delivered to a running session as: who wrote it - an agent, named - and what it answers,
+    /// then the agent's words exactly. It never says the owner replied: he did not.
+    /// </summary>
+    public static string AgentReplyForSession(YourInboxMessageEntity m, string reply, YourInboxAgent agent)
+        => $"An agent, {YourInboxWords.AgentSession(agent.SessionNumber, agent.SessionName)}, working on the owner's account, replied to the message you sent to his inbox, " +
+           $"\"{m.Subject}\" (sent {m.SentAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC). The owner did not write this reply:\n\n{reply}";
+
+    /// <summary>The first prompt of a new session started to carry a reply its ended session cannot read. For a reply an
+    /// agent wrote (<paramref name="agent"/> set) it names that agent, never the owner.</summary>
+    public static string ReplyForNewSession(YourInboxMessageEntity m, string reply, YourInboxAgent? agent = null)
         => $"Session {DevReportSessionLabel.Session(m.SessionNumber, m.SessionName)} sent the owner a message in Your inbox and has since ended. " +
-           $"Its subject was \"{m.Subject}\" and it said:\n\n{m.Body}\n\nThe owner's reply:\n\n{reply}";
+           $"Its subject was \"{m.Subject}\" and it said:\n\n{m.Body}\n\n" +
+           (agent is null
+               ? $"The owner's reply:\n\n{reply}"
+               : $"A reply from an agent, {YourInboxWords.AgentSession(agent.SessionNumber, agent.SessionName)} (not from the owner):\n\n{reply}");
 
     /// <summary>The sentence the reply route answers with when the session that sent a message has ended.
     /// <paramref name="factoryTitle"/> is the title of the factory the session was a seat of, when its Factory inbox can

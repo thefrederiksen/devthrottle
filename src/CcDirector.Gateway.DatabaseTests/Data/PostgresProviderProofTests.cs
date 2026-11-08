@@ -445,6 +445,10 @@ public sealed class PostgresProviderProofTests
             ("workspaces", "Id"),
             // Your inbox (Factory Inbox mission, phase 3): the state, the sender kind and where a reply went are closed
             // words compared exactly; the session ids and the factory are exact keys.
+            // What an agent did to a message (the owner's decision of 7 November 2026): the act is a closed word and
+            // the session id an exact key.
+            ("your_inbox_agent_actions", "Action"),
+            ("your_inbox_agent_actions", "SessionId"),
             ("your_inbox_messages", "Factory"),
             ("your_inbox_messages", "FromKind"),
             ("your_inbox_messages", "SessionId"),

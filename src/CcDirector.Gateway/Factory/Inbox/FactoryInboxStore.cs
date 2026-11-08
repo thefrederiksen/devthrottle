@@ -83,6 +83,9 @@ public sealed class FactoryInboxStore
             throw new FactoryInboxRefusedException("bad_source", $"The source must be one of {string.Join(", ", FactoryInboxWords.Sources.All)}, not '{input.Source}'.");
         if (input.Surface is not (FactoryInboxWords.Surfaces.Phone or FactoryInboxWords.Surfaces.Cockpit or FactoryInboxWords.Surfaces.Session))
             throw new ArgumentException($"'{input.Surface}' is not a factory inbox surface.", nameof(input));
+        // An agent's message is typed: a session has no microphone, and only the owner's spoken words carry corrections.
+        if (input.Surface == FactoryInboxWords.Surfaces.Session && input.Source != FactoryInboxWords.Sources.Typed)
+            throw new ArgumentException("A message an agent leaves is typed.", nameof(input));
 
         string text;
         string? raw = null, corrections = null;
@@ -129,6 +132,8 @@ public sealed class FactoryInboxStore
             Source = input.Source,
             Surface = input.Surface,
             SentBy = input.SentBy,
+            SentBySessionNumber = input.Surface == FactoryInboxWords.Surfaces.Session ? input.SessionNumber : null,
+            SentBySessionName = input.Surface == FactoryInboxWords.Surfaces.Session ? input.SessionName : null,
             SentAtUtc = input.NowUtc,
             State = FactoryInboxWords.States.Sent,
         };
@@ -552,7 +557,10 @@ public sealed class FactoryInboxStore
             // decision and its message stand or fall together. Delegated, To do and Noted write none.
             if (FactoryInboxWords.Decisions.TellsTheOwner(kind))
                 ctx.YourInboxMessages.Add(CcDirector.Gateway.Inbox.YourInboxStore.ForBossDecision(
-                    tenant, factory, bossSessionId, message.Id, message.Text, message.SentAtUtc, kind, reason!, nowUtc));
+                    tenant, factory, bossSessionId, message.Id, message.Text, message.SentAtUtc, kind, reason!, nowUtc,
+                    message.Surface == FactoryInboxWords.Surfaces.Session
+                        ? CcDirector.Gateway.Inbox.YourInboxWords.AgentSession(message.SentBySessionNumber, message.SentBySessionName)
+                        : null));
             try
             {
                 ctx.SaveChanges();
@@ -692,10 +700,12 @@ public sealed class FactoryInboxStore
     }
 }
 
-/// <summary>What the owner's send logs: <see cref="Text"/> for a typed message, <see cref="RawText"/> only for a spoken one.</summary>
+/// <summary>What a send logs: <see cref="Text"/> for a typed message, <see cref="RawText"/> only for a spoken one. For a
+/// message an agent leaves (surface <c>session</c>), <see cref="SentBy"/> is the session's id and
+/// <see cref="SessionNumber"/> and <see cref="SessionName"/> are who it was when it left it, from the Gateway's records.</summary>
 public sealed record FactoryInboxSendInput(
     string Factory, string? Text, string Note, string Source, string Surface, string SentBy, DateTime NowUtc,
-    string? RawText = null);
+    string? RawText = null, int? SessionNumber = null, string? SessionName = null);
 
 /// <summary>A Secretary's merge: <see cref="Id"/> repeats <see cref="Into"/>.</summary>
 public sealed record FactoryInboxMerge(Guid Id, Guid Into);

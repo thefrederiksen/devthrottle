@@ -116,6 +116,15 @@ export function YourInboxMessageView({ id, surface, hrefFor, showSubject = true,
       <div className="yi-body" data-testid="yi-body">
         {message.body}
       </div>
+      {message.agentActions.length > 0 && (
+        <ul className="yi-agent-acts" data-testid="yi-agent-acts">
+          {message.agentActions.map((a, i) => (
+            <li key={`${a.atUtc}-${i}`} className="yi-agent-line" data-testid="yi-agent-line">
+              {a.line}
+            </li>
+          ))}
+        </ul>
+      )}
       {links.length > 0 && (
         <div className="yi-links">
           {links.map(({ link, href }) => (

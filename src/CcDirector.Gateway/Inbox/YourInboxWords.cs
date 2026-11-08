@@ -196,6 +196,114 @@ public static class YourInboxWords
     public static string ActionLabelFor(string state, string action)
         => state == States.Archived && action == Actions.MarkRead ? "Move to inbox" : ActionLabel(action);
 
+    /// <summary>
+    /// WHAT AN AGENT DID TO A MESSAGE (the owner's decision of 7 November 2026: "An agent should be able to do what it can
+    /// do with regular email"). Every act is recorded with the session that did it, and shown on the message, so the owner
+    /// can always tell his own acts from an agent's. Reading is an act too, and it does NOT mark the message read.
+    /// </summary>
+    public static class AgentActs
+    {
+        /// <summary>Opened the message and read it. The message stays unread.</summary>
+        public const string Read = "read";
+        public const string MarkedRead = "marked-read";
+        public const string MarkedUnread = "marked-unread";
+
+        /// <summary>Archived it - what an agent's "delete" is (the owner, 7 November 2026: "Delete means Archive").</summary>
+        public const string Archived = "archived";
+
+        /// <summary>Moved it back from Archived to the inbox - the undo of a delete.</summary>
+        public const string Restored = "restored";
+        public const string Replied = "replied";
+
+        /// <summary>Left a message in a factory's Factory inbox. Shown on THAT message, in the factory's thread - the one
+        /// act that is not on a Your inbox message.</summary>
+        public const string LeftInFactory = "left-in-factory";
+        public static readonly IReadOnlyList<string> All = [Read, MarkedRead, MarkedUnread, Archived, Restored, Replied];
+    }
+
+    /// <summary>The state word an agent sends to move an archived message back to the inbox - the undo of its "delete".
+    /// It goes back unread if nobody ever marked it read, and read if somebody did.</summary>
+    public const string AgentRestore = "restore";
+
+    /// <summary>What an agent is told after reading a message.</summary>
+    public const string AgentReadNote =
+        "Reading did not mark it read: the owner has still not read it. Mark it read only when you are told to.";
+
+    /// <summary>Where a reply goes, for a message nobody reads a reply to (one from the Gateway itself).</summary>
+    public const string NoReplyLine = "Nobody: this message is from the Gateway itself, and nobody reads a reply to it.";
+
+    /// <summary>What an agent is told after its reply went.</summary>
+    public const string AgentReplyDone =
+        "Replied. The reply is shown as from this session, never from the owner, and the message's state is unchanged.";
+
+    /// <summary>What an agent is told when the message policy refused its reply to a session.</summary>
+    public const string AgentReplyRefusedInstead =
+        "A reply from an agent is a message from that agent, so it goes only where that agent may send a message.";
+
+    /// <summary>
+    /// What an agent is told after it set a message's state: what it did, in words - an archive says it is the "delete"
+    /// and can be undone - or that nothing changed. <paramref name="act"/> is null when nothing changed.
+    /// </summary>
+    public static string AgentDone(string? act, string state) => act switch
+    {
+        null => $"Nothing changed: the message was already {StateLabel(state).ToLowerInvariant()}.",
+        AgentActs.Archived => "Archived. Delete is archive: the message left the inbox and is under Archived, where it can be restored. Nothing was deleted.",
+        AgentActs.Restored => $"Moved back to the inbox, {StateLabel(state).ToLowerInvariant()}.",
+        AgentActs.MarkedRead => "Marked read.",
+        AgentActs.MarkedUnread => "Marked unread.",
+        _ => throw new ArgumentOutOfRangeException(nameof(act), act, "not an agent act on a message's state"),
+    };
+
+    /// <summary>What an agent's act is shown as, before who did it.</summary>
+    public static string AgentActLabel(string act) => act switch
+    {
+        AgentActs.Read => "Read by an agent",
+        AgentActs.MarkedRead => "Marked read by an agent",
+        AgentActs.MarkedUnread => "Marked unread by an agent",
+        AgentActs.Archived => "Archived by an agent",
+        AgentActs.Restored => "Moved back to the inbox by an agent",
+        AgentActs.Replied => "Replied to by an agent",
+        AgentActs.LeftInFactory => "Left by an agent",
+        _ => throw new ArgumentOutOfRangeException(nameof(act), act, "not an agent act on Your inbox"),
+    };
+
+    /// <summary>
+    /// The act an agent's state change is: archiving, moving an archived message back to the inbox, or a mark. Null when
+    /// the state does not change - nothing was done, so nothing is recorded.
+    /// </summary>
+    public static string? AgentActFor(string was, string state)
+    {
+        if (was == state) return null;
+        if (state == States.Archived) return AgentActs.Archived;
+        if (was == States.Archived) return AgentActs.Restored;
+        return state == States.Read ? AgentActs.MarkedRead : AgentActs.MarkedUnread;
+    }
+
+    /// <summary>
+    /// A session as an agent's act names it: <c>session 114 "Factory Inbox - Delivery Lead"</c>; the number alone, the name
+    /// alone, or "a session" when the Gateway knew neither. Never the session's id: the owner cannot read one.
+    /// </summary>
+    public static string AgentSession(int? number, string? name)
+    {
+        var cleaned = (name ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+        var digits = number is { } n ? n.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+        if (digits.Length > 0 && cleaned.Length > 0) return $"session {digits} \"{cleaned}\"";
+        if (digits.Length > 0) return $"session {digits}";
+        if (cleaned.Length > 0) return $"session \"{cleaned}\"";
+        return "a session";
+    }
+
+    /// <summary>A time on an agent's line: the date, the minute and that it is UTC.</summary>
+    public static string AgentTime(DateTime atUtc)
+        => DateTime.SpecifyKind(atUtc, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+
+    /// <summary>
+    /// THE LINE SHOWN ON A MESSAGE FOR ONE AGENT ACT, folded here once and printed by every screen as it is (CLAUDE.md
+    /// rule 7): <c>Archived by an agent: session 114 "Factory Inbox - Delivery Lead", 2026-11-07 14:02 UTC</c>.
+    /// </summary>
+    public static string AgentLine(string act, int? number, string? name, DateTime atUtc)
+        => $"{AgentActLabel(act)}: {AgentSession(number, name)}, {AgentTime(atUtc)}";
+
     /// <summary>What the unread count says on the Inbox entry: empty when there is nothing unread.</summary>
     public static string CountLabel(int unread) => unread switch
     {

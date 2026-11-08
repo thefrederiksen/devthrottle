@@ -235,6 +235,27 @@ public static class FactoryInboxWords
         _ => throw new ArgumentOutOfRangeException(nameof(source), source, "not a factory inbox source"),
     };
 
+    /// <summary>
+    /// WHO LEFT A MESSAGE, as its thread shows it (the owner's decision of 7 November 2026: a message an agent leaves in a
+    /// factory is shown as from that agent, never as from the owner). The owner's own messages are from his phone or his
+    /// Cockpit; an agent's names the session.
+    /// </summary>
+    public static string FromLabel(string surface, int? sessionNumber, string? sessionName) => surface switch
+    {
+        Surfaces.Phone => "From the owner, on the phone",
+        Surfaces.Cockpit => "From the owner, in the Cockpit",
+        Surfaces.Session => $"From an agent: {CcDirector.Gateway.Inbox.YourInboxWords.AgentSession(sessionNumber, sessionName)}",
+        _ => throw new ArgumentOutOfRangeException(nameof(surface), surface, "not a factory inbox surface"),
+    };
+
+    /// <summary>The first step of a message's trail: where it was sent from, and for an agent's message which agent, so
+    /// the trail never reads as the owner's. No time: the step carries its own, which the screens print beside it.</summary>
+    public static string SentStepLabel(string surface, int? sessionNumber, string? sessionName)
+        => surface == Surfaces.Session
+            ? $"{CcDirector.Gateway.Inbox.YourInboxWords.AgentActLabel(CcDirector.Gateway.Inbox.YourInboxWords.AgentActs.LeftInFactory)}: " +
+              CcDirector.Gateway.Inbox.YourInboxWords.AgentSession(sessionNumber, sessionName)
+            : $"Sent {SurfacePhrase(surface)}";
+
     /// <summary>Where a message came from, as a phrase.</summary>
     public static string SurfacePhrase(string surface) => surface switch
     {

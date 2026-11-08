@@ -13,6 +13,7 @@ export function oddMessage(over: Partial<FactoryInboxMessage> = {}): FactoryInbo
     noteLabel: "Bad-ish (gateway)",
     source: "typed",
     sourceLabel: "Keyed in (gateway)",
+    fromLabel: "From the pocket gadget (gateway)",
     surface: "phone",
     sentAtUtc: "2026-11-05T09:02:00Z",
     state: "decided",

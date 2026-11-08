@@ -6997,6 +6997,18 @@ public sealed class GatewayHost : IAsyncDisposable
                     new Messaging.FleetParty(sessionId, null, naming.Name, null), text,
                     Messaging.FleetMessageKinds.System, Messaging.FleetMessageExemption.System);
             },
+            // An agent's reply: an ordinary message from that agent, under the normal policy, with both ends read from the
+            // roster exactly as `message send` reads them - never a Gateway notice (review of #4767, finding 1).
+            SendAsAgent: new Inbox.YourInboxAgentReplySender(_fleetMessageService,
+                (tenant, sid) =>
+                {
+                    var row = Api.GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid);
+                    return new Messaging.FleetParty(sid,
+                        string.IsNullOrWhiteSpace(row?.ControllerSessionId) ? null : row!.ControllerSessionId,
+                        string.IsNullOrWhiteSpace(row?.Name) ? null : row!.Name,
+                        string.IsNullOrWhiteSpace(row?.MachineName) ? null : row!.MachineName);
+                },
+                RaisedSessions.IsRaised, RaisedSessionRecord, MessageLinkRecord).Send,
             SendToFactory: (tenant, input, ct) => FactoryInbox.SendAsync(tenant, input, ct),
             // The same event as the owner's own send to a factory; the reply route does not wait for the look.
             MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),

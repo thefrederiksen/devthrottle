@@ -136,9 +136,10 @@ message_app.add_typer(link_app, name="link")
 inbox_app = typer.Typer(
     cls=AxiGroup,
     help=(
-        "Tell the owner something in Your inbox, instead of emailing him.\n\n"
-        "It reaches his DevThrottle inbox on his phone and in the Cockpit. He may reply; a reply reaches "
-        "this session's inbox while it runs."
+        "The account's inbox, used like email: send, list, read, delete, mark, reply.\n\n"
+        "It is the owner's DevThrottle inbox on his phone and in the Cockpit, in the account this session's "
+        "Director is signed in as. Reading does NOT mark a message read. Delete is ARCHIVE: the message moves "
+        "to Archived and can be restored. Every act is shown on the message as this session's, never the owner's."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -4200,10 +4201,19 @@ def message_request(
     link_ops.request(target, reason, amount, json_output)
 
 
+_BODY_FILE_HELP = (
+    "Read the text from this file instead ('-' reads standard input). Use it for any text of more than one line "
+    "written by a script: on Windows the cc-devthrottle.cmd shim cuts an argument at its first line break, "
+    "silently, so a multi-line text on the command line arrives as its first line only."
+)
+
+
 @inbox_app.command("send")
 def inbox_send(
     subject: str = typer.Option(..., "--subject", help="One line saying what the message is about."),
-    body: str = typer.Option(..., "--body", help="What the owner needs to know. It may span lines."),
+    body: Optional[str] = typer.Option(
+        None, "--body", help="What the owner needs to know. For more than one line from a script, use --body-file."),
+    body_file: Optional[str] = typer.Option(None, "--body-file", help=_BODY_FILE_HELP),
     report: str = typer.Option("", "--report", help="A dev report the message is about, by its id; the message links to it."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
@@ -4211,9 +4221,109 @@ def inbox_send(
 
     It replaces emailing him: it arrives unread on his phone and in the Cockpit, says which session
     sent it, and links back to this session, its factory, and the report named with --report. The
-    Gateway records who sent it; nothing here can change that. No email is sent.
+    Gateway records who sent it; nothing here can change that. No email is sent. Pass exactly one of
+    --body and --body-file; a multi-line body from a script goes in --body-file.
     """
-    inbox_ops.send(subject, body, report or None, json_output)
+    inbox_ops.send(subject, inbox_ops.body_from(body, body_file, "--body"), report or None, json_output)
+
+
+_INBOX_ID_HELP = "The message's id, from 'cc-devthrottle inbox list'."
+
+
+@inbox_app.command("list")
+def inbox_list(
+    view: Optional[str] = typer.Option(
+        None, "--view", help="Which messages: unread, inbox (unread and read; the default) or archived."),
+    count: Optional[int] = typer.Option(
+        None, "--count", "-n", help=f"How many of the newest to list, 1 to {inbox_ops.LIST_MAX}. The Gateway gives 100 "
+        "when this is not passed."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Valid: " + ", ".join(inbox_ops.LIST_FIELDS)
+        + ". Default: " + ",".join(inbox_ops.LIST_DEFAULT) + "."),
+    full: bool = typer.Option(False, "--full", help="Show whole subjects instead of the first 80 characters."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON, unchanged; "
+                                     "--view and --count apply to it."),
+) -> None:
+    """List the account's inbox, newest first.
+
+    Listing changes nothing and marks nothing read. The 'agent' field is the newest thing an agent did
+    to the message, in the Gateway's words.
+    """
+    inbox_ops.list_messages(view, count, fields, full, json_output)
+
+
+@inbox_app.command("read")
+def inbox_read(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Read one message: who sent it, its body, its replies, and what agents did to it.
+
+    Reading does NOT mark it read - the owner has still not read it. The read is recorded on the message
+    as this session's. Mark it read with 'inbox mark <id> --read' only when you are told to.
+    """
+    inbox_ops.read(message_id, json_output)
+
+
+@inbox_app.command("delete")
+def inbox_delete(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Delete a message, which ARCHIVES it: nothing is ever deleted.
+
+    The message leaves the inbox and stays under Archived ('inbox list --view archived'); undo it with
+    'inbox restore <id>'. The owner sees that this session archived it.
+    """
+    inbox_ops.delete(message_id, json_output)
+
+
+@inbox_app.command("restore")
+def inbox_restore(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Move an archived message back to the inbox - the undo of 'inbox delete'.
+
+    It goes back unread if nobody ever marked it read, and read if somebody did.
+    """
+    inbox_ops.restore(message_id, json_output)
+
+
+@inbox_app.command("mark")
+def inbox_mark(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    read: bool = typer.Option(False, "--read", help="Mark it read."),
+    unread: bool = typer.Option(False, "--unread", help="Mark it unread."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Mark a message read or unread. Pass exactly one of --read and --unread.
+
+    Do this only when you are told to: the owner uses 'unread' to know what he has not seen. Marking
+    an ARCHIVED message read or unread puts it back in the inbox, as that state.
+    """
+    inbox_ops.mark(message_id, read, unread, json_output)
+
+
+@inbox_app.command("reply")
+def inbox_reply(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    text: Optional[str] = typer.Argument(
+        None, help="The reply, exactly as it should be read. For more than one line from a script, use --body-file."),
+    body_file: Optional[str] = typer.Option(None, "--body-file", help=_BODY_FILE_HELP),
+    to_factory: bool = typer.Option(
+        False, "--to-factory", help="Leave the reply in the Factory inbox of the factory the sending session was a "
+        "seat of - the offer made when that session has ended."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Reply to a message, routed where it came from.
+
+    A session's message: into that session's inbox while it runs; if it has ended, nothing is sent and
+    the Gateway says where the reply can go instead. A factory's message: into that factory's Factory
+    inbox. The reply is shown as from this session, never from the owner, and the message stays unread.
+    Give the text or --body-file, not both; a multi-line reply from a script goes in --body-file.
+    """
+    inbox_ops.reply(message_id, inbox_ops.body_from(text, body_file, "the reply text"), to_factory, json_output)
 
 
 @link_app.command("add")
@@ -5152,6 +5262,24 @@ _INBOX_MESSAGE_FIELDS_HELP = (
     "Fields to show, comma separated. Valid: " + ", ".join(factory_inbox_ops.MESSAGE_FIELDS)
     + ". Default: " + ",".join(factory_inbox_ops.MESSAGE_DEFAULT) + "."
 )
+
+
+@factory_inbox_app.command("send")
+def factory_inbox_send(
+    factory: str = typer.Argument(..., help=_INBOX_FACTORY_HELP),
+    text: Optional[str] = typer.Argument(
+        None, help="The message, exactly as the factory should read it. For more than one line from a script, use "
+        "--body-file."),
+    body_file: Optional[str] = typer.Option(None, "--body-file", help=_BODY_FILE_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """Leave a message in a factory's Factory inbox, as this session.
+
+    The factory's Secretary and Boss handle it like any message. It is shown as from this session, never
+    from the owner. A factory's own seats cannot send into their own factory's inbox. Give the text or
+    --body-file, not both; a multi-line message from a script goes in --body-file.
+    """
+    factory_inbox_ops.send(factory, inbox_ops.body_from(text, body_file, "the message text"), json_output)
 
 
 @factory_inbox_app.command("list")

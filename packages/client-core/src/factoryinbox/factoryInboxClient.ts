@@ -40,6 +40,8 @@ export interface FactoryInboxMessage {
   source: string;
   /** "Typed" or "Spoken". */
   sourceLabel: string;
+  /** Who left it, in the Gateway's words: the owner on his phone or Cockpit, or an agent, named (7 November 2026). */
+  fromLabel: string;
   surface: string;
   sentAtUtc: string;
   state: string;

@@ -38,8 +38,16 @@ public sealed class FactoryInboxMessageEntity : GatewayMintedKeyEntity
     /// <summary>Where it was sent from: <c>phone</c>, <c>cockpit</c> or <c>session</c>.</summary>
     public string Surface { get; set; } = "";
 
-    /// <summary>Who sent it: the device id of the owner's phone or browser.</summary>
+    /// <summary>Who sent it: the device id of the owner's phone or browser, or - for a message an agent left (surface
+    /// <c>session</c>) - the id of the session that left it.</summary>
     public string SentBy { get; set; } = "";
+
+    /// <summary>For a message an agent left (surface <c>session</c>): that session's three-digit number when it left it,
+    /// or null. Recorded at sending, so the message still says who left it after the session is gone.</summary>
+    public int? SentBySessionNumber { get; set; }
+
+    /// <summary>For a message an agent left: that session's name when it left it, or null.</summary>
+    public string? SentBySessionName { get; set; }
 
     /// <summary>When it was sent (UTC).</summary>
     public DateTime SentAtUtc { get; set; }

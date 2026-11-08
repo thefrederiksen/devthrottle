@@ -194,6 +194,20 @@ describe("FactoryInboxThreadView (mockup B)", () => {
     expect(screen.getByRole("heading", { name: "Zeta Works (gateway)" })).toBeTruthy();
   });
 
+  it("FactoryInboxThreadView_EachMessage_PrintsWhoLeftItInTheGatewaysWords", async () => {
+    // The owner's decision of 7 November 2026: a message an agent left is shown as from that agent, never the owner.
+    gw.thread = () =>
+      Promise.resolve({
+        ...oddThread(),
+        count: 1,
+        messages: [oddMessage({ id: "m-9", fromLabel: "Dropped off by robot 114 (gateway)" })],
+      });
+    render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
+
+    const message = await screen.findByTestId("fi-message");
+    expect(within(message).getByTestId("fi-from").textContent).toBe("Dropped off by robot 114 (gateway)");
+  });
+
   it("FactoryInboxThreadView_Summary_ShowsTheGatewaysSentence", async () => {
     render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
     await screen.findAllByTestId("fi-message");

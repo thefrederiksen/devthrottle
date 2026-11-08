@@ -1,8 +1,11 @@
 """`cc-devthrottle factory inbox` - the Factory inbox (Factory Inbox mission, phase 1).
 
-The owner leaves a factory a message from the phone or the Cockpit. The factory's Secretary files it and hands one
-bundle to the Boss; the Boss decides each item. There is NO `send` here: the owner's send is refused to a session
-key on the Gateway, because a session never leaves a message as the owner.
+The owner leaves a factory a message from the phone or the Cockpit; an agent leaves one with `send`. The factory's
+Secretary files it and hands one bundle to the Boss; the Boss decides each item. An agent's message is shown as from
+that agent, never as from the owner - the owner's own send stays refused to a session key - and a factory's own seats
+cannot send into their own factory's inbox (the owner's decision of 7 November 2026).
+
+- `factory inbox send <factory> "<text>"`    leave a message in a factory's Factory inbox, as this session
 
 Reads anyone in the account may run (the Gateway allows them to a session key, so a Boss reads its own summary):
 
@@ -456,3 +459,42 @@ def decide(message_id: str, kind: str, session: Optional[str], why: Optional[str
         lines.append(f"To-do item {todo_id} added.")
     axi_cli.write_lines(*lines)
     axi_cli.print_next([f"{_TOOL} bundle"])
+
+
+# ---------------------------------------------------------------------------------------------------
+# An agent's send (the owner's decision of 7 November 2026).
+# ---------------------------------------------------------------------------------------------------
+
+def send(factory: str, text: str, json_output: bool) -> None:
+    """Leave a message in a factory's Factory inbox, as this session. The Gateway records who left it, from its own
+    record of this session, and refuses a seat of that same factory."""
+    name = (factory or "").strip()
+    if not name:
+        axi_cli.usage_error(f"name the factory, for example: {_TOOL} send <factory> \"<text>\". The ids are in {_TOOL} list.")
+    if not text or not text.strip():
+        axi_cli.usage_error("the message is empty. Write what the factory needs to know.")
+    sid = gateway.session_id()
+    if sid is None:
+        axi_cli.fail(
+            "CC_SESSION_ID is not set, so this is not a DevThrottle session. A message is left in a factory as the "
+            "session that leaves it, and the Gateway records which one did.",
+            [f"{_TOOL} list"],
+        )
+    answer = _post(f"sessions/{gateway.path_segment(sid)}/factories/{gateway.path_segment(name)}/inbox",
+                   {"text": text}, [f"{_TOOL} list"])
+    message = answer.get("message") if isinstance(answer, dict) else None
+    if not isinstance(message, dict) or not message.get("id"):
+        axi_cli.fail("the Gateway answered without the message it left, so this command cannot say it was sent.",
+                     [axi_cli.CHECK_GATEWAY])
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    shown = axi_cli.bare(str(message.get("factory") or name), "<factory>")
+    axi_cli.write_lines(
+        f"sent: Factory inbox of {axi_cli.ascii_text(str(message.get('factory') or name))}",
+        f"id: {message.get('id')}",
+        f"from: {axi_cli.ascii_text(str(message.get('fromLabel') or ''))}",
+        f"state: {axi_cli.ascii_text(str(message.get('stateLabel') or ''))}",
+        f"trail: {axi_cli.ascii_text(_trail(message))}",
+    )
+    axi_cli.print_next([f"{_TOOL} thread {shown}"])

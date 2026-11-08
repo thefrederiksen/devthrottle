@@ -645,6 +645,13 @@ def test_decide_json_is_the_gateway_answer_unchanged(gateway):
     assert json.loads(result.output) == _decided("Noted")
 
 
-def test_there_is_no_send_command(gateway):
+def test_send_goes_through_this_sessions_own_route_never_the_owners(gateway):
+    # The owner's decision of 7 November 2026: an agent leaves a message in a factory as itself. The owner's own send
+    # (POST /gateway/factory/{factory}/inbox) is never called: an agent's message is never the owner's.
+    left = dict(_message(state="Sent"), surface="session", fromLabel='From an agent: session 114 "Lead"')
+    server = gateway({("POST", f"/sessions/{SID}/factories/warmforward/inbox"): (201, {"message": left})})
     result = _run("send", "warmforward", "hello")
-    assert result.exit_code == 2
+    assert result.exit_code == 0, result.output
+    assert [(c["method"], c["path"], c["body"]) for c in server.calls] == [
+        ("POST", f"/sessions/{SID}/factories/warmforward/inbox", {"text": "hello"})]
+    assert 'From an agent: session 114 "Lead"' in result.output

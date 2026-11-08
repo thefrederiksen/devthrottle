@@ -693,6 +693,7 @@ COMMANDS:
   message reply    Answer a message that asked for a reply; the answer goes to whoever asked.
   message inbox    Read your unread messages in full, which marks them read.
   inbox send       Tell the owner something in Your inbox, on his phone and in the Cockpit - not by email.
+  inbox list       The account's inbox, like email (also: inbox read, delete = archive, restore, mark, reply).
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
   skill list       List every skill in the fleet library.
   skill get        Print a skill in full, ready to follow.
@@ -1283,7 +1284,8 @@ USAGE: cc-devthrottle inbox send [OPTIONS]
 
 OPTIONS:
   --subject TEXT  One line saying what the message is about [required]
-  --body TEXT     What the owner needs to know; it may span lines [required]
+  --body TEXT     What the owner needs to know
+  --body-file PATH  Read the body from this file; '-' reads standard input
   --report TEXT   A dev report the message is about, by its id; the message links to it
   --json, -j      Output the Gateway's answer as JSON
 ```
@@ -1295,6 +1297,13 @@ as a factory seat, and to the report named with `--report`. The Gateway reads wh
 record of the calling session; nothing on the command line can change that. Prints `sent: Your inbox`
 with the message id, the subject, who it is from, its state and its links (exit 0).
 
+Give exactly one of `--body` and `--body-file` (both, or neither, is a usage error, exit 2). **A body of
+more than one line written by a script goes in `--body-file`**: on Windows the `cc-devthrottle.cmd` shim
+cuts a command-line argument at its first line break, silently, and the command still exits 0 - proven on
+7 November 2026. A file, or standard input with `--body-file -`, carries every line. A file that does not
+exist or is not UTF-8 text is a usage error that names it. The same option is on `inbox reply` and
+`factory inbox send`.
+
 Run it only from inside a session: without `CC_SESSION_ID` it fails before calling the Gateway (exit
 1). An empty subject or body, or a subject of more than one line, is a usage error (exit 2). A subject
 over 200 characters, a body over 20,000, or a report the account does not have is refused with the
@@ -1304,9 +1313,74 @@ The owner may reply from his inbox. While this session runs, the reply arrives i
 read it with `message inbox`; it is never typed into the session. After the session has ended, the
 reply is not sent: the owner is told so and offered a new session that starts with the reply.
 
-A session never reads, marks or replies from the owner's inbox: the Gateway takes those only from the
-owner's phone or Cockpit, and refuses a session key and the machine token. A session sends only as
-itself.
+A session uses the rest of the inbox like email too - see Inbox List and the commands after it. It
+always acts as itself, through its own routes; the owner's own routes stay his phone's and Cockpit's.
+
+### Inbox List
+
+The account's inbox, used like email (the owner's decision of 7 November 2026: "An agent should be able
+to do what it can do with regular email. Read, delete, and also send, to factory mailboxes or its own.").
+The inbox is the one of the account this session's Director is signed in as; nothing on the command line
+can name another account.
+
+```
+USAGE: cc-devthrottle inbox list [--view unread|inbox|archived] [--count N | -n N] [--fields F,...] [--full] [--json]
+       cc-devthrottle inbox read <id> [--json]
+       cc-devthrottle inbox delete <id> [--json]
+       cc-devthrottle inbox restore <id> [--json]
+       cc-devthrottle inbox mark <id> --read|--unread [--json]
+       cc-devthrottle inbox reply <id> "<text>" | --body-file PATH|- [--to-factory] [--json]
+```
+
+- `list` - one view, newest first: `inbox` (unread and read; the default), `unread`, or `archived`. Prints
+  `view:`, `count: N of M total`, `unread:`, and one row per message. `--fields` picks from
+  `id, state, from, sent, subject, agent`; the default is `id, state, from, subject`. `agent` is the newest
+  thing an agent did to the message, in the Gateway's words. `--view` and `--count` (1 to 500; the Gateway
+  gives 100 without it) reach the Gateway, so they apply to `--json` too. An empty view prints `count: 0`
+  and the Gateway's sentence for it. Subjects are cut at 80 characters unless `--full`; ids never are.
+- `read <id>` - one message whole: subject, who it is from, its state, where a reply goes, its links, every
+  agent act on it, its replies and its body. **Reading does NOT mark it read** - the owner has still not
+  read it. The read is recorded on the message as this session's.
+- `delete <id>` - **delete is ARCHIVE** (the owner, 7 November 2026: "Delete means Archive. The message
+  leaves your inbox, and you can still find it, and undo it, under Archived."). Nothing is ever deleted.
+  Prints the Gateway's sentence saying so and offers `inbox restore <id>`.
+- `restore <id>` - moves an archived message back to the inbox as it was: unread if nobody ever marked it
+  read, read if somebody did, with its read time unchanged. A message that is not archived is left alone.
+- `mark <id> --read|--unread` - exactly one of the two, or it is a usage error (exit 2). Mark only when
+  you are told to: the owner uses unread to know what he has not seen. Marking an archived message read or
+  unread puts it back in the inbox, as that state.
+- `reply <id> "<text>"` - routed exactly as the owner's reply is: a session's message into that session's
+  fleet inbox while it runs; a factory's message into that factory's Factory inbox. If the session has
+  ended nothing is sent: the Gateway's sentence and its offers are printed (exit 1), and `--to-factory`
+  takes the offer to leave the reply in that session's factory. A reply to this session's own message, or
+  into a factory this session is a seat of, is refused. A reply to a session is an ordinary message FROM
+  this session, held to exactly the rules `message send` is held to: the relationship rule (the session
+  that started you, a session you started, or a message link the owner set up - a one-time link is used up
+  by it) and both rates. A session the owner raised gets the same waiver it gets for `message send`. A
+  message a link carried, and one let through only because the sender is raised, is recorded in the
+  governance audit log as `message send` records it. A refusal is the Gateway's sentence
+  (`reply_refused`, nothing sent). The reply is
+  shown as from this session - the session that receives it is told an agent wrote it, never the owner -
+  and the message stays unread.
+  Give the text or `--body-file` (see Inbox Send for why a script's multi-line text must use the file).
+
+EVERY ACT IS RECORDED AND SHOWN. A read, a mark, an archive, a restore and a reply are each kept with this
+session's number and name and the time, and the message shows them on the owner's phone and Cockpit as
+the Gateway's line, for example `Archived by an agent: session 114 "Factory Inbox - Delivery Lead",
+2026-11-07 14:02 UTC`. A mark that changes nothing records nothing, and reading a message again records
+nothing new while this session's read is still the newest act on it.
+
+What each command says it did - the read note, where a reply goes, the delete, restore, mark and reply
+confirmations - is the Gateway's sentence, printed as it came.
+
+Every word is the Gateway's; `--json` prints its answer unchanged. Outside a session (no `CC_SESSION_ID`)
+each command fails before calling the Gateway (exit 1). A refusal is the Gateway's sentence, exit 1.
+
+The routes, each refused for any session but the caller's own and for a request whose account is not the
+key's: `GET /sessions/{sid}/inbox?view=&limit=`, `GET /sessions/{sid}/inbox/{id}`,
+`POST /sessions/{sid}/inbox/{id}/state` (body `{state: read|unread|archived|restore}`),
+`POST /sessions/{sid}/inbox/{id}/reply` (body `{text, to?}`). The owner's routes under `/gateway/inbox` are
+unchanged and refuse a session key.
 
 ### Session Spawn
 
@@ -2490,11 +2564,13 @@ the same two routes: `GET /gateway/factory-emails?factory=&kind=&limit=&state=al
 
 The Factory inbox (Factory Inbox mission, phase 1). The owner leaves a factory a typed or spoken message from
 the phone or the Cockpit. The factory's Secretary files it and hands one bundle to the Boss, and the Boss
-decides each item. Every factory with a Boss seat has one. There is no `send` command: leaving a message is the
-owner's, and the Gateway refuses it to a session key.
+decides each item. Every factory with a Boss seat has one. A session leaves a message with `send`, as itself
+(the owner's decision of 7 November 2026); the owner's own send stays refused to a session key.
 
 ```
-USAGE: cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
+USAGE: cc-devthrottle factory inbox send <factory> "<text>" | --body-file PATH|- [--json]
+
+       cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
        cc-devthrottle factory inbox thread <factory> [--count N | -n N] [--fields F,...] [--full] [--json]
        cc-devthrottle factory inbox summary <factory> [--since TIME] [--full] [--json]
        cc-devthrottle factory inbox todo <factory> [--json]
@@ -2507,6 +2583,16 @@ USAGE: cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
        cc-devthrottle factory inbox decide <id> todo|noted [--json]
        cc-devthrottle factory inbox decide <id> declined|cannot|pushback --why "<why>" [--json]
 ```
+
+**The send.** `send <factory> "<text>"` leaves a typed message in the factory's Factory inbox, shown as from
+this session - `From an agent: session 114 "..."`, and on its trail `Left by an agent: session 114 "...",
+<time> UTC` - never as from the owner. The factory's Secretary and Boss handle it like any message. A session
+that is a seat of that same factory is refused (`own_factory`): a factory does not write work to itself. An
+unknown, archived or Boss-less factory is refused in words. Give the text or `--body-file PATH` (`-` for
+standard input); a multi-line message from a script must use the file, because the Windows shim cuts an
+argument at its first line break. Prints `sent:`, the id, `from:`, the state and the
+trail; outside a session it fails before calling the Gateway. Route: `POST /sessions/{sid}/factories/{factory}/inbox`
+(body `{text}`).
 
 **The reads** can be run by anyone in the account, a session included - a Boss reads its own summary.
 
@@ -2557,6 +2643,7 @@ many rows were cut; `--full` shows it whole. The others (`receive`, `bundle`) al
 The routes: owner `GET /gateway/factory/inbox`, `GET /gateway/factory/{factory}/inbox`,
 `GET /gateway/factory/{factory}/inbox/summary?since=`, `GET /gateway/factory/{factory}/todo` (and the owner's
 send, `POST /gateway/factory/{factory}/inbox`, which no command uses); session
+`POST /sessions/{sid}/factories/{factory}/inbox` (an agent's send),
 `GET /sessions/{sid}/factory-inbox`, `POST /sessions/{sid}/factory-inbox/receive`,
 `GET` and `POST /sessions/{sid}/factory-inbox/bundle`, `POST /sessions/{sid}/factory-inbox/{messageId}/decide`.
 
