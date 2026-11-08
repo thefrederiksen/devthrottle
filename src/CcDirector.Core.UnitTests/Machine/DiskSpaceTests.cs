@@ -243,12 +243,12 @@ public class DiskSpaceTests
             /dev/sda1 /boot ext4 rw,relatime 0 0
             /dev/loop3 /snap/core22/1612 squashfs ro,nodev 0 0
             /dev/sdb1 /home ext4 rw,relatime 0 0
-            /dev/nvme0n1p2 /var/lib/docker ext4 rw,relatime 0 0
+            /dev/nvme0n1p2 /var/lib/containers ext4 rw,relatime 0 0
             server:/export /mnt/nas nfs4 rw,relatime 0 0
             //nas/share /mnt/smb cifs rw 0 0
             /dev/sdc1 /media/soren/USB vfat rw 0 0
             /dev/sdd1 /mnt/archive ext4 ro,relatime 0 0
-            overlay /var/lib/docker/overlay2/x/merged overlay rw 0 0
+            overlay /var/lib/containers/storage/overlay/x/merged overlay rw 0 0
             /dev/sde1 /mnt/big\040disk xfs rw 0 0
             """;
 

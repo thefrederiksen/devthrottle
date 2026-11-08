@@ -59,6 +59,8 @@ public static class DiskSpaceReader
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // Reporting this every five seconds would flood the Gateway with what the meter already shows the owner.
+                // not-an-error: an unreadable drive is shown on the meter as "cannot read" with this reason
                 FileLog.Write($"[DiskSpaceReader] ReadEach: drive {name} ({path}) unreadable: {ex.Message}");
                 readings.Add(DriveSpaceReading.Unreadable(name, ex.Message));
             }
@@ -117,6 +119,8 @@ public static class DiskSpaceReader
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Reporting this every five seconds would flood the Gateway with what the meter already shows the owner.
+            // not-an-error: an unreadable drive is shown on the meter as "cannot read" with this reason
             FileLog.Write($"[DiskSpaceReader] ReadWindows: the drives could not be listed: {ex.Message}");
             return DiskSpaceSet.Unreadable($"the drives could not be listed: {ex.Message}");
         }
@@ -139,6 +143,8 @@ public static class DiskSpaceReader
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Reporting this every five seconds would flood the Gateway with what the meter already shows the owner.
+            // not-an-error: an unreadable drive is shown on the meter as "cannot read" with this reason
             FileLog.Write($"[DiskSpaceReader] ReadLinux: /proc/self/mounts could not be read: {ex.Message}");
             return DiskSpaceSet.Unreadable($"the mount table /proc/self/mounts could not be read: {ex.Message}");
         }
@@ -154,6 +160,8 @@ public static class DiskSpaceReader
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Reporting this every five seconds would flood the Gateway with what the meter already shows the owner.
+            // not-an-error: an unreadable drive is shown on the meter as "cannot read" with this reason
             FileLog.Write($"[DiskSpaceReader] ReadMacOs: the volumes could not be listed: {ex.Message}");
             return DiskSpaceSet.Unreadable($"the volumes could not be listed: {ex.Message}");
         }
