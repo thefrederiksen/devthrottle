@@ -838,28 +838,26 @@ internal static partial class GatewayEndpoints
                 });
             }
 
-            // Self-host status only (this branch is not reached on hosted): the single tenant is Local.
-            var directors = registry.ListDirectors(TenantId.Local);
-            // Post-cut: the roster lives ONLY in the push store, so count from there. A Director with no
-            // fresh pushed snapshot is not connected to the tunnel and contributes zero.
-            int totalSessions = directors.Sum(d =>
-            {
-                // Self-host only (see above): the single tenant is Local.
-                var cached = pushedSessions?.TryGetFresh(TenantId.Local, d.DirectorId, streamStaleResolved);
-                return cached?.Count ?? 0;
-            });
+            // Self-host status only (this branch is not reached on hosted): the single tenant is Local. The count is
+            // the one GET /fleet/counts serves a signed-in caller (FleetCounts): the roster lives ONLY in the push
+            // store, and a Director with no fresh pushed snapshot contributes zero.
+            var counts = FleetCounts.For(registry, pushedSessions, TenantId.Local, streamStaleResolved);
 
             return Results.Json(new HealthDto
             {
                 Status = "ok",
-                Directors = directors.Count,
-                Sessions = totalSessions,
+                Directors = counts.Directors,
+                Sessions = counts.Sessions,
                 Version = version,
                 Commit = commit,
                 Subsystems = subsystems?.Invoke(),
                 ServerTime = DateTime.UtcNow,
             });
         });
+
+        // GET /fleet/counts: the CALLER'S account's Directors and sessions (Web UI Polish phase 3) - the numbers the
+        // public /healthz above cannot give on hosted, because it has no tenant. The phone's About page reads it.
+        FleetCountsEndpoints.Map(app, registry, pushedSessions, streamStaleResolved, tenantBoundary);
 
         // ===== Network diagnostics (auto-network-switching mission) =====
         // Back the mobile Diagnostics page so the owner can measure the phone-to-Gateway path from the

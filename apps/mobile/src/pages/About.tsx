@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getGatewayHealth, type GatewayHealth } from "@devthrottle/client-core/api/client";
+import { getFleetCounts, getGatewayHealth, type FleetCounts, type GatewayHealth } from "@devthrottle/client-core/api/client";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { AppBarAlerts } from "../components/AppBarAlerts";
 
 const SURFACE = "mobile-about";
 const READ = "read the Gateway's version";
+const READ_COUNTS = "read how many Directors and sessions you have";
 
 export function About() {
   const [health, setHealth] = useState<GatewayHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [counts, setCounts] = useState<FleetCounts | null>(null);
+  const [countsError, setCountsError] = useState<string | null>(null);
   const sw = serviceWorkerState();
   const displayMode = isStandalone() ? "Installed PWA" : "Browser tab";
 
@@ -23,6 +26,17 @@ export function About() {
       })
       .catch((err) => {
         if (!controller.signal.aborted) setError(describeAndReport(SURFACE, READ, err, { background: true }));
+      });
+    // The counts come from their own signed-in read, not from /healthz: the public probe has no account, so the
+    // hosted Gateway leaves its counts out, and this page used to say "Not reported" for both (Web UI Polish phase 3).
+    getFleetCounts(controller.signal)
+      .then((c) => {
+        setCounts(c);
+        backgroundRecovered(SURFACE, READ_COUNTS);
+        setCountsError(null);
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) setCountsError(describeAndReport(SURFACE, READ_COUNTS, err, { background: true }));
       });
     return () => controller.abort();
   }, []);
@@ -43,7 +57,14 @@ export function About() {
 
       {error !== null && (
         <div className="banner banner-error" role="alert">
+          {/* error-report-exempt: the failure was reported by describeAndReport where it was caught. */}
           {error}
+        </div>
+      )}
+      {countsError !== null && (
+        <div className="banner banner-error" role="alert">
+          {/* error-report-exempt: the failure was reported by describeAndReport where it was caught. */}
+          {countsError}
         </div>
       )}
 
@@ -61,8 +82,8 @@ export function About() {
         <AboutRow label="Mobile app build" value={mobileBuild()} />
         <AboutRow label="Gateway status" value={health?.status ?? "Loading..."} />
         <AboutRow label="Gateway time" value={formatTime(health?.serverTime)} />
-        <AboutRow label="Directors" value={formatCount(health, health?.directors)} />
-        <AboutRow label="Sessions" value={formatCount(health, health?.sessions)} />
+        <AboutRow label="Directors" value={formatCount(counts?.directors, countsError)} />
+        <AboutRow label="Sessions" value={formatCount(counts?.sessions, countsError)} />
         <AboutRow label="Service worker" value={sw} />
         <AboutRow label="Display" value={displayMode} />
       </section>
@@ -104,15 +125,13 @@ function shortSha(version: string): string {
 }
 
 /**
- * A fleet count for the About list. Three genuinely different states, told apart honestly:
- * health not fetched yet -> "Loading..."; the Gateway answered but OMITTED the count (the hosted
- * Gateway does, because a public tenant-less probe has no correct number to give) -> "Not reported";
- * otherwise the number. Never String(undefined), and never a substituted 0 - a zero here would read
- * as "your fleet is empty" when the truth is "this Gateway does not say".
+ * A fleet count for the About list, from GET /fleet/counts. The number once it has arrived; "Could not read"
+ * when the read failed (the banner above says why); "Loading..." until then. Never a substituted 0 - a zero
+ * here would read as "your fleet is empty" when the truth is "this page does not know".
  */
-function formatCount(health: unknown, value: number | undefined): string {
-  if (!health) return "Loading...";
-  return value === undefined || value === null ? "Not reported" : String(value);
+export function formatCount(value: number | undefined, failed: string | null): string {
+  if (value !== undefined) return String(value);
+  return failed !== null ? "Could not read" : "Loading...";
 }
 
 function formatTime(value: string | undefined): string {

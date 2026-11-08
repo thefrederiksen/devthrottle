@@ -321,7 +321,7 @@ export function NewSession() {
   return (
     <div className="screen newsession-screen">
       <header className="app-bar newsession-app-bar">
-        <Link className="back-link" to="/">&larr; Roster</Link>
+        <Link className="back-link" to="/">Back</Link>
         <h1>Start a session</h1>
         <div className="app-bar-spacer" />
         <AppBarAlerts />

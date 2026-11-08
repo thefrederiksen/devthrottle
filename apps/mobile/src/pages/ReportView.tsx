@@ -27,7 +27,7 @@ export function ReportView() {
   return (
     <div className="terminal-screen report-screen">
       <header className="app-bar">
-        <button type="button" className="file-view-back" data-testid="report-back" onClick={backToList}>
+        <button type="button" className="back-link" data-testid="report-back" onClick={backToList}>
           Back
         </button>
         <h1 className="term-title">Report</h1>
