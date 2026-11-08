@@ -394,15 +394,18 @@ def _report(data: dict, json_output: bool) -> None:
 # ----- reading
 
 
-def _summaries(store: imap_client.MailStore, folder: str, uids: List[int], count: int) -> List[dict]:
-    newest = sorted(uids, reverse=True)[:count]
-    items = store.fetch_summaries(folder, newest)
-    return sorted((messages.summary(i) for i in items), key=lambda r: r["uid"], reverse=True)
+def _summaries(store: imap_client.MailStore, folder: str, uids: List[int], count: int,
+               oldest: bool = False) -> List[dict]:
+    chosen = sorted(uids)[:count] if oldest else sorted(uids, reverse=True)[:count]
+    items = store.fetch_summaries(folder, chosen)
+    return sorted((messages.summary(i) for i in items), key=lambda r: r["uid"], reverse=not oldest)
 
 
-def _print_summaries(records: List[dict], total: int, fields: Optional[str], json_output: bool, folder: str) -> None:
+def _print_summaries(records: List[dict], total: int, fields: Optional[str], json_output: bool, folder: str,
+                     extra: Optional[dict] = None) -> None:
     if json_output:
-        output.emit_json({"count": len(records), "total": total, "folder": folder, "messages": records})
+        output.emit_json({"count": len(records), "total": total, "folder": folder, **(extra or {}),
+                          "messages": records})
         return
     from cc_shared.axi_output import parse_fields_or_exit
 
@@ -419,14 +422,33 @@ FieldsOpt = typer.Option(None, "--fields", help="Fields to show: " + ",".join(me
 @_command
 def list_command(folder: str = typer.Option("INBOX", "--folder", "-f"), count: int = CountOpt,
                  unread: bool = typer.Option(False, "--unread", help="Only unread messages."),
+                 after_uid: Optional[int] = typer.Option(
+                     None, "--after-uid", min=0, help="Only messages with a UID above this one. A UID keeps its "
+                     "meaning while the folder's uidvalidity (in --json) stays the same."),
+                 since: Optional[str] = typer.Option(None, "--since", help="Only messages that arrived on or after "
+                                                     "this date (2026-11-07)."),
+                 oldest: bool = typer.Option(False, "--oldest", help="The oldest --count messages, oldest first, "
+                                             "instead of the newest."),
+                 preview: bool = typer.Option(False, "--preview", help=f"Add each message's first "
+                                              f"{messages.PREVIEW_CHARS} characters of text and its number of "
+                                              "attachments. Reads each message; does not mark it read."),
                  fields: Optional[str] = FieldsOpt, account: Optional[str] = AccountOpt,
                  json_output: bool = JsonOpt) -> None:
     """List the newest messages in a folder, newest first."""
+    criteria = ["UNSEEN"] if unread else []
+    if after_uid is not None:
+        criteria += ["UID", f"{after_uid + 1}:*"]
+    if since is not None:
+        criteria += ["SINCE", _imap_date(since, "--since")]
     with _store(account) as store:
-        all_uids = store.search(folder, ["ALL"])
-        uids = store.search(folder, ["UNSEEN"]) if unread else all_uids
-        records = _summaries(store, folder, uids, count)
-    _print_summaries(records, len(uids), fields, json_output, folder)
+        # "n:*" always matches the newest message, even when its UID is not above n, so the range is checked here too.
+        uids = [u for u in store.search(folder, criteria or ["ALL"]) if after_uid is None or u > after_uid]
+        records = _summaries(store, folder, uids, count, oldest)
+        if preview:
+            for record in records:
+                record.update(messages.preview(store.fetch_message(folder, record["uid"]).literal))
+        validity = store.uid_validity(folder)
+    _print_summaries(records, len(uids), fields, json_output, folder, {"uidvalidity": validity})
 
 
 def _imap_date(value: str, label: str) -> str:

@@ -280,6 +280,16 @@ class MailStore:
         self._selected = (folder, readonly)
         return int(data[0]) if data and data[0] and data[0].isdigit() else 0
 
+    def uid_validity(self, folder: str) -> int:
+        """The folder's UIDVALIDITY. A UID means the same message only while this stays the same, so a reader that
+        keeps a UID between runs keeps this beside it."""
+        self.select(folder, readonly=True)
+        _, data = self._conn.response("UIDVALIDITY")
+        values = [v for v in (data or []) if v is not None]
+        if not values:
+            raise DtEmailError(f"the server did not say the UIDVALIDITY of folder '{folder}' when it was opened.")
+        return int(values[-1])
+
     # ----- folders
 
     def folders(self, with_counts: bool = False) -> List[Folder]:

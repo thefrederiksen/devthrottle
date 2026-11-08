@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 class Stored:
     raw: bytes
     flags: List[str]
+    internal_date: str = "07-Nov-2026 17:31:20 -0500"
 
 
 @dataclass
@@ -30,6 +31,7 @@ class FakeFolder:
     flags: List[str]
     messages: Dict[int, Stored] = field(default_factory=dict)
     uidnext: int = 1
+    uidvalidity: int = 1
 
 
 def _unquote(arg: str) -> str:
@@ -57,11 +59,11 @@ class FakeImapServer:
         self.connections = 0
         self.commands: List[tuple] = []
 
-    def add(self, folder: str, raw: bytes, flags=()) -> int:
+    def add(self, folder: str, raw: bytes, flags=(), internal_date: str = "07-Nov-2026 17:31:20 -0500") -> int:
         f = self.folders[folder]
         uid = f.uidnext
         f.uidnext += 1
-        f.messages[uid] = Stored(raw=raw, flags=list(flags))
+        f.messages[uid] = Stored(raw=raw, flags=list(flags), internal_date=internal_date)
         return uid
 
     def connect(self, account=None):
@@ -116,6 +118,12 @@ class FakeImapConn:
         self.selected = name
         self.readonly = readonly
         return "OK", [str(len(self.server.folders[name].messages)).encode()]
+
+    def response(self, code):
+        # What imaplib keeps from the last SELECT: the folder's UIDVALIDITY, as Zoho sends it.
+        if code == "UIDVALIDITY" and self.selected is not None:
+            return code, [str(self.server.folders[self.selected].uidvalidity).encode()]
+        return code, [None]
 
     def create(self, mailbox):
         name = _unquote(mailbox)
@@ -218,6 +226,14 @@ class FakeImapConn:
                     i += 2
                 elif key in ("SINCE", "BEFORE"):
                     i += 2
+                elif key == "UID":
+                    low, high = criteria[i + 1].split(":")
+                    top = max(folder.messages) if folder.messages else 0
+                    low_n = int(low)
+                    high_n = top if high == "*" else int(high)
+                    # As a real server does: "n:*" with n above the newest UID still matches the newest message.
+                    ok &= (min(low_n, high_n) <= uid <= max(low_n, high_n))
+                    i += 2
                 else:
                     raise AssertionError(f"fake IMAP does not know search key {key}")
             if ok:
@@ -242,7 +258,7 @@ class FakeImapConn:
                 head = "".join(f"{k}: {v}\r\n" for k, v in msg.items() if k.upper() in wanted) + "\r\n"
                 data = head.encode()
                 fields = " ".join(wanted)
-                prefix = (f'{seq} (FLAGS ({flags}) UID {u} INTERNALDATE "07-Nov-2026 17:31:20 -0500" '
+                prefix = (f'{seq} (FLAGS ({flags}) UID {u} INTERNALDATE "{m.internal_date}" '
                           f'RFC822.SIZE {len(m.raw)} BODY[HEADER.FIELDS ({fields})] {{{len(data)}}}')
                 out.append((prefix.encode(), data))
                 out.append(b")")
