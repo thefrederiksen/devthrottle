@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import imaplib
 import smtplib
+import socket
 import ssl
 import sys
 from datetime import date
@@ -71,7 +72,7 @@ def _command(func: Callable) -> Callable:
         except ssl.SSLError as exc:
             _fail(f"the secure connection failed: {exc}. Check the host, port and --imap-security/--smtp-security "
                   "of the account (dt-email account list).")
-        except OSError as exc:
+        except (ConnectionError, TimeoutError, socket.gaierror) as exc:
             _fail(f"could not reach the mail server: {exc}. Check the host and port of the account "
                   "(dt-email account list) and the network.")
     return wrapper
@@ -97,6 +98,9 @@ def _split(values: Optional[List[str]]) -> List[str]:
 def _read_body(body: Optional[str], body_file: Optional[Path], html_file: Optional[Path]):
     if body is not None and body_file is not None:
         raise DtEmailError("pass --body or --body-file, not both.", exit_code=2)
+    for label, path in (("--body-file", body_file), ("--html-file", html_file)):
+        if path is not None and not path.is_file():
+            raise DtEmailError(f"{label} {path} does not exist or is not a file.", exit_code=2)
     text = body
     if body_file is not None:
         text = body_file.read_text(encoding="utf-8")
@@ -422,7 +426,7 @@ def list_command(folder: str = typer.Option("INBOX", "--folder", "-f"), count: i
         all_uids = store.search(folder, ["ALL"])
         uids = store.search(folder, ["UNSEEN"]) if unread else all_uids
         records = _summaries(store, folder, uids, count)
-    _print_summaries(records, len(all_uids), fields, json_output, folder)
+    _print_summaries(records, len(uids), fields, json_output, folder)
 
 
 def _imap_date(value: str, label: str) -> str:
@@ -435,8 +439,9 @@ def _imap_date(value: str, label: str) -> str:
 
 
 def _search_term(value: str, label: str) -> str:
-    if not value.isascii():
-        raise DtEmailError(f"{label} must be plain ASCII text; dt-email does not send non-ASCII search terms.", 2)
+    if not all(0x20 <= ord(c) <= 0x7E for c in value):
+        raise DtEmailError(f"{label} must be printable ASCII text on one line; dt-email does not send non-ASCII "
+                           "or control characters in a search.", 2)
     return imap_client.quote(value)
 
 
@@ -545,7 +550,19 @@ def download_command(uid: int = typer.Argument(...), out: Path = typer.Option(..
                                f"{len(found)}. List them with: dt-email attachments {uid}", exit_code=2)
         found = [a for a in found if a.index in index]
     out.mkdir(parents=True, exist_ok=True)
-    targets = [(a, out / a.filename) for a in found]
+    targets = []
+    taken: set = set()
+    for att in found:
+        name = att.filename
+        stem, dot, ext = name.rpartition(".")
+        if not dot:
+            stem, ext = name, ""
+        number = 2
+        while name.lower() in taken:
+            name = f"{stem}-{number}.{ext}" if dot else f"{stem}-{number}"
+            number += 1
+        taken.add(name.lower())
+        targets.append((att, out / name))
     clashes = [str(p) for _, p in targets if p.exists()]
     if clashes and not overwrite:
         raise DtEmailError(f"these files already exist: {', '.join(clashes)}. Nothing was saved. "
@@ -554,7 +571,7 @@ def download_command(uid: int = typer.Argument(...), out: Path = typer.Option(..
     for att, path in targets:
         data = att.data()
         path.write_bytes(data)
-        records.append({"index": att.index, "filename": att.filename, "path": str(path.resolve()), "size": len(data)})
+        records.append({"index": att.index, "filename": path.name, "path": str(path.resolve()), "size": len(data)})
     if json_output:
         output.emit_json({"count": len(records), "uid": uid, "saved": records})
         return

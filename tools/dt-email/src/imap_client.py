@@ -218,8 +218,9 @@ def connect(account: Account) -> imaplib.IMAP4:
 class MailStore:
     """One signed-in IMAP connection. Use as a context manager so it always logs out."""
 
-    def __init__(self, conn, account: Account):
+    def __init__(self, conn, account: Account, capabilities: Optional[List[str]] = None):
         self._conn = conn
+        self._capabilities = capabilities
         self.account = account
         self._selected: Optional[Tuple[str, bool]] = None
         self._folders: Optional[List[Folder]] = None
@@ -235,7 +236,12 @@ class MailStore:
                 f"the IMAP server {account.imap_host} refused the sign-in for {account.user}: {exc}. "
                 "Check the password held in cc-secrets entry "
                 f"'{account.secret_entry}', and that IMAP is switched on for this mailbox at the provider.") from exc
-        return cls(conn, account)
+        # Many servers (Dovecot, Gmail) advertise MOVE and UIDPLUS only after login, and imaplib keeps the
+        # list it read before login. Ask again now.
+        typ, data = conn.capability()
+        if typ != "OK":
+            raise DtEmailError(f"the server refused CAPABILITY after sign-in: {_text(data)}")
+        return cls(conn, account, list(dict.fromkeys(_text(data).upper().split())))
 
     def __enter__(self) -> "MailStore":
         return self
@@ -257,7 +263,10 @@ class MailStore:
         return data
 
     def capabilities(self) -> List[str]:
-        return [c.upper() if isinstance(c, str) else c.decode().upper() for c in self._conn.capabilities]
+        """What the server offers after sign-in."""
+        if self._capabilities is None:
+            raise DtEmailError("dt-email defect: the capability list was not read after sign-in.")
+        return self._capabilities
 
     def _require(self, capability: str, what: str) -> None:
         if capability not in self.capabilities():

@@ -50,11 +50,12 @@ def send(account: Account, password: str, message: EmailMessage, recipients: Lis
             raise DtEmailError(
                 f"the message was sent, but the server refused {', '.join(sorted(refused))}. "
                 "Only the other recipients got it.")
-    finally:
-        # A server may close the connection itself after refusing (Zoho does after a refused sender);
-        # quitting a closed connection would raise over the real error.
-        if conn.sock is not None:
-            conn.quit()
+    except BaseException:
+        # A server may already have closed the connection after refusing (Zoho does), so a QUIT could
+        # fail and hide the real error. close() only drops the socket; the real error propagates.
+        conn.close()
+        raise
+    conn.quit()
 
 
 def _reply(text) -> str:

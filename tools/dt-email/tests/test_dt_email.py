@@ -411,3 +411,72 @@ def test_folder_DeleteNested_ReportsTheNameTheServerGaveItInTrash(env):
     env.ok("folder", "create", "Parent/Child")
     data = json.loads(env.ok("folder", "delete", "Parent/Child", "--json").stdout)
     assert data["server_moved_it_to"] == "Trash/Parent_Child"
+
+
+# --------------------------------------------------------------------------------------------- review findings
+
+
+def test_move_ServerAdvertisesMoveOnlyAfterLogin_Works(env):
+    env.imap.pre_login_capabilities = ("IMAP4REV1", "IDLE")
+    env.imap.add("INBOX", make_message())
+    env.ok("move", "1", "--to", "Archive")
+    assert len(env.imap.folders["Archive"].messages) == 1
+    assert json.loads(env.ok("account", "check", "--json").stdout)["has_move"] is True
+
+
+def test_download_TwoAttachmentsWithOneName_BothKept(env, tmp_path):
+    uid = env.imap.add("INBOX", make_message(attachments=[("report.pdf", b"aaaa", "application/pdf"),
+                                                         ("report.pdf", b"bbbbbbbb", "application/pdf")]))
+    out = tmp_path / "out"
+    data = json.loads(env.ok("download", str(uid), "--out", str(out), "--json").stdout)
+    assert sorted(p.name for p in out.iterdir()) == ["report-2.pdf", "report.pdf"]
+    assert (out / "report.pdf").read_bytes() == b"aaaa" and (out / "report-2.pdf").read_bytes() == b"bbbbbbbb"
+    assert len({s["path"] for s in data["saved"]}) == 2
+
+
+def test_send_MissingBodyFile_UsageErrorNamingThePath(env, tmp_path):
+    missing = tmp_path / "nothere.txt"
+    result = env.run("send", "--to", "a@example.com", "--subject", "s", "--body-file", str(missing))
+    assert result.exit_code == 2
+    assert "nothere.txt" in result.output and "mail server" not in result.output
+    assert env.smtp.connections == 0
+
+
+def test_replyAll_WithReplyTo_StillCopiesTheSender(env):
+    raw = make_message(sender="Alice <alice@example.org>", reply_to="list@example.org")
+    uid = env.imap.add("INBOX", raw)
+    env.ok("reply", str(uid), "--all", "--body", "x")
+    msg = env.smtp.sent[0]["message"]
+    assert msg["To"] == "list@example.org" and msg["Cc"] == "alice@example.org"
+
+
+def test_reply_WithReplyTo_GoesOnlyToReplyTo(env):
+    raw = make_message(sender="Alice <alice@example.org>", reply_to="list@example.org")
+    uid = env.imap.add("INBOX", raw)
+    env.ok("reply", str(uid), "--body", "x")
+    assert env.smtp.sent[0]["to"] == ["list@example.org"]
+
+
+def test_search_ControlCharacters_Refused(env):
+    result = env.run("search", "--subject", "x\r\nA1 UID STORE 1:* +FLAGS (\\Deleted)")
+    assert result.exit_code == 2
+    assert not [c for c in env.imap.commands if c[0] == "SEARCH"]
+
+
+def test_send_ServerClosesAfterRefusing_RealErrorShown(env):
+    result = env.run("send", "--from", "nobody@example.com", "--to", "a@example.com", "--subject", "s", "--body", "b")
+    assert result.exit_code == 1
+    assert "550" in result.output and "closed" not in result.output
+
+
+def test_list_Unread_TotalIsTheUnreadTotal(env):
+    for i in range(4):
+        env.imap.add("INBOX", make_message(subject=f"m{i}"), flags=["\\Seen"] if i else [])
+    data = json.loads(env.ok("list", "--unread", "--json").stdout)
+    assert data["count"] == 1 and data["total"] == 1
+    assert "count: 1" in env.ok("list", "--unread").stdout and "of 4" not in env.ok("list", "--unread").stdout
+
+
+def test_accountCheck_CapabilitiesListedOnce(env):
+    caps = json.loads(env.ok("account", "check", "--json").stdout)["imap_capabilities"]
+    assert len(caps) == len(set(caps)) and "MOVE" in caps

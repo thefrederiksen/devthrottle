@@ -140,7 +140,8 @@ def reply_recipients(original: EmailMessage, own: Sequence[str], reply_all: bool
         pool = addresses(original.get_all("Cc"))
     else:
         to = not_own(sender)
-        pool = addresses(original.get_all("To"), original.get_all("Cc"))
+        # With a Reply-To (a mailing list), reply-all still copies the author, as a mail program does.
+        pool = addresses(original.get_all("From"), original.get_all("To"), original.get_all("Cc"))
     if not to:
         raise DtEmailError("cannot tell whom to reply to: the original has no sender or recipient other than this "
                            "account. Use dt-email send instead.", exit_code=2)

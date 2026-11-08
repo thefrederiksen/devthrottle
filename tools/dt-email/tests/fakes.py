@@ -39,7 +39,9 @@ def _unquote(arg: str) -> str:
 
 
 class FakeImapServer:
-    def __init__(self, user="me@example.com", password="pw", capabilities=None, delete_folder_to_trash=True):
+    def __init__(self, user="me@example.com", password="pw", capabilities=None, delete_folder_to_trash=True,
+                 pre_login_capabilities=None):
+        self.pre_login_capabilities = pre_login_capabilities
         self.user = user
         self.password = password
         self.capabilities = tuple(capabilities or ("IMAP4REV1", "MOVE", "UIDPLUS", "IDLE", "NAMESPACE"))
@@ -70,7 +72,8 @@ class FakeImapServer:
 class FakeImapConn:
     def __init__(self, server: FakeImapServer):
         self.server = server
-        self.capabilities = server.capabilities
+        # Before login a server may advertise less (Dovecot adds MOVE and UIDPLUS only after it).
+        self.capabilities = server.pre_login_capabilities or server.capabilities
         self.selected: Optional[str] = None
         self.readonly = True
 
@@ -79,6 +82,11 @@ class FakeImapConn:
         if user != self.server.user or password != self.server.password:
             raise imaplib.IMAP4.error(b"[AUTHENTICATIONFAILED] Invalid credentials(Failure)")
         return "OK", [b"Success"]
+
+    def capability(self):
+        # Zoho answered with the list twice (one from the sign-in, one from CAPABILITY), as imaplib gathers both.
+        line = " ".join(self.server.capabilities).encode()
+        return "OK", [line, line]
 
     def logout(self):
         return "BYE", [b"logging out"]
@@ -169,7 +177,7 @@ class FakeImapConn:
                         m.flags = [f for f in m.flags if f not in names]
             return "OK", [None]
         if command == "MOVE":
-            if "MOVE" not in self.capabilities:
+            if "MOVE" not in self.server.capabilities:
                 raise imaplib.IMAP4.error("UID command error: BAD [b'Unknown command']")
             dest = self.server.folders.get(_unquote(args[1]))
             if dest is None:
@@ -264,15 +272,19 @@ class FakeSmtp(smtplib.SMTP):
     def sendmail(self, from_addr, to_addrs, msg, mail_options=(), rcpt_options=()):
         if from_addr not in self.outbox.allowed_senders:
             # Zoho accepts MAIL FROM, refuses at DATA, then closes the connection (seen in the live run).
-            self.sock = None
+            # smtplib has not noticed yet: sock is still set, and a later quit() fails.
+            self.closed_by_server = True
             raise smtplib.SMTPDataError(550, b"5.7.1 Sender is not allowed to relay emails")
         data = msg if isinstance(msg, bytes) else msg.encode()
         self.outbox.sent.append({"from": from_addr, "to": list(to_addrs), "data": data,
                                  "message": email.message_from_bytes(data, policy=email.policy.default)})
         return {}
 
+    def close(self):
+        self.sock = None
+
     def quit(self):
-        if self.sock is None:
+        if self.sock is None or getattr(self, "closed_by_server", False):
             raise smtplib.SMTPServerDisconnected("please run connect() first")
         return 221, b"bye"
 

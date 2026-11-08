@@ -38,12 +38,14 @@ class Env:
 
 
 def make_message(subject="Hello", sender="Alice <alice@example.org>", to=ME, cc=None, body="Hi there.",
-                 attachments=(), message_id=None, references=None) -> bytes:
+                 attachments=(), message_id=None, references=None, reply_to=None) -> bytes:
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = to
     if cc:
         msg["Cc"] = cc
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg["Subject"] = subject
     msg["Date"] = "Sat, 7 Nov 2026 17:31:20 -0500"
     msg["Message-ID"] = message_id or make_msgid(domain="example.org")
