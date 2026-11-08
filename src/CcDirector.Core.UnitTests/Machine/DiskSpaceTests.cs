@@ -233,6 +233,44 @@ public class DiskSpaceTests
     }
 
     [Fact]
+    public void ReadEach_ADriveOfZeroBytes_IsUnreadableWithAReason_NeverAZeroSizedDrive()
+    {
+        var set = DiskSpaceReader.ReadEach([("/mnt/x", "/mnt/x"), ("/", "/")], p => p == "/" ? (931 * Gb, 500 * Gb) : (0UL, 0UL));
+
+        Assert.False(set.Drives[0].CouldRead);
+        Assert.Contains("0 bytes in size", set.Drives[0].UnreadableReason, StringComparison.Ordinal);
+        Assert.True(set.Drives[1].CouldRead);
+    }
+
+    [Fact]
+    public void ReadEach_AnyOtherFailure_IsThatDrivesReason_AndTheOthersStillRead()
+    {
+        var set = DiskSpaceReader.ReadEach([("C:", @"C:\"), ("D:", @"D:\")],
+            p => p == @"C:\" ? throw new InvalidOperationException("the device is not ready") : (931 * Gb, 500 * Gb));
+
+        Assert.False(set.Drives[0].CouldRead);
+        Assert.Equal("the device is not ready", set.Drives[0].UnreadableReason);
+        Assert.True(set.Drives[1].CouldRead);
+    }
+
+    [Fact]
+    public void SelectLinuxMounts_SkipsFuseAndAMountPointThatIsAFile_KeepsFuseblk()
+    {
+        const string mounts = """
+            /dev/sda2 / ext4 rw 0 0
+            /dev/fuse /mnt/remote fuse rw,nosuid 0 0
+            /dev/fuse /mnt/sshfs fuse.sshfs rw,nosuid 0 0
+            /dev/sdb1 /mnt/windows fuseblk rw 0 0
+            /dev/sda2 /etc/hosts ext4 rw 0 0
+            /dev/sdc1 /etc/hostname ext4 rw 0 0
+            """;
+
+        var picked = DiskSpaceReader.SelectLinuxMounts(mounts, p => !p.StartsWith("/etc/", StringComparison.Ordinal));
+
+        Assert.Equal(new[] { "/", "/mnt/windows" }, picked.Select(p => p.Name));
+    }
+
+    [Fact]
     public void SelectLinuxMounts_KeepsRealReadWriteDrives_OnceEach_AndSkipsTheOnesThatWouldLie()
     {
         const string mounts = """
@@ -252,7 +290,7 @@ public class DiskSpaceTests
             /dev/sde1 /mnt/big\040disk xfs rw 0 0
             """;
 
-        var picked = DiskSpaceReader.SelectLinuxMounts(mounts);
+        var picked = DiskSpaceReader.SelectLinuxMounts(mounts, _ => true);
 
         Assert.Equal(new[] { "/", "/home", "/mnt/big disk" }, picked.Select(p => p.Name));
         Assert.Equal(new[] { "/", "/home", "/mnt/big disk" }, picked.Select(p => p.Path));

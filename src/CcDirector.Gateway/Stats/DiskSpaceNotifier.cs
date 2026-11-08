@@ -39,7 +39,12 @@ public sealed record DiskSpaceNoticeState(bool IsRed, DateTime? LastRedNoticeUtc
 /// three days is told once, not three times - the Cockpit and the meter show it is still red.
 ///
 /// AT MOST ONCE A DAY PER DRIVE. A drive bouncing around 10 GB free (a build that writes and cleans up) would otherwise
-/// write a red notice every few minutes. A red spell that starts within a day of the last red notice is not told.
+/// write a red notice every few minutes. A red spell that starts within a day of the last red notice is held back - and
+/// told as soon as a day has passed since that notice, if the drive is still red then, so the owner's newest message
+/// about a drive never says "back above" while it has been red for days.
+///
+/// A DIP INSIDE ONE WINDOW. A drive that went under 10 GB and was back above it by the end of the same five minutes is
+/// told once, in words that say both, and no recovery message follows: the red notice already said it is back.
 ///
 /// A RECOVERY ONLY FOLLOWS A RED NOTICE THE OWNER SAW. A recovery for a red spell that was held back would be a message
 /// about a problem the owner was never told about - so the two always come in pairs, at most one pair a day.
@@ -68,12 +73,14 @@ public static class DiskSpaceNoticeRules
         var wentRed = lowest < red;
         var endsRed = atEnd < red;
 
+        var dayPassed = state.LastRedNoticeUtc is not { } last || windowEndUtc - last >= RedNoticeEvery;
+
         if (wentRed && !state.IsRed)
         {
-            var allowed = state.LastRedNoticeUtc is not { } last || windowEndUtc - last >= RedNoticeEvery;
-            return allowed
-                ? (new DiskSpaceNoticeState(true, windowEndUtc, true), DiskSpaceNoticeKind.Red)
-                : (state with { IsRed = true, RedSpellNoticed = false }, null);
+            // A spell that is already over by the end of the window was told in full by the red notice itself.
+            return dayPassed
+                ? (new DiskSpaceNoticeState(endsRed, windowEndUtc, endsRed), DiskSpaceNoticeKind.Red)
+                : (state with { IsRed = endsRed, RedSpellNoticed = false }, null);
         }
 
         if (state.IsRed && !endsRed)
@@ -81,6 +88,10 @@ public static class DiskSpaceNoticeRules
             var told = state.RedSpellNoticed;
             return (state with { IsRed = false, RedSpellNoticed = false }, told ? DiskSpaceNoticeKind.Recovered : null);
         }
+
+        // A red spell held back because it began within a day of the last notice, still red once that day has passed.
+        if (state.IsRed && !state.RedSpellNoticed && dayPassed)
+            return (new DiskSpaceNoticeState(true, windowEndUtc, true), DiskSpaceNoticeKind.Red);
 
         return (state, null);
     }
@@ -101,10 +112,18 @@ public static class DiskSpaceNoticeRules
 
         if (kind == DiskSpaceNoticeKind.Red)
         {
-            var dip = lowest < free ? $" It fell as low as {ResourceViewText.Bytes((ulong)lowest)} in the five minutes to {at}." : "";
-            return ($"Disk space: drive {drive.Name} on {machine} is under 10 GB free",
+            var red = (long)ResourceSummaryContract.DiskRedBelowBytes;
+            var lowestText = ResourceViewText.Bytes((ulong)lowest);
+            var (subject, first) = free < red
+                ? ($"Disk space: drive {drive.Name} on {machine} is under 10 GB free",
+                    $"Drive {drive.Name} on {machine} has {freeText} free of {totalText}, under the 10 GB red line, as of {at}."
+                    + (lowest < free ? $" It fell as low as {lowestText} in the five minutes to {at}." : ""))
+                : ($"Disk space: drive {drive.Name} on {machine} went under 10 GB free",
+                    $"Drive {drive.Name} on {machine} fell to {lowestText} free of {totalText}, under the 10 GB red line, in the five minutes to {at}."
+                    + $" It was back to {freeText} free by {at}, so no separate message will say it is back.");
+            return (subject,
                 string.Join("\n",
-                    $"Drive {drive.Name} on {machine} has {freeText} free of {totalText}, under the 10 GB red line, as of {at}.{dip}",
+                    first,
                     "",
                     "When a drive runs out, programs on that machine cannot save their files - agents and their tools stop working. Free some space on that drive.",
                     "",

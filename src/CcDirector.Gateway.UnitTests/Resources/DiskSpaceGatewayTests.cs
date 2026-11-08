@@ -227,6 +227,46 @@ public sealed class DiskSpaceGatewayTests : IDisposable
     }
 
     [Fact]
+    public void Judge_ADipInsideOneWindow_IsOneRedNotice_AndNoRecoveryFollows()
+    {
+        var (afterDip, dip) = DiskSpaceNoticeRules.Judge(DiskSpaceNoticeState.Never, Drive(8, 14), W0);
+        var (_, next) = DiskSpaceNoticeRules.Judge(afterDip, Drive(14, 14), W0.AddMinutes(5));
+
+        Assert.Equal(DiskSpaceNoticeKind.Red, dip);
+        Assert.Equal(new DiskSpaceNoticeState(false, W0, false), afterDip);
+        Assert.Null(next);
+    }
+
+    [Fact]
+    public void Words_ADipInsideOneWindow_SayItFellAndIsBack_NeverThatTheEndFigureIsUnderTheLine()
+    {
+        var (subject, body) = DiskSpaceNoticeRules.Words(DiskSpaceNoticeKind.Red, "SOREN_NORTH", Drive(8, 14), W0.AddMinutes(5));
+
+        Assert.Equal("Disk space: drive C: on SOREN_NORTH went under 10 GB free", subject);
+        Assert.StartsWith("Drive C: on SOREN_NORTH fell to 8.00 GB free of 931 GB, under the 10 GB red line, in the five minutes to 2026-11-07 15:05 UTC. It was back to 14.0 GB free", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("has 14.0 GB free", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Judge_AHeldBackRedSpell_StillRedADayAfterTheLastNotice_IsToldThen_Once()
+    {
+        var (red, _) = DiskSpaceNoticeRules.Judge(DiskSpaceNoticeState.Never, Drive(6, 6), W0);
+        var (clear, _) = DiskSpaceNoticeRules.Judge(red, Drive(12, 12), W0.AddHours(1));
+        var (heldBack, held) = DiskSpaceNoticeRules.Judge(clear, Drive(8, 8), W0.AddHours(5));
+        var (stillHeld, beforeTheDay) = DiskSpaceNoticeRules.Judge(heldBack, Drive(7, 7), W0.AddHours(23));
+
+        var (told, atTheDay) = DiskSpaceNoticeRules.Judge(stillHeld, Drive(7, 7), W0.AddDays(1));
+        var (_, after) = DiskSpaceNoticeRules.Judge(told, Drive(7, 7), W0.AddDays(1).AddMinutes(5));
+        var (_, recovery) = DiskSpaceNoticeRules.Judge(told, Drive(30, 30), W0.AddDays(2));
+
+        Assert.Null(held);
+        Assert.Null(beforeTheDay);
+        Assert.Equal(DiskSpaceNoticeKind.Red, atTheDay);
+        Assert.Null(after);
+        Assert.Equal(DiskSpaceNoticeKind.Recovered, recovery);
+    }
+
+    [Fact]
     public void Words_SayTheDriveTheMachineAndTheFigures()
     {
         var (subject, body) = DiskSpaceNoticeRules.Words(DiskSpaceNoticeKind.Red, "SOREN_NORTH", Drive(6, 6.4), W0.AddMinutes(5));

@@ -60,11 +60,8 @@ public static class ResourceSummarySampleFold
     /// </summary>
     private static IReadOnlyList<ResourceSummaryDriveSample> Drives(DiskSpaceSet disks)
     {
-        if (!disks.CouldRead)
-        {
-            FileLog.Write($"[ResourceSummarySampleFold] Drives: the drives could not be listed at this sample: {disks.UnreadableReason}");
-            return Array.Empty<ResourceSummaryDriveSample>();
-        }
+        // Not logged here: this runs every five seconds, and the reader already logs the reason once when it changes.
+        if (!disks.CouldRead) return Array.Empty<ResourceSummaryDriveSample>();
         return disks.Drives
             .Select(d => d.CouldRead
                 ? new ResourceSummaryDriveSample(d.Name, (long)d.TotalBytes, (long)d.FreeBytes, null)
