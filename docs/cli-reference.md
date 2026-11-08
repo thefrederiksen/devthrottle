@@ -2975,6 +2975,8 @@ cc-secrets run zoho-api-client-secret --with zoho-api-client-id --with zoho-api-
 `--account <address>`. `--fields` with `--json` is refused. Search ignores `is:unread`, `is:read` and
 `is:flagged`, so dt-zoho refuses them and filters with the flags instead. Zoho's API cannot forward, has no
 filters and cannot send a saved draft: `forward`, `filters` and `draft send` say so and name what to use.
+A delete is refused unless Zoho places each message in the folder named, since Zoho does not honour the folder
+in its own message paths.
 Errors exit 1, usage errors 2.
 
 ## cc-reddit
