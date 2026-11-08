@@ -61,3 +61,23 @@ describe("TranscriptsView copy path", () => {
     expect(reported).toHaveBeenCalledWith("cockpit-transcripts", "copy the transcript path", expect.any(ClipboardRefusedError));
   });
 });
+
+describe("TranscriptsView page header", () => {
+  afterEach(() => cleanup());
+
+  it("TranscriptsView_Rendered_UsesTheSharedPageHeaderWithNoSessionsBackLink", async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <TranscriptsView />
+      </MemoryRouter>,
+    );
+    await screen.findByText("Morning notes (fake)");
+
+    // The shared header every page uses (Web UI Polish, fix 9), with Copy agent info in its actions slot.
+    const heading = screen.getByRole("heading", { level: 1, name: "Voice Recorder" });
+    expect(heading.closest(".ui-page-header")).not.toBeNull();
+    expect(container.querySelector(".ui-page-header-actions")?.textContent).toContain("Copy agent info");
+    // The left rail is the navigation: no "Sessions" back link on the page.
+    expect(screen.queryByRole("link", { name: /Sessions/ })).toBeNull();
+  });
+});
