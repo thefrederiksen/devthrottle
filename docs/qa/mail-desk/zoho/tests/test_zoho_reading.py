@@ -83,7 +83,7 @@ def test_Paging_MoreThanAPageSinceTheCursor_ReadsBackUntilItReachesIt_AndNothing
 
     assert [m["subject"] for m in section(context)["messages"]] == [f"New {n}" for n in range(10)]
     assert section(context)["more"] is True
-    assert [a[a.index("--start") + 1] for a in zw.tools.inbox_lists()] == ["1", "201", "401"]
+    assert [a[a.index("--start") + 1] for a in zw.tools.inbox_lists()] == ["1", "181", "361"]   # pages overlap by 20
 
 
 def test_Paging_TheCursorOnTheFirstPage_ReadsOnePage(zw):
@@ -118,6 +118,35 @@ def test_Paging_AMessageReadOnTwoPages_IsReportedOnce(zw, monkeypatch):
         if not section(context)["more"]:
             break
     assert reported == [f"New {n}" for n in range(200)] + ["Arrived while reading"]
+
+
+def test_Paging_MessagesLeavingTheInboxBetweenPages_NothingFallsBetweenThem(zw, monkeypatch):
+    """Review finding 1: a message that leaves the Inbox after page 1 is read moves every later one UP a place, so the
+    message at the next page's first place would be read on neither page; here that is the oldest new one, which the
+    cursor would then pass for good. Pages overlap, so it is read."""
+    box = zw.tools.account()
+    [last] = box.inbox(mail("2026-10-17T07:00:00Z", subject="Reported last"))
+    ids = box.inbox(*[mail(f"2026-10-17T{8 + n // 60:02d}:{n % 60:02d}:00Z", subject=f"New {n}") for n in range(205)])
+    real, gone = zw.tools.dt_zoho, []
+
+    def owner_files_some(args):
+        answer = real(args)
+        if args[0] == "list" and INBOX in args and args[args.index("--start") + 1] == "1" and not gone:
+            for mid in ids[-5:]:      # the owner archives the five newest after page 1 was read
+                box.messages[mid]["folder"] = "9000000000003011"
+            gone.append(True)
+        return answer
+    monkeypatch.setattr(zw.tools, "dt_zoho", owner_files_some)
+    zw.memory(zoho(cursor=cursor("2026-10-17T07:00:00Z", last)))
+
+    reported = []
+    for minute in range(40):
+        zw.screen.utc_now = lambda m=minute: NOW.replace(minute=m)
+        _, _, context, _ = zw.run()
+        reported += [m["subject"] for m in section(context)["messages"]]
+        if not section(context)["more"]:
+            break
+    assert reported == [f"New {n}" for n in range(200)]   # the five archived are rightly never reported
 
 
 def test_ATypeInboxFolderTheOwnerMade_IsNotTakenForTheInbox(zw):

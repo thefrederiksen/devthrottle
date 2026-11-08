@@ -19,7 +19,8 @@ needs neither the mailbox's IMAP switch nor an app password: one Zoho key signs 
   every dt-zoho command with `CC_DIRECTOR_ROOT` set to that folder. Settings in two of them fail the channel: keep one.
 - The Zoho key in cc-secrets on that machine, allowed for `run`: a Self Client of the mailbox's organisation, in the
   entries `zoho-api-client-secret`, `zoho-api-client-id` and `zoho-api-refresh-token` (dt-zoho's README). One key
-  reaches every mailbox of its organisation that `dt-zoho accounts` lists, aliases included. When cc-secrets refuses
+  reaches every mailbox of its organisation that `dt-zoho accounts` lists, by the account's email or any address it
+  receives (aliases included), as dt-zoho's own `--account` matches. When cc-secrets refuses
   an entry (missing, not allowed for run, or one it cannot hide in output), cc-secrets's own reason is the sentence.
 
 ## The key
@@ -60,11 +61,16 @@ missing one fails the channel naming it. Every list and move names a folder by i
 - dt-zoho prints an arrival time in the account's own zone with its offset; the check turns it into UTC.
 - First run: the most recent 200 Inbox messages, or those of the last 30 days, whichever is fewer (one `list --count
   200`), reported oldest first, 10 at a time; the rest come in the following runs.
-- Later runs: the Inbox is read newest first, 200 at a time (`--start 1`, `201`, ...), back to a page that holds a
-  message older than the cursor's time, or to the end; every page is read whole. New mail is what arrived after the
-  cursor's time, or at that time and is not among `idsAtNewest`, oldest first. A message read twice (new mail moved it
-  down a page while the Inbox was read) is counted once. More than 20 pages without reaching the cursor fails the
-  channel for this run rather than starting anywhere.
+- Later runs: the Inbox is read newest first, 200 at a time, back to a page that holds a message older than the
+  cursor's time, or to the end; every page is read whole. Zoho pages by position, so each page after the first starts
+  20 places early (`--start 1`, `181`, `361`, ...): when messages leave the Inbox between two pages (the owner files
+  them, a rule moves them), every later message moves up, and without the overlap the one at the edge would be read on
+  neither page and the cursor would pass it for good. Up to 20 may leave between two pages. New mail is what arrived
+  after the cursor's time, or at that time and is not among `idsAtNewest`, oldest first. A message read twice (the
+  overlap, or new mail moving it down a page while the Inbox was read) is counted once. More than 20 pages (3,620
+  messages) without reaching the cursor fails the channel for this run rather than starting anywhere. Reading a page
+  past the first was not run against Zoho itself: the live run's Inbox fitted in one page; Zoho documents `start` as
+  a 1-based position.
 - As with Outlook, mail moved into the Inbox later with an arrival time before the cursor's is not reported.
 
 ## Filing

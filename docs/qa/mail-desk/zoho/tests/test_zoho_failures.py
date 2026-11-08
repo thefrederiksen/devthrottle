@@ -1,6 +1,8 @@
 """A Zoho mailbox that cannot be read fails that channel only, with one sentence saying what is wrong and how to fix
 it, its memory back exactly as it was, and every other mailbox read as usual."""
 
+import json
+
 import pytest
 
 from zoho_rig import zw, world  # noqa: F401 - the fixtures
@@ -71,6 +73,26 @@ def test_AnAliasOfTheAccount_IsReached(zw):
     zw.tools.boxes[f"alias.{BOX}"] = zw.tools.boxes[BOX]
     code, output, context, _ = zw.run()
     assert "failure" not in section(context, f"alias.{BOX}")
+
+
+def test_AnAccountKnownOnlyByItsEmail_IsReached_AsDtZohoReachesIt(zw, monkeypatch):
+    """Review finding 3: dt-zoho's --account matches an account's email as well as its address list (pick_account), so
+    the check must too: an account whose list lacks its own address is still one the key reaches."""
+    zw.tools.account().inbox(mail("2026-10-18T08:00:00Z"))
+    real = zw.tools.dt_zoho
+
+    def without_list(args):
+        code, out, err = real(args)
+        if args == ["accounts", "--json"]:
+            data = json.loads(out)
+            for a in data["accounts"]:
+                a["addresses"] = []
+            out = json.dumps(data)
+        return code, out, err
+    monkeypatch.setattr(zw.tools, "dt_zoho", without_list)
+    zw.memory(zoho(BOX.upper()))
+    code, output, context, _ = zw.run()
+    assert "failure" not in section(context) and len(section(context)["messages"]) == 1
 
 
 @pytest.mark.parametrize("kind", ["Inbox", "Sent", "Archive", "Spam"])

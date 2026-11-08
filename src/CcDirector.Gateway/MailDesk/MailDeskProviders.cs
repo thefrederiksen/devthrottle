@@ -102,7 +102,7 @@ public static class MailDeskProviders
                 "Mark spam and not spam (Zoho moves the whole conversation, sent replies too)",
                 "Create, rename, nest, empty and delete folders; show or hide a folder over IMAP",
                 "Zoho labels: create, apply, remove, list by label",
-                "Threads: mark or label every message in a thread",
+                "Threads: mark read or flag every message in a thread; Zoho marks unread and labels only the received messages, not your sent replies",
             }, new[]
             {
                 Fail("Forward", "Zoho's API answers 500 and sends nothing. Forward with dt-email over IMAP."),

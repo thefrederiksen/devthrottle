@@ -111,6 +111,9 @@ public sealed class MailDeskProvidersTests
         Assert.Contains("Scheduled send", zoho.Email.Works);
         Assert.Contains("Create, change and delete an event", zoho.Calendar.Works);
         Assert.Contains("Zoho Meeting on an event: a join link for guests, and a start link for the owner only", zoho.Calendar.Works);
+        // Review finding 2: pull request 4784's real run found Zoho marks unread and labels only the received messages.
+        Assert.Contains(zoho.Email.Works, w => w.StartsWith("Threads:", StringComparison.Ordinal)
+            && w.Contains("only the received messages", StringComparison.Ordinal));
         Assert.StartsWith("Works through dt-zoho:", zoho.Admin);
         Assert.Contains("Fails: changing the display name", zoho.Admin);
     }

@@ -1483,6 +1483,9 @@ class ImapReader:
 ZOHO_SECRET_ENTRIES = ("zoho-api-client-secret", "zoho-api-client-id", "zoho-api-refresh-token")   # dt-zoho's README
 ZOHO_LIST_OPTIONS = ("--folder", "--start", "--count")   # each takes a value
 ZOHO_PAGE = 200                 # dt-zoho list's largest --count
+# Zoho pages by position. A page after the first starts this many places early, so a message that moves up while the
+# Inbox is read (others left it between two pages) is still read on one of them (review finding 1).
+ZOHO_PAGE_OVERLAP = 20
 ZOHO_ID = re.compile(r"[1-9][0-9]{0,24}")
 ZOHO_FOLDERS = ("Inbox", "Sent", "Archive", "Spam")
 ZOHO_FILING_STEPS = {"archive": "archiving a message", "junk": "moving a message to Spam"}
@@ -1635,8 +1638,10 @@ class ZohoReader:
         accounts = self.tool(["accounts", "--json"], "signing in").get("accounts")
         if not isinstance(accounts, list):
             raise CheckFailed(f"dt-zoho answered an account list without its accounts for {self.address}")
-        if not any(isinstance(a, dict) and isinstance(a.get("addresses"), list)
-                   and self.address in [str(x).strip().lower() for x in a["addresses"]] for a in accounts):
+        # As dt-zoho's own --account matches (pick_account): the account's email, or any address it receives.
+        if not any(isinstance(a, dict) and self.address in [str(x).strip().lower() for x in
+                                                            [a.get("email") or "", *(a.get("addresses") or [])]]
+                   for a in accounts):
             raise CheckFailed(f"the Zoho key on {machine()} does not reach {self.address}: use the key of its "
                               f"organisation",
                               "dt-zoho accounts lists: " + (", ".join(str(a.get("email")) for a in accounts
@@ -1683,21 +1688,26 @@ class ZohoReader:
 
     def inbox_since(self, cursor, wanted):
         """Inbox messages that arrived after the cursor's time, or at exactly that time and are not among the ids
-        already reported then, oldest first. Zoho lists newest first, so the Inbox is read 200 at a time back to a page
-        that reaches before the cursor's time (at most 20 pages); each page is read whole."""
+        already reported then, oldest first. Zoho lists newest first, by position, so the Inbox is read 200 at a time
+        back to a page that reaches before the cursor's time (at most 20 pages); each page is read whole, and each
+        after the first starts ZOHO_PAGE_OVERLAP places early, so up to that many messages may leave the Inbox
+        between two pages without one falling between them."""
         newest, already = cursor["newest"], set(cursor["idsAtNewest"])
         fresh = {}
         for page in range(MAX_INBOX_PAGES):
-            records = self.listing(self.folders["inbox"], 1 + page * ZOHO_PAGE, ZOHO_PAGE, "reading the Inbox")
+            start = 1 + page * (ZOHO_PAGE - ZOHO_PAGE_OVERLAP)
+            records = self.listing(self.folders["inbox"], start, ZOHO_PAGE, "reading the Inbox")
             found = [self.message(r, "reading the Inbox") for r in records]
-            # A message moves down a page when new mail arrives while the Inbox is read, so one can be read twice.
+            # The pages overlap, and a message moves down a page when new mail arrives while the Inbox is read, so a
+            # message can be read twice: it is kept once.
             fresh.update((m["id"], m) for m in found
                          if m["received"] > newest or (m["received"] == newest and m["id"] not in already))
             if len(records) < ZOHO_PAGE or any(m["received"] < newest for m in found):
                 return sorted(fresh.values(), key=lambda m: (m["received"], m["id"])), False
         raise CheckFailed(f"{self.address} has more new mail than the Mail Desk reads in one run; it cannot find "
                           f"where it stopped",
-                          f"read {MAX_INBOX_PAGES * ZOHO_PAGE} Inbox messages newest first and none arrived before "
+                          f"read {ZOHO_PAGE + (MAX_INBOX_PAGES - 1) * (ZOHO_PAGE - ZOHO_PAGE_OVERLAP)} Inbox messages "
+                          f"newest first and none arrived before "
                           f"{newest}")
 
     def file(self, message_id, decision):
