@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
+import typer
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1107,13 +1108,22 @@ def test_providers_AnswerWithNoList_FailsRatherThanPrintingNone(fake_gateway):
     assert "no list of providers" in result.output
 
 
-def test_providers_Help_SaysWhatItIsAndTakesOneOptionalProvider():
+def test_providers_Help_SaysWhatItIsAndTakesOneOptionalProvider(plain):
     # Act
     result = runner.invoke(app, ["maildesk", "providers", "--help"])
 
     # Assert
     assert result.exit_code == 0
-    assert "What is supported, by provider" in result.output
-    assert "[PROVIDER]" in result.output
-    flat = " ".join(result.output.replace("|", " ").split())
+    help_text = plain(result.output)
+    assert "What is supported, by provider" in help_text
+    flat = " ".join(help_text.replace("|", " ").split())
     assert "The Gateway holds the list" in flat
+
+    # The shape is read from the command itself, not from the usage line: Typer renders an optional
+    # argument as "[PROVIDER]" on the declared floor (0.16.1) and as "[provider]" on current releases,
+    # so a literal in the rendered help says which Typer is installed, not what the command takes.
+    providers_command = typer.main.get_command(app).commands["maildesk"].commands["providers"]
+    arguments = [param for param in providers_command.params if param.param_type_name == "argument"]
+    assert [(argument.name, argument.required, argument.nargs) for argument in arguments] == [
+        ("provider", False, 1)
+    ]
