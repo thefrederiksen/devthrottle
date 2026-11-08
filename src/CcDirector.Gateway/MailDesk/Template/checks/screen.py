@@ -1177,6 +1177,7 @@ class ImapReader:
         self.address = channel["address"].strip().lower()
         self.live = channel["mode"] == "live"
         self.account = None     # dt-email's name for this mailbox
+        self.root = None        # the cc-director folder whose dt-email settings hold it (dt-email's CC_DIRECTOR_ROOT)
         self.secret = None      # (the cc-secrets entry, the variable dt-email reads the password from)
         self.validity = None    # the Inbox's UIDVALIDITY, read when signing in
         self.specials = None    # dt-email folders: special use -> folder name
@@ -1202,10 +1203,11 @@ class ImapReader:
 
     # ------------------------------------------------------------------------------------------------ dt-email
 
-    def tool(self, args, what, missing=False):
-        """One dt-email command through the guard, its JSON answer back. Every command but account list runs under
-        cc-secrets run. A failure is a sentence naming this mailbox and what was being done; with `missing`, dt-email's
-        "no message with UID" answers None instead."""
+    def tool(self, args, what, missing=False, root=None):
+        """One dt-email command through the guard, its JSON answer back, with dt-email reading its settings from `root`
+        (the account's folder unless given). Every command but account list runs under cc-secrets run. A failure is a
+        sentence naming this mailbox and what was being done; with `missing`, dt-email's "no message with UID" answers
+        None instead."""
         if args[:2] != ["account", "list"]:
             args = [*args, "--account", self.account, "--json"]
         check_dt_email(args, self.live, (self.specials or {}).get("junk"))
@@ -1220,7 +1222,8 @@ class ImapReader:
                               f"the DevThrottle tools there", f"{argv[0]} is not on the PATH of the check")
         try:
             done = subprocess.run([program, *argv[1:]], capture_output=True, stdin=subprocess.DEVNULL,
-                                  timeout=IMAP_TIMEOUT_SECONDS + 15)
+                                  timeout=IMAP_TIMEOUT_SECONDS + 15,
+                                  env=dict(os.environ, CC_DIRECTOR_ROOT=str(root or self.root)))
         except subprocess.TimeoutExpired:
             raise CheckFailed(f"{argv[0]} did not finish within {IMAP_TIMEOUT_SECONDS} seconds for {self.address} "
                               f"while {what}") from None
@@ -1315,19 +1318,27 @@ class ImapReader:
     # ------------------------------------------------------------------------------------------------ the sign-in
 
     def sign_in(self):
-        accounts = self.tool(["account", "list", "--json"], "reading dt-email's accounts").get("accounts")
-        if not isinstance(accounts, list):
-            raise CheckFailed(f"dt-email answered an account list without its accounts on {machine()}")
-        mine = [a for a in accounts if isinstance(a, dict) and isinstance(a.get("email"), str)
-                and a["email"].strip().lower() == self.address]
+        # dt-email keeps its settings under the cc-director folder it is given (CC_DIRECTOR_ROOT), else the Director's
+        # own. A Director session gives it its instance folder, so an account added from a session is saved there; this
+        # check runs with no CC_ variable, so every such folder on the machine is looked in, as for cc-outlook.
+        base = Path(director_base(account_record_home()))
+        roots = [r for r in [base, *sorted(base.glob("instances/*"))] if (r / "config" / "dt-email" / "config.json").is_file()]
+        mine = []
+        for root in roots:
+            accounts = self.tool(["account", "list", "--json"], "reading dt-email's accounts", root=root).get("accounts")
+            if not isinstance(accounts, list):
+                raise CheckFailed(f"dt-email answered an account list without its accounts on {machine()}", str(root))
+            mine += [(root, a) for a in accounts if isinstance(a, dict) and isinstance(a.get("email"), str)
+                     and a["email"].strip().lower() == self.address]
         if not mine:
             raise CheckFailed(f"{self.address} has no dt-email account on {machine()}: run dt-email account add there",
                               f"dt-email account add <name> --email {self.address} --imap-host <host> --smtp-host "
-                              f"<host> --secret-entry <entry> --password-env <VARIABLE>")
+                              f"<host> --secret-entry <entry> --password-env <VARIABLE>; looked in "
+                              + (", ".join(str(r) for r in roots) or f"{base} and its instances, which hold no dt-email settings"))
         if len(mine) > 1:
             raise CheckFailed(f"{self.address} is in more than one dt-email account on {machine()}: keep one",
-                              "the accounts found: " + ", ".join(str(a.get("name")) for a in mine))
-        account = mine[0]
+                              "the accounts found: " + ", ".join(f"{a.get('name')} in {r}" for r, a in mine))
+        self.root, account = mine[0]
         if not all(isinstance(account.get(f), str) and account[f] for f in ("name", "secret_entry", "password_env")):
             raise CheckFailed(f"the dt-email account of {self.address} on {machine()} has no name, secret entry or "
                               f"password variable")

@@ -85,8 +85,9 @@ class Done:
 class FakeTools:
     """dt-email and cc-secrets, as far as the IMAP reader uses them."""
 
-    def __init__(self):
-        self.accounts = {}       # dt-email account name -> {"email", "secret_entry", "password_env"}
+    def __init__(self, base):
+        self.base = base         # the Director's folder (phase 2's World.base); dt-email's settings sit under it
+        self.accounts = {}       # dt-email account name -> {"email", "secret_entry", "password_env", "root"}
         self.boxes = {}          # dt-email account name -> Mailbox
         self.secrets = set()     # cc-secrets entries on this machine
         self.installed = {"dt-email", "cc-secrets"}
@@ -94,9 +95,15 @@ class FakeTools:
         self.wrapped = []        # every cc-secrets command line, whole
         self.fail = {}           # account name -> an "Error: ..." line, "not-json", "secrets-broken" or "timeout"
 
-    def account(self, address=BOX, name="desk", entry=None, variable="DESK_PASSWORD", **box):
+    def account(self, address=BOX, name="desk", entry=None, variable="DESK_PASSWORD", instance="default", **box):
+        """A dt-email account saved the way dt-email account add saves it: under the Director's own folder
+        (instance None), or under an instance folder, where a Director session's CC_DIRECTOR_ROOT points."""
         entry = entry or f"{name}-password"
-        self.accounts[name] = {"email": address, "secret_entry": entry, "password_env": variable}
+        root = self.base if instance is None else self.base / "instances" / instance
+        settings = root / "config" / "dt-email" / "config.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text("{}", encoding="utf-8")   # dt-email's own file; only the fake reads the accounts
+        self.accounts[name] = {"email": address, "secret_entry": entry, "password_env": variable, "root": str(root)}
         self.secrets.add(entry)
         self.boxes[name] = Mailbox(**box)
         return self.boxes[name]
@@ -106,19 +113,22 @@ class FakeTools:
     def which(self, name):
         return f"/fake/bin/{name}" if name in self.installed else None
 
-    def run(self, argv, capture_output=False, stdin=None, timeout=None):
+    def run(self, argv, capture_output=False, stdin=None, timeout=None, env=None):
         assert capture_output and stdin == subprocess.DEVNULL and timeout, "every process is bounded and has no input"
+        assert env is not None and env.get("CC_DIRECTOR_ROOT"), "dt-email is always told which settings to read"
+        root = env["CC_DIRECTOR_ROOT"]
         program = Path(argv[0]).name
         if program == "cc-secrets":
-            return self.secrets_run(argv)
+            return self.secrets_run(argv, root)
         assert program == "dt-email", argv
         assert argv[1:] == ["account", "list", "--json"], f"dt-email ran without cc-secrets: {argv}"
         self.log.append(argv[1:])
-        return Done(0, json.dumps({"accounts": [dict(a, name=n, imap_host="imap.example.net",
-                                                     smtp_host="smtp.example.net", save_sent=True, default=False)
-                                                for n, a in self.accounts.items()], "allowed_recipients": None}))
+        return Done(0, json.dumps({"accounts": [
+            {"name": n, "email": a["email"], "imap_host": "imap.example.net", "smtp_host": "smtp.example.net",
+             "secret_entry": a["secret_entry"], "password_env": a["password_env"], "save_sent": True, "default": False}
+            for n, a in self.accounts.items() if a["root"] == root], "allowed_recipients": None}))
 
-    def secrets_run(self, argv):
+    def secrets_run(self, argv, root):
         self.wrapped.append(argv)
         split = argv.index("--")
         options, inner = argv[1:split], argv[split + 1:]
@@ -133,6 +143,7 @@ class FakeTools:
         name = args[args.index("--account") + 1]
         account = self.accounts[name]
         assert entry == account["secret_entry"] and options[5] == account["password_env"], argv
+        assert root == account["root"], "dt-email was pointed at settings that do not hold this account"
         failure = self.fail.get(name)
         if failure == "secrets-broken":
             return Done(1, "", "error: the cc-secrets store is locked")
@@ -222,7 +233,7 @@ world = phase2.world   # phase 2's fixture: fresh screen.py, scratch homes, the 
 @pytest.fixture
 def iw(world, monkeypatch):
     """Phase 2's world, with the fake dt-email and cc-secrets in place of the programs."""
-    tools = FakeTools()
+    tools = FakeTools(world.base)
     monkeypatch.setattr(world.screen.shutil, "which", tools.which)
     monkeypatch.setattr(world.screen.subprocess, "run", tools.run)
     return ImapWorld(world, tools)

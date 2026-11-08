@@ -14,6 +14,33 @@ def test_NoDtEmailAccountForTheAddress_SaysToAddOne(iw):
     assert sentence == f"{BOX} has no dt-email account on {MACHINE}: run dt-email account add there"
 
 
+@pytest.mark.parametrize("instance", [None, "default", "devthrottle-2"])
+def test_AnAccountSavedUnderAnyCcDirectorFolder_IsFound_AndDtEmailIsPointedAtIt(iw, instance):
+    """dt-email account add run in a Director session saves under that session's instance folder; run by hand, under
+    the Director's own folder. The check, with no CC_ variable, finds either."""
+    iw.tools.account(instance=instance).inbox(mail("2026-10-18T08:00:00Z"))
+    iw.memory(imap())
+    code, output, context, _ = iw.run()
+    assert code == 0 and "failure" not in section(context, BOX)
+
+
+def test_TheAccountInTwoCcDirectorFolders_FailsSayingToKeepOne(iw):
+    iw.tools.account(name="desk", instance=None)
+    iw.tools.account(name="desk-again", instance="default")
+    iw.memory(imap())
+    lines = phase2.channel_failed(iw, BOX).splitlines()
+    assert lines[0] == f"{BOX} is in more than one dt-email account on {MACHINE}: keep one"
+    assert "desk in " in lines[1] and "desk-again in " in lines[1]
+
+
+def test_NoDtEmailSettingsAnywhere_SaysToAddTheAccount_AndWhereItLooked(iw):
+    iw.memory(imap())
+    lines = phase2.channel_failed(iw, BOX).splitlines()
+    assert lines[0] == f"{BOX} has no dt-email account on {MACHINE}: run dt-email account add there"
+    assert lines[1].endswith("and its instances, which hold no dt-email settings")
+    assert iw.tools.log == []     # no settings, so dt-email was never asked
+
+
 def test_ThePasswordIsNotInCcSecretsHere_SaysWhichEntry(iw):
     iw.tools.account(entry="desk-mail")
     iw.tools.secrets.clear()
