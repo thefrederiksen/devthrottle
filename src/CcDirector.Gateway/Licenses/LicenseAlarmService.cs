@@ -64,8 +64,10 @@ public sealed record LicenseAlarmKind
 /// <param name="Subject">The subject of its owner email, one line with no full stop; null for the general subject.</param>
 /// <param name="LoudAtNight">False when its push must wait out the owner's night (<see cref="LicenseOwnerNight"/>): the
 /// cannot-switch warning is pushed at night only once the account is past 90%. The email and the banner are not held.</param>
+/// <param name="Tone">This alarm's banner tone (<see cref="LicenseAlarmTones"/>) when it differs by condition within one kind,
+/// as the one license alarm turns red at the switching threshold; null for the kind's own tone.</param>
 public sealed record LicenseAlarmCondition(Guid? MachineId, string? MachineName, string? AccountEmail, string Problem, string Action,
-    string? Subject = null, bool LoudAtNight = true);
+    string? Subject = null, bool LoudAtNight = true, string? Tone = null);
 
 /// <summary>One alarm that opened, or one hourly repeat of an open one, as it is pushed to the owner's phones.</summary>
 public sealed record LicenseAlarmOpened(Guid AlarmId, LicenseAlarmKind Kind, string MachineName, bool IsRepeat = false);
@@ -169,10 +171,17 @@ public sealed class LicenseAlarmService
     /// <summary>How often an open alarm of a kind that repeats tells the owner again: every hour (the owner, 6 November 2026).</summary>
     public static readonly TimeSpan RepeatEvery = TimeSpan.FromHours(1);
 
-    // These conditions are status, not faults. The old mixed-window kind is retired too: its rows cannot prove
-    // whether the weekly window alone raised them. The five-hour-only kind that replaced it is retired in turn: the
-    // 80% warning ("cannot-switch-at-80") covers both windows, for a machine that cannot switch only.
-    private static readonly string[] RetiredKinds = ["machine-silent", "no-room-at-80", "not-ready-at-80", "not-ready-five-hour"];
+    // THE ONE LICENSE ALARM (the owner, 8 November 2026): "An alarm exists ONLY when a machine's license in use is at 80%
+    // and its next license is not available on that machine" - "cannot-switch-at-80" (LicenseCannotSwitchAlarm). Every
+    // other kind is retired: its stored rows close on the first read or email check after deployment, and a raise of it
+    // opens nothing. The old mixed-window and five-hour-only kinds, no room and a silent machine were retired earlier;
+    // the approver, renewal, refused-report, sign-in-not-kept, stranded-machine and daily-drill kinds on 8 November.
+    internal static readonly string[] RetiredKinds =
+    [
+        "machine-silent", "no-room-at-80", "not-ready-at-80", "not-ready-five-hour",
+        "approver-cannot-approve", "renewal-failing", "report-refused", "sign-in-not-kept", "stranded-on-full-account",
+        "fire-drill-failed",
+    ];
 
     private readonly GatewayDatabase _db;
     private readonly LicenseOwnerEmailSender _mail;
@@ -377,7 +386,7 @@ public sealed class LicenseAlarmService
                     row.Problem = condition.Problem;
                     row.Action = condition.Action;
                     row.Subject = condition.Subject;
-                    row.Tone = kind.Tone;
+                    row.Tone = condition.Tone ?? kind.Tone;
                     open.Remove(row);
                     stillOpen++;
                     if (kind.RepeatsHourly && now - Utc(row.LastToldAtUtc ?? row.OpenedAtUtc) >= RepeatEvery)
@@ -410,7 +419,7 @@ public sealed class LicenseAlarmService
                     Problem = condition.Problem,
                     Action = condition.Action,
                     Subject = condition.Subject,
-                    Tone = kind.Tone,
+                    Tone = condition.Tone ?? kind.Tone,
                     OpenedAtUtc = now,
                     // A held opening counts as told: the hold-down quiets the first notice, and the hourly repeat runs from here.
                     LastToldAtUtc = now,
@@ -633,6 +642,8 @@ public sealed class LicenseAlarmService
         var account = condition.AccountEmail is null ? null : LicenseStore.NormalizeEmail(condition.AccountEmail);
         if (account is "")
             throw new ArgumentException("An alarm about an account names the account.", nameof(condition));
+        if (condition.Tone is not (null or LicenseAlarmTones.Warning or LicenseAlarmTones.Critical))
+            throw new ArgumentException($"'{condition.Tone}' is not an alarm tone: '{LicenseAlarmTones.Warning}' or '{LicenseAlarmTones.Critical}'.", nameof(condition));
         return condition with
         {
             MachineName = condition.MachineName?.Trim(),

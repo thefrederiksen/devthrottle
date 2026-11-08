@@ -148,11 +148,12 @@ public sealed class LicenseRenewalFailureAlarm
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var reading = _judge(tenant);
-            var conditions = Conditions(reading.Machines, _log.ListOpen(tenant), reading.Next, reading.NowUtc);
-            var raised = await _alarms.RaiseAsync(tenant, Kind, conditions, ct).ConfigureAwait(false);
-            if (conditions.Count > 0 || raised.Closed > 0)
-                FileLog.Write($"[LicenseRenewalFailureAlarm] RaiseAsync: tenant={tenant.ToLogString()}, failing={conditions.Count}, opened={raised.Opened}, closed={raised.Closed}");
+            // RETIRED AS AN ALARM (the owner, 8 November 2026): the only license alarm is a machine at 80% with no next
+            // license on it (LicenseCannotSwitchAlarm). A failing renewal is status on the Licenses page and in its email.
+            // Raising the kind empty closes every alarm of it still open, and opens, pushes and mails nothing.
+            var raised = await _alarms.RaiseAsync(tenant, Kind, Array.Empty<LicenseAlarmCondition>(), ct).ConfigureAwait(false);
+            if (raised.Closed > 0)
+                FileLog.Write($"[LicenseRenewalFailureAlarm] RaiseAsync: tenant={tenant.ToLogString()}, retired kind closed={raised.Closed}");
             return raised;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

@@ -90,38 +90,6 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     private List<LicenseAlarmEntity> Open() => _alarms.ListOpen(Tenant).Where(a => a.Kind == LicenseRenewalFailureAlarm.Kind.Key).ToList();
 
     [Fact]
-    public async Task RaiseAsync_TheFirstFailedRenewal_OpensTheAlarmAtOnce_WithTheReason_AWeekBeforeTheEnd()
-    {
-        // Seven days left: far outside the three-day owner email, and the alarm opens anyway.
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(7)));
-
-        await Raise();
-
-        var alarm = Assert.Single(Open());
-        Assert.Equal((Mac, B), (alarm.MachineName, alarm.AccountEmail));
-        Assert.Equal($"Renewing the sign-in for {B} on {Mac} failed: the approving browser needs a fresh claude.ai sign-in on the approval page. "
-                     + $"The sign-in ends {(_now + TimeSpan.FromDays(7)):yyyy-MM-dd HH:mm} UTC.", alarm.Problem);
-        Assert.Equal($"Put right what the reason says. {Mac} tries again every day, and the alarm closes by itself when a renewal works.", alarm.Action);
-        Assert.Single(_pushed);
-    }
-
-    [Fact]
-    public async Task RaiseAsync_TheDailyRetryFailsAgain_TheAlarmStaysOpen_AndNothingIsSentAgain()
-    {
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(7)));
-        await Raise();
-
-        _now = _now.AddDays(1);
-        Reports(Fine(A, TimeSpan.FromDays(19), active: true), Failing(B, TimeSpan.FromDays(6), LicenseRenewalErrors.ApproverOffline));
-        var raised = await Raise();
-
-        var alarm = Assert.Single(Open());
-        Assert.Contains("the machine that approves this account was not connected", alarm.Problem);
-        Assert.Equal((0, 1, 0), (raised!.Opened, raised.StillOpen, raised.Closed));
-        Assert.Single(_pushed);
-    }
-
-    [Fact]
     public async Task RaiseAsync_ARenewalThatWorks_ClosesTheAlarm()
     {
         Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(7)));
@@ -140,34 +108,6 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     {
         await _emails.TickAsync(Tenant, CancellationToken.None);
         await Raise();
-    }
-
-    [Theory]
-    [InlineData(7)]
-    [InlineData(2)]
-    public async Task RaiseAsync_ADirectorRestartForgetsTheFailure_TheAlarmStaysOpen_WithNoCameBack_AtAnyTimeLeft(int daysLeft)
-    {
-        // Review of pull request 4717: a Director keeps its failed renewals in memory, and its first report after a restart
-        // carries no failure time. At seven days out no streak row used to exist, so that report closed the alarm and the
-        // next failure reopened it as "it has come and gone". Nothing is hand-built here: the real email check opens the
-        // streak at the first failure, and the alarm must survive the restart's report.
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(daysLeft)));
-        await MinuteCheck();
-        var opened = Assert.Single(Open());
-        Assert.Single(_log.ListOpen(Tenant));
-
-        _now = _now.AddMinutes(1);
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Fine(B, TimeSpan.FromDays(daysLeft) - TimeSpan.FromMinutes(1)));
-        await MinuteCheck();
-        _now = _now.AddMinutes(3);
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(daysLeft) - TimeSpan.FromMinutes(4)));
-        await MinuteCheck();
-
-        var still = Assert.Single(Open());
-        Assert.Equal(opened.Id, still.Id);
-        Assert.DoesNotContain("come and gone", LicenseAlarmFold.Banner(_alarms.ListOpen(Tenant), _now).Alarms.Single().Text);
-        Assert.DoesNotContain(_store.ListLog(Tenant, T0.AddDays(-1)), r => r.Kind == LicenseLogKinds.AlarmClosed);
-        Assert.Single(_pushed);
     }
 
     [Fact]
@@ -216,7 +156,7 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     }
 
     [Fact]
-    public async Task MinuteCheck_AnAlarmAndStreakOpenedForAFailureOlderThanTheSignIn_AreClosed()
+    public async Task MinuteCheck_AStreakOpenedForAFailureOlderThanTheSignIn_IsClosed_AndNoAlarmIsOpen()
     {
         // The rows the deploy of 7 November left: a streak opened at 07:07 under the 19:07 sign-in, and its alarm.
         var failedAt = new DateTime(2026, 11, 6, 14, 27, 0, DateTimeKind.Utc);
@@ -225,9 +165,7 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
         Reports(Fine(A, TimeSpan.FromDays(20), active: true), RenewedByHandButStillReportingTheOldFailure(failedAt, signedInByHandAt));
         var machine = new LicenseReadModel(_store).Read(Tenant, _now).Machines.Single();
         _log.Open(Tenant, machine, B, signedInByHandAt.AddDays(30), signedInByHandAt, "Renewing failed.", _now);
-        await _alarms.RaiseAsync(Tenant, LicenseRenewalFailureAlarm.Kind,
-            new[] { new LicenseAlarmCondition(machine.MachineId, Mac, B, "Renewing the sign-in failed.", "Put it right.") }, CancellationToken.None);
-        Assert.Single(Open());
+        // The renewal alarm is retired (8 November 2026): a raise of it opens nothing, so only the streak is left to close.
 
         _now = _now.AddMinutes(1);
         Reports(Fine(A, TimeSpan.FromDays(20), active: true), RenewedByHandButStillReportingTheOldFailure(failedAt, signedInByHandAt));
@@ -235,38 +173,6 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
 
         Assert.Empty(Open());
         Assert.Empty(_log.ListOpen(Tenant));
-    }
-
-    [Fact]
-    public async Task MinuteCheck_AFailureNewerThanTheSignIn_StillOpensTheAlarm()
-    {
-        var signedInAt = new DateTime(2026, 10, 10, 9, 0, 0, DateTimeKind.Utc);
-        _now = new DateTime(2026, 11, 7, 7, 7, 0, DateTimeKind.Utc);
-        var holding = RenewedByHandButStillReportingTheOldFailure(_now.AddHours(-1), signedInAt);
-        holding.SignInExpiresAtUtc = _now.AddDays(5);
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), holding);
-
-        await MinuteCheck();
-
-        Assert.Single(Open());
-        Assert.Single(_log.ListOpen(Tenant));
-    }
-
-    [Fact]
-    public async Task RaiseAsync_ARenewalReportedBeforeTheEmailCheckEndsTheStreak_ClosesTheAlarmAtOnce()
-    {
-        // The full gate of pull request 4721: the email check and the alarm raise of one minute run side by side. When the
-        // raise ran first it still found the streak row open and kept the alarm open a minute after the renewal worked.
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5)));
-        await MinuteCheck();
-        Assert.Single(Open());
-
-        _now = _now.AddMinutes(1);
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Fine(B, TimeSpan.FromDays(30)));
-        await Raise();                               // the raise first, the streak row still open
-
-        Assert.Empty(Open());
-        Assert.Single(_log.ListOpen(Tenant));         // the email check ends the row on its own turn
     }
 
     [Fact]
@@ -321,65 +227,6 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
         Assert.Empty(_pushed);
     }
 
-    [Fact]
-    public async Task MinuteCheck_TheLicenseTheMachineIsOnFails_RaisesAtAnyLevel()
-    {
-        _aWeekly = 20;
-        var active = Failing(A, TimeSpan.FromDays(5));
-        active.IsActive = true;
-        Reports(active, Fine(B, TimeSpan.FromDays(30)));
-
-        await MinuteCheck();
-
-        var alarm = Assert.Single(Open());
-        Assert.Equal(A, alarm.AccountEmail);
-    }
-
-    [Fact]
-    public async Task MinuteCheck_AQuietSpareFailure_Raises_OnceTheMachineReachesTheWarningLevelAndReliesOnIt()
-    {
-        _aWeekly = 20;
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5)));
-        await MinuteCheck();
-        Assert.Empty(Open());
-
-        _now = _now.AddMinutes(1);
-        _aWeekly = 85;
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5) - TimeSpan.FromMinutes(1)));
-        await MinuteCheck();
-
-        var alarm = Assert.Single(Open());
-        Assert.Equal(B, alarm.AccountEmail);
-        Assert.Single(_pushed);
-    }
-
-    [Fact]
-    public async Task MinuteCheck_AMachineOnNoLicense_RaisesForAFailingSignIn()
-    {
-        // No license it is on: the sign-in it holds is the one it would have to use, so its failure is loud.
-        Reports(Failing(B, TimeSpan.FromDays(5)));
-
-        await MinuteCheck();
-
-        var alarm = Assert.Single(Open());
-        Assert.Equal(B, alarm.AccountEmail);
-    }
-
-    [Fact]
-    public async Task MinuteCheck_ASpareFails_WhileTheMachineCannotBeJudged_StillRaises()
-    {
-        // The reading of the license it is on is too old to judge: a state the verdict cannot vouch for never silences it,
-        // even with another ready spare held.
-        var active = Fine(A, TimeSpan.FromDays(20), active: true);
-        active.ReadAtUtc = _now - LicenseContract.ActiveHoldingStaleAfter - TimeSpan.FromMinutes(5);
-        Reports(active, Failing(B, TimeSpan.FromDays(5)), Fine(C, TimeSpan.FromDays(30)));
-
-        await MinuteCheck();
-
-        var alarm = Assert.Single(Open());
-        Assert.Equal(B, alarm.AccountEmail);
-    }
-
     private static LicenseNextLicense Verdict(string state, params string[] ready)
         => new(Guid.NewGuid(), Mac, "u", Mac, A, state, null, false, null, ready, null, null, null, "", LicenseTones.Neutral);
 
@@ -407,4 +254,47 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     [Fact]
     public void SpareMatters_ReadyWithNoAccountNamed_Matters()
         => Assert.True(LicenseRenewalFailureAlarm.SpareMatters(Verdict(LicenseNextLicenseStates.Ready), B));
+
+    // RETIRED (the owner, 8 November 2026): the only license alarm is a machine at 80% with no next license on it. A failed
+    // renewal of the license a machine is ON - which used to raise at any level - opens nothing now.
+    [Fact]
+    public async Task RaiseAsync_AFailedRenewalOfTheLicenseInUse_OpensNothing()
+    {
+        var onA = Failing(A, TimeSpan.FromDays(7));
+        onA.IsActive = true;
+        Reports(onA, Fine(B, TimeSpan.FromDays(20)));
+
+        var raised = await Raise();
+
+        Assert.Equal((0, 0, 0), (raised!.Opened, raised.StillOpen, raised.Closed));
+        Assert.Empty(_alarms.ListOpen(Tenant));
+        Assert.Empty(_pushed);
+        Assert.Empty(_mailed);
+    }
+
+    // A renewal alarm left open by an older Gateway closes on the first raise after the Gateway starts, while the renewal
+    // is still failing, with no push and no email.
+    [Fact]
+    public async Task RaiseAsync_AnOpenRenewalAlarm_IsClosedOnTheFirstRaise()
+    {
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(7)));
+        var machineId = new LicenseReadModel(_store).Read(Tenant, _now).Machines.Single().MachineId;
+        using (var ctx = _db.CreateContext(Tenant))
+        {
+            ctx.LicenseAlarms.Add(new LicenseAlarmEntity
+            {
+                Kind = LicenseRenewalFailureAlarm.Kind.Key, MachineId = machineId, MachineName = Mac, AccountEmail = B,
+                Problem = "An older Gateway's renewal alarm.", Action = "Nothing.", OpenedAtUtc = T0.AddMinutes(-30),
+                TenantId = Assert.IsType<string>(ctx.ActiveTenant),
+            });
+            ctx.SaveChanges();
+        }
+
+        var raised = await Raise();
+
+        Assert.Equal((0, 0, 1), (raised!.Opened, raised.StillOpen, raised.Closed));
+        Assert.Empty(_alarms.ListOpen(Tenant));
+        Assert.Empty(_pushed);
+        Assert.Empty(_mailed);
+    }
 }

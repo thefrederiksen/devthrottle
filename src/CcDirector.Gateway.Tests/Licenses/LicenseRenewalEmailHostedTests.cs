@@ -170,11 +170,10 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
             (row.State, row.ReasonCode, row.MachineName, row.ToAccountEmail, row.SendCount));
         Assert.Empty(Warnings(_bob.Tenant));
 
-        // And the host's minute check raised the license alarm for it (issue 4697): one, for Alice, with the reason.
-        var (alarmTenant, alarm) = Assert.Single(AlarmEmails());
-        Assert.Equal(_alice.Tenant, alarmTenant);
-        Assert.Contains($"Renewing the sign-in for {A} on MACHINE_OF_ALICE failed: the machine that approves this account was not connected.", alarm.BodyText);
-        Assert.Single(_gateway.LicenseAlarms.ListOpen(_alice.Tenant), a => a.Kind == LicenseRenewalFailureAlarm.Kind.Key);
+        // The renewal alarm is retired (the owner, 8 November 2026: the only license alarm is a machine at 80% with no next
+        // license on it): the renewal email above is all that is sent, and no alarm opens for either account.
+        Assert.Empty(AlarmEmails());
+        Assert.DoesNotContain(_gateway.LicenseAlarms.ListOpen(_alice.Tenant), a => a.Kind == LicenseRenewalFailureAlarm.Kind.Key);
         Assert.DoesNotContain(_gateway.LicenseAlarms.ListOpen(_bob.Tenant), a => a.Kind == LicenseRenewalFailureAlarm.Kind.Key);
     }
 

@@ -41,11 +41,33 @@ public sealed class LicenseAlarmServiceTests : IDisposable
 
     public void Dispose() => _harness.Dispose();
 
+    // The retired list is exactly every kind the Gateway declares except the one alarm, so no kind can be left raising.
+    [Fact]
+    public void RetiredKinds_AreEveryDeclaredKindButTheOneAlarm()
+    {
+        var declared = new[]
+        {
+            LicenseApproverAlarm.Kind, LicenseRenewalFailureAlarm.Kind, LicenseMachineHealthAlarm.Refused,
+            LicenseMachineHealthAlarm.Silent, LicenseMachineHealthAlarm.NotKept, LicenseStrandedAlarm.Kind,
+            LicenseFireDrillFold.RetiredAlarmKind, LicenseReadinessFold.RetiredAlarmKind, LicenseReadinessFold.RetiredFiveHourAlarmKind,
+            LicenseReadinessFold.NoRoomAlarmKind,
+        }.Select(k => k.Key).OrderBy(k => k, StringComparer.Ordinal);
+
+        Assert.Equal(declared, LicenseAlarmService.RetiredKinds.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.DoesNotContain(LicenseCannotSwitchAlarm.Kind.Key, LicenseAlarmService.RetiredKinds);
+    }
+
     [Theory]
     [InlineData("machine-silent")]
     [InlineData("no-room-at-80")]
     [InlineData("not-ready-at-80")]
     [InlineData("not-ready-five-hour")]
+    [InlineData("approver-cannot-approve")]
+    [InlineData("renewal-failing")]
+    [InlineData("report-refused")]
+    [InlineData("sign-in-not-kept")]
+    [InlineData("stranded-on-full-account")]
+    [InlineData("fire-drill-failed")]
     public async Task RetiredKind_StoredBeforeDeployment_ClosesBeforeReadingOrSending(string kind)
     {
         var identifiers = new Dictionary<TenantId, Guid>();
