@@ -129,7 +129,7 @@ Checked again after the change, on commit 0a51dcb61 rebased onto origin/main 436
 
 - The new assertion (a `circle` of radius 6.5 and no closed path) fails against the triangle drawing and passes on the
   circle.
-- `.\scripts	est-local.ps1 -Parked` in a separate detached worktree: GREEN, tree clean, all 18 suites Completed,
+- `.\scripts\test-local.ps1 -Parked` in a separate detached worktree: GREEN, tree clean, all 18 suites Completed,
   0 failed. Core.UnitTests 3650, Avalonia.Tests 1285 (including the four icon-shape checks), Engine 85, HostedAgent 85,
   Launcher 234, Terminal.Avalonia 111, Reclaim 307, DeliveryQualification 151, RuleHook 70, setup 43, setup-engine
   1023 of 1029 (6 skipped), setup-cli 78, Gateway.Tests 426 + 482 + 439 of 442 (3 skipped) + 489, Core.Tests 4643 of
