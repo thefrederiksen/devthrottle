@@ -1,0 +1,27 @@
+[project]
+name = "dt-email"
+version = "0.1.0"
+description = "Email over standard IMAP and SMTP, for any provider: read, search, send, reply, forward, drafts, flags, folders and delete"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "cc-shared",
+    "cc-storage",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0"]
+
+[project.scripts]
+dt-email = "dt_email.cli:tool_main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dt_email"]
+package-dir = {"dt_email" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

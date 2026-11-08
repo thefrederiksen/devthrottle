@@ -104,7 +104,7 @@ $collect = Join-Path $work "collect_thirdparty.py"
 import tomllib, glob, os, re, sys, json
 registry = json.load(open("tools/registry.json"))
 ship = {t["name"] for t in registry["tools"] if t.get("type")=="python" and t.get("ship")}
-allcc = {t["name"] for t in registry["tools"]}     # every cc-* name (any type)
+allcc = {t["name"] for t in registry["tools"]}     # every tool name we own (cc-*, dt-*), any type
 ours = {"cc-shared","cc-storage"} | allcc          # our own dists never come from PyPI
 norm = lambda r: re.split(r"[<>=!~ \[]", r.strip(), 1)[0].lower().replace("_","-")
 reqs=set()
@@ -116,7 +116,7 @@ def add(pp, extras=()):
     for e in extras:
         for r in (opt.get(e) or []):
             if norm(r) not in ours: reqs.add(r.strip())
-for pp in glob.glob("tools/cc-*/pyproject.toml"):
+for pp in glob.glob("tools/*/pyproject.toml"):        # every tool folder: cc-* and dt-* alike
     name=os.path.basename(os.path.dirname(pp))
     if name not in ship: continue                  # only shipped tools' deps enter the wheelhouse
     add(pp, extras=("full",) if name=="cc-vault" else ())   # cc-vault ships converters under [full]

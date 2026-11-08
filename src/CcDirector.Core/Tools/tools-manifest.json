@@ -51,6 +51,13 @@
       "note": "Auth-gated (device code). No zero-auth read-only command. Presence + version only."
     },
     {
+      "name": "dt-email",
+      "category": "Email",
+      "description": "Read, search, send and manage email on any provider that offers standard IMAP and SMTP, with the password kept in cc-secrets.",
+      "smoke": { "args": ["--help"], "expectContains": "Email over standard IMAP and SMTP" },
+      "note": null
+    },
+    {
       "name": "cc-secrets",
       "category": "Data",
       "description": "Passwords your agents can use without ever seeing them: an agent runs a command or signs in to a website with a secret you added by hand, and gets back only the result.",

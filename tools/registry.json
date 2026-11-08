@@ -73,6 +73,15 @@
       "requirements": ["Azure OAuth"]
     },
     {
+      "name": "dt-email",
+      "category": "email",
+      "type": "python",
+      "description": "Email over standard IMAP and SMTP for any provider: read, search, send, reply, forward, drafts, flags, folders, delete",
+      "built": true,
+      "ship": true,
+      "requirements": ["An IMAP and SMTP account, its password in cc-secrets"]
+    },
+    {
       "name": "cc-browser",
       "category": "web-social",
       "type": "nodejs",

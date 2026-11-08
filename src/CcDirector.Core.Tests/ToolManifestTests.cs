@@ -27,7 +27,10 @@ public class ToolManifestTests
         foreach (var t in manifest.Tools)
         {
             Assert.False(string.IsNullOrWhiteSpace(t.Name), "a tool is missing its name");
-            Assert.StartsWith("cc-", t.Name, StringComparison.OrdinalIgnoreCase);
+            // The tools are named cc-* or dt-* (dt-email, dt-calendar: the DevThrottle mail and calendar tools).
+            Assert.True(t.Name.StartsWith("cc-", StringComparison.OrdinalIgnoreCase)
+                        || t.Name.StartsWith("dt-", StringComparison.OrdinalIgnoreCase),
+                $"{t.Name} must be named cc-* or dt-*");
             Assert.False(string.IsNullOrWhiteSpace(t.Category), $"{t.Name} is missing its category");
             Assert.False(string.IsNullOrWhiteSpace(t.Description), $"{t.Name} is missing its description");
         }
