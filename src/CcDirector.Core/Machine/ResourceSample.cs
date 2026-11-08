@@ -7,10 +7,14 @@ namespace CcDirector.Core.Machine;
 /// other type in this folder points here rather than repeating it, because two copies of an explanation
 /// drift apart exactly as two copies of code do.
 ///
-/// The owner narrowed the Resource Monitor on 2026-11-06: the meter shows MEMORY AND THE PROCESSOR, and
-/// nothing else is shown anywhere he looks - not the toolbar, not the detail tiles, not a Gateway row,
-/// not the Cockpit. So this sample carries no disk meter, no per-volume free space and no network
-/// throughput; those parts were designed for the wider scope and are gone. <see cref="Swap"/> stays
+/// The owner narrowed the Resource Monitor on 2026-11-06: the meter showed MEMORY AND THE PROCESSOR, and
+/// the disk meter, per-volume free space and network throughput went out. ON 2026-11-07 HE BROUGHT FREE
+/// SPACE BACK, after the C: drive on SOREN_NORTH ran out in an afternoon with nothing in DevThrottle
+/// showing it coming: <see cref="DiskSpace"/> carries free and total space per fixed drive, and it is a
+/// DISK bar beside CPU and MEM, a detail tile per drive, a figure in the five-minute upload and the
+/// Cockpit. ONLY FREE SPACE CAME BACK - the disk ACTIVITY figures (busy, queue, throughput) and network
+/// throughput stay out, and the disk activity survives only as <see cref="DiskEvidence"/>, which no meter
+/// reads. <see cref="Swap"/> stays
 /// because it has its own warning limits and is the late sign of a machine short of memory.
 /// <see cref="Stall"/> and <see cref="DiskEvidence"/> stay because the SLOWNESS DIAGNOSIS still reads
 /// the disk: on devlinux on 2026-10-15 memory and the processor were both healthy while programs were
@@ -37,6 +41,11 @@ namespace CcDirector.Core.Machine;
 /// tile, a Gateway column or a Cockpit column. It exists so the diagnosis can name the disk it blames.
 /// </param>
 /// <param name="Processes">Every process, with what it costs the machine.</param>
+/// <param name="DiskSpace">
+/// Free and total space on each fixed drive (brought back by the owner on 2026-11-07). The DISK bar, the
+/// per-drive tiles and the uploaded drive figures all read this, and nothing reads
+/// <see cref="DiskEvidence"/> for free space.
+/// </param>
 public sealed record ResourceSample(
     DateTime TakenAtUtc,
     CpuReading Cpu,
@@ -44,4 +53,5 @@ public sealed record ResourceSample(
     SwapReading Swap,
     StallReading Stall,
     DiskEvidenceSet DiskEvidence,
-    ProcessSetReading Processes);
+    ProcessSetReading Processes,
+    DiskSpaceSet DiskSpace);

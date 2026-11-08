@@ -62,7 +62,7 @@ public sealed class ResourceMonitorPresenter : IDisposable
     }
 
     private ResourceMeterView BuildMeter(ResourceSamplerState state, IReadOnlyList<ResourceSessionInput>? sessions, int runningSessions) =>
-        ResourceMeterFold.Build(state, _machineName, runningSessions, sessions, _sampler.LatestAge);
+        ResourceMeterFold.Build(state, _machineName, runningSessions, sessions, _sampler.LatestAge, _sampler.TimelineHistory);
 
     private void OnUpdated(object? sender, ResourceMonitorUpdate update)
     {

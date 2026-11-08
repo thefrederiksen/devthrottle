@@ -117,6 +117,16 @@ public sealed class FakeSampleBuilder
     private SwapReading _swap = SwapReading.Read(2 * Gigabyte, 966 * Megabyte);
     private StallReading _stall = StallReading.Read(StallSource.LinuxPressureStall,
         cpuStalledPercent: 0.06, memoryStalledPercent: 0.17, ioStalledPercent: 0.5);
+    // One roomy drive by default, so a test about anything else never trips the 25 GB and 10 GB disk space lines.
+    private DiskSpaceSet _diskSpace = DiskSpaceSet.Read([DriveSpaceReading.Read("C:", 931UL << 30, 500UL << 30)]);
+
+    /// <summary>Sets the fixed drives' free space (Disk Space on the Meter, 7 November 2026).</summary>
+    public FakeSampleBuilder WithDiskSpace(DiskSpaceSet diskSpace)
+    {
+        _diskSpace = diskSpace;
+        return this;
+    }
+
     private DiskEvidenceSet _disks = DiskEvidenceSet.Read(
     [
         DiskEvidence.Read("disk0", DiskKind.SolidState, isInSystemVolume: true,
@@ -264,7 +274,7 @@ public sealed class FakeSampleBuilder
             ? ProcessSetReading.Read(_processes is null ? [DefaultDirectorProcess()] : _processes.ToArray())
             : ProcessSetReading.Unreadable(_processesUnreadableReason);
 
-        return new ResourceSample(_takenAtUtc, _cpu, memory, _swap, _stall, _disks, processes);
+        return new ResourceSample(_takenAtUtc, _cpu, memory, _swap, _stall, _disks, processes, _diskSpace);
     }
 
     private static ProcessReading DefaultDirectorProcess() =>

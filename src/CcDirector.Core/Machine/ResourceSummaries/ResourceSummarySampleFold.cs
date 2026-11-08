@@ -49,7 +49,27 @@ public static class ResourceSummarySampleFold
             memoryReason,
             state.VerdictFor(ResourceKind.Memory).Level,
             sessions is null ? Array.Empty<ResourceSummarySessionSample>() : sessions.Select(Session).ToList(),
-            sessionsReason);
+            sessionsReason,
+            Drives(sample.DiskSpace));
+    }
+
+    /// <summary>
+    /// Each fixed drive, as figures or as the reason it could not be read. When the drives could not be listed at all
+    /// there is no drive to name, so the sample carries none; the window then has no drive rows for those samples,
+    /// which the Gateway reads as "not reported", exactly as from an older Director.
+    /// </summary>
+    private static IReadOnlyList<ResourceSummaryDriveSample> Drives(DiskSpaceSet disks)
+    {
+        if (!disks.CouldRead)
+        {
+            FileLog.Write($"[ResourceSummarySampleFold] Drives: the drives could not be listed at this sample: {disks.UnreadableReason}");
+            return Array.Empty<ResourceSummaryDriveSample>();
+        }
+        return disks.Drives
+            .Select(d => d.CouldRead
+                ? new ResourceSummaryDriveSample(d.Name, (long)d.TotalBytes, (long)d.FreeBytes, null)
+                : new ResourceSummaryDriveSample(d.Name, null, null, d.UnreadableReason))
+            .ToList();
     }
 
     private static ResourceSummarySessionSample Session(ResourceSessionInput input)

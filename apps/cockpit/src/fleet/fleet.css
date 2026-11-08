@@ -1169,6 +1169,25 @@
   max-width: 720px;
 }
 
+/* Disk Space on the Meter (7 November 2026): one row per fixed drive, its free space and a short history. */
+.fmr-drive-table {
+  max-width: 820px;
+}
+
+.fmr-drive-table td {
+  vertical-align: middle;
+}
+
+.fmr-drive-spark {
+  display: block;
+}
+
+.fmr-drive-line {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
 .fmr-empty {
   color: var(--text-dim);
   font-size: 13px;

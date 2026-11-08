@@ -260,6 +260,8 @@ public sealed class ResourceSummaryStore
             return $"the machine's figures are impossible: {machineProblem}";
         if (window.SamplesWithUnknownSessions < 0 || window.SamplesWithUnknownSessions > window.SampleCount)
             return $"it claims {window.SamplesWithUnknownSessions} samples with unknown sessions in a window of {window.SampleCount}";
+        if (DrivesProblem(window.Drives, start, end) is { } drivesProblem)
+            return $"the drive figures are impossible: {drivesProblem}";
         var machineTotal = window.Machine is { MemoryCouldRead: true } m ? m.MemoryTotalBytes : null;
         foreach (var session in window.Sessions ?? new List<ResourceSessionSummary>())
         {
@@ -326,6 +328,59 @@ public sealed class ResourceSummaryStore
         return null;
     }
 
+    /// <summary>
+    /// What is impossible about a window's drives (Disk Space on the Meter, 7 November 2026), or null. NULL OR EMPTY IS
+    /// FINE: a Director older than that sends no drives at all, and its window is accepted unchanged.
+    /// </summary>
+    internal static string? DrivesProblem(List<ResourceDriveSummary>? drives, DateTime windowStart, DateTime windowEnd)
+    {
+        if (drives is null || drives.Count == 0) return null;
+        if (drives.Count > ResourceSummaryContract.MaxDrivesPerWindow)
+            return $"it reports {drives.Count} drives, more than the {ResourceSummaryContract.MaxDrivesPerWindow} accepted";
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var d in drives)
+        {
+            if (d is null) return "a drive entry is empty";
+            if (string.IsNullOrWhiteSpace(d.Name)) return "a drive has no name";
+            if (!names.Add(d.Name)) return $"drive {d.Name} is reported twice";
+            if (!d.CouldRead)
+            {
+                if (d.TotalBytes is not null || d.FreeBytesAtEnd is not null || d.LowestFreeBytes is not null || d.Crossings is { Count: > 0 })
+                    return $"drive {d.Name} is marked unreadable but carries figures";
+                continue;
+            }
+            if (d.TotalBytes is not { } total || d.FreeBytesAtEnd is not { } free || d.LowestFreeBytes is not { } lowest)
+                return $"drive {d.Name} is marked read but has no total, free or lowest figure";
+            if (total <= 0) return $"drive {d.Name} has a size of {total} bytes";
+            if (free < 0 || lowest < 0) return $"drive {d.Name} has less than no free space";
+            if (free > total) return $"drive {d.Name} has {free} bytes free of {total}";
+            if (lowest > free) return $"drive {d.Name}'s lowest free space {lowest} is above its free space at the end {free}";
+            foreach (var c in d.Crossings ?? new List<ResourceCrossing>())
+            {
+                if (c is null) return $"drive {d.Name} has an empty crossing";
+                if (c.Resource != ResourceSummaryContract.Disk)
+                    return $"drive {d.Name} has a crossing for '{c.Resource}', not disk space";
+                if (c.Level is not (ResourceSummaryContract.Amber or ResourceSummaryContract.Red))
+                    return $"drive {d.Name} has a crossing at the level '{c.Level}', which is neither amber nor red";
+                if (c.Seconds <= 0 || c.Seconds > ResourceSummaryContract.WindowSeconds)
+                    return $"drive {d.Name} has a crossing of {c.Seconds} seconds, outside one window";
+                var startedUtc = Utc(c.StartedUtc);
+                if (startedUtc < windowStart || startedUtc >= windowEnd || startedUtc.AddSeconds(c.Seconds) > windowEnd + CrossingRoundingSlack)
+                    return $"drive {d.Name} has a crossing from {startedUtc:O} that does not lie inside its window {windowStart:O}";
+                if (c.PeakPercent is { } p && !IsPercent(p)) return $"drive {d.Name} has a crossing at {p} per cent full";
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The drives a stored machine row holds; empty for a row from a Director that reported none.</summary>
+    public static List<ResourceDriveSummary> DrivesOf(ResourceWindowEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return JsonSerializer.Deserialize<List<ResourceDriveSummary>>(row.DrivesJson, CrossingJson)
+               ?? throw new InvalidOperationException("A stored resource row's drives read back as null.");
+    }
+
     private static bool IsPercent(double value) => !double.IsNaN(value) && value >= 0 && value <= 100;
 
     private static ResourceWindowEntity MachineRow(TenantId tenant, string directorId, ResourceSummaryWindow window, DateTime now)
@@ -343,6 +398,7 @@ public sealed class ResourceSummaryStore
             ReceivedUtc = now,
         };
         CopyFigures(window.Machine ?? new ResourceSummaryFigures(), row, keepTotal: true);
+        row.DrivesJson = JsonSerializer.Serialize(window.Drives ?? new List<ResourceDriveSummary>(), CrossingJson);
         return row;
     }
 

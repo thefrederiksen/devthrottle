@@ -66,7 +66,8 @@ public sealed class ResourceRecorderTests : IDisposable
             SwapReading.Read(4UL << 30, 0),
             StallReading.Read(StallSource.LinuxPressureStall, 0.1, 0.2, 1.5),
             DiskEvidenceSet.Read(new[] { DiskEvidence.Read("sda", DiskKind.SolidState, true, 3, 0.4, 0.6, 0.1) }),
-            ProcessSetReading.Read(processes ?? new[] { Proc(10, "init") }));
+            ProcessSetReading.Read(processes ?? new[] { Proc(10, "init") }),
+            DiskSpaceSet.Read([DriveSpaceReading.Read("C:", 931UL << 30, 500UL << 30)]));
 
     private static RecordedSession Session(string id, string? name, params int[] pids) =>
         new(new SessionUsage(id, pids[0], 5, 200_000_000, pids, 0, 0), name);

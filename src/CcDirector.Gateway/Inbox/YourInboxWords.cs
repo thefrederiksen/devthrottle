@@ -38,11 +38,16 @@ public static class YourInboxWords
     /// mission): a factory's seat when the schedule belongs to a factory, the Gateway's when it belongs to none.</summary>
     public const string ScheduleFailureSeat = "schedule failure";
 
+    /// <summary>The seat a disk space notice is written from (Disk Space on the Meter, 7 November 2026): a fixed drive on
+    /// one of the owner's machines went under 10 GB free, or came back above it. Always from the Gateway.</summary>
+    public const string DiskSpaceSeat = "disk space";
+
     /// <summary>Who a Gateway message is from, as the owner reads it.</summary>
     public static string GatewayFromLabel(string? seat) => seat switch
     {
         MorningReportSeat => "Morning report - schedules in no factory",
         ScheduleFailureSeat => "Schedule failure - schedule in no factory",
+        DiskSpaceSeat => "Disk space - a drive on one of your machines",
         _ => throw new ArgumentOutOfRangeException(nameof(seat), seat, "not a seat a Gateway message is written from"),
     };
 
@@ -53,6 +58,9 @@ public static class YourInboxWords
         ScheduleFailureSeat =>
             "This message is the Gateway's notice that a schedule in no factory failed, not a message from a session or a factory, "
             + "so nobody reads a reply to it. Nothing was sent. Fix the schedule on the Schedule page, or put it into a factory.",
+        DiskSpaceSeat =>
+            "This message is the Gateway's notice about a drive's free space, not a message from a session or a factory, "
+            + "so nobody reads a reply to it. Nothing was sent. Free some space on that drive; the machine's page shows every drive.",
         _ =>
             "This message is from the Gateway's morning report, not from a session or a factory, so nobody reads a reply to it. "
             + "Nothing was sent. Put the schedule into a factory, or fix it on the Schedule page.",

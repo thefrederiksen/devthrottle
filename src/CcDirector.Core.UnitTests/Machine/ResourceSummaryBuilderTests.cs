@@ -18,7 +18,7 @@ public class ResourceSummaryBuilderTests
     private const long Gb = 1_000_000_000;
 
     private static ResourceSummarySample Quiet(DateTime at, double cpu = 20, long used = 8 * Gb, params ResourceSummarySessionSample[] sessions) =>
-        new(at, cpu, null, ResourceLevel.Normal, used, 16 * Gb, null, ResourceLevel.Normal, sessions, null);
+        new(at, cpu, null, ResourceLevel.Normal, used, 16 * Gb, null, ResourceLevel.Normal, sessions, null, []);
 
     /// <summary>Sixty five-second samples: one whole window.</summary>
     private static List<ResourceSummarySample> QuietWindow(DateTime start) =>

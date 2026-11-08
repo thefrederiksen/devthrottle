@@ -51,6 +51,25 @@ public static class ResourceSummaryContract
     /// <summary>A crossing into the critical level (the meter's red; MemoryPressure's Critical).</summary>
     public const string Red = "red";
 
+    /// <summary>
+    /// A drive's free space: the resource named by a crossing in <see cref="ResourceDriveSummary.Crossings"/>. Added on
+    /// 7 November 2026, when the owner brought free space back to the meter and the five-minute upload.
+    /// </summary>
+    public const string Disk = "disk";
+
+    /// <summary>
+    /// A drive with less than this free is amber: 25 GB, on any drive whatever its size (the owner's answer of
+    /// 7 November 2026). The Director's meter and the Gateway's notices read this one number.
+    /// </summary>
+    public const ulong DiskAmberBelowBytes = 25UL * 1024 * 1024 * 1024;
+
+    /// <summary>A drive with less than this free is red: 10 GB, on any drive (the owner's answer of 7 November 2026).</summary>
+    public const ulong DiskRedBelowBytes = 10UL * 1024 * 1024 * 1024;
+
+    /// <summary>The most drives one window may carry. A machine with more fixed drives than this is not one we have
+    /// seen; the cap keeps one bad upload from filling a row.</summary>
+    public const int MaxDrivesPerWindow = 64;
+
     /// <summary>The start of the five-minute window that holds <paramref name="utc"/>.</summary>
     public static DateTime WindowStartFor(DateTime utc)
     {
@@ -105,6 +124,45 @@ public sealed class ResourceSummaryWindow
     /// <summary>Why the sessions could not be measured, from the newest sample that could not, in plain English.
     /// Null when <see cref="SamplesWithUnknownSessions"/> is zero.</summary>
     public string? SessionsUnreadableReason { get; set; }
+
+    /// <summary>
+    /// One entry per fixed drive seen in the window (added 7 November 2026). EMPTY FROM A DIRECTOR OLDER THAN THAT,
+    /// which sends no disk data at all - the Gateway accepts such a window unchanged and simply has no drives for it.
+    /// An empty list is therefore "not reported", never "no drives".
+    /// </summary>
+    public List<ResourceDriveSummary> Drives { get; set; } = new();
+}
+
+/// <summary>
+/// One fixed drive's free space across a five-minute window: what it holds at the end, the lowest it fell to, and any
+/// time it spent under the amber or red line.
+/// </summary>
+public sealed class ResourceDriveSummary
+{
+    /// <summary>The drive as the owner knows it: "C:" on Windows, the mount point ("/") on Linux and macOS.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>False when no sample in the window could read this drive; every figure is then null.</summary>
+    public bool CouldRead { get; set; }
+
+    /// <summary>Why the drive could not be read, from the newest sample that could not. Null when it was read.</summary>
+    public string? UnreadableReason { get; set; }
+
+    /// <summary>The drive's size, from the newest sample that read it.</summary>
+    public long? TotalBytes { get; set; }
+
+    /// <summary>Free space at the newest sample in the window that read the drive - "free at the window's end".</summary>
+    public long? FreeBytesAtEnd { get; set; }
+
+    /// <summary>The lowest free space any sample in the window read.</summary>
+    public long? LowestFreeBytes { get; set; }
+
+    /// <summary>
+    /// Each run of samples under the amber or red line, with <see cref="ResourceCrossing.Resource"/> set to
+    /// <see cref="ResourceSummaryContract.Disk"/> and <see cref="ResourceCrossing.PeakPercent"/> to how full the drive
+    /// was at its fullest.
+    /// </summary>
+    public List<ResourceCrossing> Crossings { get; set; } = new();
 }
 
 /// <summary>One session's share of a window.</summary>

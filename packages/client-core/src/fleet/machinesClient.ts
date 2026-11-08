@@ -147,6 +147,29 @@ export interface FactoryResourceCost {
   processorPeakPercent?: number | null;
 }
 
+/** One window's free space for one drive (C# MachineDrivePointDto). */
+export interface MachineDrivePoint {
+  windowStartUtc: string;
+  /** The lowest free space any sample in the window read. */
+  lowestFreeBytes: number;
+  /** How full the drive was at its fullest in the window, 0 to 100. */
+  usedPercent: number;
+}
+
+/** One fixed drive on the machine page (C# MachineDriveHistoryDto) - every word and the tone are the Gateway's. */
+export interface MachineDriveHistory {
+  /** "C:" on Windows, the mount point elsewhere. */
+  name: string;
+  /** "6.40 GB free of 931 GB", or "cannot read: the reason". */
+  headline: string;
+  /** "red, under 10 GB", "amber, under 25 GB", "normal" or "cannot read". */
+  levelLabel: string;
+  tone: FleetTone;
+  /** "lost 8 GB in the last 3 hours", "steady", or null with only one reading. */
+  trendLabel?: string | null;
+  points: MachineDrivePoint[];
+}
+
 /** GET /machines/{machine}/resources (C# MachineResourceHistoryDto). */
 export interface MachineResourceHistory {
   machine: string;
@@ -164,6 +187,10 @@ export interface MachineResourceHistory {
   emptyMessage?: string | null;
   windows: MachineResourceWindow[];
   factories: FactoryResourceCost[];
+  /** Each fixed drive's free space over the span (Disk Space on the Meter, 7 November 2026). */
+  drives: MachineDriveHistory[];
+  /** Shown instead of the drives when there are summaries but none reported a drive (an older Director). */
+  noDrivesMessage?: string | null;
 }
 
 export interface NewestRelease {
@@ -230,6 +257,10 @@ export async function getMachineResources(machine: string, signal?: AbortSignal)
   // A body without the lists is not an idle machine - drawing an empty chart would read as one.
   if (!Array.isArray(body?.windows) || !Array.isArray(body?.factories) || !Array.isArray(body?.gaps) || !Array.isArray(body?.events)) {
     throw new GatewayError(res.status, "The Gateway answered the machine's resource history without its 'windows', 'factories', 'gaps' and 'events' lists.");
+  }
+  // The drives are a list the Gateway always sends; without it the page would show no disk at all and look healthy.
+  if (!Array.isArray(body.drives)) {
+    throw new GatewayError(res.status, "The Gateway answered the machine's resource history without its 'drives' list.");
   }
   // The chart lays out the Gateway's span. Without it the client would have to invent a clock, which is the defect the
   // span exists to prevent - so a history without one is refused, not drawn against the newest window.

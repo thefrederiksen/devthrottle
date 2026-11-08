@@ -46,7 +46,8 @@ public class ResourceSampleContractTests
             [
                 new ProcessReading(1, null, "systemd", null, 0.1, 8UL * 1024 * 1024, null, null),
                 new ProcessReading(4242, 1, "dotnet", null, 14.0, 512UL * 1024 * 1024, null, null),
-            ]));
+            ]),
+            DiskSpace: DiskSpaceSet.Read([DriveSpaceReading.Read("C:", 931UL << 30, 500UL << 30)]));
 
     private static ProcessReading Process(int pid, int? parentPid, string name, double? cpuPercent) =>
         new(pid, parentPid, name, null, cpuPercent, 1024, null, null);

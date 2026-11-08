@@ -96,6 +96,54 @@ public sealed class MachineResourceHistoryDto
     /// <summary>Cost per registered factory over the span, grouped by each session's Factory value (not its Mission),
     /// highest processor peak first, with "No factory" last.</summary>
     public List<FactoryResourceCostDto> Factories { get; set; } = new();
+
+    /// <summary>
+    /// Each fixed drive the machine reported in the span, in the order it reports them (Disk Space on the Meter, 7 November
+    /// 2026). Empty when every summary in the span came from a Director older than that, which reports no drives; then
+    /// <see cref="NoDrivesMessage"/> says so.
+    /// </summary>
+    public List<MachineDriveHistoryDto> Drives { get; set; } = new();
+
+    /// <summary>Shown instead of the drives when there are summaries but none reported a drive. Null otherwise.</summary>
+    public string? NoDrivesMessage { get; set; }
+}
+
+/// <summary>
+/// One fixed drive on the machine page (Disk Space on the Meter, 7 November 2026): where it stands now, finished words
+/// and a tone from the Gateway, and its free space over the span from the uploaded five-minute summaries.
+/// </summary>
+public sealed class MachineDriveHistoryDto
+{
+    /// <summary>"C:" on Windows, the mount point on Linux and macOS.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>"6.40 GB free of 931 GB", or "cannot read: the reason" when the newest summary could not read it.</summary>
+    public string Headline { get; set; } = "";
+
+    /// <summary>"red, under 10 GB", "amber, under 25 GB", "normal" or "cannot read".</summary>
+    public string LevelLabel { get; set; } = "";
+
+    /// <summary>The level as a tone: bad for red, warn for amber, ok for normal, idle for cannot read.</summary>
+    public string Tone { get; set; } = FleetTone.Idle;
+
+    /// <summary>"lost 8 GB in the last 3 hours", "gained 2 GB in the last 40 minutes", "steady", or null when there is only
+    /// one reading in the span.</summary>
+    public string? TrendLabel { get; set; }
+
+    /// <summary>The lowest free space in each window that read the drive, oldest first.</summary>
+    public List<MachineDrivePointDto> Points { get; set; } = new();
+}
+
+/// <summary>One window's free space for one drive.</summary>
+public sealed class MachineDrivePointDto
+{
+    public DateTime WindowStartUtc { get; set; }
+
+    /// <summary>The lowest free space any sample in the window read.</summary>
+    public long LowestFreeBytes { get; set; }
+
+    /// <summary>How full the drive was at its fullest in the window, 0 to 100 - the height the chart draws.</summary>
+    public double UsedPercent { get; set; }
 }
 
 /// <summary>One five-minute row of the chart: the average line, the peak it is shaded up to, and its crossings.</summary>

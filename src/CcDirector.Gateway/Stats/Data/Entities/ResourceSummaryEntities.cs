@@ -66,6 +66,37 @@ public sealed class ResourceWindowEntity : IResourceFigureColumns
     public long? MemoryTotalBytes { get; set; }
     public string? MemoryUnreadableReason { get; set; }
     public string CrossingsJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Each fixed drive's free space in the window, as the JSON of a list of
+    /// <see cref="CcDirector.Gateway.Contracts.ResourceDriveSummary"/> (Disk Space on the Meter, 7 November 2026).
+    /// "[]" when the Director reported no drives - one older than that sends none - and on a refused row.
+    /// </summary>
+    public string DrivesJson { get; set; } = "[]";
+}
+
+/// <summary>
+/// Where one drive on one machine stands for the owner's disk space notices (<c>resource_disk_notice</c>, Disk Space
+/// on the Meter, 7 November 2026). One row per tenant, machine and drive. It is what makes "at most once a day per
+/// drive" and "a recovery message only after a red one" survive a Gateway restart.
+/// </summary>
+public sealed class ResourceDiskNoticeEntity
+{
+    public string Tenant { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public string Drive { get; set; } = "";
+
+    /// <summary>True while the drive is under the red line, as of <see cref="LastWindowStartUtc"/>.</summary>
+    public bool IsRed { get; set; }
+
+    /// <summary>When the last red notice for this drive was written; null when none ever was.</summary>
+    public DateTime? LastRedNoticeUtc { get; set; }
+
+    /// <summary>True when the current red spell was told to the owner, so its recovery is told too.</summary>
+    public bool RedSpellNoticed { get; set; }
+
+    /// <summary>The start of the newest window this row has judged. An older window that arrives late is not judged.</summary>
+    public DateTime LastWindowStartUtc { get; set; }
 }
 
 /// <summary>One session's share of a five-minute window (<c>resource_session_window</c>). Kept 90 days.</summary>

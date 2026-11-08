@@ -36,7 +36,17 @@ public sealed record ResourceSummarySample(
     string? MemoryUnreadableReason,
     ResourceLevel MemoryLevel,
     IReadOnlyList<ResourceSummarySessionSample> Sessions,
-    string? SessionsUnreadableReason);
+    string? SessionsUnreadableReason,
+    IReadOnlyList<ResourceSummaryDriveSample> Drives);
+
+/// <summary>
+/// One fixed drive at one sample, for the five-minute upload (the owner brought free space back on 7 November 2026).
+/// </summary>
+/// <param name="Name">The drive: "C:", or a mount point.</param>
+/// <param name="TotalBytes">Its size; null when it could not be read.</param>
+/// <param name="FreeBytes">Free space; null when it could not be read - never zero for a failed read.</param>
+/// <param name="UnreadableReason">Why it could not be read; null when it was.</param>
+public sealed record ResourceSummaryDriveSample(string Name, long? TotalBytes, long? FreeBytes, string? UnreadableReason);
 
 /// <summary>One session's share of one sample.</summary>
 /// <param name="SessionId">The session.</param>

@@ -3,8 +3,8 @@ using System.Globalization;
 namespace CcDirector.Core.Machine;
 
 /// <summary>
-/// One of the detail screen's two tiles, CPU or Memory (mission section 5h). There is no disk tile: the
-/// disk reaches the owner only as words in the Diagnosis tab.
+/// One of the detail screen's tiles: CPU, Memory, and one per fixed drive (free space, brought back by the
+/// owner on 2026-11-07). Disk ACTIVITY has no tile; it reaches the owner only as words in the Diagnosis tab.
 /// </summary>
 /// <param name="Kind">Which resource.</param>
 /// <param name="Title">"CPU" or "Memory".</param>
@@ -79,7 +79,8 @@ public sealed record ResourceDetailView(
     ResourceTileView Memory,
     IReadOnlyList<ResourceUsageRow> Sessions,
     ResourceUsageRow Director,
-    ResourceUsageRow EverythingElse);
+    ResourceUsageRow EverythingElse,
+    IReadOnlyList<ResourceTileView> Disks);
 
 /// <summary>
 /// Folds the sampler's state, its history and this Director's sessions into the detail screen. A pure
@@ -128,7 +129,65 @@ public static class ResourceDetailFold
             MemoryTile(state, history),
             sessionRows,
             DirectorRow(directorPid, byPid),
-            EverythingElseRow(sample, sessions, directorPid, byPid));
+            EverythingElseRow(sample, sessions, directorPid, byPid),
+            DiskTiles(state, history));
+    }
+
+    /// <summary>
+    /// A tile per fixed drive (the approved mock-up): "Disk C:", "6.40 GB free", "of 931 GB - lost 8 GB in the last
+    /// 60 minutes", coloured by <see cref="DiskSpacePressure"/>. Its history is how FULL the drive was at each sample,
+    /// the same direction as the bar. A drive that cannot be read is a tile that says so - never "0 GB free". When the
+    /// drives cannot be listed at all, one tile carries why, so the screen never simply has no disk on it.
+    /// </summary>
+    private static IReadOnlyList<ResourceTileView> DiskTiles(ResourceSamplerState state, IReadOnlyList<ResourceSample> history)
+    {
+        if (state.Latest is not { } sample)
+            return [new ResourceTileView(ResourceKind.Disk, "Disk", ResourceViewText.CannotReadText,
+                ResourceViewText.CannotRead(ResourceSamplerState.NotYetSampledReason), ResourceLevel.Unknown, [])];
+
+        var disks = sample.DiskSpace;
+        if (!disks.CouldRead || disks.Drives.Count == 0)
+            return [new ResourceTileView(ResourceKind.Disk, "Disk", ResourceViewText.CannotReadText,
+                ResourceViewText.CannotRead(disks.CouldRead ? "no fixed drive was found on this machine" : disks.UnreadableReason),
+                ResourceLevel.Unknown, [])];
+
+        // The trend's span is NOT worked out from the samples' wall-clock stamps, which a stepped clock would bend: the
+        // history is in sampling order and its span is the count of samples times the five-second interval. A read the
+        // sampler skipped makes that span a little SHORT, so the loss rate can only be overstated slightly, never hidden.
+        var timeline = history
+            .Select((s, index) => (At: TimeSpan.FromTicks(ResourceSampling.Interval.Ticks * index), s.DiskSpace))
+            .ToList();
+
+        var tiles = new List<ResourceTileView>(disks.Drives.Count);
+        foreach (var drive in disks.Drives)
+        {
+            var points = history
+                .Select(s => new ResourceHistoryPoint(s.TakenAtUtc, FractionOf(s.DiskSpace, drive.Name)))
+                .ToList();
+            if (!drive.CouldRead)
+            {
+                tiles.Add(new ResourceTileView(ResourceKind.Disk, $"Disk {drive.Name}", ResourceViewText.CannotReadText,
+                    ResourceViewText.CannotRead(drive.UnreadableReason), ResourceLevel.Unknown, points));
+                continue;
+            }
+
+            var trend = DiskSpaceText.Trend(drive.Name, timeline);
+            var detail = trend is null
+                ? $"of {ResourceViewText.Bytes(drive.TotalBytes)}"
+                : $"of {ResourceViewText.Bytes(drive.TotalBytes)} - {trend}";
+            tiles.Add(new ResourceTileView(ResourceKind.Disk, $"Disk {drive.Name}", $"{ResourceViewText.Bytes(drive.FreeBytes)} free",
+                detail, DiskSpacePressure.Level(drive), points));
+        }
+        return tiles;
+    }
+
+    private static double? FractionOf(DiskSpaceSet disks, string driveName)
+    {
+        foreach (var drive in disks.Drives)
+        {
+            if (string.Equals(drive.Name, driveName, StringComparison.Ordinal)) return DiskSpaceText.UsedFraction(drive);
+        }
+        return null;
     }
 
     private static ResourceTileView CpuTile(ResourceSamplerState state, IReadOnlyList<ResourceSample> history)

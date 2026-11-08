@@ -76,7 +76,8 @@ public sealed class ResourceSummaryPostgresTests
         {
             var spike = redSpike && i >= 24 && i < 42;
             return new ResourceSummarySample(start.AddSeconds(5 * i), spike ? 99 : 20, null,
-                spike ? ResourceLevel.Critical : ResourceLevel.Normal, 8 * Gb, 16 * Gb, null, ResourceLevel.Normal, new[] { share }, null);
+                spike ? ResourceLevel.Critical : ResourceLevel.Normal, 8 * Gb, 16 * Gb, null, ResourceLevel.Normal, new[] { share }, null,
+                Array.Empty<ResourceSummaryDriveSample>());
         }));
     }
 

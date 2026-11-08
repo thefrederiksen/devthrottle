@@ -59,7 +59,7 @@ internal static class ResourceWindows
 
     public static ResourceSummarySample Sample(DateTime at, double cpu, long usedBytes,
         ResourceLevel cpuLevel = ResourceLevel.Normal, params ResourceSummarySessionSample[] sessions) =>
-        new(at, cpu, null, cpuLevel, usedBytes, 16 * Gb, null, ResourceLevel.Normal, sessions, null);
+        new(at, cpu, null, cpuLevel, usedBytes, 16 * Gb, null, ResourceLevel.Normal, sessions, null, []);
 
     /// <summary>A whole window at a steady processor and memory figure, with the given sessions in every sample.</summary>
     public static ResourceSummaryWindow Steady(DateTime start, double cpu, long usedBytes, string machine = "devlinux",

@@ -32,6 +32,9 @@ internal sealed record ResourceSampleBuilder
         new ProcessReading(1, null, "systemd", Start.AddDays(-1), 0.1, 10_000_000, 0, 0),
     ]);
 
+    /// <summary>The fixed drives' free space; one roomy drive unless a test says otherwise.</summary>
+    public DiskSpaceSet DiskSpace { get; init; } = DiskSpaceSet.Read([DriveSpaceReading.Read("C:", 931UL << 30, 500UL << 30)]);
+
     public ResourceSample Build()
     {
         var takenAt = Start + At;
@@ -42,7 +45,8 @@ internal sealed record ResourceSampleBuilder
             Swap,
             Stall,
             DiskEvidence,
-            Processes);
+            Processes,
+            DiskSpace);
     }
 
     /// <summary>One sample every five seconds for the given span, inclusive at both ends - the sampler's real rhythm.</summary>

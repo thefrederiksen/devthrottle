@@ -4,9 +4,10 @@ namespace CcDirector.Core.Machine;
 
 /// <summary>
 /// THE ONE PLACE A HISTORY OF RESOURCE SAMPLES BECOMES A LEVEL PER RESOURCE (mission sections 5a and
-/// 5c): Normal, Tight or Critical for the processor, memory and swap - the meter's two bars and the swap
-/// figure behind them. There is no disk level: the disk is not a meter, and reaches the owner only
-/// through <see cref="SlownessDiagnoser"/>, in words.
+/// 5c): Normal, Tight or Critical for the processor, memory and swap - the meter's CPU and MEM bars and
+/// the swap figure behind them. The DISK bar (free space, brought back on 2026-11-07) takes its level from
+/// <see cref="DiskSpacePressure"/> instead, a plain line in gigabytes with no history to fold. Disk
+/// ACTIVITY has no level at all: it reaches the owner only through <see cref="SlownessDiagnoser"/>, in words.
 ///
 /// Built the same way as <see cref="MemoryPressure"/>: a pure function of the samples it is handed - no
 /// clock, no platform call, no state - so every branch is tested with no machine. Time is read only from

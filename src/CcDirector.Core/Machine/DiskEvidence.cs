@@ -26,9 +26,10 @@ public enum DiskKind
 /// <summary>
 /// What one physical disk contributes to the SLOWNESS DIAGNOSIS - the device, not a volume on it.
 ///
-/// THIS IS EVIDENCE FOR A SENTENCE, NOT A METER. There is no disk bar in the toolbar, none in the detail
-/// tiles, no disk figure in a Gateway row and none in the Cockpit - see <see cref="ResourceSample"/> for
-/// why. These figures exist only to fill in the approved sentence "the hard drive sdc is 75% busy at 26
+/// THIS IS EVIDENCE FOR A SENTENCE, NOT A METER. These activity figures are never a bar, a tile, a Gateway
+/// figure or a Cockpit column - see <see cref="ResourceSample"/> for why. (The DISK bar the owner brought
+/// back on 2026-11-07 shows FREE SPACE, read separately into <see cref="DiskSpaceSet"/>; none of these
+/// timings went back with it.) These figures exist only to fill in the approved sentence "the hard drive sdc is 75% busy at 26
 /// milliseconds per write, and programs are stalled waiting on it 32% of the time", and nothing else may
 /// read them.
 ///
@@ -66,7 +67,8 @@ public enum DiskKind
 /// Null when the platform cannot say which disks back which volume - which is not the same as false.
 ///
 /// It replaces v3's per-volume reading, which also carried free space per volume and went out with the
-/// disk meter.
+/// disk meter on 2026-11-06. Free space came back on 2026-11-07 as its own reading,
+/// <see cref="DiskSpaceSet"/>, and is not carried here.
 /// </param>
 /// <param name="CouldRead">False when this disk's statistics could not be read; every figure is then null.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>

@@ -149,6 +149,46 @@ describe("MachinesPanel: one machine expanded", () => {
     expect(calls.filter((c) => c.includes("/resources"))).toEqual(["GET /machines/devlinux/resources"]);
   });
 
+  // Disk Space on the Meter (7 November 2026): each drive is a row carrying the Gateway's words and tone verbatim, and a
+  // machine whose Director reports no drives says so rather than showing no disk at all.
+  it("draws each drive with the Gateway's words and tone, and says so when no drive was reported", async () => {
+    const drives = [
+      {
+        name: "C:", headline: "6.40 GB free of 931 GB", levelLabel: "red, under 10 GB", tone: "bad" as const,
+        trendLabel: "lost 8.00 GB in the last 3 hours",
+        points: [
+          { windowStartUtc: "2026-11-06T11:45:00Z", lowestFreeBytes: 8 * 1024 ** 3, usedPercent: 99.1 },
+          { windowStartUtc: "2026-11-06T11:50:00Z", lowestFreeBytes: 6 * 1024 ** 3, usedPercent: 99.3 },
+        ],
+      },
+      { name: "D:", headline: "325 GB free of 3815 GB", levelLabel: "normal", tone: "ok" as const, trendLabel: "steady", points: [] },
+    ];
+    answers["GET /machines/devlinux/resources"] = () =>
+      json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35])], factories, { drives, noDrivesMessage: null }));
+    draw();
+
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+
+    const c = await screen.findByTestId("fmr-drive-C:");
+    expect([...c.querySelectorAll("td")].slice(0, 4).map((td) => td.textContent)).toEqual([
+      "C:", "6.40 GB free of 931 GB", "red, under 10 GB", "lost 8.00 GB in the last 3 hours",
+    ]);
+    expect(c.querySelectorAll("td")[2].getAttribute("class")).toContain("dstat-err");
+    expect(c.querySelector("polyline")).toBeTruthy();
+    const d = screen.getByTestId("fmr-drive-D:");
+    expect(d.querySelectorAll("td")[2].getAttribute("class")).toContain("dstat-ok");
+    expect(screen.queryByTestId("fmr-no-drives")).toBeNull();
+  });
+
+  it("says no drive was reported when the Gateway has no drives for the machine", async () => {
+    answers["GET /machines/devlinux/resources"] = () => json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35])], factories));
+    draw();
+
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+
+    expect((await screen.findByTestId("fmr-no-drives")).textContent).toContain("reported a drive");
+  });
+
   // Review of pull request 4646: a refused window was covered only by the geometry test. On screen it must be a stripe
   // carrying the Gateway's reason, and the reason must appear in the events list - never a zero on the line.
   // Review finding 3: the stripe and the event list carry the Gateway's words and tone, not ones the client wrote.
