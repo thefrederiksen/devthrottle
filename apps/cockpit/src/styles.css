@@ -3745,6 +3745,23 @@ body {
   padding: 24px 28px;
 }
 
+/* A REPORT LINK OPENED ON A PHONE (Web UI Polish, 7 November 2026). The printed `<gateway>/r/{id}` address lands on
+   this page whatever the screen, and at phone width the 340px conversation beside the report left the report about
+   50 pixels: the back link ran one letter per line and the report did not show at all. Narrow, the report takes the
+   full width and the conversation moves below it, in its own scroll, at most a third of the screen. The back link
+   then has the bar's whole width and wraps as words. On a big screen nothing changes. */
+@media (max-width: 700px) {
+  .report-page .dev-report-viewer {
+    flex-direction: column;
+  }
+  .report-page .reports-conversation {
+    flex: 0 0 auto;
+    max-height: 33vh;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
 .reports-tab-body {
   flex: 1 1 auto;
   min-height: 0;

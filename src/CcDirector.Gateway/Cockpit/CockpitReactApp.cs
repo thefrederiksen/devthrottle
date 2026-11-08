@@ -52,6 +52,10 @@ public static class CockpitReactApp
     /// <item><c>boxes</c> - <c>MapGet("/boxes")</c> (the Factory Boxes list) vs the Boxes page. Without it a reload
     ///   of the Boxes page handed the browser the raw list. The desktop routes under it (<c>/boxes/{id}/desktop/...</c>)
     ///   are three segments or more and stay the Gateway's; the ticket route is a POST.</item>
+    /// <item><c>missions</c> - <c>MapGet("/missions")</c> (the mission list) vs the Cockpit's <c>/missions</c>, which
+    ///   sends the person to the Fleet Map. Without it a reload or an old bookmark of <c>/missions</c> showed the raw
+    ///   list (Web UI Polish, 7 November 2026). Only programs read <c>/missions/{mid}</c>, never a browser, and the notes
+    ///   routes under a mission are three segments or more and stay the Gateway's.</item>
     /// </list>
     /// The match is on the FIRST segment for one- or two-segment paths only: the list page
     /// (<c>/sessions</c>) and its detail page (<c>/sessions/{sid}</c>) - one id segment, never deeper.
@@ -68,7 +72,7 @@ public static class CockpitReactApp
     /// <c>exes</c> would divert a browser GET of <c>/exes/list</c> to the shell), so this set stays the
     /// exact intersection of "React page" and "same-path JSON endpoint".
     /// </summary>
-    private static readonly string[] BrowserPageRoots = { "cockpit", "sessions", "directors", "lists", "boxes" };
+    private static readonly string[] BrowserPageRoots = { "cockpit", "sessions", "directors", "lists", "boxes", "missions" };
 
     /// <summary>
     /// The directory the built React Cockpit is served from: <c>wwwroot/c</c> beside the running
