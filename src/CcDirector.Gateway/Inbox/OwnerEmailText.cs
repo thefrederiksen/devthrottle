@@ -11,8 +11,8 @@ namespace CcDirector.Gateway.Inbox;
 /// EVERY LINK'S ADDRESS IS KEPT. A link is the part of a report a reader acts on, and text that kept only the words of
 /// "<c>&lt;a href="https://x/run/5"&gt;the run&lt;/a&gt;</c>" would leave "the run" with nowhere to go. So a link becomes its
 /// words followed by its address in brackets, or just the address when the words are the address. Scripts and styles are
-/// dropped (they are not words a reader reads), block ends become line breaks, list items become "- " lines, and
-/// character references are decoded. Nothing is summarised and nothing is added.
+/// dropped (they are not words a reader reads), block ends become line breaks, list items become "- " lines, a pre
+/// element (a log excerpt) keeps its own line breaks and spacing, and character references are decoded. Nothing is summarised and nothing is added.
 /// </summary>
 public static class OwnerEmailText
 {
@@ -41,6 +41,14 @@ public static class OwnerEmailText
 
     private static readonly Regex BlankLines = new(@"\n{3,}", RegexOptions.CultureInvariant, Timeout);
 
+    private static readonly Regex Pre = new(@"<pre\b[^>]*>.*?</pre\s*>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant, Timeout);
+
+    // Inside a pre element the source's line breaks and spaces ARE what the reader sees (a log excerpt, a table of
+    // numbers), so they are held as these two characters while the rest of the text is reflowed, then put back.
+    private const char PreLineBreak = '\u0001';
+    private const char PreSpace = '\u0002';
+
     /// <summary>The plain text of <paramref name="html"/>, with every link's address kept. Empty for empty input.</summary>
     public static string FromHtml(string? html)
     {
@@ -58,7 +66,9 @@ public static class OwnerEmailText
                 return words;
             return $"{words} ({url})";
         });
-        // HTML source line breaks are not line breaks a reader sees; only the tags below make lines.
+        s = Pre.Replace(s, m => m.Value.Replace('\n', PreLineBreak).Replace(' ', PreSpace).Replace('\t', PreSpace));
+        // HTML source line breaks are not line breaks a reader sees; only the tags below make lines (and a pre element's
+        // own lines, held above).
         s = s.Replace('\n', ' ');
         s = LineBreak.Replace(s, "\n");
         s = ListItem.Replace(s, "\n- ");
@@ -69,6 +79,7 @@ public static class OwnerEmailText
 
         var lines = s.Split('\n').Select(l => Spaces.Replace(l, " ").Trim());
         var text = BlankLines.Replace(string.Join("\n", lines), "\n\n").Trim();
+        text = text.Replace(PreLineBreak, '\n').Replace(PreSpace, ' ');
         // "- " followed by the item's own line break leaves a lone dash; join it back to its words.
         return Regex.Replace(text, @"^- *\n+(?=\S)", "- ", RegexOptions.Multiline, Timeout);
     }

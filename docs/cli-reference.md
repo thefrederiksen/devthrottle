@@ -734,7 +734,9 @@ Delivered to Your inbox, not sent as an email: since 8 November 2026 the owner e
 `--json` prints the Gateway's answer whole. It keeps every field it had (`sent`, `providerId`, `error`)
 and adds `deliveredTo` (`inbox` or `email`), `inboxMessageId` (the message, or the note beside an email)
 and `message` (the Gateway's sentence saying where it went). On Your inbox, `providerId` is
-`your-inbox:<message id>`.
+`your-inbox:<message id>`. An older `cc-devthrottle` still prints "Sent email to the account owner"
+even when the Gateway put the message in Your inbox; a `providerId` that starts with `your-inbox:`
+is the sign that it went to Your inbox, not to email.
 
 **Reported errors (issues #3311 and #3675).** `errors list` reads one row per report, newest first;
 `errors groups` reads one row per problem, the most reported first. A problem is decided by the

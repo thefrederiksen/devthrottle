@@ -25,4 +25,13 @@ public sealed class OwnerEmailTextTests
     [Fact]
     public void FromHtml_Empty_IsEmpty()
         => Assert.Equal("", OwnerEmailText.FromHtml(null));
+
+    [Fact]
+    public void FromHtml_PreElement_KeepsItsLineBreaksAndSpacing()
+        => Assert.Equal("Log:\n\nERROR one\n  at Two()\n  at Three()\n\nDone.",
+            OwnerEmailText.FromHtml("<p>Log:</p><pre>ERROR one\n  at Two()\n  at Three()</pre><p>Done.</p>"));
+
+    [Fact]
+    public void FromHtml_PreElement_StillDecodesEntitiesAndDropsTags()
+        => Assert.Equal("x < y\nz", OwnerEmailText.FromHtml("<pre><b>x</b> &lt; y\nz</pre>"));
 }
