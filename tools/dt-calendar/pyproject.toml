@@ -1,0 +1,28 @@
+[project]
+name = "dt-calendar"
+version = "0.1.0"
+description = "Calendar over standard CalDAV for any provider: list calendars and events, create, change, delete, invite, accept or decline"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "cc-shared",
+    "cc-storage",
+    "tzdata; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0"]
+
+[project.scripts]
+dt-calendar = "dt_calendar.cli:tool_main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dt_calendar"]
+package-dir = {"dt_calendar" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -58,6 +58,13 @@
       "note": null
     },
     {
+      "name": "dt-calendar",
+      "category": "Email",
+      "description": "Read and manage calendars on any provider that offers standard CalDAV: events, invitations and answers, with the password kept in cc-secrets.",
+      "smoke": { "args": ["--help"], "expectContains": "Calendar over standard CalDAV" },
+      "note": null
+    },
+    {
       "name": "cc-secrets",
       "category": "Data",
       "description": "Passwords your agents can use without ever seeing them: an agent runs a command or signs in to a website with a secret you added by hand, and gets back only the result.",

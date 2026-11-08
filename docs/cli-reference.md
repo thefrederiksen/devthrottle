@@ -2915,6 +2915,26 @@ the account settings it keeps hold no secret. `tools/dt-email/README.md` has eve
 
 Every command takes `--account` and `--json`. Errors exit 1, usage errors 2.
 
+## dt-calendar
+
+Calendar over standard CalDAV for any provider: list calendars and events, create, change, delete, invite,
+accept or decline. The password comes only from cc-secrets (`cc-secrets run <entry> -- dt-calendar ...`);
+the account settings it keeps hold no secret. `tools/dt-calendar/README.md` has every command.
+
+| Command | What it does |
+|---|---|
+| `dt-calendar account add <name> --email <a> --url <https server> --secret-entry <e> --password-env <V>` | Set up an account (no secret stored) |
+| `dt-calendar account list\|check\|default\|remove` | Show, test the sign-in, choose the default, remove |
+| `dt-calendar allowed-recipients set <a>...\|show\|clear` | Test mode: refuse inviting anyone else before sending |
+| `dt-calendar calendars` / `events [--from --to]` / `event <id>` | Read |
+| `dt-calendar create --summary --start [--end\|--duration] [--all-day] [--invite <a>]` | Create, inviting people |
+| `dt-calendar change <id> [...] [--invite] [--uninvite]` / `delete <id>` | Change or delete |
+| `dt-calendar respond <id> --as accepted\|declined\|tentative` | Answer an invitation |
+
+Every command takes `--account` and `--json`. Errors exit 1, usage errors 2. A server that silently drops an
+invited person (Zoho drops anyone outside its organisation over CalDAV) makes create and change exit 1 and
+name who was dropped.
+
 ## cc-reddit
 
 Reddit CLI via browser automation.
