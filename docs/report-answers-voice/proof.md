@@ -123,4 +123,30 @@ here, because the theme is shared by every control the script draws.
 
 ## Review
 
-(Filled in after the separate review session.)
+A separate review session read the diff at 96718e9a6 (the first reviewer seat refused its model and the next seat
+took it). It found no blocker and confirmed: the words reach the box byte for byte; every own-answer label is set on
+the Gateway; a team member's own words go only to the sender; the shape check refuses an author option valued
+`own-answer`; the frame can ask only to start and stop; and no new test passes with the feature removed. Its
+findings and what was done:
+
+1. **Should fix - fixed.** A cancel while the microphone was still opening (leave the report, or the agent
+   republishes, while the permission prompt is up) left the microphone live with no owner: the cancel's dispose ran
+   before the stream existed. `DevReportDictation.start` now checks after the open and disposes the recorder when
+   the page has gone. Test: "lets go of a microphone that finishes opening after the page went away".
+2. **Should fix - fixed.** A microphone that opens but never delivers audio (muted, dead input) left the box on
+   "Starting the microphone" for ever with the button disabled and the microphone held. The host now arms the Speak
+   dialog's six-second backstop and fails with the Speak dialog's own sentence, letting the microphone go; the
+   first audio disarms it. Tests: "says so and lets the microphone go when it opens but never delivers audio" and
+   "disarms the not-capturing backstop the moment audio arrives".
+   Red then green for both: with the two production lines removed, 2 of 17 dictation host tests fail; with them,
+   all of client-core passes, 2,571 of 2,571. Typecheck and eslint clean. The two apps were rebuilt, staged into the
+   rig and the comment-box run repeated: PASS in the Cockpit and on the phone.
+3. **Minor - not changed.** The host starts recording on a `dictation-start` with no user-gesture check and draws no
+   recording sign of its own outside the frame. The reviewer agrees it is safe today: the frame's policy runs only
+   the injected script, so a report's own markup cannot send the message. Left as hardening for later.
+4. **Minor - not changed, deliberate.** Capture health for a report dictation is logged under the same surface tags
+   as the Speak dialog, so the Transcription Health report counts them together. Chosen so a lost recording shows in
+   the existing report; separating them is a later decision.
+5. **Minor - stated.** The team path accepts an own answer and the tests prove where the words go, but no client
+   sends one yet: the Team Questions page is unchanged. "Something else" reaches dev reports only in this change.
+   The pull request says so.

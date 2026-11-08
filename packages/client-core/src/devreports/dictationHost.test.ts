@@ -9,7 +9,9 @@ import { DevReportController, type DevReportApi } from "./controller";
 import type { DevReportDetail } from "./devReportsClient";
 import {
   ANOTHER_BOX_RECORDING,
+  DICTATION_READY_TIMEOUT_MS,
   DevReportDictation,
+  MICROPHONE_NOT_CAPTURING,
   NOTHING_HEARD,
   type DictationRecorder,
   type DictationTranscript,
@@ -79,6 +81,10 @@ interface Rig {
   tick: () => void;
   /** When set, the microphone refuses to open with this error. */
   startError: Error | null;
+  /** When set, the microphone's open waits on this until the test resolves it. */
+  startGate: Promise<void> | null;
+  /** The armed not-capturing backstop and its delay, or null when none is armed. */
+  ready: { fn: () => void; ms: number } | null;
 }
 
 function rig(): Rig {
@@ -90,6 +96,8 @@ function rig(): Rig {
     clock: { now: 1000 },
     tick: () => {},
     startError: null,
+    startGate: null,
+    ready: null,
   } as Rig;
   r.dictation = new DevReportDictation({
     createRecorder: () => {
@@ -97,7 +105,8 @@ function rig(): Rig {
       r.recorders.push(recorder);
       return recorder;
     },
-    startRecorder: (recorder) => (r.startError ? Promise.reject(r.startError) : recorder.start()),
+    startRecorder: (recorder) =>
+      r.startError ? Promise.reject(r.startError) : r.startGate ? r.startGate.then(() => recorder.start()) : recorder.start(),
     transcribe: async (captured, recordedMs) => {
       r.transcribed.push({ bytes: captured.size, recordedMs });
       return r.answer();
@@ -110,6 +119,13 @@ function rig(): Rig {
     },
     clearInterval: () => {
       r.tick = () => {};
+    },
+    setTimeout: (fn, ms) => {
+      r.ready = { fn, ms };
+      return 2;
+    },
+    clearTimeout: () => {
+      r.ready = null;
     },
   });
   return r;
@@ -269,6 +285,43 @@ describe("DevReportDictation", () => {
   it("ignores a stop for a box that is not recording", async () => {
     await r.dictation.stop("q0:comment");
     expect(r.updates).toEqual([]);
+  });
+
+  it("says so and lets the microphone go when it opens but never delivers audio, like the Speak dialog", async () => {
+    await r.dictation.start("q0:comment");
+    expect(r.ready?.ms).toBe(DICTATION_READY_TIMEOUT_MS);
+
+    r.ready!.fn();
+
+    expect(r.updates).toEqual([
+      { fieldId: "q0:comment", phase: "starting" },
+      { fieldId: "q0:comment", phase: "failed", reason: MICROPHONE_NOT_CAPTURING },
+    ]);
+    expect(r.recorders[0].disposed).toBe(true);
+    expect(r.dictation.activeFieldId).toBeNull();
+  });
+
+  it("disarms the not-capturing backstop the moment audio arrives", async () => {
+    await r.dictation.start("q0:comment");
+    r.recorders[0].onCaptureLive!();
+    expect(r.ready).toBeNull();
+    expect(r.recorders[0].disposed).toBe(false);
+  });
+
+  it("lets go of a microphone that finishes opening after the page went away", async () => {
+    let open: () => void = () => {};
+    r.startGate = new Promise<void>((resolve) => (open = resolve));
+    const starting = r.dictation.start("q0:comment");
+    await flush();
+
+    r.dictation.cancel();
+    r.recorders[0].disposed = false; // the cancel's dispose ran before there was a stream to release
+    open();
+    await starting;
+
+    expect(r.recorders[0].disposed).toBe(true);
+    expect(r.ready).toBeNull();
+    expect(r.updates).toEqual([{ fieldId: "q0:comment", phase: "starting" }]);
   });
 
   it("lets the microphone go on cancel, and drops words that arrive for a page that went away", async () => {

@@ -21,6 +21,17 @@ const SURFACE = "dev-report-viewer";
 /** How often the page hears the seconds and the level while recording. */
 export const DICTATION_TICK_MS = 200;
 
+/**
+ * How long an opened microphone may go without delivering its first audio before the box says so. The same backstop,
+ * and the same words, as the Speak dialog's GETTING READY state: a muted or dead input opens without error and then
+ * delivers nothing, and without this the box would say "Starting" for ever with the microphone held open.
+ */
+export const DICTATION_READY_TIMEOUT_MS = 6000;
+
+/** Words for a microphone that opened but never delivered audio - the Speak dialog's sentence. */
+export const MICROPHONE_NOT_CAPTURING =
+  "The microphone did not start capturing. Check that it is connected, not muted, and that this site is allowed to use it, then try again.";
+
 /** The parts of the shared MicRecorder this uses. */
 export interface DictationRecorder {
   /** Fired once, when the first real audio arrives - the honest "recording now" moment. */
@@ -54,6 +65,8 @@ export interface DevReportDictationOptions {
   now?: () => number;
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (handle: unknown) => void;
+  setTimeout?: (fn: () => void, ms: number) => unknown;
+  clearTimeout?: (handle: unknown) => void;
 }
 
 interface Active {
@@ -62,6 +75,8 @@ interface Active {
   /** When capture went live, or null while the microphone is still opening. */
   liveAt: number | null;
   ticker: unknown;
+  /** The not-capturing backstop, armed once the microphone opens and cleared by the first audio. */
+  readyTimer: unknown;
   stopping: boolean;
 }
 
@@ -75,6 +90,8 @@ export class DevReportDictation {
   private readonly now: () => number;
   private readonly setTicker: (fn: () => void, ms: number) => unknown;
   private readonly clearTicker: (handle: unknown) => void;
+  private readonly setTimer: (fn: () => void, ms: number) => unknown;
+  private readonly clearTimer: (handle: unknown) => void;
   private active: Active | null = null;
   /** Bumped by cancel, so an answer that arrives for a recording that was cancelled is dropped. */
   private generation = 0;
@@ -84,6 +101,8 @@ export class DevReportDictation {
     this.now = options.now ?? (() => performance.now());
     this.setTicker = options.setInterval ?? ((fn, ms) => globalThis.setInterval(fn, ms));
     this.clearTicker = options.clearInterval ?? ((handle) => globalThis.clearInterval(handle as ReturnType<typeof setInterval>));
+    this.setTimer = options.setTimeout ?? ((fn, ms) => globalThis.setTimeout(fn, ms));
+    this.clearTimer = options.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>));
   }
 
   /** The box recording or transcribing now, or null. */
@@ -101,10 +120,11 @@ export class DevReportDictation {
     }
     const generation = this.generation;
     const recorder = this.options.createRecorder();
-    const active: Active = { fieldId, recorder, liveAt: null, ticker: null, stopping: false };
+    const active: Active = { fieldId, recorder, liveAt: null, ticker: null, readyTimer: null, stopping: false };
     this.active = active;
     recorder.onCaptureLive = () => {
       if (this.active !== active || active.stopping) return;
+      this.clearReadyTimer(active);
       active.liveAt = this.now();
       this.pushRecording(active);
       active.ticker = this.setTicker(() => this.pushRecording(active), DICTATION_TICK_MS);
@@ -124,7 +144,34 @@ export class DevReportDictation {
       );
       console.log(`[DevReportDictation] start FAILED: field=${fieldId} ${reason}`);
       this.options.push({ fieldId, phase: "failed", reason });
+      return;
     }
+    if (this.generation !== generation || this.active !== active) {
+      // Cancelled while the microphone was opening: the cancel's dispose ran before the stream existed, so the stream
+      // the open just assigned would stay live with no owner. Dispose again now that there is a stream to release.
+      console.log(`[DevReportDictation] start: field=${fieldId} opened after a cancel, releasing the microphone`);
+      recorder.onCaptureLive = null;
+      recorder.dispose();
+      return;
+    }
+    if (active.liveAt === null) {
+      active.readyTimer = this.setTimer(() => this.onNotCapturing(active), DICTATION_READY_TIMEOUT_MS);
+    }
+  }
+
+  /** The microphone opened and then delivered no audio in time: say so, and let the microphone go. */
+  private onNotCapturing(active: Active): void {
+    active.readyTimer = null;
+    if (this.active !== active || active.liveAt !== null || active.stopping) return;
+    const reason = reportShownError(SURFACE, "start the microphone", MICROPHONE_NOT_CAPTURING);
+    console.log(`[DevReportDictation] start FAILED: field=${active.fieldId} ${reason}`);
+    this.release(active);
+    this.options.push({ fieldId: active.fieldId, phase: "failed", reason });
+  }
+
+  private clearReadyTimer(active: Active): void {
+    if (active.readyTimer !== null) this.clearTimer(active.readyTimer);
+    active.readyTimer = null;
   }
 
   /** The page's stop square was tapped: stop, transcribe, and hand the words back. */
@@ -133,6 +180,7 @@ export class DevReportDictation {
     const active = this.active;
     if (!active || active.fieldId !== fieldId || active.stopping) return;
     active.stopping = true;
+    this.clearReadyTimer(active);
     if (active.ticker !== null) this.clearTicker(active.ticker);
     active.ticker = null;
     const generation = this.generation;
@@ -189,6 +237,7 @@ export class DevReportDictation {
   }
 
   private release(active: Active): void {
+    this.clearReadyTimer(active);
     if (active.ticker !== null) this.clearTicker(active.ticker);
     active.ticker = null;
     active.recorder.onCaptureLive = null;
