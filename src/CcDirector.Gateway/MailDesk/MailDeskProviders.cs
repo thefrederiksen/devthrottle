@@ -99,12 +99,12 @@ public static class MailDeskProviders
             Provider: Imap,
             Name: "Any other provider (IMAP, SMTP and CalDAV: Purelymail, Fastmail, Migadu, any IMAP host)",
             Tool: "dt-email, dt-calendar",
-            MailDesk: new MailDeskProviderMailDesk(MailDeskStates.NotYet,
-                "Not yet. The imap provider is being built; it will read with dt-email."),
+            MailDesk: new MailDeskProviderMailDesk(MailDeskStates.NotYet, "Not yet."),
             Needs: new[]
             {
                 "IMAP turned on for the mailbox, and an app password if the provider asks for one.",
                 "The mailbox password in cc-secrets on every machine that may check it. It is never stored on the Gateway.",
+                "A dt-email account for the mailbox on every machine that may check it (dt-email account add), naming that cc-secrets entry.",
                 "Not Outlook: Microsoft 365 does not accept a password over IMAP and has no CalDAV. Use the outlook provider.",
             },
             Admin: "None: use the provider's own website.",

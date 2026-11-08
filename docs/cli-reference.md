@@ -2724,7 +2724,7 @@ COMMANDS:
   status [--json]
   providers [PROVIDER] [--json]
   channel list [--all] [--json]
-  channel add ADDRESS --provider outlook|gmail --machine MACHINE [--machine BACKUP] --why "TEXT"
+  channel add ADDRESS --provider outlook|gmail|imap --machine MACHINE [--machine BACKUP] --why "TEXT"
   channel remove ADDRESS --why "TEXT"
   mode ADDRESS observe|live --why "TEXT"
   rules show [--version N] [--json]

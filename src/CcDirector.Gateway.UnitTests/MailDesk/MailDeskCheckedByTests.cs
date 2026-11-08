@@ -173,6 +173,13 @@ public sealed class MailDeskCheckedByTests
     }
 
     [Fact]
+    public void SignInHeldOf_Imap_IsKeptInCcSecretsOnTheMachines()
+    {
+        Assert.Equal("Kept in cc-secrets on devlinux and SOREN_NORTH, not on the Gateway",
+            MailDeskCheckedBy.SignInHeldOf(Mailbox("imap", "devlinux", "SOREN_NORTH")));
+    }
+
+    [Fact]
     public void SignInHeldOf_TwoMachines_NamesBoth()
     {
         Assert.Equal("Saved by cc-gmail on devlinux and SOREN_NORTH, not on the Gateway",
