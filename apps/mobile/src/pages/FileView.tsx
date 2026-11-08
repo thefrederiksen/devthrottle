@@ -105,7 +105,7 @@ export function FileView() {
     return (
       <div className="terminal-screen">
         <header className="app-bar">
-          <button type="button" className="file-view-back" onClick={goBack}>Back</button>
+          <button type="button" className="back-link" onClick={goBack}>Back</button>
           <h1 className="term-title">File</h1>
           <div className="app-bar-spacer" />
           <AppBarAlerts />
@@ -141,7 +141,7 @@ function FileViewFor({ sessionId, path, goBack }: { sessionId: string; path: str
   return (
     <div className="terminal-screen">
       <header className="app-bar">
-        <button type="button" className="file-view-back" onClick={goBack}>Back</button>
+        <button type="button" className="back-link" onClick={goBack}>Back</button>
         <h1 className="term-title" title={path}>{name}</h1>
         {state.kind !== "loading" && shown === null && !folder && <DownloadButton url={url} name={name} sessionId={sessionId} />}
         <div className="app-bar-spacer" />

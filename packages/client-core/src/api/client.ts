@@ -187,10 +187,14 @@ export interface DirectorInfo {
  */
 export interface GatewayHealth {
   status: string;
-  directors?: number;
-  sessions?: number;
   version: string;
   serverTime: string;
+}
+
+/** GET /fleet/counts - the signed-in account's own Directors and sessions, both always present. */
+export interface FleetCounts {
+  directors: number;
+  sessions: number;
 }
 
 // One recently-used repository on a Director, projected from GET /directors/{id}/repos. Also not in
@@ -1779,6 +1783,21 @@ export async function getGatewayHealth(signal?: AbortSignal): Promise<GatewayHea
     throw await GatewayError.from(res, "reach the Gateway");
   }
   return (await res.json()) as GatewayHealth;
+}
+
+// GET /fleet/counts - how many Directors and sessions the signed-in account has. The public /healthz above has
+// no account, so the hosted Gateway leaves its counts out on purpose; this read carries the device key and the
+// Gateway counts that key's own account (Web UI Polish phase 3). Backs the mobile About screen.
+export async function getFleetCounts(signal?: AbortSignal): Promise<FleetCounts> {
+  const res = await gatewayFetch("/fleet/counts", {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "read how many Directors and sessions you have");
+  }
+  return (await res.json()) as FleetCounts;
 }
 
 // ===== Network diagnostics (auto-network-switching mission) =====

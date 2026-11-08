@@ -3582,21 +3582,22 @@ a.banner-btn {
    Every rule is scoped under .screen (the mobile page wrapper) so it outranks the shared single-class
    rules on specificity rather than on stylesheet order, which no bundler guarantees. */
 
-/* The tab strip scrolls sideways rather than squeezing four labels into a phone width. Scrolling is the
-   honest answer here: shrinking the labels until they fit is how a tab becomes unreadable, and wrapping
-   them onto two rows costs the vertical space the cards need. */
+/* The tabs sit in two columns, so all four show at 390 pixels wide. The sideways-scrolling strip this
+   replaced cut the last tab off at "Fle..." with nothing to say more tabs were there (Web UI Polish phase
+   3). Two short rows cost about forty pixels of height; a tab nobody can see costs the setting. Layout
+   only: the tabs, their order and their names are the shared list in client-core. */
 .screen .settings-tabs {
-  overflow-x: auto;
-  scrollbar-width: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 14px 0 16px;
   gap: 0;
 }
-.screen .settings-tabs::-webkit-scrollbar {
-  display: none;
-}
 .screen .settings-tab {
-  padding: 10px 16px 12px;
+  padding: 10px 8px 12px;
   font-size: 14.5px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Cards run edge to edge: a phone has no width to spend on a card inset inside a padded page. */

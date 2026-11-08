@@ -386,6 +386,9 @@ public static class SessionKeyGuard
                 // The calling session's OWN message inbox (the Message Load mission). There is no session id in
                 // the path: the route reads the inbox of the key that called it and no other.
                 case "fleet/inbox":
+                // How many Directors and sessions the key's own account has (Web UI Polish phase 3): the same class of
+                // read as "directors" and "sessions" above, reduced to two numbers.
+                case "fleet/counts":
                 // The factory activity record (Website Business Factory). A business tool reads back what its
                 // factory did; the route is only mapped while the factory agents switch is on.
                 case "gateway/factory/activity":

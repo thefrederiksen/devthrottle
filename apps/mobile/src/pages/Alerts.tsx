@@ -35,8 +35,8 @@ export function Alerts() {
   return (
     <div className="screen">
       <header className="app-bar">
-        <button type="button" className="back-link" aria-label="Back" onClick={back}>
-          <BackIcon />
+        <button type="button" className="back-link" onClick={back}>
+          Back
         </button>
         <h1 ref={heading} tabIndex={-1}>
           Alerts
@@ -47,13 +47,5 @@ export function Alerts() {
         <AlertsList where="phone" focusAlertId={focusAlertId} />
       </main>
     </div>
-  );
-}
-
-function BackIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">
-      <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
   );
 }
