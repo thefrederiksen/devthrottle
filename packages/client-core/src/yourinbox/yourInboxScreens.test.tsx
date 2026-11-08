@@ -91,6 +91,20 @@ describe("YourInboxListView (mockup C)", () => {
     expect(rows[1].getAttribute("data-unread")).toBeNull();
   });
 
+  it("YourInboxListView_AgentLine_IsPrintedVerbatim_OnlyOnTheRowThatHasOne", async () => {
+    gw.list = () =>
+      Promise.resolve(
+        oddYourList({
+          messages: [oddYourMessage({ agentLine: "Shelved by a robot: wombat 9, at teatime (gateway)" }), oddFactoryMessage()],
+        }),
+      );
+    render(<YourInboxListView onOpen={() => {}} />);
+
+    const rows = await screen.findAllByTestId("yi-row");
+    expect(within(rows[0]).getByTestId("yi-agent-line").textContent).toBe("Shelved by a robot: wombat 9, at teatime (gateway)");
+    expect(within(rows[1]).queryByTestId("yi-agent-line")).toBeNull();
+  });
+
   it("YourInboxListView_Filters_PrintTheGatewaysLabelsAndCountsInItsOrder", async () => {
     render(<YourInboxListView onOpen={() => {}} />);
 
@@ -148,6 +162,33 @@ describe("YourInboxMessageView (reading a message)", () => {
     expect(links[0].getAttribute("href")).toBe("/somewhere/session/11111111-1111-4111-8111-111111111111");
     expect(screen.getAllByTestId("yi-action").map((b) => b.textContent)).toEqual(["Tick it off (gateway)", "Shelve it (gateway)"]);
     expect(setYourInboxState).not.toHaveBeenCalled();
+  });
+
+  it("YourInboxMessageView_AgentActs_ArePrintedVerbatim_InTheGatewaysOrder", async () => {
+    renderMessage(
+      oddYourMessage({
+        unread: false,
+        state: "read",
+        agentActions: [
+          { act: "read", line: "Peeked at by a robot: wombat 9 (gateway)", atUtc: "2026-11-07T14:00:00Z" },
+          { act: "archived", line: "Shelved by a robot: wombat 9 (gateway)", atUtc: "2026-11-07T14:02:00Z" },
+        ],
+        agentLine: "Shelved by a robot: wombat 9 (gateway)",
+      }),
+    );
+
+    await screen.findByTestId("yi-body");
+    expect(screen.getAllByTestId("yi-agent-line").map((l) => l.textContent)).toEqual([
+      "Peeked at by a robot: wombat 9 (gateway)",
+      "Shelved by a robot: wombat 9 (gateway)",
+    ]);
+  });
+
+  it("YourInboxMessageView_NoAgentActs_PrintsNoAgentLines", async () => {
+    renderMessage(oddYourMessage({ unread: false, state: "read" }));
+
+    await screen.findByTestId("yi-body");
+    expect(screen.queryByTestId("yi-agent-acts")).toBeNull();
   });
 
   it("YourInboxMessageView_AMessageTheGatewayGivesNoReplyTo_OffersNoReply_AndPrintsItsSender", async () => {

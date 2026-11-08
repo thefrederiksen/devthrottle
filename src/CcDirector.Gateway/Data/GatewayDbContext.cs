@@ -505,6 +505,9 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The owner's replies from his inbox, each with where it went (Factory Inbox mission, phase 3).</summary>
     public DbSet<YourInboxReplyEntity> YourInboxReplies => Set<YourInboxReplyEntity>();
 
+    /// <summary>What an agent did to a Your inbox message, one row per act (the owner's decision of 7 November 2026).</summary>
+    public DbSet<YourInboxAgentActionEntity> YourInboxAgentActions => Set<YourInboxAgentActionEntity>();
+
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
     /// days.</summary>
@@ -1330,6 +1333,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Source).HasMaxLength(16);
             b.Property(e => e.Surface).HasMaxLength(16);
             b.Property(e => e.SentBy).HasMaxLength(200);
+            b.Property(e => e.SentBySessionName).HasMaxLength(200);
             b.Property(e => e.OwnerDealtWithBy).HasMaxLength(200);
             b.Property(e => e.State).HasMaxLength(16);
             b.Property(e => e.ReceivedBySessionId).HasMaxLength(64);
@@ -1425,6 +1429,17 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.SentBy).HasMaxLength(200);
             // A message's replies are read beside it, in the order they were sent.
             b.HasIndex(e => new { e.TenantId, e.MessageId, e.SentAtUtc });
+        });
+
+        modelBuilder.Entity<YourInboxAgentActionEntity>(b =>
+        {
+            b.ToTable("your_inbox_agent_actions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Action).HasMaxLength(16);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.SessionName).HasMaxLength(200);
+            // A message's agent acts are read beside it, oldest first.
+            b.HasIndex(e => new { e.TenantId, e.MessageId, e.AtUtc });
         });
 
         // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
@@ -2815,6 +2830,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FactoryInboxWakeEntity>(modelBuilder);
         ApplyTenantScope<YourInboxMessageEntity>(modelBuilder);
         ApplyTenantScope<YourInboxReplyEntity>(modelBuilder);
+        ApplyTenantScope<YourInboxAgentActionEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleChangeEntity>(modelBuilder);
@@ -2893,6 +2909,9 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.RoutedTo).UseCollation("C");
             modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.Factory).UseCollation("C");
+            // The acts agents took on it: the act is a closed word and the session id an exact key.
+            modelBuilder.Entity<YourInboxAgentActionEntity>().Property(e => e.Action).UseCollation("C");
+            modelBuilder.Entity<YourInboxAgentActionEntity>().Property(e => e.SessionId).UseCollation("C");
             // alert_marks: the alert id is an exact key, compared byte-ordinally (the Alerts mission).
             modelBuilder.Entity<AlertMarkEntity>().Property(e => e.AlertId).UseCollation("C");
             // factory_boss_starts: the session id is an exact key, compared byte-ordinally (issue #4598).

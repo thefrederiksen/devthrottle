@@ -68,6 +68,26 @@
 .yi-row .yi-row-subject {
   font-weight: 400;
 }
+/* What an agent did to a message: the Gateway's line, printed as it is (the owner's decision of 7 November 2026). */
+.yi-agent-line {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.yi-row .yi-agent-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yi-agent-acts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .yi-row[data-unread="true"] .fi-row-title,
 .yi-row[data-unread="true"] .yi-row-subject {
   font-weight: 700;

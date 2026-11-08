@@ -115,6 +115,11 @@ export function YourInboxListView({ onOpen, selected = null }: YourInboxListView
                 </span>
                 <span className="yi-row-subject">{m.subject}</span>
                 <span className="fi-row-line">{m.body}</span>
+                {m.agentLine !== null && (
+                  <span className="yi-agent-line" data-testid="yi-agent-line">
+                    {m.agentLine}
+                  </span>
+                )}
               </span>
               <span className="fi-badge" data-tone={m.tone}>
                 {m.stateLabel}

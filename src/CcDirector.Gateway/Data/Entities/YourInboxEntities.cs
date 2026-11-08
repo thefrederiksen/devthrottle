@@ -95,3 +95,37 @@ public sealed class YourInboxReplyEntity : GatewayMintedKeyEntity
     /// <summary>When it was sent (UTC).</summary>
     public DateTime SentAtUtc { get; set; }
 }
+
+/// <summary>
+/// ONE THING AN AGENT DID TO A MESSAGE IN YOUR INBOX, in the <c>your_inbox_agent_actions</c> table (Factory Inbox mission,
+/// "agents use the inboxes", the owner's decision of 7 November 2026). An agent reads, marks, archives, restores and
+/// replies to the account's mail exactly as the owner does, and every one of those acts is kept here with the session
+/// that did it - its number and name as the Gateway knew them at that moment - and the time, so the message can say
+/// "Archived by an agent: session 114 ..." and the owner can tell his own acts from an agent's.
+///
+/// NOTHING IS DELETED: a row is written once and never changed.
+/// </summary>
+public sealed class YourInboxAgentActionEntity : GatewayMintedKeyEntity
+{
+    /// <summary>The Your inbox message the agent acted on.</summary>
+    public Guid MessageId { get; set; }
+
+    /// <summary>What it did: one of <c>Inbox.YourInboxWords.AgentActs</c> - read, marked read, marked unread, archived,
+    /// restored, replied.</summary>
+    public string Action { get; set; } = "";
+
+    /// <summary>The session that did it.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>That session's three-digit number at the time, or null when the Gateway did not know it.</summary>
+    public int? SessionNumber { get; set; }
+
+    /// <summary>That session's name at the time, or null when the Gateway did not know it.</summary>
+    public string? SessionName { get; set; }
+
+    /// <summary>The reply it sent, for a reply; null for every other act.</summary>
+    public Guid? ReplyId { get; set; }
+
+    /// <summary>When it did it (UTC).</summary>
+    public DateTime AtUtc { get; set; }
+}

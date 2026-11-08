@@ -1962,6 +1962,13 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SentBySessionName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SentBySessionNumber")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Source")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -6846,6 +6853,51 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "UpdatedUtc");
 
                     b.ToTable("workspaces", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.YourInboxAgentActionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ReplyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SessionNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "MessageId", "AtUtc");
+
+                    b.ToTable("your_inbox_agent_actions", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.YourInboxMessageEntity", b =>

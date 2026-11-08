@@ -503,6 +503,7 @@ public static class SessionKeyGuard
             if (IsFactoryRecordRoute(verb, s)) return true;
             if (IsMailDeskRoute(verb, s)) return true;
             if (IsFactoryInboxRoute(verb, s)) return true;
+            if (IsYourInboxAgentRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -593,7 +594,9 @@ public static class SessionKeyGuard
                     // SEND the owner a message in Your inbox (Factory Inbox mission, phase 3): `cc-devthrottle inbox send`.
                     // Its own session only - the route refuses any other id and records who sent it from the Gateway's own
                     // records. The owner's routes under /gateway/inbox - the list, one message, the marks, the reply and
-                    // the unread count - are deliberately NOT here: a session key is never the owner, and never reads his mail.
+                    // the unread count - are deliberately NOT here: a session key is never the owner. Since the owner's
+                    // decision of 7 November 2026 an agent DOES read, mark, archive and reply to the inbox - through its own
+                    // routes under /sessions/{sid}/inbox (IsYourInboxAgentRoute), where every act is recorded as its own.
                     case "inbox":
                         return true;
                 }
@@ -715,6 +718,7 @@ public static class SessionKeyGuard
             if (IsFactoryRecordRoute(verb, s)) return true;
             if (IsMailDeskRoute(verb, s)) return true;
             if (IsFactoryInboxRoute(verb, s)) return true;
+            if (IsYourInboxAgentRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -1503,6 +1507,36 @@ public static class SessionKeyGuard
             // /sessions/{sid}/factory-inbox/{messageId}/decide.
             if (s.Length == 5) return verb == "POST" && s[4] == "decide";
         }
+        return false;
+    }
+
+    /// <summary>
+    /// AN AGENT USES THE ACCOUNT'S INBOX LIKE EMAIL (the owner's decision of 7 November 2026: "An agent should be able to do
+    /// what it can do with regular email. Read, delete, and also send, to factory mailboxes or its own."), added shape by
+    /// shape. Every one names the calling session in the path, and the route lets through only that session, in its key's
+    /// own account, and records every act with it - so an agent's read, mark, archive and reply are never the owner's.
+    ///
+    ///   GET  /sessions/{sid}/inbox                      the account's inbox, one view
+    ///   GET  /sessions/{sid}/inbox/{id}                 one message (does not mark it read)
+    ///   POST /sessions/{sid}/inbox/{id}/state           mark read or unread, archive ("delete"), restore
+    ///   POST /sessions/{sid}/inbox/{id}/reply           reply, routed as the owner's reply is
+    ///   POST /sessions/{sid}/factories/{factory}/inbox  leave a message in a factory's Factory inbox, as this agent
+    ///
+    /// The send, POST /sessions/{sid}/inbox, is listed with the fleet actions. The owner's own routes under /gateway/inbox,
+    /// and his send to a factory under /gateway/factory, stay refused.
+    /// </summary>
+    private static bool IsYourInboxAgentRoute(string verb, string[] s)
+    {
+        if (s.Length < 3 || s[0] != "sessions") return false;
+        var read = verb is "GET" or "HEAD";
+        if (s[2] == "inbox")
+        {
+            if (s.Length is 3 or 4) return read;
+            if (s.Length == 5) return verb == "POST" && s[4] is "state" or "reply";
+            return false;
+        }
+        if (s[2] == "factories")
+            return s.Length == 5 && s[4] == "inbox" && verb == "POST";
         return false;
     }
 

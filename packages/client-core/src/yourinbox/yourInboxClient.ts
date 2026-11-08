@@ -46,6 +46,14 @@ export interface YourInboxReply {
   sentAtUtc: string;
 }
 
+/** One thing an agent did to a message: the act, the Gateway's finished line, and when. */
+export interface YourInboxAgentAction {
+  act: string;
+  /** The Gateway's line, e.g. 'Archived by an agent: session 114 "Factory Inbox - Delivery Lead", 2026-11-07 14:02 UTC'. */
+  line: string;
+  atUtc: string;
+}
+
 export interface YourInboxMessage {
   id: string;
   subject: string;
@@ -64,6 +72,10 @@ export interface YourInboxMessage {
   archivedAtUtc: string | null;
   /** Given only when one message is read on its own. */
   replies: YourInboxReply[] | null;
+  /** What agents did to the message, oldest first, each with its finished line (the owner's decision of 7 November 2026). */
+  agentActions: YourInboxAgentAction[];
+  /** The newest agent act's line, for a list row; null when no agent has touched the message. */
+  agentLine: string | null;
 }
 
 /** One filter on the screen: the view it shows, its words and how many it holds. */

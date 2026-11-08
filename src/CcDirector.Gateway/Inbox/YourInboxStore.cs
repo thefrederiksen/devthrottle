@@ -16,6 +16,10 @@ namespace CcDirector.Gateway.Inbox;
 /// <param name="Seat">The factory seat that wrote it, or null.</param>
 public sealed record YourInboxSender(string FromKind, string? SessionId, int? SessionNumber, string? SessionName, string? Factory, string? Seat);
 
+/// <summary>An agent acting on Your inbox: the session whose key made the call, with its number and name as the
+/// Gateway's own records hold them at that moment - never from the request body.</summary>
+public sealed record YourInboxAgent(string SessionId, int? SessionNumber, string? SessionName);
+
 /// <summary>One message to write into Your inbox.</summary>
 /// <param name="ReportId">The dev report it is about, already proved to be one of the account's, or null.</param>
 /// <param name="ReportTitle">That report's title, or null.</param>
@@ -53,7 +57,8 @@ public sealed class YourInboxRefusedException : Exception
 /// decides what a call may do to the rows: a message is checked and written once, its state is one of unread, read and
 /// archived, and a reply is kept beside it with where it went.
 ///
-/// NOTHING IS DELETED BY THE SYSTEM. There is no delete here, and nothing in the Gateway sweeps this table.
+/// NOTHING IS DELETED, BY THE SYSTEM OR BY AN AGENT. There is no delete here, and nothing in the Gateway sweeps this table:
+/// an agent's "delete" is an archive (the owner, 7 November 2026), undone by moving the message back to the inbox.
 /// </summary>
 public sealed class YourInboxStore
 {
@@ -440,6 +445,84 @@ public sealed class YourInboxStore
             .OrderBy(r => r.SentAtUtc).ThenBy(r => r.Id).ToList();
     }
 
+    /// <summary>What agents did to each of the given messages, oldest first; a message no agent touched is absent.</summary>
+    public IReadOnlyDictionary<Guid, IReadOnlyList<YourInboxAgentActionEntity>> AgentActions(TenantId tenant, IReadOnlyCollection<Guid> messageIds)
+    {
+        ArgumentNullException.ThrowIfNull(messageIds);
+        if (messageIds.Count == 0) return new Dictionary<Guid, IReadOnlyList<YourInboxAgentActionEntity>>();
+        using var ctx = _db.CreateContext(tenant);
+        // A list read is at most MaxList messages, so the ids are a bounded set; read them in slices so the parameter
+        // count stays small on both providers.
+        var rows = new List<YourInboxAgentActionEntity>();
+        foreach (var slice in messageIds.Distinct().Chunk(100))
+        {
+            var ids = slice.ToList();
+            rows.AddRange(ctx.YourInboxAgentActions.AsNoTracking().Where(a => ids.Contains(a.MessageId)).ToList());
+        }
+        return rows.GroupBy(a => a.MessageId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<YourInboxAgentActionEntity>)g.OrderBy(a => a.AtUtc).ThenBy(a => a.Id).ToList());
+    }
+
+    // ---------------------------------------------------------------- an agent's acts
+
+    /// <summary>
+    /// Record that an agent opened and read a message. The message's state is NOT changed: reading does not mark it read
+    /// (the design the owner was shown, 7 November 2026) - an agent marks read only when it is told to.
+    /// </summary>
+    public YourInboxAgentActionEntity RecordAgentRead(TenantId tenant, Guid messageId, YourInboxAgent agent, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        using var ctx = _db.CreateContext(tenant);
+        var act = NewAct(tenant, messageId, YourInboxWords.AgentActs.Read, agent, null, nowUtc);
+        ctx.YourInboxAgentActions.Add(act);
+        ctx.SaveChanges();
+        FileLog.Write($"[YourInboxStore] RecordAgentRead: {messageId} read by session {agent.SessionId}");
+        return act;
+    }
+
+    /// <summary>
+    /// An agent sets a message's state - a mark, an archive (its "delete"), or a move back to the inbox - and the act is
+    /// recorded in the same save, so the change and who made it are written together or not at all. Setting the state it
+    /// already has changes nothing and records nothing. Null when the account holds no such message.
+    /// </summary>
+    public YourInboxMessageEntity? SetStateByAgent(TenantId tenant, Guid id, string state, YourInboxAgent agent, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        if (!YourInboxWords.States.All.Contains(state))
+            throw new YourInboxRefusedException("bad_state",
+                $"The state must be one of {string.Join(", ", YourInboxWords.States.All)}, not '{state}'.");
+        using var ctx = _db.CreateContext(tenant);
+        var row = ctx.YourInboxMessages.FirstOrDefault(m => m.Id == id);
+        if (row is null) return null;
+        var was = row.State;
+        var act = YourInboxWords.AgentActFor(was, state);
+        if (act is null)
+        {
+            FileLog.Write($"[YourInboxStore] SetStateByAgent: {id} is already {state}; session {agent.SessionId} changed nothing");
+            return row;
+        }
+        row.State = state;
+        if (state == YourInboxWords.States.Read) row.ReadAtUtc = nowUtc;
+        row.ArchivedAtUtc = state == YourInboxWords.States.Archived ? nowUtc : null;
+        ctx.YourInboxAgentActions.Add(NewAct(tenant, id, act, agent, null, nowUtc));
+        ctx.SaveChanges();
+        FileLog.Write($"[YourInboxStore] SetStateByAgent: {id} {was} -> {state} by session {agent.SessionId} ({act})");
+        return row;
+    }
+
+    private static YourInboxAgentActionEntity NewAct(TenantId tenant, Guid messageId, string act, YourInboxAgent agent, Guid? replyId, DateTime nowUtc)
+        => new()
+        {
+            TenantId = tenant.Value,
+            MessageId = messageId,
+            Action = act,
+            SessionId = agent.SessionId,
+            SessionNumber = agent.SessionNumber,
+            SessionName = agent.SessionName,
+            ReplyId = replyId,
+            AtUtc = nowUtc,
+        };
+
     // ---------------------------------------------------------------- the owner's changes
 
     /// <summary>
@@ -470,11 +553,13 @@ public sealed class YourInboxStore
     }
 
     /// <summary>
-    /// Keep a reply the owner sent, once it has gone where it was routed; and mark the message read, because answering it
-    /// is reading it. An archived message stays archived.
+    /// Keep a reply, once it has gone where it was routed. The owner's reply marks the message read, because his answering
+    /// it is his reading it; an agent's reply (<paramref name="agent"/> set) does NOT - the owner has still not read it -
+    /// and is recorded as the agent's act in the same save. An archived message stays archived.
     /// </summary>
     public YourInboxReplyEntity AddReply(TenantId tenant, YourInboxMessageEntity message, string text, string routedTo,
-        string? sessionId, string? factory, string? fleetMessageId, Guid? factoryMessageId, string sentBy, DateTime nowUtc)
+        string? sessionId, string? factory, string? fleetMessageId, Guid? factoryMessageId, string sentBy, DateTime nowUtc,
+        YourInboxAgent? agent = null)
     {
         ArgumentNullException.ThrowIfNull(message);
         if (routedTo is not (YourInboxWords.ReplyTargets.Session or YourInboxWords.ReplyTargets.Factory))
@@ -495,7 +580,9 @@ public sealed class YourInboxStore
         using var ctx = _db.CreateContext(tenant);
         ctx.YourInboxReplies.Add(reply);
         var row = ctx.YourInboxMessages.First(m => m.Id == message.Id);
-        if (row.State == YourInboxWords.States.Unread)
+        if (agent is not null)
+            ctx.YourInboxAgentActions.Add(NewAct(tenant, message.Id, YourInboxWords.AgentActs.Replied, agent, reply.Id, nowUtc));
+        else if (row.State == YourInboxWords.States.Unread)
         {
             row.State = YourInboxWords.States.Read;
             row.ReadAtUtc = nowUtc;

@@ -22,10 +22,17 @@ internal sealed record YourInboxSessionPlace(string? DirectorId, string? RepoPat
 /// <summary>
 /// THE YOUR INBOX ROUTES (Factory Inbox mission, phase 3).
 ///
-/// The session route - any session, with its own key, as itself:
+/// The session routes - any session, with its own key, as itself. The account is the one the session's key is bound to -
+/// the account its Director is signed in as - and nothing in the request can name another:
 ///
 ///   POST /sessions/{sid}/inbox                  body {subject, body, reportId?} -> 201 {message}
 ///                                               what <c>cc-devthrottle inbox send</c> calls
+///   GET  /sessions/{sid}/inbox?view=unread|inbox|archived&amp;limit=   the account's inbox, one view (inbox list)
+///   GET  /sessions/{sid}/inbox/{id}             one message with its replies (inbox read); does NOT mark it read
+///   POST /sessions/{sid}/inbox/{id}/state       body {state: unread|read|archived|restore} -> {message}
+///                                               (inbox mark, inbox delete = archive, inbox restore)
+///   POST /sessions/{sid}/inbox/{id}/reply       body {text, to?} -> 201 {reply, message}, or 409 with offers (inbox reply)
+///   POST /sessions/{sid}/factories/{factory}/inbox   body {text} -> 201 {message}  (factory inbox send)
 ///
 /// The owner's routes - the owner's own phone or Cockpit, and nobody else:
 ///
@@ -36,12 +43,21 @@ internal sealed record YourInboxSessionPlace(string? DirectorId, string? RepoPat
 ///   POST /gateway/inbox/{id}/state                  body {state: unread|read|archived} -> {message}
 ///   POST /gateway/inbox/{id}/reply                  body {text, to?} -> 201 {reply, message}, or 409 with offers
 ///
-/// WHO MAY. The inbox is the owner's mailbox, so only his device keys read it, mark it and reply from it. A session key
-/// reaching an owner route is refused by <see cref="SessionKeyGuard"/>, which names only the send; and refused HERE as
-/// well, so a later edit to the guard cannot open the owner's mail to an agent. The machine token is refused too: it is
-/// a machine, not the owner. The send is a session's, and the sender is the session whose key made the call - named in
-/// the path and checked against the key - with who it is (number, name, factory, seat) read from the Gateway's own
-/// records, never from the body.
+/// WHO MAY (the owner's decisions of 7 November 2026). "An agent should be able to do what it can do with regular
+/// email. Read, delete, and also send, to factory mailboxes or its own." So a session reads, marks, archives, restores
+/// and replies to the account's inbox - through ITS OWN routes under /sessions/{sid}, never through the owner's. The
+/// owner's routes under /gateway/inbox stay his device keys' alone: a session key reaching one is refused by
+/// <see cref="SessionKeyGuard"/> and refused HERE as well, so a later edit to the guard cannot make an agent's act look
+/// like the owner's. The machine token is refused everywhere: it is a machine, not the owner and not a session.
+///
+/// AN AGENT IS ALWAYS NAMED. The session is the one whose key made the call - named in the path and checked against the
+/// key - with who it is (number, name, factory, seat) read from the Gateway's own records, never from the body. Every
+/// act it takes on a message (read, mark, archive, restore, reply) is recorded with that session and the time, and the
+/// message shows it in a line folded here (<see cref="YourInboxWords.AgentLine"/>). Reading does NOT mark a message read;
+/// an agent marks read or unread only when it is told to. "Delete" is archive (the owner, 7 November 2026: "The message
+/// leaves your inbox, and you can still find it, and undo it, under Archived"). A reply an agent writes, and a message it
+/// leaves in a factory, is shown as from that agent, never as from the owner. A factory's own seats may not leave a
+/// message in their own factory's inbox: that would loop the factory into itself.
 ///
 /// REPLY ROUTING (the owner's decision, mission section 4). A reply to a session's message goes into that session's
 /// inbox if it is still running - as a notice from the Gateway, read when it is free, never typed into it mid-turn. If
@@ -50,7 +66,7 @@ internal sealed record YourInboxSessionPlace(string? DirectorId, string? RepoPat
 /// offer is the same call with <c>to: "factory"</c>. A reply to a factory's message goes into that factory's Factory
 /// inbox, as a typed message from the owner's phone or Cockpit, exactly as if he had left it there himself.
 ///
-/// NOTHING IS DELETED: there is no delete route.
+/// NOTHING IS DELETED: there is no delete route, for the owner or for an agent.
 /// </summary>
 internal static class YourInboxEndpoints
 {
@@ -88,7 +104,7 @@ internal static class YourInboxEndpoints
     public static void Map(IEndpointRouteBuilder app, Parts parts)
     {
         ArgumentNullException.ThrowIfNull(parts);
-        FileLog.Write("[YourInboxEndpoints] mapping the Your inbox routes (one session route, five owner routes)");
+        FileLog.Write("[YourInboxEndpoints] mapping the Your inbox routes (six session routes, five owner routes)");
 
         // ---------------------------------------------------------------- the session route
 
@@ -133,39 +149,84 @@ internal static class YourInboxEndpoints
             });
         });
 
+        // ---------------------------------------------------------------- an agent's routes (7 November 2026)
+
+        app.MapGet("/sessions/{sid}/inbox", (string sid, HttpContext ctx) =>
+        {
+            FileLog.Write($"[YourInboxEndpoints] GET /sessions/{sid}/inbox: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (Agent(parts, ctx, sid, out var tenant, out _) is { } refused) return refused;
+            return ListView(parts, ctx, tenant);
+        });
+
+        app.MapGet("/sessions/{sid}/inbox/{id}", (string sid, string id, HttpContext ctx) =>
+        {
+            FileLog.Write($"[YourInboxEndpoints] GET /sessions/{sid}/inbox/{id}: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (Agent(parts, ctx, sid, out var tenant, out var agent) is { } refused) return refused;
+            if (Find(parts, tenant, id) is not { } message) return NotFound(id);
+            // READING IS RECORDED, AND IT DOES NOT MARK THE MESSAGE READ: the owner has still not read it.
+            parts.Store.RecordAgentRead(tenant, message.Id, agent!, parts.NowUtc());
+            return Results.Json(new { message = FoldOne(parts, tenant, message.Id) });
+        });
+
+        app.MapPost("/sessions/{sid}/inbox/{id}/state", async (string sid, string id, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[YourInboxEndpoints] POST /sessions/{sid}/inbox/{id}/state: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (Agent(parts, ctx, sid, out var tenant, out var agent) is { } refused) return refused;
+            if (Find(parts, tenant, id) is not { } message) return NotFound(id);
+            var (body, bad) = await ReadAsync<StateBody>(ctx, ct);
+            if (bad is not null) return bad;
+            var asked = (body?.State ?? "").Trim().ToLowerInvariant();
+            // RESTORE is the undo of an agent's delete: the message goes back to the inbox as it was - unread if nobody
+            // ever marked it read, read if somebody did. An agent's archive never makes the owner miss a message.
+            var state = asked == YourInboxWords.AgentRestore
+                ? (message.State != YourInboxWords.States.Archived ? message.State
+                    : message.ReadAtUtc is null ? YourInboxWords.States.Unread : YourInboxWords.States.Read)
+                : asked;
+            return Refusals(() =>
+            {
+                var after = parts.Store.SetStateByAgent(tenant, message.Id, state, agent!, parts.NowUtc());
+                if (after is null) return NotFound(id);
+                return Results.Json(new { message = FoldOne(parts, tenant, after.Id, withReplies: false) });
+            });
+        });
+
+        app.MapPost("/sessions/{sid}/inbox/{id}/reply", async (string sid, string id, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[YourInboxEndpoints] POST /sessions/{sid}/inbox/{id}/reply: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (Agent(parts, ctx, sid, out var tenant, out var agent) is { } refused) return refused;
+            if (Find(parts, tenant, id) is not { } message) return NotFound(id);
+            var (body, bad) = await ReadAsync<ReplyBody>(ctx, ct);
+            if (bad is not null) return bad;
+            var to = string.IsNullOrWhiteSpace(body?.To) ? null : body.To.Trim().ToLowerInvariant();
+            if (to is not (null or YourInboxWords.ReplyTargets.Factory))
+                return Error(400, "bad_reply_target",
+                    $"A reply goes where the message came from; the only other place is \"{YourInboxWords.ReplyTargets.Factory}\", not '{body!.To}'.");
+            return await RefusalsAsync(() => ReplyAsync(parts, tenant, new Replier(null, agent), message, YourInboxStore.CheckReply(body?.Text), to, ct));
+        });
+
+        app.MapPost("/sessions/{sid}/factories/{factory}/inbox", async (string sid, string factory, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[YourInboxEndpoints] POST /sessions/{sid}/factories/{factory}/inbox: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (Agent(parts, ctx, sid, out var tenant, out var agent) is { } refused) return refused;
+            var (body, bad) = await ReadAsync<FactorySendBody>(ctx, ct);
+            if (bad is not null) return bad;
+            if (body is null) return Error(400, "bad_request_body", "The body must be an object with a \"text\".");
+            if (OpenFactory(parts, tenant, factory, out var registered, "message") is { } closed) return closed;
+            if (OwnSeatRefusal(parts, tenant, agent!, registered!) is { } loop) return loop;
+            return await RefusalsAsync(async () =>
+            {
+                var left = await LeaveInFactoryAsync(parts, tenant, agent!, registered!, body.Text, ct);
+                return Results.Json(new { message = FactoryInboxFold.Message(left, null) }, statusCode: StatusCodes.Status201Created);
+            });
+        });
+
         // ---------------------------------------------------------------- the owner's routes
 
         app.MapGet(OwnerPrefix, (HttpContext ctx) =>
         {
             FileLog.Write($"[YourInboxEndpoints] GET {OwnerPrefix}: identity={AuthMiddleware.IdentityKind(ctx)}");
             if (Owner(parts, ctx, out var tenant, out _) is { } refused) return refused;
-            var view = ctx.Request.Query["view"].ToString().Trim().ToLowerInvariant();
-            if (view.Length == 0) view = YourInboxWords.Views.Inbox;
-            if (!YourInboxWords.Views.All.Contains(view))
-                return Error(400, "bad_view", $"view must be one of {string.Join(", ", YourInboxWords.Views.All)}, not '{view}'.");
-            var rawLimit = ctx.Request.Query["limit"].ToString();
-            var limit = YourInboxStore.DefaultList;
-            if (!string.IsNullOrEmpty(rawLimit)
-                && (!int.TryParse(rawLimit, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out limit)
-                    || limit < 1 || limit > YourInboxStore.MaxList))
-                return Error(400, "bad_limit", $"limit must be a whole number from 1 to {YourInboxStore.MaxList}.");
-            var (messages, total) = parts.Store.List(tenant, view, limit);
-            var unread = parts.Store.UnreadCount(tenant);
-            var titles = Titles(parts, tenant);
-            // The screen's filters, with their words and counts, and what this view says when it is empty: the Gateway's
-            // words, printed as they are (CLAUDE.md rule 7).
-            var filters = parts.Store.ViewCounts(tenant)
-                .Select(c => new YourInboxFilterDto(c.View, YourInboxWords.ViewLabel(c.View), c.Count)).ToList();
-            return Results.Json(new
-            {
-                view,
-                count = total,
-                unread,
-                unreadLabel = YourInboxWords.CountLabel(unread),
-                filters,
-                empty = YourInboxWords.EmptyLine(view),
-                messages = messages.Select(m => YourInboxFold.Message(m, titles)).ToList(),
-            });
+            return ListView(parts, ctx, tenant);
         });
 
         // No entry log line, on purpose: this is the route a phone polls for the Inbox entry's count, and a line per poll
@@ -182,7 +243,7 @@ internal static class YourInboxEndpoints
             FileLog.Write($"[YourInboxEndpoints] GET {OwnerPrefix}/{id}: identity={AuthMiddleware.IdentityKind(ctx)}");
             if (Owner(parts, ctx, out var tenant, out _) is { } refused) return refused;
             if (Find(parts, tenant, id) is not { } message) return NotFound(id);
-            return Results.Json(new { message = YourInboxFold.Message(message, Titles(parts, tenant), parts.Store.Replies(tenant, message.Id)) });
+            return Results.Json(new { message = FoldOne(parts, tenant, message.Id) });
         });
 
         app.MapPost(OwnerPrefix + "/{id}/state", async (string id, HttpContext ctx, CancellationToken ct) =>
@@ -197,7 +258,7 @@ internal static class YourInboxEndpoints
             {
                 var message = parts.Store.SetState(tenant, messageId, state, parts.NowUtc());
                 if (message is null) return NotFound(id);
-                return Results.Json(new { message = YourInboxFold.Message(message, Titles(parts, tenant)) });
+                return Results.Json(new { message = FoldOne(parts, tenant, message.Id, withReplies: false) });
             });
         });
 
@@ -212,13 +273,21 @@ internal static class YourInboxEndpoints
             if (to is not (null or YourInboxWords.ReplyTargets.Factory))
                 return Error(400, "bad_reply_target",
                     $"A reply goes where the message came from; the only other place is \"{YourInboxWords.ReplyTargets.Factory}\", not '{body!.To}'.");
-            return await RefusalsAsync(() => ReplyAsync(parts, tenant, device!, message, YourInboxStore.CheckReply(body?.Text), to, ct));
+            return await RefusalsAsync(() => ReplyAsync(parts, tenant, new Replier(device, null), message, YourInboxStore.CheckReply(body?.Text), to, ct));
         });
     }
 
     // ---------------------------------------------------------------- reply routing
 
-    private static async Task<IResult> ReplyAsync(Parts parts, TenantId tenant, DeviceCredentialIdentity device, YourInboxMessageEntity message,
+    /// <summary>Who is replying: the owner, from his phone or Cockpit (<see cref="Device"/>), or an agent
+    /// (<see cref="Agent"/>). Exactly one is set. The routing is the same for both; what differs is who the reply is shown
+    /// as from, and that only the owner's reply marks the message read.</summary>
+    private sealed record Replier(DeviceCredentialIdentity? Device, YourInboxAgent? Agent)
+    {
+        public string SentBy => Device?.DeviceId ?? Agent!.SessionId;
+    }
+
+    private static async Task<IResult> ReplyAsync(Parts parts, TenantId tenant, Replier by, YourInboxMessageEntity message,
         string text, string? to, CancellationToken ct)
     {
         var titles = Titles(parts, tenant);
@@ -229,10 +298,14 @@ internal static class YourInboxEndpoints
             if (message.Factory is null)
                 return Error(409, "no_factory_to_reply_into",
                     "This message did not come from a factory or a factory's seat, so there is no Factory inbox to leave the reply in. Nothing was sent.");
-            return await ReplyIntoFactoryAsync(parts, tenant, device, message, text, titles, ct);
+            return await ReplyIntoFactoryAsync(parts, tenant, by, message, text, titles, ct);
         }
 
         var sessionId = message.SessionId!;
+        // An agent does not answer its own message: the reply would land in its own inbox, a loop with no reader.
+        if (by.Agent is { } self && string.Equals(self.SessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+            return Error(409, "reply_to_yourself",
+                "This message is one this session sent, so a reply to it would come back to this session. Nothing was sent.");
         var live = parts.Liveness(tenant, sessionId);
         if (live.Reach == DevReportSessionReach.Ended)
         {
@@ -243,7 +316,7 @@ internal static class YourInboxEndpoints
             var canStartNew = place is { DirectorId: { Length: > 0 }, RepoPath: { Length: > 0 } };
             if (canStartNew)
                 offers.Add(new YourInboxReplyOfferDto("new-session", $"Start a new session in {place!.RepoPath} with this reply",
-                    DirectorId: place.DirectorId, RepoPath: place.RepoPath, Prompt: YourInboxFold.ReplyForNewSession(message, text)));
+                    DirectorId: place.DirectorId, RepoPath: place.RepoPath, Prompt: YourInboxFold.ReplyForNewSession(message, text, by.Agent)));
             string? factoryTitle = null;
             if (message.Factory is { } factory && OpenFactory(parts, tenant, factory, out _) is null)
             {
@@ -265,65 +338,118 @@ internal static class YourInboxEndpoints
         // THE ORDER IS DELIBERATE, here and in the factory reply below: deliver first, then record. If the record fails, the
         // reply has gone and the owner sees an error and no record - he is told. The other order would leave a record of a
         // reply that never went, which tells him something false. Do not swap them.
-        var outcome = parts.DeliverToSession(tenant, sessionId, YourInboxFold.ReplyForSession(message, text));
+        var notice = by.Agent is { } agent ? YourInboxFold.AgentReplyForSession(message, text, agent) : YourInboxFold.ReplyForSession(message, text);
+        var outcome = parts.DeliverToSession(tenant, sessionId, notice);
         if (outcome.Outcome is not (FleetMessageOutcome.Queued or FleetMessageOutcome.DuplicateDropped))
             throw new InvalidOperationException(
                 $"A reply from Your inbox to session {sessionId} was refused by the fleet inbox ({outcome.Outcome}: {outcome.Response.Error}); " +
                 "a notice from the Gateway is refused only for its text, which this route checked.");
         var reply = parts.Store.AddReply(tenant, message, text, YourInboxWords.ReplyTargets.Session, sessionId, null,
-            outcome.Response.MessageId, null, device.DeviceId, parts.NowUtc());
-        FileLog.Write($"[YourInboxEndpoints] reply {reply.Id} on {message.Id} went to session {sessionId} as fleet message {outcome.Response.MessageId} ({outcome.Outcome})");
-        var after = parts.Store.Get(tenant, message.Id)!;
+            outcome.Response.MessageId, null, by.SentBy, parts.NowUtc(), by.Agent);
+        FileLog.Write($"[YourInboxEndpoints] reply {reply.Id} on {message.Id} went to session {sessionId} as fleet message {outcome.Response.MessageId} ({outcome.Outcome}); by {(by.Agent is null ? "the owner" : "session " + by.Agent.SessionId)}");
+        return Replied(parts, tenant, reply, message.Id);
+    }
+
+    /// <summary>
+    /// A REPLY INTO A FACTORY'S FACTORY INBOX: the text, verbatim, left there as a typed message. From the owner it is from
+    /// the device he replied on - exactly what his own send to that factory writes; from an agent it is from that agent,
+    /// named - exactly what <c>factory inbox send</c> writes - and never from the owner. The factory's Secretary files it
+    /// like any other. The factory must still take messages: registered, not archived, with a Boss seat.
+    /// </summary>
+    private static async Task<IResult> ReplyIntoFactoryAsync(Parts parts, TenantId tenant, Replier by,
+        YourInboxMessageEntity message, string text, IReadOnlyDictionary<string, string> titles, CancellationToken ct)
+    {
+        if (OpenFactory(parts, tenant, message.Factory!, out var registered) is { } closed) return closed;
+        FactoryInboxMessageEntity left;
+        if (by.Agent is { } agent)
+        {
+            if (OwnSeatRefusal(parts, tenant, agent, registered!) is { } loop) return loop;
+            left = await LeaveInFactoryAsync(parts, tenant, agent, registered!, text, ct);
+        }
+        else
+        {
+            var device = by.Device!;
+            var surface = SessionOriginSurfaces.FromDeviceType(device.DeviceType);
+            if (surface is not (SessionOriginSurfaces.Phone or SessionOriginSurfaces.Cockpit))
+                return Error(403, "owner_device_required", "Only the owner's phone or Cockpit leaves a message in a factory inbox.");
+
+            left = await parts.SendToFactory(tenant, new FactoryInboxSendInput(
+                registered!.Factory, text,
+                Note: FactoryInboxWords.Notes.None,
+                Source: FactoryInboxWords.Sources.Typed,
+                Surface: surface == SessionOriginSurfaces.Phone ? FactoryInboxWords.Surfaces.Phone : FactoryInboxWords.Surfaces.Cockpit,
+                SentBy: device.DeviceId,
+                NowUtc: parts.NowUtc()), ct);
+            // The same event as the owner's own send to a factory: the wake looks at the factory when the window closes.
+            parts.MessageSent(tenant, left.Factory, left.SentAtUtc);
+        }
+        var reply = parts.Store.AddReply(tenant, message, text, YourInboxWords.ReplyTargets.Factory, null, registered!.Factory,
+            null, left.Id, by.SentBy, parts.NowUtc(), by.Agent);
+        FileLog.Write($"[YourInboxEndpoints] reply {reply.Id} on {message.Id} left in the Factory inbox of {registered.Factory} as {left.Id}");
+        return Replied(parts, tenant, reply, message.Id);
+    }
+
+    private static IResult Replied(Parts parts, TenantId tenant, YourInboxReplyEntity reply, Guid messageId)
+    {
+        var titles = Titles(parts, tenant);
+        var after = parts.Store.Get(tenant, messageId)!;
+        var acts = parts.Store.AgentActions(tenant, [messageId]).GetValueOrDefault(messageId) ?? [];
+        var replyAct = acts.FirstOrDefault(a => a.ReplyId == reply.Id);
         return Results.Json(new
         {
-            reply = YourInboxFold.Reply(reply, after, titles),
-            message = YourInboxFold.Message(after, titles, parts.Store.Replies(tenant, message.Id)),
+            reply = YourInboxFold.Reply(reply, after, titles, replyAct),
+            message = YourInboxFold.Message(after, titles, parts.Store.Replies(tenant, messageId), acts),
         }, statusCode: StatusCodes.Status201Created);
     }
 
     /// <summary>
-    /// A REPLY INTO A FACTORY'S FACTORY INBOX: the owner's text, verbatim, left there as a typed message from the device
-    /// he replied on - exactly what his own send to that factory writes, so the factory's Secretary files it like any
-    /// other. The factory must still take messages: registered, not archived, with a Boss seat.
+    /// AN AGENT LEAVES A MESSAGE IN A FACTORY'S FACTORY INBOX: typed, from that session (surface <c>session</c>, its id as
+    /// the sender, its number and name recorded), so the thread shows it as from that agent and never from the owner. The
+    /// factory's Secretary and Boss handle it like any message, and the wake is told exactly as for the owner's send.
     /// </summary>
-    private static async Task<IResult> ReplyIntoFactoryAsync(Parts parts, TenantId tenant, DeviceCredentialIdentity device,
-        YourInboxMessageEntity message, string text, IReadOnlyDictionary<string, string> titles, CancellationToken ct)
+    private static async Task<FactoryInboxMessageEntity> LeaveInFactoryAsync(Parts parts, TenantId tenant, YourInboxAgent agent,
+        RegisteredFactoryDto registered, string? text, CancellationToken ct)
     {
-        if (OpenFactory(parts, tenant, message.Factory!, out var registered) is { } closed) return closed;
-        var surface = SessionOriginSurfaces.FromDeviceType(device.DeviceType);
-        if (surface is not (SessionOriginSurfaces.Phone or SessionOriginSurfaces.Cockpit))
-            return Error(403, "owner_device_required", "Only the owner's phone or Cockpit leaves a message in a factory inbox.");
-
         var left = await parts.SendToFactory(tenant, new FactoryInboxSendInput(
-            registered!.Factory, text,
+            registered.Factory, text,
             Note: FactoryInboxWords.Notes.None,
             Source: FactoryInboxWords.Sources.Typed,
-            Surface: surface == SessionOriginSurfaces.Phone ? FactoryInboxWords.Surfaces.Phone : FactoryInboxWords.Surfaces.Cockpit,
-            SentBy: device.DeviceId,
-            NowUtc: parts.NowUtc()), ct);
-        // The same event as the owner's own send to a factory: the wake looks at the factory when the window closes.
+            Surface: FactoryInboxWords.Surfaces.Session,
+            SentBy: agent.SessionId,
+            NowUtc: parts.NowUtc(),
+            SessionNumber: agent.SessionNumber,
+            SessionName: agent.SessionName), ct);
         parts.MessageSent(tenant, left.Factory, left.SentAtUtc);
-        var reply = parts.Store.AddReply(tenant, message, text, YourInboxWords.ReplyTargets.Factory, null, registered.Factory,
-            null, left.Id, device.DeviceId, parts.NowUtc());
-        FileLog.Write($"[YourInboxEndpoints] reply {reply.Id} on {message.Id} left in the Factory inbox of {registered.Factory} as {left.Id}");
-        var after = parts.Store.Get(tenant, message.Id)!;
-        return Results.Json(new
-        {
-            reply = YourInboxFold.Reply(reply, after, titles),
-            message = YourInboxFold.Message(after, titles, parts.Store.Replies(tenant, message.Id)),
-        }, statusCode: StatusCodes.Status201Created);
+        FileLog.Write($"[YourInboxEndpoints] session {agent.SessionId} left {left.Id} in the Factory inbox of {registered.Factory}");
+        return left;
     }
 
-    /// <summary>The factory, when it still takes messages; otherwise the refusal that says why. Null on success.</summary>
-    private static IResult? OpenFactory(Parts parts, TenantId tenant, string factory, out RegisteredFactoryDto? registered)
+    /// <summary>
+    /// NO LOOPS (the design the owner was shown, 7 November 2026): a session that is a seat of a factory - its Secretary, its
+    /// Boss, or any other seat it was started as - may not leave a message in that same factory's inbox, because the
+    /// factory would then be writing work to itself. Null when the session may.
+    /// </summary>
+    private static IResult? OwnSeatRefusal(Parts parts, TenantId tenant, YourInboxAgent agent, RegisteredFactoryDto registered)
+    {
+        var seat = parts.FactorySeatOf(tenant, agent.SessionId);
+        if (seat is null || !string.Equals(seat.Factory, registered.Factory, StringComparison.OrdinalIgnoreCase)) return null;
+        FileLog.Write($"[YourInboxEndpoints] factory send REFUSED: session {agent.SessionId} is the {seat.Seat} seat of {registered.Factory}");
+        return Error(403, "own_factory",
+            $"This session is the {seat.Seat} seat of {registered.Title}, and a factory's own seats do not leave messages in its own " +
+            "Factory inbox: the factory would be writing work to itself. Nothing was sent.");
+    }
+
+    /// <summary>The factory, when it still takes messages; otherwise the refusal that says why. Null on success.
+    /// <paramref name="what"/> is what would have been left there: "reply" or "message".</summary>
+    private static IResult? OpenFactory(Parts parts, TenantId tenant, string factory, out RegisteredFactoryDto? registered, string what = "reply")
     {
         registered = parts.Factories(tenant).FirstOrDefault(f => string.Equals(f.Factory, factory, StringComparison.OrdinalIgnoreCase));
         if (registered is null)
-            return Error(409, "factory_not_found", $"'{factory}' is no longer a factory of this account, so there is no Factory inbox to leave the reply in. Nothing was sent.");
+            return Error(409, "factory_not_found", $"'{factory}' is not a factory of this account, so there is no Factory inbox to leave the {what} in. Nothing was sent.");
         if (registered.ArchivedAtUtc is not null)
             return Error(409, "factory_archived", $"{registered.Title} is archived, so it takes no messages. Restore it from the Factories screen first. Nothing was sent.");
         if (string.IsNullOrWhiteSpace(registered.BossSeat))
-            return Error(409, "factory_has_no_boss", $"'{registered.Factory}' names no Boss seat, so nobody would read a reply left there. Nothing was sent.");
+            return Error(409, "factory_has_no_boss", $"'{registered.Factory}' names no Boss seat, so nobody would read a {what} left there. Nothing was sent.");
         return null;
     }
 
@@ -342,7 +468,7 @@ internal static class YourInboxEndpoints
         {
             FileLog.Write($"[YourInboxEndpoints] owner route REFUSED to session {session.SessionId:D}");
             return Error(403, "session_key_out_of_scope",
-                "Your inbox is the owner's mailbox: a session sends to it with cc-devthrottle inbox send, and never reads it.");
+                "These are the owner's own inbox routes. A session uses the inbox through its own routes, as itself: cc-devthrottle inbox list, read, mark, delete, restore, reply and send.");
         }
         device = AuthMiddleware.AuthenticatedDevice(ctx);
         if (device is null)
@@ -351,7 +477,82 @@ internal static class YourInboxEndpoints
         return null;
     }
 
+    /// <summary>
+    /// An agent: a session key, calling as the session named in the path. The account is the one the key is bound to; a
+    /// request whose resolved account is not the key's own is refused, so nothing in the request can name another account.
+    /// Who the agent is - number and name - is read from the Gateway's records. Null on success with the tenant and the
+    /// agent set; otherwise the refusal.
+    /// </summary>
+    private static IResult? Agent(Parts parts, HttpContext ctx, string sid, out TenantId tenant, out YourInboxAgent? agent)
+    {
+        tenant = default;
+        agent = null;
+        if (parts.ResolveTenant(ctx) is not { } resolved) return NoTenant();
+        var session = AuthMiddleware.CallingSession(ctx);
+        if (session is null)
+            return Error(403, "session_key_required",
+                "This is a session's route to the account's inbox, called with that session's own key. The owner reads his inbox from his phone or Cockpit.");
+        if (!Guid.TryParse(sid, out var named) || named != session.SessionId)
+        {
+            FileLog.Write($"[YourInboxEndpoints] agent route REFUSED sid={sid}: caller session {session.SessionId:D}");
+            return Error(403, "not_your_session", $"A session uses the inbox only as itself, and {sid} is not this session.");
+        }
+        if (resolved != session.Tenant)
+        {
+            FileLog.Write($"[YourInboxEndpoints] agent route REFUSED: session {session.SessionId:D} is bound to another account than the request's");
+            return Error(403, "not_your_account", "A session reads only the inbox of the account its key is bound to.");
+        }
+        var sessionId = session.SessionId.ToString("D");
+        var naming = parts.Naming(resolved, sessionId);
+        tenant = resolved;
+        agent = new YourInboxAgent(sessionId, naming.Number, naming.Name);
+        return null;
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /// <summary>
+    /// One view of the inbox, newest first, with the unread count, the filters' words and counts, and the view's empty
+    /// sentence - the same answer to the owner and to an agent, every word the Gateway's (CLAUDE.md rule 7).
+    /// </summary>
+    private static IResult ListView(Parts parts, HttpContext ctx, TenantId tenant)
+    {
+        var view = ctx.Request.Query["view"].ToString().Trim().ToLowerInvariant();
+        if (view.Length == 0) view = YourInboxWords.Views.Inbox;
+        if (!YourInboxWords.Views.All.Contains(view))
+            return Error(400, "bad_view", $"view must be one of {string.Join(", ", YourInboxWords.Views.All)}, not '{view}'.");
+        var rawLimit = ctx.Request.Query["limit"].ToString();
+        var limit = YourInboxStore.DefaultList;
+        if (!string.IsNullOrEmpty(rawLimit)
+            && (!int.TryParse(rawLimit, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out limit)
+                || limit < 1 || limit > YourInboxStore.MaxList))
+            return Error(400, "bad_limit", $"limit must be a whole number from 1 to {YourInboxStore.MaxList}.");
+        var (messages, total) = parts.Store.List(tenant, view, limit);
+        var unread = parts.Store.UnreadCount(tenant);
+        var titles = Titles(parts, tenant);
+        var acts = parts.Store.AgentActions(tenant, messages.Select(m => m.Id).ToList());
+        var filters = parts.Store.ViewCounts(tenant)
+            .Select(c => new YourInboxFilterDto(c.View, YourInboxWords.ViewLabel(c.View), c.Count)).ToList();
+        return Results.Json(new
+        {
+            view,
+            count = total,
+            unread,
+            unreadLabel = YourInboxWords.CountLabel(unread),
+            filters,
+            empty = YourInboxWords.EmptyLine(view),
+            messages = messages.Select(m => YourInboxFold.Message(m, titles, null, acts.GetValueOrDefault(m.Id))).ToList(),
+        });
+    }
+
+    /// <summary>One message as it stands now, folded with what agents did to it and, when read on its own, its replies.</summary>
+    private static YourInboxMessageDto FoldOne(Parts parts, TenantId tenant, Guid id, bool withReplies = true)
+    {
+        var message = parts.Store.Get(tenant, id)
+            ?? throw new InvalidOperationException($"Your inbox message {id} was found a moment ago and is gone; nothing deletes a message.");
+        var acts = parts.Store.AgentActions(tenant, [id]).GetValueOrDefault(id);
+        return YourInboxFold.Message(message, Titles(parts, tenant), withReplies ? parts.Store.Replies(tenant, id) : null, acts);
+    }
 
     private static YourInboxMessageEntity? Find(Parts parts, TenantId tenant, string id)
         => Guid.TryParse(id, out var messageId) ? parts.Store.Get(tenant, messageId) : null;
@@ -423,6 +624,11 @@ internal static class YourInboxEndpoints
         public string? Subject { get; set; }
         public string? Body { get; set; }
         public string? ReportId { get; set; }
+    }
+
+    private sealed class FactorySendBody
+    {
+        public string? Text { get; set; }
     }
 
     private sealed class StateBody

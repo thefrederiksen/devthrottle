@@ -26,6 +26,8 @@ export function oddYourMessage(over: Partial<YourInboxMessage> = {}): YourInboxM
     readAtUtc: null,
     archivedAtUtc: null,
     replies: [],
+    agentActions: [],
+    agentLine: null,
     ...over,
   };
 }

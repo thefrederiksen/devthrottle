@@ -136,9 +136,10 @@ message_app.add_typer(link_app, name="link")
 inbox_app = typer.Typer(
     cls=AxiGroup,
     help=(
-        "Tell the owner something in Your inbox, instead of emailing him.\n\n"
-        "It reaches his DevThrottle inbox on his phone and in the Cockpit. He may reply; a reply reaches "
-        "this session's inbox while it runs."
+        "The account's inbox, used like email: send, list, read, delete, restore, mark and reply.\n\n"
+        "It is the owner's DevThrottle inbox on his phone and in the Cockpit, in the account this session's "
+        "Director is signed in as. Reading does NOT mark a message read. Delete is ARCHIVE: the message moves "
+        "to Archived and can be restored. Every act is shown on the message as this session's, never the owner's."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -4216,6 +4217,101 @@ def inbox_send(
     inbox_ops.send(subject, body, report or None, json_output)
 
 
+_INBOX_ID_HELP = "The message's id, from 'cc-devthrottle inbox list'."
+
+
+@inbox_app.command("list")
+def inbox_list(
+    view: Optional[str] = typer.Option(
+        None, "--view", help="Which messages: unread, inbox (unread and read; the default) or archived."),
+    count: Optional[int] = typer.Option(
+        None, "--count", "-n", help=f"How many of the newest to list, 1 to {inbox_ops.LIST_MAX}. The Gateway gives 100 "
+        "when this is not passed."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Valid: " + ", ".join(inbox_ops.LIST_FIELDS)
+        + ". Default: " + ",".join(inbox_ops.LIST_DEFAULT) + "."),
+    full: bool = typer.Option(False, "--full", help="Show whole subjects instead of the first 80 characters."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON, unchanged; "
+                                     "--view and --count apply to it."),
+) -> None:
+    """List the account's inbox, newest first.
+
+    Listing changes nothing and marks nothing read. The 'agent' field is the newest thing an agent did
+    to the message, in the Gateway's words.
+    """
+    inbox_ops.list_messages(view, count, fields, full, json_output)
+
+
+@inbox_app.command("read")
+def inbox_read(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Read one message: who sent it, its body, its replies, and what agents did to it.
+
+    Reading does NOT mark it read - the owner has still not read it. The read is recorded on the message
+    as this session's. Mark it read with 'inbox mark <id> --read' only when you are told to.
+    """
+    inbox_ops.read(message_id, json_output)
+
+
+@inbox_app.command("delete")
+def inbox_delete(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Delete a message, which ARCHIVES it: nothing is ever deleted.
+
+    The message leaves the inbox and stays under Archived ('inbox list --view archived'); undo it with
+    'inbox restore <id>'. The owner sees that this session archived it.
+    """
+    inbox_ops.delete(message_id, json_output)
+
+
+@inbox_app.command("restore")
+def inbox_restore(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Move an archived message back to the inbox - the undo of 'inbox delete'.
+
+    It goes back unread if nobody ever marked it read, and read if somebody did.
+    """
+    inbox_ops.restore(message_id, json_output)
+
+
+@inbox_app.command("mark")
+def inbox_mark(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    read: bool = typer.Option(False, "--read", help="Mark it read."),
+    unread: bool = typer.Option(False, "--unread", help="Mark it unread."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Mark a message read or unread. Pass exactly one of --read and --unread.
+
+    Do this only when you are told to: the owner uses 'unread' to know what he has not seen.
+    """
+    inbox_ops.mark(message_id, read, unread, json_output)
+
+
+@inbox_app.command("reply")
+def inbox_reply(
+    message_id: str = typer.Argument(..., help=_INBOX_ID_HELP),
+    text: str = typer.Argument(..., help="The reply, exactly as it should be read."),
+    to_factory: bool = typer.Option(
+        False, "--to-factory", help="Leave the reply in the Factory inbox of the factory the sending session was a "
+        "seat of - the offer made when that session has ended."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Reply to a message, routed where it came from.
+
+    A session's message: into that session's inbox while it runs; if it has ended, nothing is sent and
+    the Gateway says where the reply can go instead. A factory's message: into that factory's Factory
+    inbox. The reply is shown as from this session, never from the owner, and the message stays unread.
+    """
+    inbox_ops.reply(message_id, text, to_factory, json_output)
+
+
 @link_app.command("add")
 def message_link_add(
     sender: str = typer.Argument(..., help="The session that may send: its number, an id prefix, or its exact name."),
@@ -5152,6 +5248,20 @@ _INBOX_MESSAGE_FIELDS_HELP = (
     "Fields to show, comma separated. Valid: " + ", ".join(factory_inbox_ops.MESSAGE_FIELDS)
     + ". Default: " + ",".join(factory_inbox_ops.MESSAGE_DEFAULT) + "."
 )
+
+
+@factory_inbox_app.command("send")
+def factory_inbox_send(
+    factory: str = typer.Argument(..., help=_INBOX_FACTORY_HELP),
+    text: str = typer.Argument(..., help="The message, exactly as the factory should read it."),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """Leave a message in a factory's Factory inbox, as this session.
+
+    The factory's Secretary and Boss handle it like any message. It is shown as from this session, never
+    from the owner. A factory's own seats cannot send into their own factory's inbox.
+    """
+    factory_inbox_ops.send(factory, text, json_output)
 
 
 @factory_inbox_app.command("list")

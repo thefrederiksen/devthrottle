@@ -247,6 +247,28 @@ cc-devthrottle inbox send --subject "<one line>" --body "<what they need to know
 - Factories do not email them either: each factory's 08:00 morning summary is written into Your inbox,
   and the factory definition check flags a seat brief that tells a seat to email them.
 
+## "My inbox": read it, delete, reply - like email
+
+**"My inbox", "check my inbox", "clear my inbox" mean Your inbox,** the inbox of the account your Director
+is signed in as. You may use it the way a person uses email (the owner's decision of 7 November 2026):
+
+```bash
+cc-devthrottle inbox list [--view unread|inbox|archived]   # newest first
+cc-devthrottle inbox read <id>                              # does NOT mark it read
+cc-devthrottle inbox delete <id>                            # ARCHIVES it; nothing is deleted
+cc-devthrottle inbox restore <id>                           # undoes a delete
+cc-devthrottle inbox mark <id> --read|--unread              # only when you are told to
+cc-devthrottle inbox reply <id> "<text>"                    # routed where the message came from
+cc-devthrottle factory inbox send <factory> "<text>"        # leave a message in a factory's inbox
+```
+
+- **Reading does not mark a message read.** The user has still not read it. Mark read or unread only
+  when you are told to.
+- **Delete is archive.** The message leaves the inbox and stays under Archived; `inbox restore` undoes it.
+- **Everything you do shows on the message as yours** - your session number and name and the time - and
+  a reply or a factory message you write is shown as from you, never from the user.
+- A factory's own seats cannot send into their own factory's inbox.
+
 ## When this skill is the right thing to consult
 
 - "What cc-* tools do I have for X?" - look in the tool list above; run the tool with `--help` for syntax.
@@ -266,8 +288,9 @@ cc-devthrottle inbox send --subject "<one line>" --body "<what they need to know
 - It does not replace the **browsers** skill, which is the full reference for driving a signed-in browser.
 
 
-**Skill Version:** 6.2 (Your inbox, not email)
-**Last Updated:** 2026-11-06
+**Skill Version:** 6.3 (my inbox, like email)
+**Last Updated:** 2026-11-07
+**Changes in 6.3:** "My inbox" means Your inbox, used like email: `inbox list`, `read`, `delete` (archive), `restore`, `mark`, `reply`, and `factory inbox send` - the owner's decision of 7 November 2026. Reading does not mark read; delete is archive; every act shows on the message as the agent's.
 **Changes in 6.2:** "Email me" and "tell me" mean Your inbox (`cc-devthrottle inbox send`), the owner's decision on the Factory Inbox mission; a real email only when the user names someone else or says "send me an email". "Who the user is" no longer says "email me" means the user's email.
 **Changes in 6.1:** Added the drivable browser profiles. `cc-devthrottle browser` registers, starts, attaches and stops a real browser the user signed into once, and `browser-harness` drives the page. This is written down because the absence of it caused a live failure on 2026-09-06: with a signed-in `centerconsulting` profile registered and stopped, an agent that never ran `browser list` hand-launched Chrome against a retired `cc-playwright` folder and handed the user a LOGIN page for the site it was asked to work in. Hand-rolling a browser does not fail loudly, it succeeds into the wrong session - so the rule is that the Director owns the profiles and an agent never launches one. Full reference: the **browsers** skill.
 
