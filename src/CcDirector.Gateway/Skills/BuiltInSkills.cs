@@ -177,6 +177,21 @@ public static class BuiltInSkills
                 "summarise what you did", "hand me a document", "cc-dev-reports", "findings",
                 "how do I report",
             }),
+
+        // OPTIONAL: off for every account until it is turned on (owner, 8 Nov 2026). Only accounts that
+        // build on their own machines need it, so it costs nobody else a line in every briefing.
+        new SkillDefinition(
+            Id: "build-locally",
+            Name: "Build Locally - build on your own machines instead of GitHub's",
+            Summary: "Move a repository's GitHub Actions builds onto self-hosted runners on your own Linux, " +
+                     "Windows or Mac machines, so private repositories build at no GitHub cost. Optional.",
+            Triggers: new[]
+            {
+                "build locally", "self-hosted runner", "github actions cost", "build on my own machine",
+                "runs-on self-hosted", "register a runner", "github billing blocked", "private repo builds",
+                "spending limit", "move ci off github",
+            },
+            ShipsSwitchedOff: true),
     };
 
     /// <summary>Every skill the Gateway ships, in the order the register lists them.</summary>

@@ -58,13 +58,14 @@ public sealed class SkillStoreTests : IDisposable
                 "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager",
                 "devthrottle-method", "fleet-naming", "foreground-only", "checks-that-fail-open",
                 "proof-covers-the-wrong-thing", "destructive-sweeps-lean-to-keep", "dev-reports",
+                "build-locally",
             },
             skills.Select(s => s.Id).ToArray());
         Assert.All(skills, s =>
         {
             Assert.True(s.IsBuiltIn);
             Assert.False(s.Editable);
-            Assert.True(s.Enabled);
+            Assert.Equal(s.Id != "build-locally", s.Enabled); // build-locally is optional: shipped OFF
             Assert.Equal(1, s.Version);
             Assert.False(string.IsNullOrWhiteSpace(s.ContentHash));
             Assert.False(string.IsNullOrWhiteSpace(s.Summary));
@@ -701,10 +702,29 @@ public sealed class SkillStoreTests : IDisposable
     [Fact]
     public void No_shipped_built_in_is_optional_by_accident()
     {
-        // Every built-in shipped today is on. A skill becomes optional only by a deliberate line in
-        // BuiltInSkills - when one does, add its id here.
+        // A skill becomes optional only by a deliberate line in BuiltInSkills - when one does, add its
+        // id here. build-locally: owner, 8 Nov 2026.
         var optional = BuiltInSkills.All().Where(d => d.ShipsSwitchedOff).Select(d => d.Id).ToList();
-        Assert.Empty(optional);
+        Assert.Equal(new[] { "build-locally" }, optional);
+    }
+
+    [Fact]
+    public void Build_locally_ships_off_and_turns_on_for_one_account()
+    {
+        var store = new SkillStore(_h.Open());
+
+        Assert.False(store.ListPublished().Single(s => s.Id == "build-locally").Enabled);
+        var refusal = Assert.Throws<SkillValidationException>(() => store.GetBody("build-locally", null));
+        Assert.Contains("OPTIONAL", refusal.Message);
+
+        store.SetEnabled("build-locally", true, "test");
+
+        var body = store.GetBody("build-locally", null)!;
+        Assert.StartsWith("# Build Locally", body);
+        // The skill's own safety rules must ship with it.
+        Assert.Contains("TOKEN=$(gh api -X POST", body);
+        Assert.Contains("PUBLIC repository", body);
+        Assert.Contains("NEVER `KillMode=process`", body);
     }
 
     [Fact]
