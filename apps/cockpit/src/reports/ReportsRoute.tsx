@@ -51,6 +51,7 @@ export function PersonalReportsPage() {
       <div className="reports-tab-body">
         <DevReportViewer
           key={open}
+          dictationSurface="cockpit"
           reportId={open}
           onNotFound={backToList}
           leading={

@@ -190,6 +190,15 @@ public sealed class DevReportShapeCheckTests
             "has more than one option with the value \"yes\"");
 
     [Fact]
+    public void Check_AnOptionWithTheReservedOwnAnswerValue_Fails()
+        => AssertFailsWith(Report(questionsBody: Question.Replace("value=\"no\"", "value=\"own-answer\"")),
+            "has an option with the value \"own-answer\", which is reserved");
+
+    [Fact]
+    public void Check_AnOptionWhoseValueOnlyResemblesTheReservedOne_Passes()
+        => Assert.True(DevReportShapeCheck.Check(Report(questionsBody: Question.Replace("value=\"no\"", "value=\"own-answer-2\""))).Passed);
+
+    [Fact]
     public void Check_DuplicateQuestionIds_Fails()
         => AssertFailsWith(Report(questionsBody: Question + Question), "\"rerun\" is used more than once");
 

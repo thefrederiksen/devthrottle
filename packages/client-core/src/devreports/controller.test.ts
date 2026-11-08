@@ -153,7 +153,7 @@ describe("state the host holds", () => {
     const controller = makeController(api, storage);
     await controller.refresh();
     const port = pageReady(controller);
-    expect(port.ofType("restore")).toEqual([{ state: emptyPageState() }]);
+    expect(port.ofType("restore")).toEqual([{ state: emptyPageState(), dictation: false }]);
 
     const typed: DevReportPageState = { ...emptyPageState(), draft: { anchor: note.anchor as never, text: "half-typ" }, scroll: { x: 0, y: 640 } };
     port.emit("state-changed", { state: typed });
@@ -161,7 +161,7 @@ describe("state the host holds", () => {
     controller.host.handleFrameLoad();
     controller.host.load("<p>version 1</p>");
     const again = pageReady(controller);
-    expect(again.ofType("restore")).toEqual([{ state: typed }]);
+    expect(again.ofType("restore")).toEqual([{ state: typed, dictation: false }]);
   });
 
   it("survives an app reload: a new controller on the same storage restores it", async () => {
@@ -175,7 +175,7 @@ describe("state the host holds", () => {
 
     const second = makeController(api, storage);
     await second.refresh();
-    expect(pageReady(second).ofType("restore")).toEqual([{ state: typed }]);
+    expect(pageReady(second).ofType("restore")).toEqual([{ state: typed, dictation: false }]);
   });
 
   it("seeds a new version from the previous one when the agent republishes, and reloads the frame in place", async () => {
@@ -195,7 +195,7 @@ describe("state the host holds", () => {
     expect(controller.host.frame.srcdoc).not.toBe(tokenBefore);
     expect(controller.getSnapshot().loadedVersion).toBe(2);
     const next = pageReady(controller);
-    expect(next.ofType("restore")).toEqual([{ state: typed }]);
+    expect(next.ofType("restore")).toEqual([{ state: typed, dictation: false }]);
 
     // The new version's state is kept under the new version, and the old version's is dropped.
     next.emit("state-changed", { state: typed });
@@ -204,7 +204,7 @@ describe("state the host holds", () => {
     // An app reload now, with nothing in memory, still finds it.
     const reloaded = makeController(api, storage);
     await reloaded.refresh();
-    expect(pageReady(reloaded).ofType("restore")).toEqual([{ state: typed }]);
+    expect(pageReady(reloaded).ofType("restore")).toEqual([{ state: typed, dictation: false }]);
   });
 
   it("seeds from storage alone when the app opens a version it never saw", async () => {
@@ -215,7 +215,7 @@ describe("state the host holds", () => {
     api.current = detail(4);
     const controller = makeController(api, storage);
     await controller.refresh();
-    expect(pageReady(controller).ofType("restore")).toEqual([{ state: saved }]);
+    expect(pageReady(controller).ofType("restore")).toEqual([{ state: saved, dictation: false }]);
   });
 });
 

@@ -19,7 +19,8 @@ public sealed class DevReportItemEntity : GatewayMintedKeyEntity
     /// <summary>note or answer.</summary>
     public string Kind { get; set; } = "";
 
-    /// <summary>A note's text, verbatim. Empty for an answer.</summary>
+    /// <summary>A note's text, verbatim; or the owner's words of an OWN answer (<see cref="DevReports.DevReportOwnAnswer"/>).
+    /// Empty for any other answer.</summary>
     public string Text { get; set; } = "";
 
     /// <summary>A note's anchor as the contract's JSON object. Null for an answer.</summary>

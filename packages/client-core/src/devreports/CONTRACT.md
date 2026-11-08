@@ -105,10 +105,19 @@ the wrong shape. What stops a report acting for the owner is the host's policy i
   heading (`h1`-`h6`) inside the question, otherwise the id.
 - **A comment box** is optional: a `<textarea data-dev-report-comment>` inside the question.
 - **The Queue button** is added by the script, one per question. An author never writes it.
+- **"Something else"** is added by the script as the LAST option of every question, after the author's last
+  option and sharing the question's `name`, with the reserved value `own-answer`. An author never writes it,
+  and **no author's option may use the value `own-answer`** - the shape check refuses a report that does, so
+  the owner's own answer can never be taken for one of the author's options. Picking it opens a box under it
+  for the owner's own words; Queue answer stays disabled until that box has words in it. The answer it queues
+  carries the words in `ownAnswer` (section 3).
+- **A microphone button** is added by the script under every comment box, under the "Something else" box, and
+  in the note box - drawn only when a host that records says so in `restore` (section 3, "Dictation"). An
+  author never writes it.
 
 The shape check enforces: at least two options, exactly one `data-recommended`, a non-empty `value` on
-every option and no value used twice in one question, one shared `name` per question used by no other
-radio, unique ids, no nesting, no option outside a question, and exactly one
+every option and no value used twice in one question, no option with the reserved value `own-answer`, one
+shared `name` per question used by no other radio, unique ids, no nesting, no option outside a question, and exactly one
 no-questions element whose own text has words in it (a character reference such as `&nbsp;` alone is not
 words, and text after a block element that would close a `<p>` is not the paragraph's).
 
@@ -170,7 +179,17 @@ A queued or sent item is one of:
 
 { "id": "a-0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e", "kind": "answer", "questionId": "deploy-window", "question": "When should we deploy?",
   "optionValue": "tonight", "optionLabel": "Tonight - quiet traffic", "comment": "" }
+
+{ "id": "a-9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b", "kind": "answer", "questionId": "deploy-window", "question": "When should we deploy?",
+  "optionValue": "own-answer", "optionLabel": "Something else", "ownAnswer": "Wednesday, after the demo", "comment": "" }
 ```
+
+The last is the owner's OWN answer: `optionValue` is the reserved `own-answer`, and `ownAnswer` - present on
+this answer and on no other - holds the owner's words, which may not be empty. The Gateway stores it as an
+answer of its own kind (the words in the item's text), always labels it "Something else" whatever the page
+sent, serves it back with `ownAnswer`, and tells the session that asked that it is the owner's own answer and
+not one of the report's options. `cc-dev-reports answers` prints it as `answer: OWN ANSWER (not one of your
+options)` with the words on a `said:` line.
 
 `id` is **globally unique**: the script makes it from 16 random bytes (`crypto.getRandomValues`, which
 works in the sandboxed frame) as `n-` or `a-` followed by 32 lowercase hex digits, and never from a counter.
@@ -188,15 +207,33 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | `send` | `{ "items": [ item, ... ] }` | the owner pressed the UNHOSTED page's own Send; every item still in the queue, in order. A hosted page draws no Send and never posts this: the app sends the queue it already holds from `state-changed`, and tells the page what happened with `status`. |
 | `state-changed` | `{ "state": state }` | anything in the state changed - including a status or reply the host pushed |
 | `note-mode-changed` | `{ "picking": true, "selectionQuote": null }` | where note-taking stands: whether the page is waiting for a click, and what text is selected in the report. Sent on the first `restore`, whenever either changes, and whenever the host asks for a `note-mode`. Hosted only - unhosted the page draws those controls itself |
+| `dictation-start` | `{ "fieldId": "q0:comment" }` | the owner tapped a box's microphone: record for that box. Hosted, and only when `restore` said `dictation: true` |
+| `dictation-stop` | `{ "fieldId": "q0:comment" }` | the owner tapped the red square: stop, transcribe, and send the words back |
 
 ### Host to page
 
 | type | payload | effect |
 |---|---|---|
-| `restore` | `{ "state": state }` | replaces the page's state, puts back what the inputs showed, and scrolls to the saved position. Also marks the host as connected. |
+| `restore` | `{ "state": state, "dictation": true }` | replaces the page's state, puts back what the inputs showed, and scrolls to the saved position. Also marks the host as connected. `dictation` says whether this host records for the page's microphone buttons; anything but `true` means it does not, and the page draws none. |
 | `status` | `{ "updates": [ { "id": "n3", "status": "held", "statusLabel": "Delivered when the agent finishes" } ] }` | the host's word on items, by id; an unknown id is skipped |
 | `reply` | `{ "reply": { "id": "r1", "text": "Fixed - see section 2", "at": "2026-09-16T10:00:00Z" } }` | adds the agent's reply to the page (same id replaces) |
 | `note-mode` | `{ "mode": "pick" }`, `{ "mode": "selection" }` or `{ "mode": "off" }` | starts a note: `pick` waits for the reader to click what the note is about, `selection` opens one on the text they have selected, `off` cancels. Any other mode is ignored |
+| `dictation` | `{ "fieldId": "q0:comment", "phase": "recording", "seconds": 7, "level": 0.4 }` | where one box's dictation stands: `starting`, `recording` (with `seconds` and a `level` from 0 to 1, sent a few times a second), `transcribing`, `done` (with `text`, and a `reason` when some audio was dropped) or `failed` (with `reason`). A message for a box the page does not have is ignored |
+
+### Dictation
+
+The frame has no same-origin access, so it cannot open the microphone. A microphone button asks the host
+instead, and the host records with the session prompt's own recorder and transcribes through the same Gateway
+transcription upload the session prompt uses. The words come back exactly as the Gateway returned them - the
+speech model's output with only the owner's own dictionary corrections, nothing reworded - and the page ADDS
+THEM TO THE END of what the box already holds, with one space between, for the owner to read and correct.
+Nothing is sent by talking. A failure says why in the box and leaves what was typed unchanged. One box records
+at a time: while one does, the other microphones are disabled, and a host refuses a second start with
+`failed`. A page that goes away (a reload, a new version, the viewer closing) makes the host let the
+microphone go at once and drop anything still on its way.
+
+The field ids are the page's own and fixed: `q<n>:comment` and `q<n>:own` for the n-th question's comment
+and own-answer boxes, counted from 0 in document order, and `note` for the note box. At most 200 characters.
 
 ### Send, and when an item counts as sent
 
@@ -232,12 +269,14 @@ A later `status` for an item already in Sent just replaces its words.
   "sent": [ item + { "status": "held", "statusLabel": "..." }, ... ],
   "replies": [ reply, ... ],
   "draft": { "anchor": anchor, "text": "half-typed note" } | null,
-  "answerDrafts": [ { "questionId": "deploy-window", "optionValue": "monday", "comment": "half-typed" } ],
+  "answerDrafts": [ { "questionId": "deploy-window", "optionValue": "monday", "comment": "half-typed",
+                      "ownAnswer": "half-typed own answer" } ],
   "scroll": { "x": 0, "y": 1200 } }
 ```
 
 `pending` and `statusLabel` on a queued item are optional. `answerDrafts` is what the owner has picked and
-typed in a question without queueing it; `optionValue` is empty when nothing is picked. Queueing an answer
+typed in a question without queueing it; `optionValue` is empty when nothing is picked, and `ownAnswer`,
+when present, is what is typed in the "Something else" box. Queueing an answer
 clears that question's draft, so a draft that exists is always newer than the queued answer, and after a
 restore the inputs show the draft if there is one, otherwise the queued answer.
 

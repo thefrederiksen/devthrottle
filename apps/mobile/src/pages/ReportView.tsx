@@ -37,6 +37,7 @@ export function ReportView() {
       {reportId && (
         <DevReportViewer
           key={reportId}
+          dictationSurface="mobile"
           reportId={reportId}
           onNotFound={backToList}
           onBackToSession={backToSession}

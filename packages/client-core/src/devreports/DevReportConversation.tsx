@@ -43,8 +43,11 @@ function ItemWords({ item }: { item: DevReportItem }) {
     return (
       <>
         <div className="dev-report-item-where">{item.question}</div>
-        <div className="dev-report-item-text">
+        {/* THE OWNER'S OWN ANSWER (Report Answers by Voice) is the label the Gateway stored for it, "Something else",
+            followed by the owner's words in quotes - so it never reads as one of the author's options. */}
+        <div className="dev-report-item-text" data-own-answer={item.ownAnswer !== undefined ? "true" : undefined}>
           {item.optionLabel}
+          {item.ownAnswer !== undefined ? `: "${item.ownAnswer}"` : ""}
           {item.comment ? ` - ${item.comment}` : ""}
         </div>
       </>

@@ -176,10 +176,22 @@ internal sealed class DevReportAnswers
 
     private static QuestionAnswerView Question(string id, string text, bool inLatestVersion, DevReportItemEntity? answer)
         => answer is null
-            ? new QuestionAnswerView(id, text, inLatestVersion, false, null, null, null, null, null, null, null, null, null, null, null)
+            ? new QuestionAnswerView(id, text, inLatestVersion, false, null, null, null, null, null, null, null, null, null, null, null,
+                null, null)
             : new QuestionAnswerView(id, text, inLatestVersion, true, answer.ClientItemId, answer.OptionValue, answer.OptionLabel,
                 answer.Comment, answer.SentAtUtc, answer.Status, answer.StatusLabel, answer.ActedOnAtUtc, answer.ActedOnSessionId,
-                answer.ActionClaimedAtUtc, answer.ActionClaimedSessionId);
+                answer.ActionClaimedAtUtc, answer.ActionClaimedSessionId,
+                DevReportOwnAnswer.Is(answer.OptionValue) ? answer.Text : null, AnswerLabel(answer));
+
+    /// <summary>
+    /// The answer as the reading session is told it, decided here once (repository rule 7): the option's label and value,
+    /// or - for the owner's own answer - words that say it is NOT one of the report's options, so an agent can never
+    /// take the owner's words for an option it offered.
+    /// </summary>
+    internal static string AnswerLabel(DevReportItemEntity answer)
+        => DevReportOwnAnswer.Is(answer.OptionValue)
+            ? DevReportOwnAnswer.ReaderLabel
+            : $"{answer.OptionLabel} (value {answer.OptionValue})";
 
     private static List<string> UnactedItemIds(ReportAnswersView view)
     {
@@ -256,11 +268,13 @@ internal sealed record ReportAnswersView(
     int Answered, int NotAnswered, int NoteCount, int NotActedOn,
     IReadOnlyList<QuestionAnswerView> Questions, IReadOnlyList<NoteView> Notes);
 
-/// <summary>One question and the owner's latest answer to it, or <c>Answered</c> false.</summary>
+/// <summary>One question and the owner's latest answer to it, or <c>Answered</c> false. <c>OwnAnswer</c> is the owner's
+/// own words when they answered "Something else" (null otherwise), and <c>AnswerLabel</c> is how the answer is told.</summary>
 internal sealed record QuestionAnswerView(
     string Id, string Question, bool InLatestVersion, bool Answered, string? ItemId, string? OptionValue, string? OptionLabel,
     string? Comment, DateTime? AnsweredAtUtc, string? Status, string? StatusLabel, DateTime? ActedOnAtUtc,
-    string? ActedOnSessionId, DateTime? ActionClaimedAtUtc, string? ActionClaimedSessionId);
+    string? ActedOnSessionId, DateTime? ActionClaimedAtUtc, string? ActionClaimedSessionId, string? OwnAnswer,
+    string? AnswerLabel);
 
 /// <summary>One of the owner's notes on the report, with the words it was anchored to.</summary>
 internal sealed record NoteView(

@@ -107,6 +107,27 @@ public sealed class DevReportAnswersTests : IDisposable
         => report.GetProperty("questions").EnumerateArray().Single(q => q.GetProperty("id").GetString() == id);
 
     [Fact]
+    public async Task Read_TheOwnersOwnAnswer_IsToldAsNotOneOfTheOptions_WithTheOwnersWords()
+    {
+        var report = Publish(_runOne);
+        var own = new DevReportItem("a1", DevReportItem.Answer, "Email me after 3 days, not 7, and copy Gitte", null, "deploy",
+            "When should we send?", DevReportOwnAnswer.Value, DevReportOwnAnswer.Label, "");
+        await OwnerSends(report, own, Answer("a2", "scope", "monday"));
+
+        var (status, body) = await Run(Answers().Read(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
+
+        Assert.Equal(200, status);
+        var deploy = Question(body.GetProperty("reports")[0], "deploy");
+        Assert.Equal("own-answer", deploy.GetProperty("optionValue").GetString());
+        Assert.Equal("Email me after 3 days, not 7, and copy Gitte", deploy.GetProperty("ownAnswer").GetString());
+        Assert.Equal("OWN ANSWER (not one of your options)", deploy.GetProperty("answerLabel").GetString());
+        // An answer with one of the report's options carries no own words, and is told with its label and value.
+        var scope = Question(body.GetProperty("reports")[0], "scope");
+        Assert.Equal(JsonValueKind.Null, scope.GetProperty("ownAnswer").ValueKind);
+        Assert.Equal("Monday (value monday)", scope.GetProperty("answerLabel").GetString());
+    }
+
+    [Fact]
     public async Task Read_ByReportId_FromADifferentSessionOfTheAccount_ShowsTheAnswerAndTheOpenQuestion()
     {
         var report = Publish(_runOne);

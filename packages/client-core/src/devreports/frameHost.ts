@@ -19,7 +19,9 @@ import {
   hostEnvelope,
   parsePortMessage,
   parseReady,
+  type DevReportDictationUpdate,
   type DevReportItem,
+  type HostMessageType,
   type DevReportNoteMode,
   type DevReportNoteModeRequest,
   type DevReportPageReply,
@@ -59,6 +61,11 @@ export interface DevReportFrameHostOptions {
   /** Where note-taking stands in the page, whenever it changes (issue #3077). */
   onNoteModeChanged?: (noteMode: DevReportNoteMode) => void;
   onConnectedChange?: (connected: boolean) => void;
+  /**
+   * The page asked to start or stop dictation into one of its boxes (Report Answers by Voice). Left out, the host
+   * offers no dictation: the page is told so in restore and draws no microphone button, and a request is refused.
+   */
+  onDictation?: (request: { action: "start" | "stop"; fieldId: string }) => void;
   /** Told about every message the host refused, for tests and diagnostics. */
   onRefused?: (why: string) => void;
   /** A fresh random string per call. Defaults to 128 random bits as hexadecimal. */
@@ -163,6 +170,11 @@ export class DevReportFrameHost {
     return this.post("note-mode", { mode });
   }
 
+  /** Tells the page where one box's dictation stands. False, and nothing sent, when there is no port. */
+  pushDictation(update: DevReportDictationUpdate): boolean {
+    return this.post("dictation", update);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -187,7 +199,8 @@ export class DevReportFrameHost {
     port.onmessage = (e: MessageEvent) => this.handlePortMessage(port, e.data);
     this.port = port;
     // Restore first, so anything the app pushes when it hears the page is connected lands on restored state.
-    this.post("restore", { state: this.options.restoreState() });
+    // `dictation` says whether this host records for the page; without it the page draws no microphone button.
+    this.post("restore", { state: this.options.restoreState(), dictation: this.options.onDictation !== undefined });
     this.options.onConnectedChange?.(true);
   }
 
@@ -209,10 +222,14 @@ export class DevReportFrameHost {
     if (!message) return this.refuse("a port message that is not a well-formed send or state-changed");
     if (message.type === "state-changed") this.options.onStateChanged(message.state);
     else if (message.type === "note-mode-changed") this.options.onNoteModeChanged?.(message.noteMode);
-    else this.options.onSend(message.items);
+    else if (message.type === "dictation-start" || message.type === "dictation-stop") {
+      const onDictation = this.options.onDictation;
+      if (!onDictation) return this.refuse("the page asked for dictation, and this host offers none");
+      onDictation({ action: message.type === "dictation-start" ? "start" : "stop", fieldId: message.fieldId });
+    } else this.options.onSend(message.items);
   }
 
-  private post(type: "restore" | "status" | "reply" | "note-mode", payload: unknown): boolean {
+  private post(type: HostMessageType, payload: unknown): boolean {
     if (!this.port) return false;
     this.port.postMessage(hostEnvelope(type, payload));
     return true;

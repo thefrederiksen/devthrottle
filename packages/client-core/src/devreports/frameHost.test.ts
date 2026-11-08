@@ -150,7 +150,7 @@ describe("the ready on the window", () => {
     const port = new FakePort();
     ready(h, currentToken(h.host), [port]);
     expect(h.host.connected).toBe(true);
-    expect(port.sent).toEqual([{ channel: DEV_REPORT_CHANNEL, version: 1, type: "restore", payload: { state: saved } }]);
+    expect(port.sent).toEqual([{ channel: DEV_REPORT_CHANNEL, version: 1, type: "restore", payload: { state: saved, dictation: false } }]);
     expect(h.refused).toEqual([]);
   });
 

@@ -511,7 +511,8 @@ describe("the page", () => {
       </div>`;
     api.start({ window });
     const checked = Array.from(document.querySelectorAll<HTMLInputElement>("input[type=radio]")).map((r) => r.checked);
-    expect(checked).toEqual([false, true]);
+    // The third radio is the "Something else" option the script adds to every question; it starts unchecked.
+    expect(checked).toEqual([false, true, false]);
   });
 
   it("says an overlong question text is too long and does not queue a shortened copy", () => {
@@ -1032,5 +1033,295 @@ describe("placing the note box", () => {
     expect(at.top).toBeGreaterThan(anchorAfter.bottom);
     // What the note is about is still on screen - the page never scrolls it away to make room.
     expect(anchorAfter.bottom).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// REPORT ANSWERS BY VOICE: "Something else" on every question, and dictation into every box.
+// ---------------------------------------------------------------------------------------------------
+
+const listReport = `
+  <section data-dev-report="questions">
+    <div data-dev-report-question="stall" data-dev-report-question-text="Tell you when it stalls?">
+      <ul>
+        <li><label><input type="radio" name="stall" value="seven" data-recommended> After 7 quiet days</label></li>
+        <li><input type="radio" id="gitte" name="stall" value="gitte"> <label for="gitte">Email Gitte instead</label></li>
+      </ul>
+    </div>
+  </section>`;
+
+function ownRadio(): HTMLInputElement {
+  return document.querySelector<HTMLInputElement>("input[value=own-answer]")!;
+}
+
+function pick(radio: HTMLInputElement) {
+  radio.checked = true;
+  radio.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function type(box: HTMLTextAreaElement, text: string) {
+  box.value = text;
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+describe("Something else - the owner's own answer", () => {
+  it("adds one last option, Something else, to every question, after the author's last option", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+    const radios = Array.from(document.querySelectorAll<HTMLInputElement>("[data-dev-report-question=deploy] input[type=radio]"));
+    expect(radios.map((r) => r.value)).toEqual(["tonight", "monday", "own-answer"]);
+    expect(ownRadio().closest("label")!.textContent!.trim()).toBe("Something else");
+    // It shares the question's name, so the browser treats it as one more option of the same question.
+    expect(ownRadio().name).toBe("deploy");
+    // Not checked at start: the recommendation is.
+    expect(ownRadio().checked).toBe(false);
+  });
+
+  it("keeps a list a list, and goes after an option whose label follows its radio", () => {
+    document.body.innerHTML = listReport;
+    api.start({ window });
+    const items = Array.from(document.querySelectorAll("[data-dev-report-question=stall] li"));
+    expect(items).toHaveLength(3);
+    expect(items[2].querySelector("input")!.value).toBe("own-answer");
+  });
+
+  it("adds none where the author already used the reserved value, so the two cannot be confused", () => {
+    document.body.innerHTML = pageReport.replace('value="monday"', 'value="own-answer"');
+    api.start({ window });
+    expect(document.querySelectorAll("input[value=own-answer]")).toHaveLength(1);
+    expect(document.querySelector("[data-drn-own-answer-option]")).toBeNull();
+  });
+
+  it("shows its box only while it is picked, and Queue answer waits for words in it", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+    const box = ui("[data-drn=own-answer-box]")!;
+    const queue = ui<HTMLButtonElement>("[data-drn=queue-answer]")!;
+    expect(box.hasAttribute("hidden")).toBe(true);
+    expect(queue.disabled).toBe(false);
+
+    pick(ownRadio());
+    expect(box.hasAttribute("hidden")).toBe(false);
+    expect(queue.disabled).toBe(true);
+
+    type(ui<HTMLTextAreaElement>("[data-drn=own-answer]")!, "   ");
+    expect(queue.disabled).toBe(true);
+    type(ui<HTMLTextAreaElement>("[data-drn=own-answer]")!, "Email me after 3 days");
+    expect(queue.disabled).toBe(false);
+
+    pick(document.querySelector<HTMLInputElement>("input[value=monday]")!);
+    expect(box.hasAttribute("hidden")).toBe(true);
+    expect(queue.disabled).toBe(false);
+  });
+
+  it("queues the owner's own words as the answer, marked as their own and not one of the author's options", () => {
+    document.body.innerHTML = pageReport;
+    const page = api.start({ window });
+    pick(ownRadio());
+    type(ui<HTMLTextAreaElement>("[data-drn=own-answer]")!, "  Email me after 3 days, not 7, and copy Gitte  ");
+    type(document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!, "thanks");
+    clickOn(ui("[data-drn=queue-answer]")!);
+
+    expect(page.model.snapshot().queued).toEqual([
+      {
+        id: expect.stringMatching(/^a-[0-9a-f]{32}$/),
+        kind: "answer",
+        questionId: "deploy",
+        question: "When should we deploy?",
+        optionValue: "own-answer",
+        optionLabel: "Something else",
+        ownAnswer: "Email me after 3 days, not 7, and copy Gitte",
+        comment: "thanks",
+      },
+    ]);
+    expect(ui("[data-drn=question-state]")!.textContent).toContain('Queued: Something else: "Email me after 3 days, not 7, and copy Gitte"');
+  });
+
+  it("keeps the own words in the draft the host holds, and puts them back on a restore", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+    pick(ownRadio());
+    type(ui<HTMLTextAreaElement>("[data-drn=own-answer]")!, "half an answer");
+    // A round trip over the port, so the state the typing posted has arrived before it is read.
+    await host.post("status", { updates: [] });
+    const state = host.fromPage[host.fromPage.length - 1].payload.state;
+    expect(state.answerDrafts).toEqual([{ questionId: "deploy", optionValue: "own-answer", comment: "", ownAnswer: "half an answer" }]);
+
+    // A fresh page, restored from that state: the option is picked again and its box shows the words.
+    document.body.innerHTML = pageReport;
+    delete (window as unknown as Record<symbol, unknown>)[api.started];
+    const again = startFramed();
+    await again.restore(state);
+    expect(ownRadio().checked).toBe(true);
+    expect(ui<HTMLTextAreaElement>("[data-drn=own-answer]")!.value).toBe("half an answer");
+    expect(ui("[data-drn=own-answer-box]")!.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("refuses an own answer without words, and any other answer that carries ownAnswer", () => {
+    const base = { id: "a1", kind: "answer", questionId: "q", question: "Q", optionLabel: "L", comment: "" };
+    const validItem = (globals.DevReportNotes as unknown as { validItem(i: unknown): boolean }).validItem;
+    expect(validItem({ ...base, optionValue: "own-answer", ownAnswer: "words" })).toBe(true);
+    expect(validItem({ ...base, optionValue: "own-answer" })).toBe(false);
+    expect(validItem({ ...base, optionValue: "own-answer", ownAnswer: "  " })).toBe(false);
+    expect(validItem({ ...base, optionValue: "yes", ownAnswer: "words" })).toBe(false);
+    expect(validItem({ ...base, optionValue: "yes" })).toBe(true);
+  });
+});
+
+async function untilFromPage(host: Hosted, type: string): Promise<{ type: string; payload: Record<string, unknown> }> {
+  for (let i = 0; i < 400; i++) {
+    const found = host.fromPage.find((m) => m.type === type);
+    if (found) return found as unknown as { type: string; payload: Record<string, unknown> };
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`the page never posted ${type}`);
+}
+
+function micFor(fieldId: string) {
+  const row = ui(`[data-drn=mic][data-field-id="${fieldId}"]`)!;
+  return {
+    row,
+    button: row.querySelector<HTMLButtonElement>("[data-drn=mic-button]")!,
+    state: row.querySelector<HTMLElement>("[data-drn=mic-state]")!,
+  };
+}
+
+describe("dictation into a report's boxes", () => {
+  it("draws no microphone on a plain file with no host", () => {
+    document.body.innerHTML = pageReport;
+    api.start({ window });
+    const rows = uiAll("[data-drn=mic]");
+    // The comment box, the own answer box and the note box each have one - all hidden.
+    expect(rows.map((r) => r.getAttribute("data-field-id")).sort()).toEqual(["note", "q0:comment", "q0:own"]);
+    for (const row of rows) expect(row.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("draws no microphone when the host does not record, and one under every box when it does", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+    for (const row of uiAll("[data-drn=mic]")) expect(row.hasAttribute("hidden")).toBe(true);
+
+    await host.post("restore", { state: emptyState, dictation: true });
+    for (const row of uiAll("[data-drn=mic]")) expect(row.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("asks the host to record on the first tap and to stop on the red square, showing each state in the box", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.post("restore", { state: emptyState, dictation: true });
+    const mic = micFor("q0:comment");
+
+    clickOn(mic.button);
+    expect((await untilFromPage(host, "dictation-start")).payload).toEqual({ fieldId: "q0:comment" });
+    // Feedback at once, before the host has said anything.
+    expect(mic.state.textContent).toBe("Starting the microphone...");
+
+    await host.post("dictation", { fieldId: "q0:comment", phase: "recording", seconds: 7, level: 0.5 });
+    expect(mic.state.textContent).toBe("Recording 0:07 - tap the square to stop");
+    expect(mic.button.getAttribute("aria-label")).toBe("Stop recording");
+    expect(mic.row.classList.contains("drn-live")).toBe(true);
+
+    clickOn(mic.button);
+    expect((await untilFromPage(host, "dictation-stop")).payload).toEqual({ fieldId: "q0:comment" });
+    expect(mic.state.textContent).toBe("Transcribing...");
+    expect(mic.button.disabled).toBe(true);
+  });
+
+  it("adds the words to the end of what was typed, exactly as the host sent them, and saves the draft", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.post("restore", { state: emptyState, dictation: true });
+    const comment = document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!;
+    type(comment, "Typed first.");
+    clickOn(micFor("q0:comment").button);
+    await untilFromPage(host, "dictation-start");
+
+    await host.post("dictation", { fieldId: "q0:comment", phase: "done", text: "then said,  this" });
+
+    expect(comment.value).toBe("Typed first. then said,  this");
+    expect(micFor("q0:comment").state.textContent).toBe("Added what you said. Read it before you queue.");
+    const state = host.fromPage[host.fromPage.length - 1].payload.state;
+    expect(state.answerDrafts).toEqual([{ questionId: "deploy", optionValue: "tonight", comment: "Typed first. then said,  this" }]);
+  });
+
+  it("fills the own answer box and enables Queue answer once the words land", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.post("restore", { state: emptyState, dictation: true });
+    pick(ownRadio());
+    const queue = ui<HTMLButtonElement>("[data-drn=queue-answer]")!;
+    expect(queue.disabled).toBe(true);
+    clickOn(micFor("q0:own").button);
+    await untilFromPage(host, "dictation-start");
+
+    await host.post("dictation", { fieldId: "q0:own", phase: "done", text: "Email me after 3 days" });
+
+    expect(ui<HTMLTextAreaElement>("[data-drn=own-answer]")!.value).toBe("Email me after 3 days");
+    expect(queue.disabled).toBe(false);
+  });
+
+  it("says a failure plainly and leaves what was typed unchanged", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.post("restore", { state: emptyState, dictation: true });
+    const comment = document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!;
+    type(comment, "Keep me.");
+    clickOn(micFor("q0:comment").button);
+    await untilFromPage(host, "dictation-start");
+
+    await host.post("dictation", { fieldId: "q0:comment", phase: "failed", reason: "The microphone is in use by another application." });
+
+    expect(comment.value).toBe("Keep me.");
+    const mic = micFor("q0:comment");
+    expect(mic.state.textContent).toBe("Not added: The microphone is in use by another application. What was in the box is unchanged.");
+    expect(mic.row.classList.contains("drn-failed")).toBe(true);
+    expect(mic.button.disabled).toBe(false);
+  });
+
+  it("records one box at a time: the other microphones are disabled until it finishes", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.post("restore", { state: emptyState, dictation: true });
+    clickOn(micFor("q0:comment").button);
+    await untilFromPage(host, "dictation-start");
+
+    expect(micFor("q0:own").button.disabled).toBe(true);
+    expect(micFor("note").button.disabled).toBe(true);
+    clickOn(micFor("note").button);
+    expect(host.fromPage.filter((m) => m.type === "dictation-start")).toHaveLength(1);
+
+    await host.post("dictation", { fieldId: "q0:comment", phase: "done", text: "done" });
+    expect(micFor("note").button.disabled).toBe(false);
+  });
+
+  it("dictates into the note box that Add a note opens", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.post("restore", { state: emptyState, dictation: true });
+    await host.post("note-mode", { mode: "pick" });
+    clickOn(document.getElementById("para")!);
+    clickOn(micFor("note").button);
+    await untilFromPage(host, "dictation-start");
+
+    await host.post("dictation", { fieldId: "note", phase: "done", text: "Say more here" });
+
+    expect(ui<HTMLTextAreaElement>("[data-drn=composer-text]")!.value).toBe("Say more here");
+    expect(host.page.model.snapshot().draft!.text).toBe("Say more here");
+  });
+
+  it("ignores a dictation message that is out of shape or names no box on this page", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.post("restore", { state: emptyState, dictation: true });
+    expect(api.parseInbound(envelope("dictation", { fieldId: "q0:comment", phase: "done" }))).toBeNull();
+    expect(api.parseInbound(envelope("dictation", { fieldId: "q0:comment", phase: "shouting" }))).toBeNull();
+    expect(api.parseInbound(envelope("dictation", { fieldId: "q0:comment", phase: "recording", level: 2 }))).toBeNull();
+    expect(api.parseInbound(envelope("dictation", { fieldId: "", phase: "starting" }))).toBeNull();
+
+    const comment = document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!;
+    await host.post("dictation", { fieldId: "q9:comment", phase: "done", text: "nowhere" });
+    expect(comment.value).toBe("");
   });
 });

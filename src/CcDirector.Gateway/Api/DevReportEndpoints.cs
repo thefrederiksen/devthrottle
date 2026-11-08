@@ -469,7 +469,7 @@ internal static class DevReportEndpoints
         replies = store.Replies(tenant, report.Id).Select(Reply).ToList(),
     };
 
-    private static Dictionary<string, object?> Item(DevReportItemEntity row)
+    internal static Dictionary<string, object?> Item(DevReportItemEntity row)
     {
         // The contract's item shape (CONTRACT.md section 3), plus the Gateway's state and times.
         var item = new Dictionary<string, object?> { ["id"] = row.ClientItemId, ["kind"] = row.Kind };
@@ -485,6 +485,8 @@ internal static class DevReportEndpoints
             item["optionValue"] = row.OptionValue;
             item["optionLabel"] = row.OptionLabel;
             item["comment"] = row.Comment;
+            // The owner's own answer carries their words; no other answer has the key at all (CONTRACT.md section 3).
+            if (DevReportOwnAnswer.Is(row.OptionValue)) item["ownAnswer"] = row.Text;
         }
         item["status"] = row.Status;
         item["statusLabel"] = row.StatusLabel;
