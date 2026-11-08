@@ -2944,6 +2944,31 @@ usage errors 2. A server that silently drops an
 invited person (Zoho drops anyone outside its organisation over CalDAV) makes create and change exit 1 and
 name who was dropped.
 
+## dt-zoho
+
+Zoho Mail through Zoho's own API, for what only that API can do (labels, Zoho's search, folders seen over
+IMAP or not). This first version reads mail. It signs in with a Zoho Self Client key held in cc-secrets and
+keeps the access token for its hour, sealed; `tools/dt-zoho/README.md` has every command.
+
+```
+dt-zoho settings set --data-centre ca
+cc-secrets run zoho-api-client-secret --with zoho-api-client-id --with zoho-api-refresh-token -- dt-zoho list
+```
+
+| Command | What it does |
+|---|---|
+| `dt-zoho settings set --data-centre C` / `settings show` | Choose Zoho's data centre (`ca`, `com`, `eu`, `in`, `com.au`, `jp`), show the servers |
+| `dt-zoho signin check` / `signin forget` | Sign in and show the account and whether the token was reused; delete the kept token |
+| `dt-zoho accounts` / `folders` / `labels` | Mail accounts and their addresses; folders by path; labels |
+| `dt-zoho list [--folder F] [--unread\|--read] [--flagged] [--label L] [--thread T] [--include-archive]` | Messages, newest first |
+| `dt-zoho search QUERY [--unread\|--read] [--flagged]` | Zoho's search words (`sender:` `subject:` `has:attachment` ...), joined by `::` or `::or:` |
+| `dt-zoho read ID [--folder F] [--html] [--headers]` / `read ID --raw [--save FILE]` | One message as text; the whole original message |
+| `dt-zoho attachments ID` / `download ID [--attachment A] --out-dir D` | List or download attachments; never overwrites a file |
+
+`--count` (1 to 200) and `--start` page through. Every command takes `--json`; the mail commands take
+`--account <address>`. Search ignores `is:unread`, `is:read` and `is:flagged`, so dt-zoho refuses them and
+filters with the flags instead. Errors exit 1, usage errors 2.
+
 ## cc-reddit
 
 Reddit CLI via browser automation.

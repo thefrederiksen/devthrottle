@@ -91,6 +91,15 @@
       "requirements": ["A CalDAV account, its password in cc-secrets"]
     },
     {
+      "name": "dt-zoho",
+      "category": "email",
+      "type": "python",
+      "description": "Zoho Mail, Calendar and admin through Zoho's own API: folders, labels, messages, search, attachments",
+      "built": true,
+      "ship": true,
+      "requirements": ["A Zoho Self Client key (client id, client secret, refresh token) in cc-secrets"]
+    },
+    {
       "name": "cc-browser",
       "category": "web-social",
       "type": "nodejs",
