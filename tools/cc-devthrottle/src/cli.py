@@ -136,7 +136,7 @@ message_app.add_typer(link_app, name="link")
 inbox_app = typer.Typer(
     cls=AxiGroup,
     help=(
-        "The account's inbox, used like email: send, list, read, delete, restore, mark and reply.\n\n"
+        "The account's inbox, used like email: send, list, read, delete, mark, reply.\n\n"
         "It is the owner's DevThrottle inbox on his phone and in the Cockpit, in the account this session's "
         "Director is signed in as. Reading does NOT mark a message read. Delete is ARCHIVE: the message moves "
         "to Archived and can be restored. Every act is shown on the message as this session's, never the owner's."
