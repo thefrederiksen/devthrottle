@@ -141,8 +141,9 @@ public static class LicenseGatewayReasonCodes
     /// a later minute check.</summary>
     public const string OwnerEmailFailed = "owner-email-failed";
 
-    /// <summary>On a no-room row or a failed-renewal row: this Gateway has no DevThrottle account to email, so no
-    /// email is sent for it.</summary>
+    /// <summary>On a no-room row, a failed-renewal row or an alarm written before license alerts moved to Your inbox: that
+    /// Gateway had no DevThrottle account to email, so the owner was not told. Nothing records it any more - every Gateway
+    /// has a Your inbox - but old rows keep it, so it is still read and still shown.</summary>
     public const string NoOwnerAccount = "no-owner-account";
 
     /// <summary>On a license alarm: it opened again within <see cref="LicenseAlarmService.HoldDown"/> of the same alarm

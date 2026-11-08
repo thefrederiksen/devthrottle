@@ -226,8 +226,8 @@ public sealed class YourInboxStore
         };
     }
 
-    /// <summary>Write a message built by <see cref="ForMorningSummary"/>, <see cref="ForNoFactoryProblems"/> or
-    /// <see cref="ForScheduleFailure"/>, unread.</summary>
+    /// <summary>Write a message built by <see cref="ForMorningSummary"/>, <see cref="ForNoFactoryProblems"/>,
+    /// <see cref="ForScheduleFailure"/> or <see cref="ForSystemAlert"/>, unread.</summary>
     public YourInboxMessageEntity Add(TenantId tenant, YourInboxMessageEntity row)
     {
         ArgumentNullException.ThrowIfNull(row);
@@ -311,6 +311,45 @@ public sealed class YourInboxStore
             FromKind = YourInboxWords.Senders.Gateway,
             Factory = null,
             Seat = YourInboxWords.DiskSpaceSeat,
+            State = YourInboxWords.States.Unread,
+            SentAtUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+        };
+    }
+
+    /// <summary>
+    /// A SYSTEM ALERT FROM THE GATEWAY (the owner's ruling on the last three alerts that emailed him: "Move them all to
+    /// Your inbox, with a push to the phone"): the network alert, the license alerts and the session supervisor's
+    /// escalation. Sent from the Gateway, seat <paramref name="seat"/> - one of <see cref="YourInboxWords.NetworkSeat"/>,
+    /// <see cref="YourInboxWords.LicensesSeat"/> and <see cref="YourInboxWords.SessionSupervisorSeat"/> - so it shows from
+    /// a plain name and offers no Reply. A session it is about, when there is one, is kept on the row, so the message
+    /// carries the way back to it. A subject or body over the limits is cut and says so.
+    /// </summary>
+    public static YourInboxMessageEntity ForSystemAlert(TenantId tenant, string seat, string subject, string body, DateTime nowUtc,
+        string? sessionId = null, int? sessionNumber = null, string? sessionName = null)
+    {
+        if (seat is not (YourInboxWords.NetworkSeat or YourInboxWords.LicensesSeat or YourInboxWords.SessionSupervisorSeat))
+            throw new ArgumentOutOfRangeException(nameof(seat), seat, "not a seat a system alert is written from");
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+        subject = subject.Trim().Replace('\r', ' ').Replace('\n', ' ');
+        if (subject.Length > MaxSubjectLength) subject = subject[..(MaxSubjectLength - 3)].TrimEnd() + "...";
+        body = body.Replace("\r\n", "\n");
+        if (body.Length > MaxBodyLength)
+        {
+            const string Cut = "\n\nThis alert was longer than one message holds, so its end was cut.";
+            body = body[..(MaxBodyLength - Cut.Length)].TrimEnd() + Cut;
+        }
+        FileLog.Write($"[YourInboxStore] ForSystemAlert: seat={seat} session={sessionId ?? "(none)"} bodyLength={body.Length}");
+        return new YourInboxMessageEntity
+        {
+            TenantId = tenant.Value,
+            Subject = subject,
+            Body = body,
+            FromKind = YourInboxWords.Senders.Gateway,
+            Seat = seat,
+            SessionId = string.IsNullOrWhiteSpace(sessionId) ? null : sessionId.Trim(),
+            SessionNumber = string.IsNullOrWhiteSpace(sessionId) ? null : sessionNumber,
+            SessionName = string.IsNullOrWhiteSpace(sessionId) || sessionName is null ? null : (sessionName.Length <= 200 ? sessionName : sessionName[..200]),
             State = YourInboxWords.States.Unread,
             SentAtUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
         };

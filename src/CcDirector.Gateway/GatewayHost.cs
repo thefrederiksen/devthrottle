@@ -379,6 +379,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Your inbox: the owner's own mailbox, written by sessions and factories (Factory Inbox mission, phase 3).</summary>
     internal Inbox.YourInboxStore YourInbox { get; }
 
+    /// <summary>The push to the phones of a system alert written into Your inbox.</summary>
+    internal Push.YourInboxAlertPushNotifier YourInboxAlertPush { get; }
+
+    /// <summary>How the Gateway tells the owner about itself - the network alert and the session supervisor's
+    /// escalation: a Your inbox message and a push, never an email.</summary>
+    internal Inbox.SystemAlertInbox SystemAlerts { get; }
+
     /// <summary>Every factory's definition held on the Gateway, every version kept (Factory Definition mission,
     /// phase 1).</summary>
     internal Factory.Definition.FactoryDefinitionStore FactoryDefinitions { get; }
@@ -661,8 +668,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// banner on every Cockpit page and on the phone, pushed and emailed once when it opens.</summary>
     internal Licenses.LicenseAlarmService LicenseAlarms { get; }
 
-    /// <summary>How the license checks email an account's owner: <see cref="Licenses.LicenseOwnerMailer.SendAsync"/>.
-    /// A test puts a sender of its own here, so that a check run by the real host never reaches the account service.</summary>
+    /// <summary>How the license checks tell an account's owner: a message in Your inbox
+    /// (<see cref="Licenses.LicenseOwnerInbox.SendAsync"/>), never an email. A test puts a sender of its own here, to see
+    /// what a check run by the real host tells.</summary>
     internal Licenses.LicenseOwnerEmailSender LicenseOwnerMail { get; set; }
 
     /// <summary>Which machine and browser profile approve the sign-ins of each Claude account (contract section 8.3).</summary>
@@ -2758,12 +2766,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // The owner's 82% test switch: every read of the license picture sees it while it is on.
         LicenseTestUsage = new Licenses.LicenseTestUsage(_tenantSettings);
         LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads, LicenseTestUsage.MachineFor);
-        // The owner email goes the way POST /account/email sends on hosted: by tenant, the account service resolving
-        // the owner. A self-hosted Gateway has no tenant account, so its mailer logs and sends nothing.
-        var licenseOwnerMailer = new Licenses.LicenseOwnerMailer(_tenantBoundary.IsHosted,
-            new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
-            tenant => TenantRegistry.SubjectForTenant(tenant),
-            Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
+        // The license alerts go to the owner's Your inbox, from "Licenses", never by email (the owner's ruling: "Move
+        // them all to Your inbox, with a push to the phone"). Every Gateway has a Your inbox, self-hosted ones too.
+        var licenseOwnerInbox = new Licenses.LicenseOwnerInbox((tenant, message) => YourInbox.Add(tenant, message),
+            () => DateTime.UtcNow);
         LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
         // What is using the license (the usage-by-session mandate): recorded beside the minute license check, from the
         // sessions of every connected Director, and read by the usage route.
@@ -2772,11 +2778,16 @@ public sealed class GatewayHost : IAsyncDisposable
         SessionUsageReads = new Licenses.SessionUsageService(SessionUsage, LicenseStore, LicenseReads,
             tenant => PushedSessions.SnapshotConnected(tenant).Select(l => l.Session.SessionId).ToHashSet(StringComparer.Ordinal));
         LicensePlans = new Licenses.LicensePlanService(SessionUsageReads, LicenseSnapshots, LicenseHistory);
-        LicenseOwnerMail = licenseOwnerMailer.SendAsync;
+        LicenseOwnerMail = licenseOwnerInbox.SendAsync;
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
             SendCommandAsync, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
+        // A failing renewal had no push of its own, so its message is pushed to the phones once it is written (an alarm
+        // that opens has its own push, so the alarm service is handed the sender without one).
         LicenseRenewalEmails = new Licenses.LicenseRenewalEmailService(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
-            LicenseReads, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
+            LicenseReads, Licenses.LicenseOwnerInbox.ThenPush((tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
+                (tenant, seat, subject, messageId, ct) => (YourInboxAlertPush ?? throw new InvalidOperationException("The Your inbox alert push is built before any license check runs."))
+                    .NotifyAsync(tenant, seat, subject, messageId, ct)),
+            LicenseNow.UtcNow);
         // Sign-ins (contract section 8): who approves each account, the relay that has a sign-in approved on that
         // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
         // SendCommandAsync resolves a Director's connection for that tenant alone.
@@ -3252,7 +3263,15 @@ public sealed class GatewayHost : IAsyncDisposable
         _scheduleFailurePush = new Push.ScheduleFailurePushNotifier(_pushSubscriptions,
             new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"),
             tenant => _tenantBoundary.EnterScope(tenant));
-        // The license alarm itself: the same owner email channel as the "no account has room" email, and this push.
+        // The system alerts written into Your inbox (the network alert, the failing renewal, the session supervisor's
+        // escalation) are pushed to the same phones, over their own sender for the same reason as the secret handoff
+        // push; a tap opens the message in Your inbox on the phone.
+        YourInboxAlertPush = new Push.YourInboxAlertPushNotifier(_pushSubscriptions,
+            new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"),
+            tenant => _tenantBoundary.EnterScope(tenant));
+        SystemAlerts = new Inbox.SystemAlertInbox((tenant, message) => YourInbox.Add(tenant, message),
+            (tenant, seat, subject, messageId, ct) => YourInboxAlertPush.NotifyAsync(tenant, seat, subject, messageId, ct));
+        // The license alarm itself: a Your inbox message through the license checks' channel, and its own push.
         LicenseAlarms = new Licenses.LicenseAlarmService(_gatewayDb, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
             _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow,
             // The owner's night, in the account's own time zone: a repeating warning waits it out below 90%.
@@ -4319,7 +4338,6 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private Supervision.GatewaySupervisorEnvironment BuildSupervisorEnvironment()
     {
-        var notify = new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) });
         return new Supervision.GatewaySupervisorEnvironment(
             settings: _tenantSettingsResolver,
             // Resolve the owning Director within its OWN tenant (the registry is keyed by (tenant, director
@@ -4337,18 +4355,11 @@ public sealed class GatewayHost : IAsyncDisposable
             brainProvider: WingmanBrainAsync,
             ledger: _activityEvents,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant),
-            sendOwnerEmail: async (subject, body, ct) =>
+            ownerInbox: SystemAlerts,
+            sessionLabel: (tenant, sessionId) =>
             {
-                var token = Account?.GetAccessTokenForForwarding();
-                if (string.IsNullOrEmpty(token))
-                {
-                    // Nobody is signed in, so there is no owner address to reach. Say so plainly rather than
-                    // reporting a send that never happened - the escalation still stands in the recovery log.
-                    FileLog.Write("[GatewayHost] supervisor escalation email SKIPPED: no signed-in account");
-                    return false;
-                }
-                var result = await notify.SendOwnerAsync(token, subject, body, null, null, ct).ConfigureAwait(false);
-                return result.Sent;
+                var session = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session;
+                return (session?.Number, session?.Name);
             });
     }
 
@@ -7509,25 +7520,17 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Network Diagnostics monitor (Network Diagnostics mission, Phase 1): on a timer, watch each
         // connected device's direct-vs-relay path and log persistent home-relay drift QUIETLY. Alert
-        // channels (doorbell + owner email) are wired in P5 onto the same Decide-machine state.
+        // channels (doorbell + a Your inbox message with a push) are wired in P5 onto the same Decide-machine state.
         //
         // Skipped when HOSTED: the monitor's collector shells out to the tailscale CLI, which the container
         // image does not bundle, so every poll would throw. A hosted Gateway has no tailnet to diagnose.
         if (!Hosted)
         {
             var netDiagDeviceStore = new Api.NetDiagDeviceStore(Path.Combine(CcStorage.Root(), "netdiag-devices.json"));
-            // P5: deliver the monitor's drift/resolve to the doorbell + owner email. The alert service owns the
-            // 401-explicit "not signed in" path, the daily email cap, and one-email-per-episode; the monitor
-            // just hands it the device name on the machine's rising/falling edges.
-            var netDiagNotify = new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) });
-            var netDiagAlerts = new Api.NetDiagAlertService(
-                DirectorEvents,
-                () => Account?.GetAccessTokenForForwarding(),
-                async (token, subject, bodyText) =>
-                {
-                    var r = await netDiagNotify.SendOwnerAsync(token, subject, bodyText, null, null, default).ConfigureAwait(false);
-                    return r.Sent;
-                });
+            // P5: deliver the monitor's drift/resolve to the doorbell + a Your inbox message with a push (never an
+            // email). The alert service owns the daily message cap and one-message-per-episode; the monitor just
+            // hands it the device name on the machine's rising/falling edges.
+            var netDiagAlerts = new Api.NetDiagAlertService(DirectorEvents, SystemAlerts);
             _netDiagMonitor = new Api.NetDiagMonitor(
                 Api.TailscaleDiagnostics.Collect, Api.LanPresenceProbe.TryResolveMac, netDiagDeviceStore, _netDiagRollup,
                 netDiagAlerts.OnDrift, netDiagAlerts.OnResolve);

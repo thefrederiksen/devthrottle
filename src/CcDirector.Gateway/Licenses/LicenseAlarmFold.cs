@@ -106,19 +106,20 @@ public static class LicenseAlarmFold
 
     /// <summary>The Licenses log's row for an alarm that opened again within the hold-down, and told nobody.</summary>
     public static string HeldLogMessage(string problem, string action)
-        => $"Alarm opened again within {HoldDownWords} of closing, so no email or push was sent. {Line(problem, action)}";
+        => $"Alarm opened again within {HoldDownWords} of closing, so no Your inbox message or push was sent. {Line(problem, action)}";
 
     /// <summary>The Licenses log's row for an alarm that closed by itself.</summary>
     public static string ClosedLogMessage(string problem) => $"Alarm closed, because this is no longer true: {problem}";
 
     /// <summary>The Licenses log row of an hourly repeat (<see cref="LicenseAlarmService.RepeatEvery"/>).</summary>
     public static string RepeatedLogMessage(string problem, string action, bool pushHeldForTheNight) => pushHeldForTheNight
-        ? $"Still not fixed an hour on: the owner was emailed again; no push, because it is night and the account is not past {NightPushPercentWords}. {Line(problem, action)}"
+        ? $"Still not fixed an hour on: the owner was told again in Your inbox; no push, because it is night and the account is not past {NightPushPercentWords}. {Line(problem, action)}"
         : $"Still not fixed an hour on: the owner was told again. {Line(problem, action)}";
 
     private static string NightPushPercentWords => $"{LicenseCannotSwitchAlarm.LoudAtNightAbovePercent.ToString("0", CultureInfo.InvariantCulture)}%";
 
-    /// <summary>The ONE owner email for every alarm whose email is due in one check, oldest first.</summary>
+    /// <summary>The ONE Your inbox message for every alarm whose message is due in one check, oldest first (the record
+    /// is still named an email: it is older than Your inbox).</summary>
     public static LicenseOwnerEmail Email(IReadOnlyList<LicenseAlarmEntity> alarms)
     {
         ArgumentNullException.ThrowIfNull(alarms);
@@ -153,7 +154,7 @@ public static class LicenseAlarmFold
         body.Append("\r\n");
         body.Append(alarms.Any(a => RepeatingKinds.Contains(a.Kind))
             ? "You are told again every hour until a machine that cannot switch can switch."
-            : $"A problem that is fixed and comes back within {HoldDownWords} is not emailed again.");
+            : $"A problem that is fixed and comes back within {HoldDownWords} is not told again.");
         return new LicenseOwnerEmail(accounts, subject, body.ToString());
     }
 

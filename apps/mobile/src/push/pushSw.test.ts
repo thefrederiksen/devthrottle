@@ -203,6 +203,44 @@ describe("phone push handler", () => {
     expect(app.focused).toBe(true);
   });
 
+  // A system alert written into Your inbox (the owner's ruling: "Move them all to Your inbox, with a push to the
+  // phone"): the Gateway's words, its own notification, and a tap that opens that message in Your inbox.
+  const INBOX_ALERT_PUSH = {
+    kind: "inbox-alert",
+    title: "Network",
+    body: "Your home network is slow (Phone)",
+    tag: "devthrottle-inbox-alert-11111111222233334444555555555555",
+    url: "/mobile/inbox?tab=yours&message=11111111-2222-3333-4444-555555555555",
+  };
+
+  it("a Your inbox alert push draws its own audible notification in the Gateway's words", async () => {
+    const w = loadWorker();
+    await w.dispatch("push", { data: { json: () => INBOX_ALERT_PUSH } });
+    expect(w.shown).toHaveLength(1);
+    expect(w.shown[0].title).toBe("Network");
+    expect(w.shown[0].options.body).toBe(INBOX_ALERT_PUSH.body);
+    expect(w.shown[0].options.tag).toBe(INBOX_ALERT_PUSH.tag);
+    expect(w.shown[0].options.silent).toBe(false);
+  });
+
+  it("a Your inbox alert push leaves the needs-you dot alone", async () => {
+    const w = loadWorker();
+    await w.dispatch("push", { data: { json: () => ({ count: 2 }) } });
+    await w.dispatch("push", { data: { json: () => INBOX_ALERT_PUSH } });
+    expect(w.shown[0].options.tag).toBe("devthrottle-needs-you");
+    expect(w.shown[0].closed).toBe(false);
+    expect(w.shown).toHaveLength(2);
+  });
+
+  it("tapping a Your inbox alert steers the open app to that message", async () => {
+    const app = appWindow("https://gw.example/mobile/");
+    const w = loadWorker([app]);
+    await w.dispatch("push", { data: { json: () => INBOX_ALERT_PUSH } });
+    await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
+    expect(app.navigatedTo).toBe(INBOX_ALERT_PUSH.url);
+    expect(app.focused).toBe(true);
+  });
+
   it("tapping the needs-you dot only brings the app forward", async () => {
     const app = appWindow("https://gw.example/mobile/session/abc");
     const w = loadWorker([app]);
