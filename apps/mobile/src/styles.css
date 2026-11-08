@@ -3196,6 +3196,26 @@ a.banner-btn {
   margin-right: 6px;
 }
 
+/* A phone narrower than 360px (the first iPhone SE, 320px). Row 1 with a Mission and a license alarm open needs 321px
+   at the gaps above and has 288px, and since the bell's wrapper stopped shrinking under the bell (alerts.css) nothing
+   in the row may shrink - so it was the menu that left the screen. Here the row gives up its spacing instead: smaller
+   gaps, no double gap around the spacer, no extra margin after the Mission, and a narrower Back. Every control keeps
+   its 44px; measured at 320px with four alarms and a Mission, the row fits with 9px to spare. */
+@media (max-width: 359px) {
+  .session-app-bar {
+    gap: 4px;
+  }
+  .session-app-bar .session-bar-spacer {
+    margin-left: -4px;
+  }
+  .session-app-bar .mb-root {
+    margin-right: 0;
+  }
+  .session-app-bar .back-link {
+    padding: 8px 10px;
+  }
+}
+
 .session-menu-btn {
   display: inline-flex;
   align-items: center;
