@@ -153,14 +153,21 @@ def reply_command(message_id: str = typer.Argument(..., help="The message to rep
     original = mail.original(client, aid, message_id)
     own = acct["addresses"] + [acct["email"]] + ([from_] if from_ else [])
     to_list, cc_list = write.reply_recipients(original, own, all_)
-    config.check_recipients(config.load(), to_list + cc_list)
+    sender = _from_address(acct, from_)
+    # On a reply to all Zoho copies the original CC itself, so every address on the original is checked too,
+    # except the one this reply is sent from.
+    copied = [a for a in write.original_addresses(original) if a.lower() != sender.lower()] if all_ else []
+    config.check_recipients(config.load(), to_list + cc_list + copied)
     uploads = [write.upload(client, aid, f) for f in files]
-    body_data = write.message_body(_from_address(acct, from_), to_list, cc_list, [],
+    body_data = write.message_body(sender, to_list, cc_list, [],
                                    write.reply_subject(write.original_subject(original)), content, mail_format,
                                    uploads)
     answer = write.reply(client, aid, message_id, body_data, all_)
-    _print_sent(dict(write.sent_record(answer, False), in_reply_to=message_id,
-                     attachments=[u["attachmentName"] for u in uploads]), json_output)
+    record = dict(write.sent_record(answer, False), in_reply_to=message_id,
+                  attachments=[u["attachmentName"] for u in uploads])
+    if all_:
+        record["note"] = "Zoho also copies the original CC itself, the account's own aliases included"
+    _print_sent(record, json_output)
 
 
 @app.command("forward", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
@@ -328,7 +335,7 @@ def delete_command(message_ids: List[str] = IdsArg, folder: str = FolderOpt,
 @_command
 def spam_command(message_ids: List[str] = IdsArg, account: Optional[str] = AccountOpt,
                  json_output: bool = JsonOpt) -> None:
-    """Mark messages as spam: Zoho moves them into Spam."""
+    """Mark messages as spam. Zoho moves the WHOLE conversation into Spam, your own sent replies too."""
     ids, _, _ = _update(message_ids, {"mode": "moveToSpam"}, account)
     _report(_ids_record("spam", ids), json_output)
 
@@ -337,7 +344,8 @@ def spam_command(message_ids: List[str] = IdsArg, account: Optional[str] = Accou
 @_command
 def not_spam_command(message_ids: List[str] = IdsArg, account: Optional[str] = AccountOpt,
                      json_output: bool = JsonOpt) -> None:
-    """Mark messages as not spam: Zoho moves them back to Inbox."""
+    """Mark messages as not spam. Zoho moves the whole conversation into Inbox, sent replies included; move those
+    back with: dt-zoho move <id> --to Sent"""
     ids, _, _ = _update(message_ids, {"mode": "markNotSpam"}, account)
     _report(_ids_record("not_spam", ids), json_output)
 
@@ -497,7 +505,7 @@ def folder_mark_read(folder: str = FolderArg, account: Optional[str] = AccountOp
 @folder_app.command("empty")
 @_command
 def folder_empty(folder: str = FolderArg, account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
-    """Delete every message in a folder. The folder stays."""
+    """Move every message in a folder to Trash. The folder stays."""
     client, acct, chosen = _folder(folder, account)
     write.update_folder(client, acct["account_id"], chosen["id"], {"mode": "emptyFolder"})
     _report({"id": chosen["id"], "path": chosen["path"], "emptied": True}, json_output)
@@ -521,10 +529,14 @@ def folder_imap(folder: str = FolderArg,
 @folder_app.command("delete")
 @_command
 def folder_delete(folder: str = FolderArg, account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
-    """Delete a folder."""
+    """Delete a folder: Zoho moves it into Trash, and deleting it again there removes it for good."""
     client, acct, chosen = _folder(folder, account)
+    in_trash = (chosen["path"] or "").lower().startswith("/trash/")
     write.delete_folder(client, acct["account_id"], chosen["id"])
-    _report({"deleted": True, "id": chosen["id"], "path": chosen["path"]}, json_output)
+    data = {"deleted": True, "id": chosen["id"], "path": chosen["path"], "permanent": in_trash}
+    if not in_trash:
+        data["moved_to"] = "/Trash/" + (chosen["path"] or "").lstrip("/")
+    _report(data, json_output)
 
 
 # --------------------------------------------------------------------------------------------- threads

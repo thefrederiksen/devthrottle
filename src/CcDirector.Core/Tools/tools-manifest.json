@@ -67,7 +67,7 @@
     {
       "name": "dt-zoho",
       "category": "Email",
-      "description": "Read and search Zoho mail through Zoho's own API - folders, labels, threads and attachments - with the key kept in cc-secrets.",
+      "description": "Read, search and send Zoho mail through Zoho's own API - replies, drafts, flags, labels, folders, threads and scheduled send - with the key kept in cc-secrets and a test mode that refuses unlisted recipients.",
       "smoke": { "args": ["--help"], "expectContains": "Zoho Mail, Calendar and admin" },
       "note": null
     },

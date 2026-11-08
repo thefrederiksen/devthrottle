@@ -191,7 +191,11 @@ class FakeZoho:
             if folder is None:
                 return _mail_error(404, "INVALID_FOLDER")
             if method == "DELETE":
-                self.folders.remove(folder)
+                # As Zoho does: a folder outside Trash moves into it; a folder in Trash is removed for good.
+                if folder["path"].startswith("/Trash/"):
+                    self.folders.remove(folder)
+                else:
+                    folder["path"] = "/Trash" + folder["path"]
                 return _ok(None)
             mode = body.get("mode")
             if mode == "rename":
@@ -207,7 +211,9 @@ class FakeZoho:
                     if m.folder == folder["folderId"]:
                         m.read = True
             elif mode == "emptyFolder":
-                self.messages = [m for m in self.messages if m.folder != folder["folderId"]]
+                for m in self.messages:
+                    if m.folder == folder["folderId"]:
+                        m.folder = TRASH
             else:
                 return _mail_error(400, "INVALID_MODE")
             return _ok(None)

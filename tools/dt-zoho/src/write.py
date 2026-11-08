@@ -105,6 +105,16 @@ def reply_recipients(original_mime: str, own: Sequence[str], reply_all: bool) ->
     return to, cc
 
 
+def original_addresses(original_mime: str) -> List[str]:
+    """Every address on the original: From, Reply-To, To and CC.
+
+    On a reply to all, Zoho copies the original's CC itself (run 8 November 2026: a reply-all sent with no CC
+    arrived copied to the CC of the original, one of the account's own aliases), so test mode checks them all."""
+    message = BytesParser(policy=policy.default).parsebytes(original_mime.encode("utf-8"))
+    values = [str(v) for h in ("From", "Reply-To", "To", "Cc") for v in (message.get_all(h) or [])]
+    return [a for _, a in getaddresses(values) if a]
+
+
 def original_subject(original_mime: str) -> str:
     message = BytesParser(policy=policy.default).parsebytes(original_mime.encode("utf-8"))
     return str(message.get("Subject") or "")

@@ -2946,8 +2946,8 @@ name who was dropped.
 
 ## dt-zoho
 
-Zoho Mail through Zoho's own API, for what only that API can do (labels, Zoho's search, folders seen over
-IMAP or not). This first version reads mail. It signs in with a Zoho Self Client key held in cc-secrets and
+Zoho Mail through Zoho's own API, for what only that API can do (labels, Zoho's search, threads, scheduled
+send, folders seen over IMAP or not). This version reads and writes mail. It signs in with a Zoho Self Client key held in cc-secrets and
 keeps the access token for its hour, sealed; `tools/dt-zoho/README.md` has every command.
 
 ```
@@ -2965,9 +2965,17 @@ cc-secrets run zoho-api-client-secret --with zoho-api-client-id --with zoho-api-
 | `dt-zoho read ID [--folder F] [--html] [--headers]` / `read ID --raw [--save FILE]` | One message as text; the whole original message |
 | `dt-zoho attachments ID` / `download ID [--attachment A] --out-dir D` | List or download attachments; never overwrites a file |
 
+| `dt-zoho allowed-recipients set <a>...\|show\|clear` | Test mode: refuse any other To, CC or BCC before sending |
+| `dt-zoho send --to --subject --body\|--body-file\|--html-file [--cc] [--bcc] [--attach] [--from <alias>] [--at "YYYY-MM-DD HH:MM"]` | Send now or later |
+| `dt-zoho reply ID [--all]` / `draft save\|list\|delete` | Reply in the thread; drafts |
+| `dt-zoho mark ID... --as read\|unread\|important\|info\|followup\|unflagged` / `move` / `archive` / `unarchive` / `delete [--permanent]` / `spam` / `not-spam` | Manage messages |
+| `dt-zoho label create\|rename\|delete\|apply\|remove\|clear` / `folder create\|rename\|move\|mark-read\|empty\|imap\|delete` / `thread mark\|label` | Labels, folders, threads |
+
 `--count` (1 to 200) and `--start` page through. Every command takes `--json`; the mail commands take
-`--account <address>`. Search ignores `is:unread`, `is:read` and `is:flagged`, so dt-zoho refuses them and
-filters with the flags instead. Errors exit 1, usage errors 2.
+`--account <address>`. `--fields` with `--json` is refused. Search ignores `is:unread`, `is:read` and
+`is:flagged`, so dt-zoho refuses them and filters with the flags instead. Zoho's API cannot forward, has no
+filters and cannot send a saved draft: `forward`, `filters` and `draft send` say so and name what to use.
+Errors exit 1, usage errors 2.
 
 ## cc-reddit
 

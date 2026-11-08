@@ -58,6 +58,16 @@ def test_reply_AllToSomeoneNotAllowed_IsRefusedAndNothingSent(env):
     assert env.zoho.sent == [] and _only_reads(env)
 
 
+def test_replyAll_OwnAliasOnTheOriginalNotAllowed_IsRefused(env):
+    # Zoho copies the original CC itself on a reply to all, own aliases included, so they are checked too.
+    env.ok("allowed-recipients", "set", ME, OTHER)
+    _message(env, id="5", folder=INBOX, subject="hi", sender=OTHER, cc="info@example.com")
+    result = env.run("reply", "5", "--all", "--body", "b")
+    assert result.exit_code == 1 and "info@example.com" in result.output and env.zoho.sent == []
+    env.ok("reply", "5", "--body", "b")
+    assert env.zoho.sent[-1]["toAddress"] == OTHER
+
+
 # --------------------------------------------------------------------------------------------- send
 
 
@@ -323,9 +333,13 @@ def test_folder_CreateNestedRenameMoveImapEmptyDelete(env):
     env.ok("folder", "mark-read", "Beta")
     assert all(m.read for m in env.zoho.messages)
     env.ok("folder", "empty", "Beta")
-    assert env.zoho.messages == []
-    env.ok("folder", "delete", "Beta")
+    assert [m.folder for m in env.zoho.messages] == [TRASH, TRASH]
+    first = json.loads(env.ok("folder", "delete", "Beta", "--json").stdout)
+    assert first["permanent"] is False and first["moved_to"] == "/Trash/Beta"
+    second = json.loads(env.ok("folder", "delete", "/Trash/Beta", "--json").stdout)
+    assert second["permanent"] is True and "moved_to" not in second
     env.ok("folder", "delete", "Projects")
+    env.ok("folder", "delete", "/Trash/Projects")
     assert all(f["folderId"] not in (parent["id"], child["id"]) for f in env.zoho.folders)
 
 
