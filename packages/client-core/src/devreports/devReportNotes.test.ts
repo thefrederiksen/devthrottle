@@ -635,6 +635,27 @@ describe("the tray's theme", () => {
     expect(host.shadowRoot!.querySelector("style")!.textContent).toContain('"Odd Sans", Arial, sans-serif');
   });
 
+  it("draws the Something else box and the microphone row in the report's light look, whatever the host theme", () => {
+    const css = loadAsInjected({ "data-dev-report-theme": JSON.stringify(theme) }).cssText();
+    const rule = (selector: string) => {
+      const start = css.indexOf(`${selector} {`);
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      return css.slice(start, css.indexOf("}", start));
+    };
+    const box = rule(".drn-own textarea");
+    expect(box).toContain("background: #ffffff");
+    expect(box).toContain("color: #1f2937");
+    expect(box).toContain("border: 1px solid #9ca3af");
+    expect(rule(".drn-mic-btn")).toContain("background: #e5e7eb");
+    expect(rule(".drn-mic-state")).toContain("background: #f3f4f6");
+    expect(rule(".drn-mic-state")).toContain("color: #1f2937");
+    for (const selector of [".drn-own", ".drn-own textarea", ".drn-mic", ".drn-mic-btn", ".drn-mic-state"]) {
+      for (const key of ["background", "surface", "surface2", "border", "text"] as const) {
+        expect(rule(selector), `${selector} uses the host's ${key}`).not.toContain(theme[key]);
+      }
+    }
+  });
+
   it("refuses a theme that is not exactly the documented shape, whole", () => {
     expect(api.parseTheme(JSON.stringify(theme))).toEqual(theme);
     expect(api.parseTheme(JSON.stringify({ ...theme, extra: "#000" }))).toBeNull();
