@@ -150,7 +150,7 @@ public sealed class AccountActingCredentialSelfHostTests
 
     private static Task<HttpResponseMessage> PostEmail(HttpClient http) =>
         http.PostAsync("/account/email",
-            new StringContent("""{"subject":"issue 984","bodyText":"body"}""", Encoding.UTF8, "application/json"));
+            new StringContent("""{"subject":"issue 984","bodyText":"body","deliver":"email"}""", Encoding.UTF8, "application/json"));
 
     private static async Task<JsonElement> Json(HttpResponseMessage response)
     {

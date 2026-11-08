@@ -28,7 +28,8 @@ public static class YourInboxWords
         /// <summary>The Gateway itself, with no session and no factory behind it: the 08:00 morning report's message about
         /// open problems whose schedule no factory's morning summary carries, the notice that a schedule in no factory
         /// failed, and the system alerts that were emails until the owner moved them here (<see cref="NetworkSeat"/>,
-        /// <see cref="LicensesSeat"/>, <see cref="SessionSupervisorSeat"/>). Nobody reads a reply to it.</summary>
+        /// <see cref="LicensesSeat"/>, <see cref="SessionSupervisorSeat"/>), and a message through the owner email route from a
+        /// caller that named no session (<see cref="OwnerEmailSeat"/>). Nobody reads a reply to it.</summary>
         public const string Gateway = "gateway";
     }
 
@@ -55,6 +56,12 @@ public static class YourInboxWords
     /// (an email until the same ruling).</summary>
     public const string SessionSupervisorSeat = "session supervisor";
 
+    /// <summary>The seat of a message sent through the owner email route (<c>POST /account/email</c>) by a caller that
+    /// named no session: an older command line, a script on the account's own key, or the machine token. Since 8 November
+    /// 2026 that route writes to Your inbox unless email is chosen on purpose (the owner: "in-mail should be the default.
+    /// Email, you should have to select it specially"). The message's first line says which key sent it.</summary>
+    public const string OwnerEmailSeat = "owner email";
+
     /// <summary>Who a Gateway message is from, as the owner reads it.</summary>
     public static string GatewayFromLabel(string? seat) => seat switch
     {
@@ -64,6 +71,7 @@ public static class YourInboxWords
         NetworkSeat => "Network",
         LicensesSeat => "Licenses",
         SessionSupervisorSeat => "Session supervisor",
+        OwnerEmailSeat => "Owner email - no session named",
         _ => throw new ArgumentOutOfRangeException(nameof(seat), seat, "not a seat a Gateway message is written from"),
     };
 
@@ -86,6 +94,9 @@ public static class YourInboxWords
         SessionSupervisorSeat =>
             "This message is the session supervisor's notice that a session could not be resumed, not a message from the session, "
             + "so nobody reads a reply to it. Nothing was sent. Open the session and answer it there.",
+        OwnerEmailSeat =>
+            "This message came through the owner email route from a caller that named no session, so there is nobody to "
+            + "reply to. Nothing was sent. Its first line says which key sent it.",
         _ =>
             "This message is from the Gateway's morning report, not from a session or a factory, so nobody reads a reply to it. "
             + "Nothing was sent. Put the schedule into a factory, or fix it on the Schedule page.",

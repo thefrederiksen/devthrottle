@@ -694,6 +694,7 @@ COMMANDS:
   message inbox    Read your unread messages in full, which marks them read.
   inbox send       Tell the owner something in Your inbox, on his phone and in the Cockpit - not by email.
   inbox list       The account's inbox, like email (also: inbox read, delete = archive, restore, mark, reply).
+  email owner      Tell the owner: Your inbox by default; a real email only with --email.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
   skill list       List every skill in the fleet library.
   skill get        Print a skill in full, ready to follow.
@@ -713,6 +714,29 @@ COMMANDS:
 OPTIONS:
   --version -v
 ```
+
+**Email owner is in-mail unless --email is chosen (the owner, 8 November 2026).**
+`cc-devthrottle email owner --subject "<subject>" --body "<text>" [--html <html>] [--attach <file>] [--email] [--json]`
+delivers to the owner's Your inbox by default and sends no email. The Gateway decides it, on the same
+route older versions call, so an older command line on another machine lands in Your inbox too. Inside a
+session the message is named for that session, as `inbox send` names it; from anywhere else the message
+is from "Owner email - no session named" and its first line says which key sent it. An HTML body is shown
+as plain text with every link's address kept. `--email` sends a real email and writes nothing to Your
+inbox. A message with `--attach`, or a body too long for Your inbox (20,000 characters), is sent as an
+email anyway, and a short note in Your inbox says an email was sent and why. Nothing is dropped.
+
+```
+sent: Your inbox
+id: 7b0c2f4e-1d7e-4c51-9a40-55e3d2f0c1aa
+Delivered to Your inbox, not sent as an email: since 8 November 2026 the owner email route writes to Your inbox unless email is chosen. ...
+```
+
+`--json` prints the Gateway's answer whole. It keeps every field it had (`sent`, `providerId`, `error`)
+and adds `deliveredTo` (`inbox` or `email`), `inboxMessageId` (the message, or the note beside an email)
+and `message` (the Gateway's sentence saying where it went). On Your inbox, `providerId` is
+`your-inbox:<message id>`. An older `cc-devthrottle` still prints "Sent email to the account owner"
+even when the Gateway put the message in Your inbox; a `providerId` that starts with `your-inbox:`
+is the sign that it went to Your inbox, not to email.
 
 **Reported errors (issues #3311 and #3675).** `errors list` reads one row per report, newest first;
 `errors groups` reads one row per problem, the most reported first. A problem is decided by the

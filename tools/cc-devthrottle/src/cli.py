@@ -327,7 +327,7 @@ setup_app = typer.Typer(
 )
 email_app = typer.Typer(
     cls=AxiGroup,
-    help="Email the owner, only when asked. Otherwise: inbox send.", add_completion=False, no_args_is_help=True
+    help="Tell the owner: Your inbox by default, email with --email.", add_completion=False, no_args_is_help=True
 )
 diag_app = typer.Typer(
     cls=AxiGroup,
@@ -1891,14 +1891,15 @@ _ACTIONS = [
     },
     {
         "id": "email-owner",
-        "description": "Email the account owner (single recipient); optional file attachments. The escalation channel for unattended runs.",
-        "command": 'cc-devthrottle email owner --subject "<subject>" --body "<text>" [--attach <file>]',
+        "description": "Tell the account owner (single recipient): Your inbox by default, a real email only with --email. Attachments or a body too long for Your inbox go as an email, with a note in Your inbox.",
+        "command": 'cc-devthrottle email owner --subject "<subject>" --body "<text>" [--attach <file>] [--email]',
         "mutatesState": True,
         "args": [
             {"name": "subject", "required": True},
             {"name": "body", "required": False},
             {"name": "html", "required": False},
             {"name": "attach", "required": False},
+            {"name": "email", "required": False},
         ],
     },
     {
@@ -6512,15 +6513,21 @@ def email_owner(
     attach: Optional[List[str]] = typer.Option(
         None, "--attach", help="Attach a file (repeatable), e.g. an HTML report to read offline."
     ),
+    email: bool = typer.Option(
+        False, "--email",
+        help="Send a real email instead. Without it the message goes to the owner's Your inbox.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the send result as JSON."),
 ) -> None:
-    """Send one email to the account owner, the only recipient there can be.
+    """Tell the owner: Your inbox, or a real email with --email.
 
-    There is no way to address anyone else. Passes only a subject, body, and any attachments to the Gateway, which relays it to the cloud
-    with your account token; the cloud resolves the owner and sends. Use it to escalate from an
-    unattended or scheduled run, or to send yourself a report to read offline.
+    The owner is the only recipient there can be; there is no way to address anyone else. Without
+    --email the message goes to the owner's Your inbox, named for this session, and no email is sent
+    (the owner, 8 November 2026). An HTML body is shown there as plain text with its links kept. With
+    --email the Gateway sends a real email. Attachments, or a body too long for Your inbox, always go
+    as an email, and a short note in Your inbox says so.
     """
-    email_ops.send_owner(subject, body, html, attach, json_output)
+    email_ops.send_owner(subject, body, html, attach, json_output, email=email)
 
 
 # ---- fleet: the Fleet Manager's records, preferences and digest ---------------------------------------

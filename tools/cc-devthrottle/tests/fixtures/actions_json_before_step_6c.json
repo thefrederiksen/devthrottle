@@ -994,8 +994,8 @@
     },
     {
       "id": "email-owner",
-      "description": "Email the account owner (single recipient); optional file attachments. The escalation channel for unattended runs.",
-      "command": "cc-devthrottle email owner --subject \"<subject>\" --body \"<text>\" [--attach <file>]",
+      "description": "Tell the account owner (single recipient): Your inbox by default, a real email only with --email. Attachments or a body too long for Your inbox go as an email, with a note in Your inbox.",
+      "command": "cc-devthrottle email owner --subject \"<subject>\" --body \"<text>\" [--attach <file>] [--email]",
       "mutatesState": true,
       "args": [
         {
@@ -1012,6 +1012,10 @@
         },
         {
           "name": "attach",
+          "required": false
+        },
+        {
+          "name": "email",
           "required": false
         }
       ]
