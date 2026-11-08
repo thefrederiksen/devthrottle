@@ -82,7 +82,7 @@ public sealed class LicenseAlarmTriangleWindowTests
 
     [AvaloniaTheory]
     [InlineData("warning", "#FFEAB308")]
-    [InlineData("critical", "#FFEF4444")]
+    [InlineData("critical", "#FFF14C4C")]
     public void OpenAlarms_ShowTheTriangleAndCount_InTheGatewaysTone_WithTheGatewaysLines(string tone, string drawn)
     {
         var window = OpenWindow();

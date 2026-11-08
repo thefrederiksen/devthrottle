@@ -146,13 +146,10 @@
             <Setter Property="Foreground" Value="#EAB308" />
         </Style>
         <Style Selector="Button#LicenseAlarmTriangle.critical Path">
-            <Setter Property="Fill" Value="#EF4444" />
+            <Setter Property="Fill" Value="#F14C4C" />
         </Style>
         <Style Selector="Button#LicenseAlarmTriangle.critical TextBlock">
-            <Setter Property="Foreground" Value="#EF4444" />
-        </Style>
-        <Style Selector="Button#LicenseAlarmTriangle:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#3A3A3A" />
+            <Setter Property="Foreground" Value="#F14C4C" />
         </Style>
     </Window.Styles>
 
@@ -222,13 +219,9 @@
                          opens the Cockpit's Licenses page. It does not flash or pulse: a thing moving in the corner of
                          the eye all day is the same mistake as the strip. -->
                     <Button x:Name="LicenseAlarmTriangle"
+                            Classes="toolbarBtn"
                             IsVisible="False"
                             Margin="6,0,0,0"
-                            Padding="4,2"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            CornerRadius="4"
-                            Cursor="Hand"
                             VerticalAlignment="Center"
                             Click="LicenseAlarmTriangle_Click">
                         <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">

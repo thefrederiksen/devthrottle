@@ -107,8 +107,11 @@ public sealed class LicenseAlarmsCache : IDisposable
         }
     }
 
+    // Everything the license warning triangle draws: the count, the words, the tone, and every alarm's own line - the
+    // tooltip lists each one, so an alarm that closes while another opens, with the count unchanged, is a change.
     private static bool SameBanner(LicenseAlarmsResponse? a, LicenseAlarmsResponse b)
-        => a is not null && a.Count == b.Count && a.Summary == b.Summary && a.LinkText == b.LinkText && a.Tone == b.Tone;
+        => a is not null && a.Count == b.Count && a.Summary == b.Summary && a.LinkText == b.LinkText && a.Tone == b.Tone
+           && a.Alarms.Select(x => (x.AlarmId, x.Text)).SequenceEqual(b.Alarms.Select(x => (x.AlarmId, x.Text)));
 
     public void Dispose() => _timer?.Dispose();
 }

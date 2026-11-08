@@ -8,7 +8,8 @@ namespace CcDirector.Avalonia;
 /// the owner, 7 November 2026, found the strip too big and asked for a small warning triangle beside the resource meter.
 ///
 /// Every word is the Gateway's, verbatim: the count beside the triangle is its <c>Count</c>, and the tooltip is its
-/// summary, then one line for each open alarm (each alarm's own <c>Text</c>), then its link words. The colour is the
+/// summary, then one line for each open alarm (each alarm's own <c>Text</c>, every one, in the Gateway's order), then its
+/// link words. The colour is the
 /// Gateway's tone, <c>warning</c> (yellow) or <c>critical</c> (red). The window copies these onto its controls and decides
 /// nothing. Pure, so it is tested without a window.
 ///
@@ -30,9 +31,9 @@ public sealed record LicenseAlarmTriangleView(bool IsVisible, string Count, stri
         var summary = answer.Summary
                       ?? throw new InvalidOperationException("The Gateway reported open license alarms with no summary.");
         var lines = new List<string> { summary };
-        lines.AddRange(answer.Alarms.Select(a => a.Text).Where(t => t.Length > 0));
+        lines.AddRange(answer.Alarms.Select(a => a.Text));
         if (!string.IsNullOrEmpty(answer.LinkText))
-            lines.Add($"Click: {answer.LinkText}");
+            lines.Add(answer.LinkText);
         var count = answer.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (answer.Tone is { } tone && AllTones.Contains(tone))
             return new LicenseAlarmTriangleView(true, count, string.Join(Environment.NewLine + Environment.NewLine, lines), tone);

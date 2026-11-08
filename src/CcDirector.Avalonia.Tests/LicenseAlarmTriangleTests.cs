@@ -102,6 +102,28 @@ public sealed class LicenseAlarmTriangleTests
     }
 
     [Fact]
+    public async Task RefreshAsync_OneAlarmClosesAndAnotherOpens_SameCountAndTone_RaisesChanged()
+    {
+        // The triangle's tooltip names every open alarm, so a swap with the count, words and tone unchanged must redraw it.
+        static LicenseAlarmsResponse With(string id, string text) => new()
+        {
+            Count = 1, Summary = "1 license problem", LinkText = "Open Licenses", Tone = "warning",
+            Alarms = { new LicenseAlarmDto { AlarmId = id, Text = text, Tone = "warning" } },
+        };
+        var gateway = new FakeGateway { Answer = With("a1", "The approver for a@example.com needs a fresh sign-in.") };
+        var cache = new LicenseAlarmsCache(() => gateway);
+        await cache.RefreshAsync();
+        var changes = 0;
+        cache.Changed += () => changes++;
+
+        gateway.Answer = With("b2", "Renewing the sign-in for b@example.com on LAPTOP failed.");
+        await cache.RefreshAsync();
+
+        Assert.Equal(1, changes);
+        Assert.Equal("b2", Assert.Single(cache.Current!.Alarms).AlarmId);
+    }
+
+    [Fact]
     public async Task RefreshAsync_AFailedRead_KeepsTheLastAnswer_AndSaysWhy()
     {
         var gateway = new FakeGateway { Answer = Open("warning") };
@@ -162,7 +184,7 @@ public sealed class LicenseAlarmTriangleTests
                      + "Renewing the sign-in for dev@example.com on LAPTOP failed." + Gap
                      + "The approver for a@example.com needs a fresh sign-in." + Gap
                      + "The approver for b@example.com needs a fresh sign-in." + Gap
-                     + "Click: Open Licenses", view.ToolTip);
+                     + "Open Licenses", view.ToolTip);
     }
 
     [Fact]
@@ -175,7 +197,7 @@ public sealed class LicenseAlarmTriangleTests
         Assert.Equal("1", view.Count);
         Assert.Equal("License alarm: a machine cannot switch accounts." + Gap
                      + "(This Director cannot draw the tone \"purple\"; update it.)" + Gap
-                     + "Click: Open Licenses", view.ToolTip);
+                     + "Open Licenses", view.ToolTip);
     }
 
     [Fact]
