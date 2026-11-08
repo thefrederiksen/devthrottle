@@ -77,10 +77,17 @@ def _report(data: dict, json_output: bool) -> None:
             (k, ", ".join(map(str, v)) if isinstance(v, list) else v) for k, v in data.items())])
 
 
-def _message_fields(fields: Optional[str], across_folders: bool) -> List[str]:
+# The same refusal, in the same words, as cc-devthrottle gives (tools/cc-devthrottle/src/axi_cli.py).
+FIELDS_WITH_JSON = ("--fields does not apply to --json, which always carries every field. "
+                    "Use --fields to show a few fields, or --json to get every field.")
+
+
+def _message_fields(fields: Optional[str], across_folders: bool, json_output: bool) -> List[str]:
     """The message fields to show, checked before anything reaches Zoho so a typo costs no token."""
     from cc_shared.axi_output import FieldsError, parse_fields
 
+    if fields is not None and json_output:
+        raise DtZohoError(FIELDS_WITH_JSON, 2)
     default = mail.SUMMARY_DEFAULT_ACROSS_FOLDERS if across_folders else mail.SUMMARY_DEFAULT
     try:
         return parse_fields(fields, mail.SUMMARY_FIELDS, default)
@@ -94,12 +101,9 @@ def _quote(text: str) -> str:
 
 
 def _print_messages(records: List[dict], fetched: int, start: int, count: int, chosen: List[str],
-                    fields_given: bool, json_output: bool, extra: dict, next_command: str,
-                    read_folder: Optional[str]) -> None:
+                    json_output: bool, extra: dict, next_command: str, read_folder: Optional[str]) -> None:
     more = fetched == count
     if json_output:
-        if fields_given:
-            records = [{k: r.get(k) for k in chosen} for r in records]
         output.emit_json({"count": len(records), "fetched": fetched, "start": start,
                           "next_start": start + fetched if more else None, **extra, "messages": records})
         return
@@ -255,7 +259,7 @@ def list_command(folder: Optional[str] = typer.Option(None, "--folder", "-f",
         raise DtZohoError("pass --unread or --read, not both.", 2)
     if folder is None and label is None and thread is None:
         folder = "Inbox"
-    chosen_fields = _message_fields(fields, across_folders=folder is None)
+    chosen_fields = _message_fields(fields, folder is None, json_output)
     client = _client()
     acct = mail.pick_account(client, account)
     aid = acct["account_id"]
@@ -267,7 +271,7 @@ def list_command(folder: Optional[str] = typer.Option(None, "--folder", "-f",
     records = [r for r in fetched if mail.flag_matches(r, flagged)]
     extra = {"account": acct["email"], "folder": chosen["path"] if chosen else None,
              "folder_id": chosen["id"] if chosen else None, "label_id": label_id, "thread_id": thread}
-    _print_messages(records, len(fetched), start, count, chosen_fields, fields is not None, json_output, extra,
+    _print_messages(records, len(fetched), start, count, chosen_fields, json_output, extra,
                     _again("dt-zoho list", folder=chosen["path"] if chosen else None, label=label, thread=thread,
                            count=count, switches=(("--unread", unread), ("--read", read), ("--flagged", flagged),
                                                   ("--include-archive", include_archive))),
@@ -304,12 +308,12 @@ def search_command(query: str = typer.Argument(..., help="Zoho search words: sen
     if unread and read:
         raise DtZohoError("pass --unread or --read, not both.", 2)
     mail.check_search_key(query)
-    chosen_fields = _message_fields(fields, across_folders=True)
+    chosen_fields = _message_fields(fields, True, json_output)
     client = _client()
     acct = mail.pick_account(client, account)
     fetched = mail.search(client, acct["account_id"], query, start, count)
     records = [r for r in fetched if mail.flag_matches(r, flagged) and mail.read_matches(r, unread, read)]
-    _print_messages(records, len(fetched), start, count, chosen_fields, fields is not None, json_output,
+    _print_messages(records, len(fetched), start, count, chosen_fields, json_output,
                     {"account": acct["email"], "query": query},
                     _again(f"dt-zoho search {_quote(query)}", count=count,
                            switches=(("--unread", unread), ("--read", read), ("--flagged", flagged))), None)
@@ -436,6 +440,10 @@ def download_command(message_id: str = typer.Argument(..., help="The message id 
         output.emit_json({"count": len(saved), "id": message_id, "folder": chosen["path"], "saved": saved})
         return
     output.emit_list("saved", ["name", "bytes", "path"], saved, None, help_lines)
+
+
+# The writing commands register on `app` when their module loads.
+from . import cli_write  # noqa: E402,F401
 
 
 def tool_main() -> None:

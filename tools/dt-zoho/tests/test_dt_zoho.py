@@ -402,10 +402,11 @@ def test_list_BadFieldsWithJson_IsUsageErrorBeforeAnyCall(env):
     assert env.zoho.calls == [] and env.zoho.token_requests == 0
 
 
-def test_list_FieldsWithJson_KeepsOnlyThoseFields(env):
-    _message(env, id="1", folder=INBOX, subject="a")
-    data = json.loads(env.ok("list", "--fields", "id,subject", "--json").stdout)
-    assert data["messages"] == [{"id": "1", "subject": "a"}]
+@pytest.mark.parametrize("command", [("list",), ("search", "subject:a")])
+def test_fieldsWithJson_IsRefusedBeforeAnyCall(env, command):
+    result = env.run(*command, "--fields", "id,subject", "--json")
+    assert result.exit_code == 2 and "--fields does not apply to --json" in result.output
+    assert env.zoho.calls == [] and env.zoho.token_requests == 0
 
 
 def test_search_TextOutput_ShowsTheFolderIdReadNeeds(env):

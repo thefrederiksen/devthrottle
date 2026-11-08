@@ -2,7 +2,10 @@
 
 The file is `<cc-director config>/dt-zoho/config.json`:
 
-    {"data_centre": "ca"}
+    {"data_centre": "ca", "allowed_recipients": ["soren@devthrottle.com", "email@devthrottle.com"]}
+
+`allowed_recipients`, when present, is test mode: every To, CC and BCC of anything dt-zoho sends must be on
+it, or the send is refused before anything reaches Zoho. Absent means no restriction.
 
 `data_centre` picks Zoho's servers. Zoho keeps every organisation in one data centre and its sign-in, Mail and
 Calendar servers differ per data centre; a key made in one is refused by the others.
@@ -20,7 +23,8 @@ import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from email.utils import getaddresses
+from typing import Dict, List, Optional
 
 from .errors import DtZohoError
 
@@ -87,6 +91,7 @@ def credentials() -> Credentials:
 @dataclass
 class Settings:
     data_centre: Optional[str] = None
+    allowed_recipients: Optional[List[str]] = None
 
     def centre(self) -> DataCentre:
         if self.data_centre is None:
@@ -100,7 +105,10 @@ class Settings:
         return DATA_CENTRES[self.data_centre]
 
     def to_dict(self) -> dict:
-        return {"data_centre": self.data_centre}
+        data: dict = {"data_centre": self.data_centre}
+        if self.allowed_recipients is not None:
+            data["allowed_recipients"] = list(self.allowed_recipients)
+        return data
 
 
 def load() -> Settings:
@@ -111,7 +119,10 @@ def load() -> Settings:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise DtZohoError(f"{path} is not valid JSON ({exc}). Fix or delete the file.") from exc
-    return Settings(data_centre=data.get("data_centre"))
+    allowed = data.get("allowed_recipients")
+    if allowed is not None:
+        allowed = [normalise_address(a) for a in allowed]
+    return Settings(data_centre=data.get("data_centre"), allowed_recipients=allowed)
 
 
 def save(settings: Settings) -> Path:
@@ -121,3 +132,26 @@ def save(settings: Settings) -> Path:
     tmp.write_text(json.dumps(settings.to_dict(), indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
     return path
+
+
+def normalise_address(address: str) -> str:
+    """One plain address, lower case. Refuses a value that is not exactly one address."""
+    parsed = [a for _, a in getaddresses([address]) if a]
+    if len(parsed) != 1 or "@" not in parsed[0]:
+        raise DtZohoError(f"'{address}' is not one email address.", exit_code=2)
+    return parsed[0].strip().lower()
+
+
+def check_recipients(settings: Settings, addresses: List[str]) -> None:
+    """Refuse the send when test mode is on and any recipient is not on the allowed list.
+
+    Runs before any call to Zoho, so a refused send sends nothing at all."""
+    if settings.allowed_recipients is None:
+        return
+    allowed = set(settings.allowed_recipients)
+    refused = sorted({a.lower() for a in addresses if a.lower() not in allowed})
+    if refused:
+        raise DtZohoError(
+            f"refused before sending: {', '.join(refused)} not on the allowed recipients list "
+            f"({', '.join(sorted(allowed))}). Nothing was sent. "
+            "See the list with: dt-zoho allowed-recipients show")
