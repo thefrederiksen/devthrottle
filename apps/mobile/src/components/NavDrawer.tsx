@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { ColourLegendDialog } from "@devthrottle/client-core/sessions/ColourLegend";
@@ -130,14 +131,18 @@ export function NavDrawer() {
         </div>
       )}
 
-      {legendOpen && (
-        <ColourLegendDialog
-          onClose={() => {
-            setLegendOpen(false);
-            menuButton.current?.focus();
-          }}
-        />
-      )}
+      {/* Drawn on the page body, not here: this button sits in the sticky title bar, which is its own stacking level,
+          so a dialog drawn inside it would sit under the voice-mode and recording banners with their buttons live. */}
+      {legendOpen &&
+        createPortal(
+          <ColourLegendDialog
+            onClose={() => {
+              setLegendOpen(false);
+              menuButton.current?.focus();
+            }}
+          />,
+          document.body,
+        )}
     </>
   );
 }

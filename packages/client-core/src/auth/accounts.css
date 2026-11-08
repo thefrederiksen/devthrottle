@@ -182,8 +182,6 @@
   min-width: 0;
 }
 
-/* The compact identity chip (AccountSwitcher). Sized to sit inside an app bar or a menu header without
-   changing its height, and truncating rather than wrapping - an email is long and the bar is not. */
 /* The account badge (AccountSwitcher): a round initials badge at the right end of the phone's roster bar, inside a 44px
    tap target. It never shrinks - a bar short of room gives up its title text, never a control. */
 .accts-chip {
