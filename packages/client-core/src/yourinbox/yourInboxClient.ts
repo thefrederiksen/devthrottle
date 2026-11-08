@@ -10,7 +10,7 @@ import { authHeaders, GatewayError, gatewayFetch } from "../api/client";
 import type { FactoryInboxTone } from "../factoryinbox/factoryInboxClient";
 
 export interface YourInboxFrom {
-  /** "session", "factory" or "gateway" (the Gateway's own morning report). */
+  /** "session", "factory", "gateway" (the Gateway's own notices) or "website" (the DevThrottle website, brief E). */
   kind: string;
   /** Who it is from, for example "#412 Release - Developer" or "Booking - Boss". */
   label: string;

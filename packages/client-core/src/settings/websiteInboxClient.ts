@@ -7,8 +7,10 @@ import { authHeaders, GatewayError } from "../api/client";
 export interface WebsiteInboxCard {
   title: string;
   explanation: string;
-  state: "none" | "active" | "revoked";
+  state: "none" | "active" | "revoked" | "unavailable";
   statusLine: string;
+  /** False where the key cannot be made from this screen (the Gateway says why in statusLine). */
+  canMint: boolean;
   mintLabel: string;
   mintNote: string | null;
   canRevoke: boolean;

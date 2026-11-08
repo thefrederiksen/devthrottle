@@ -59,15 +59,17 @@ export function WebsiteInboxCard() {
         </div>
       )}
       <div className="settings-field">
-        <button
-          type="button"
-          className="settings-btn"
-          data-testid="website-inbox-mint"
-          disabled={busy}
-          onClick={() => void act("Making a key...", mintWebsiteInboxKey)}
-        >
-          {card.mintLabel}
-        </button>
+        {card.canMint && (
+          <button
+            type="button"
+            className="settings-btn"
+            data-testid="website-inbox-mint"
+            disabled={busy}
+            onClick={() => void act("Making a key...", mintWebsiteInboxKey)}
+          >
+            {card.mintLabel}
+          </button>
+        )}
         {card.canRevoke && (
           <button
             type="button"
@@ -80,7 +82,7 @@ export function WebsiteInboxCard() {
           </button>
         )}
       </div>
-      {card.mintNote !== null && <p className="settings-hint">{card.mintNote}</p>}
+      {card.canMint && card.mintNote !== null && <p className="settings-hint">{card.mintNote}</p>}
       {msg !== "" && <div className="settings-msg">{msg}</div>}
     </section>
   );

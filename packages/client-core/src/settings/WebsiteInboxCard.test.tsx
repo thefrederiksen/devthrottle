@@ -15,6 +15,7 @@ describe("WebsiteInboxCard", () => {
     explanation: "The DevThrottle website can tell you here.",
     state: "none",
     statusLine: "The website has no key, so it emails you.",
+    canMint: true,
     mintLabel: "Make a key",
     mintNote: null,
     canRevoke: false,
@@ -83,5 +84,14 @@ describe("WebsiteInboxCard", () => {
     render(<WebsiteInboxCard />);
     fireEvent.click(await screen.findByTestId("website-inbox-mint"));
     await waitFor(() => expect(screen.getByText(/made only from the owner's phone or Cockpit/)).toBeTruthy());
+  });
+
+  it("shows a screen that cannot make the key the Gateway's own sentence, with no buttons", async () => {
+    stubGateway({ ...none, state: "unavailable", statusLine: "Not available here. Open Settings on your phone to make it.", canMint: false }, {});
+    render(<WebsiteInboxCard />);
+    expect((await screen.findByTestId("website-inbox-status")).textContent).toBe("Not available here. Open Settings on your phone to make it.");
+    expect(screen.queryByTestId("website-inbox-mint")).toBeNull();
+    expect(screen.queryByTestId("website-inbox-revoke")).toBeNull();
+    expect(screen.queryByText(/Could not load/)).toBeNull();
   });
 });

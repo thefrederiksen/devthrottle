@@ -5,6 +5,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Account;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Inbox;
+using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -56,6 +57,11 @@ internal static class WebsiteInboxEndpoints
     /// <summary>The longest retry key the website may give.</summary>
     public const int MaxWebsiteKeyLength = 200;
 
+    /// <summary>The largest request body the write route reads, in bytes. Well above any message Your inbox can hold (an
+    /// HTML body is turned into much shorter text), and far below what could tie up the Gateway. Over it is 413, and the
+    /// website emails the message instead.</summary>
+    public const int MaxBodyBytes = 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     /// <summary>What the routes read. Every function is required, so a wiring line that forgot one fails to compile.</summary>
@@ -87,6 +93,10 @@ internal static class WebsiteInboxEndpoints
         app.MapGet(KeyPath, (HttpContext ctx) =>
         {
             FileLog.Write($"[WebsiteInboxEndpoints] GET {KeyPath}: identity={AuthMiddleware.IdentityKind(ctx)}");
+            // A screen that is not the owner's phone or browser key - a self-hosted Cockpit on the machine token, say - is
+            // told the truth as a card, not an error: the key is not made here, and why.
+            if (AuthMiddleware.CallingSession(ctx) is null && !IsOwnerDevice(AuthMiddleware.AuthenticatedDevice(ctx)))
+                return Results.Json(UnavailableCard(), JsonOpts);
             if (Owner(parts, ctx, out var tenant, out _) is { } refused) return refused;
             return Results.Json(Card(parts.Keys.Status(tenant), null), JsonOpts);
         });
@@ -132,10 +142,18 @@ internal static class WebsiteInboxEndpoints
                     : "This route takes the website's own key, made by the owner in Settings, Website messages. Nothing was written.");
         }
 
+        // The body is read with a cap, refused first on the length it declares and then while it is read, so a request
+        // that claims nothing and sends a great deal is cut off too (as InstallReportEndpoints does).
+        if (ctx.Request.ContentLength is > MaxBodyBytes)
+            return Error(413, "request_too_large", $"The request is over {MaxBodyBytes} bytes. Nothing was written; send it as an email.");
+        var raw = await ReadCappedAsync(ctx.Request.Body, MaxBodyBytes, ct);
+        if (raw is null)
+            return Error(413, "request_too_large", $"The request is over {MaxBodyBytes} bytes. Nothing was written; send it as an email.");
+
         WriteBody? body;
         try
         {
-            body = await JsonSerializer.DeserializeAsync<WriteBody>(ctx.Request.Body, JsonOpts, ct);
+            body = JsonSerializer.Deserialize<WriteBody>(raw, JsonOpts);
         }
         catch (JsonException)
         {
@@ -216,7 +234,7 @@ internal static class WebsiteInboxEndpoints
         if (AuthMiddleware.CallingSession(ctx) is not null)
             return Error(403, "session_key_out_of_scope", "Only the owner makes the website's key, from his phone or Cockpit. A session cannot.");
         var identity = AuthMiddleware.AuthenticatedDevice(ctx);
-        if (identity is null || identity.DeviceType is not (MobileDeviceEnrollmentService.PhoneDeviceType or MobileDeviceEnrollmentService.BrowserDeviceType))
+        if (identity is null || !IsOwnerDevice(identity))
         {
             FileLog.Write($"[WebsiteInboxEndpoints] owner route REFUSED: device type {identity?.DeviceType ?? "(none)"}");
             return Error(403, "owner_device_required",
@@ -228,6 +246,10 @@ internal static class WebsiteInboxEndpoints
         device = new DeviceCredentialIdentityRef(identity.DeviceId);
         return null;
     }
+
+    /// <summary>The owner's own phone or browser key - the only keys that may make the website's key.</summary>
+    private static bool IsOwnerDevice(DeviceCredentialIdentity? device)
+        => device?.DeviceType is MobileDeviceEnrollmentService.PhoneDeviceType or MobileDeviceEnrollmentService.BrowserDeviceType;
 
     /// <summary>The one fact the mint needs from the owner's device.</summary>
     private sealed record DeviceCredentialIdentityRef(string DeviceId);
@@ -253,6 +275,7 @@ internal static class WebsiteInboxEndpoints
                 + "a message to your inbox and can do nothing else.",
             State: status.State,
             StatusLine: line,
+            CanMint: true,
             MintLabel: status.State == WebsiteInboxKeyStore.States.Active ? "Make a new key" : "Make a key",
             MintNote: status.State == WebsiteInboxKeyStore.States.Active ? "The old key stops working at once." : null,
             CanRevoke: status.State == WebsiteInboxKeyStore.States.Active,
@@ -262,7 +285,40 @@ internal static class WebsiteInboxEndpoints
                 : "Copy this key now; it is shown only once. Put it in the website's Vercel settings as WEBSITE_INBOX_KEY, then redeploy the website.");
     }
 
+    /// <summary>
+    /// THE CARD WHERE THE KEY CANNOT BE MADE: a screen signed in with something other than the owner's phone or browser
+    /// key, such as a self-hosted Cockpit on this Gateway's machine token. It says so and offers no button.
+    /// </summary>
+    internal static WebsiteInboxCardDto UnavailableCard() => new(
+        Title: "Website messages",
+        Explanation: "The DevThrottle website can tell you about the AI cost check, the weekly report, factory applications, "
+            + "bookings and the creator report in Your inbox instead of by email, with a key you make for it.",
+        State: "unavailable",
+        StatusLine: "Not available here. The website's key is made only from your phone or a Cockpit signed in to your DevThrottle "
+            + "account, and this screen is signed in with this Gateway's own key. Open Settings on your phone to make it.",
+        CanMint: false,
+        MintLabel: "Make a key",
+        MintNote: null,
+        CanRevoke: false,
+        RevokeLabel: "Revoke the key",
+        Key: null,
+        KeyLine: null);
+
     private static string Format(DateTime? utc) => utc is { } t ? t.ToString("d MMMM yyyy, HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture) : "at a time not recorded";
+
+    /// <summary>The body, or null when it is over <paramref name="max"/> bytes.</summary>
+    private static async Task<byte[]?> ReadCappedAsync(Stream body, int max, CancellationToken ct)
+    {
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int read;
+        while ((read = await body.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > max) return null;
+            buffer.Write(chunk, 0, read);
+        }
+        return buffer.ToArray();
+    }
 
     private static IResult Error(int status, string code, string error)
         => Results.Json(new { error, code }, JsonOpts, statusCode: status);
@@ -275,6 +331,7 @@ internal sealed record WebsiteInboxCardDto(
     string Explanation,
     string State,
     string StatusLine,
+    bool CanMint,
     string MintLabel,
     string? MintNote,
     bool CanRevoke,

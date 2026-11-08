@@ -316,11 +316,76 @@ public sealed class WebsiteInboxEndpointTests : IAsyncLifetime
     [InlineData(Session)]
     [InlineData(Machine)]
     [InlineData(null)]
-    public async Task KeyRoutes_FromAnythingButThePhoneOrBrowser_AreRefusedAndNoKeyIsMade(string? caller)
+    public async Task MakeAndRevoke_FromAnythingButThePhoneOrBrowser_AreRefusedAndNoKeyIsMade(string? caller)
     {
-        foreach (var method in new[] { HttpMethod.Get, HttpMethod.Post, HttpMethod.Delete })
-            Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(method, WebsiteInboxEndpoints.KeyPath, caller)).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(HttpMethod.Post, WebsiteInboxEndpoints.KeyPath, caller)).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(HttpMethod.Delete, WebsiteInboxEndpoints.KeyPath, caller)).Status);
         Assert.Equal(WebsiteInboxKeyStore.States.None, _keys.Status(A).State);
+    }
+
+    [Theory]
+    [InlineData(Director)]
+    [InlineData(Machine)]
+    [InlineData(null)]
+    public async Task Status_FromAScreenThatCannotMakeTheKey_IsANotAvailableCardWithNoButtons(string? caller)
+    {
+        // A self-hosted Cockpit on the machine token: the card says the truth instead of a red error.
+        await MintAsync();
+
+        var (status, json) = await SendAsync(HttpMethod.Get, WebsiteInboxEndpoints.KeyPath, caller);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("unavailable", json.GetProperty("state").GetString());
+        Assert.StartsWith("Not available here.", json.GetProperty("statusLine").GetString());
+        Assert.False(json.GetProperty("canMint").GetBoolean());
+        Assert.False(json.GetProperty("canRevoke").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("key").ValueKind);
+    }
+
+    [Fact]
+    public async Task Status_FromASession_IsStillRefused()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(HttpMethod.Get, WebsiteInboxEndpoints.KeyPath, Session)).Status);
+    }
+
+    [Fact]
+    public async Task Write_BodyOverTheByteCap_Is413BeforeItIsRead()
+    {
+        var key = await MintAsync();
+        var json = JsonSerializer.Serialize(new { what = "weekly-report", subject = "Big", bodyHtml = new string('x', WebsiteInboxEndpoints.MaxBodyBytes + 1) });
+
+        var (status, answer) = await WriteAsync(key, json);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, status);
+        Assert.Equal("request_too_large", answer.GetProperty("code").GetString());
+        Assert.Empty(InboxOf(A));
+    }
+
+    [Fact]
+    public async Task Write_BodyOverTheByteCapWithNoDeclaredLength_IsCutOffWhileRead()
+    {
+        var key = await MintAsync();
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { what = "weekly-report", subject = "Big", bodyHtml = new string('x', WebsiteInboxEndpoints.MaxBodyBytes + 1) }));
+        var request = new HttpRequestMessage(HttpMethod.Post, WebsiteInboxEndpoints.WritePath)
+        {
+            // A stream with no length: the request says nothing about its size, so only the capped read can stop it.
+            Content = new StreamContent(new NoLengthStream(bytes)),
+        };
+        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Null(request.Content.Headers.ContentLength);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Empty(InboxOf(A));
+    }
+
+    /// <summary>A readable stream that will not say how long it is.</summary>
+    private sealed class NoLengthStream(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override bool CanSeek => false;
+        public override long Length => throw new NotSupportedException();
     }
 
     [Fact]
