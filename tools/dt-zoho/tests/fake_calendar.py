@@ -170,6 +170,7 @@ class FakeCalendar:
         shown = {k: v for k, v in event.items() if not k.startswith("_") and k != "overrides"}
         if over:
             shown["title"] = over["title"]
+            shown["attendees"], shown["reminders"] = over["attendees"], over["reminders"]
             for key in ("location", "description"):
                 if over.get(key):
                     shown[key] = over[key]
@@ -226,9 +227,12 @@ class FakeCalendar:
         old_etag = event["etag"]
         if occurrence:
             # As Zoho did on 8 November 2026: the changed occurrence gets its own etag, the series a new one.
+            own = {"organizer": event.get("organizer")}
+            self._fill(own, data)
             event["overrides"][occurrence] = {"title": data["title"], "dateandtime": data["dateandtime"],
                                               "location": data.get("location"),
                                               "description": data.get("description"),
+                                              "attendees": own["attendees"], "reminders": own["reminders"],
                                               "etag": str(int(old_etag) + 1)}
             event["etag"] = str(int(old_etag) + 7)
             return _ok({"events": [{"uid": event["uid"], "etag": event["overrides"][data["recurrenceid"]]["etag"]}]})

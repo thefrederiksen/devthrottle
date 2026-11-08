@@ -121,7 +121,7 @@ Ids may be space or comma separated. Every command takes `--json` and `--account
 | `calendar share CAL --with A` / `unshare CAL --with A` / `shares CAL` | Share for viewing (the level proven), stop, list |
 | `event list [--calendar C] [--from D] [--to D] [--instances]` | Events, earliest first; `--instances` lists each occurrence with its id |
 | `event show UID` | Times, invitees and their answers, reminders, repeat rule, changed and deleted occurrences, meeting links |
-| `event create --title T --start "YYYY-MM-DD HH:MM" [--end\|--duration] [--time-zone] [--location] [--description] [--invite A] [--reminder email:30] [--repeat RULE] [--meeting]` | Create; `--meeting` adds a Zoho Meeting and prints the guest join link and the host start link |
+| `event create --title T --start "YYYY-MM-DD HH:MM" [--end\|--duration] [--time-zone] [--location] [--description] [--invite A] [--reminder email:30] [--repeat RULE] [--meeting]` | Create; `--meeting` adds a Zoho Meeting and prints both links, labelled: `join link for guests` and `start the meeting (owner only)` |
 | `event change UID [--occurrence ID] [--title] [--start] [--end\|--duration] [--location] [--description] [--invite] [--uninvite] [--reminder\|--no-reminders]` | Change; Zoho replaces the whole event, so dt-zoho sends every field again. `--start` is read in the event's own time zone; all-day events are refused |
 | `event delete UID [--occurrence ID]` | Delete an event, a series, or one occurrence |
 | `event respond` | Says Zoho's API cannot answer an invitation; use `dt-calendar respond` |
@@ -135,14 +135,19 @@ invitee - because Zoho mails each of them (an invitation, or a "Cancelled" notic
 - **Invitations come from noreply@zohocalendar.ca** (Reply-To the organizer), and **Zoho keeps only invitees
   inside its organisation**, dropping others - and the organizer's own aliases - without an error.
   `event create` and `event change` read the event back and exit 1 naming whoever was dropped.
-- **A Zoho Meeting** is `--meeting`. The guest join link is in the invitation; the host start link is only
-  in dt-zoho's output. A change keeps the same meeting and links.
+- **A Zoho Meeting** is `--meeting`. dt-zoho prints two links, labelled for what they do (in `--json`,
+  `join_link_for_guests` and `start_link_owner_only`). **Only the start link starts the meeting**: Zoho
+  Calendar's own start button left guests "waiting for the host". Whoever holds it starts the meeting as its
+  owner, so it must never reach a guest: the invitation carries the join link only, and dt-zoho refuses a
+  title, location or description that carries a start link. A change keeps the same meeting and links.
 - **Repeating events**: Zoho answers with the rule alone (INTERVAL=1 added). Changing a whole series was not
   proven - and a change sent without the rule turned a test series into a single event - so dt-zoho changes
   one occurrence (`--occurrence`) and refuses a series change. Once an occurrence changed, the event's own
   answer lists each changed occurrence (with its own values and etag), each deleted one, then the series. A
   series delete takes the series' etag; a changed occurrence answers only to its own (the series' drew 409
-  CONFLICT_EVENT), and a second change to it starts from its current values. A deleted occurrence cannot be
+  CONFLICT_EVENT), and a second change to it starts from its current values. Zoho keeps invitees and reminders
+  per occurrence: someone removed from one occurrence stays removed when it changes again (run 8 November
+  2026). A deleted occurrence cannot be
   changed. If the answer has no series entry, or no etag, dt-zoho refuses.
 - **A change replaces the whole event.** Leaving the location, the description or the invitees out of the
   request removes them, so dt-zoho always sends them again. An invitee's answer (accepted) survives a change.

@@ -2982,7 +2982,7 @@ in its own message paths.
 |---|---|
 | `dt-zoho calendars` / `calendar create\|rename\|delete\|share\|unshare\|shares` | Calendars and view-only sharing |
 | `dt-zoho event list [--from --to] [--instances]` / `event show <uid>` | Read events, invitees' answers, meeting links |
-| `dt-zoho event create --title --start [--end\|--duration] [--invite] [--reminder email:30] [--repeat RULE] [--meeting]` | Create; `--meeting` prints the guest join and host start links |
+| `dt-zoho event create --title --start [--end\|--duration] [--invite] [--reminder email:30] [--repeat RULE] [--meeting]` | Create; `--meeting` prints the join link for guests and the start link (owner only; never give it to a guest) |
 | `dt-zoho event change <uid> [--occurrence <id>] [...]` / `event delete <uid> [--occurrence <id>]` | Change or delete an event, or one occurrence |
 
 Zoho keeps only invitees inside its organisation and drops others silently; create and change exit 1 naming

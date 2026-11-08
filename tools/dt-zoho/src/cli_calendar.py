@@ -24,7 +24,7 @@ CalendarOpt = typer.Option(None, "--calendar", "-c", help="The calendar: name or
 CalendarArg = typer.Argument(..., help="The calendar: name or uid (dt-zoho calendars).")
 EventArg = typer.Argument(..., help="The event uid (dt-zoho event list).")
 EVENT_FIELDS = ("uid", "start", "end", "title", "time_zone", "location", "organizer", "repeats", "occurrence",
-                "attendees", "meeting_join_link")
+                "attendees", zcalendar.JOIN_KEY)
 EVENT_DEFAULT = ("uid", "start", "end", "title")
 DEFAULT_MINUTES = 60
 
@@ -81,6 +81,9 @@ def _print_event(record: dict, json_output: bool) -> None:
     shown["attendees"] = ", ".join(f"{a['email']} ({a['status']})" for a in record["attendees"]) or None
     shown["reminders"] = ", ".join(f"{r['action']} {r['minutes_before']} minutes before"
                                    for r in record["reminders"]) or None
+    for key, label in ((zcalendar.JOIN_KEY, zcalendar.JOIN_LABEL), (zcalendar.START_KEY, zcalendar.START_LABEL)):
+        if key in shown:
+            shown[label] = shown.pop(key)
     _report({k: v for k, v in shown.items() if v not in (None, "", [])}, False)
 
 
@@ -264,8 +267,9 @@ def event_create(title: str = typer.Option(..., "--title", "-t"),
                  repeat: Optional[str] = typer.Option(None, "--repeat", help="An iCalendar rule, for example "
                                                                              "FREQ=DAILY;COUNT=3 or "
                                                                              "FREQ=WEEKLY;BYDAY=MO;COUNT=10."),
-                 meeting: bool = typer.Option(False, "--meeting", help="Add a Zoho Meeting: prints the guest join "
-                                                                       "link and the host start link."),
+                 meeting: bool = typer.Option(False, "--meeting", help="Add a Zoho Meeting: prints the join link "
+                                                                       "for guests and the start link (owner "
+                                                                       "only; only it starts the meeting)."),
                  calendar: Optional[str] = CalendarOpt, json_output: bool = JsonOpt) -> None:
     """Create an event, optionally inviting people, with reminders, a repeat rule or a Zoho Meeting."""
     begin, finish = _times(start, end, duration)
@@ -276,6 +280,7 @@ def event_create(title: str = typer.Option(..., "--title", "-t"),
     if repeat is not None and "FREQ=" not in repeat.upper():
         raise DtZohoError(f"--repeat must be an iCalendar rule with FREQ=, such as FREQ=DAILY;COUNT=3, not '{repeat}'.",
                           exit_code=2)
+    zcalendar.check_no_start_link({"--title": title, "--location": location, "--description": description})
     config.check_recipients(config.load(), invitees)
     client = _client()
     cal = zcalendar.resolve_calendar(client, calendar)
@@ -286,7 +291,7 @@ def event_create(title: str = typer.Option(..., "--title", "-t"),
     record = zcalendar.event_record(stored)
     record["calendar"] = cal["name"]
     _print_event(record, json_output)
-    if meeting and not (record["meeting_join_link"] and record["meeting_start_link"]):
+    if meeting and not (record[zcalendar.JOIN_KEY] and record[zcalendar.START_KEY]):
         raise DtZohoError(f"Zoho created the event {created['uid']} but gave no meeting link with it.")
     _check_dropped(invitees, stored, created["uid"], cal)
 
@@ -361,27 +366,31 @@ def event_change(uid: str = EventArg,
     else:
         old_start, old_end = _wall_time(when["start"], zone), _wall_time(when["end"], zone)
     begin, finish = _times(start, end, duration, (old_start, old_end))
-    invited = _invitees(current)
+    invited = _invitees(base)
     kept = [a for a in invited if a.lower() not in removed]
     attendees = kept + [a for a in added if a.lower() not in {k.lower() for k in kept}]
     # Zoho mails everyone still invited again, and a "Cancelled" notice to anyone removed (8 November 2026).
     config.check_recipients(config.load(), attendees + [a for a in invited if a.lower() in removed])
     reminders = new_reminders if new_reminders is not None else [
-        {"action": r.get("action"), "minutes": int(r.get("minutes"))} for r in current.get("reminders") or []
+        {"action": r.get("action"), "minutes": int(r.get("minutes"))} for r in base.get("reminders") or []
         if r.get("minutes") not in (None, "")]
     data = zcalendar.event_data(title if title is not None else base.get("title") or "", begin, finish, zone,
                                 location if location is not None else base.get("location"),
                                 description if description is not None else base.get("description"),
                                 attendees, reminders, None, False)
+    zcalendar.check_no_start_link({"--title": data.get("title"), "--location": data.get("location"),
+                                   "--description": data.get("description")},
+                                  zcalendar.meeting_links(current)[zcalendar.START_KEY])
     data["etag"] = etag
     if occurrence:
         data.update({"isrep": True, "recurrenceid": occurrence, "recurrence_edittype": "only"})
     zcalendar.change_event(client, cal["uid"], uid, data)
     stored = zcalendar.event(client, cal["uid"], uid)
-    record = zcalendar.event_record(stored["_changed"].get(occurrence, stored) if occurrence else stored)
+    shown = stored["_changed"].get(occurrence, stored) if occurrence else stored
+    record = zcalendar.event_record(shown)
     record.update(calendar=cal["name"], changed=True, occurrence=occurrence)
     _print_event(record, json_output)
-    _check_dropped(added, stored, uid, cal)
+    _check_dropped(added, shown, uid, cal)
 
 
 @event_app.command("delete")

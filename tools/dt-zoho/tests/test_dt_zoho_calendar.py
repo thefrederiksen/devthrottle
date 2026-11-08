@@ -134,15 +134,15 @@ def test_create_Repeat_SendsTheRuleWithATimeZone(env):
 def test_create_Meeting_PrintsTheJoinAndStartLinks(env):
     data = _create(env, "--meeting")
     assert _sent_event(env, "POST")["conference"] == "zmeeting"
-    assert data["meeting_join_link"].startswith("https://meet.zohocloud.ca/")
-    assert data["meeting_start_link"].startswith("https://meeting.zohocloud.ca/meeting/meeting-start")
+    assert data["join_link_for_guests"].startswith("https://meet.zohocloud.ca/")
+    assert data["start_link_owner_only"].startswith("https://meeting.zohocloud.ca/meeting/meeting-start")
     text = env.ok("event", "create", "--title", "y", "--start", "2026-11-21 10:00", "--meeting").stdout
-    assert "meeting_join_link: https://meet.zohocloud.ca/" in text and "meeting_start_link: https://" in text
+    assert "join link for guests: https://meet.zohocloud.ca/" in text and "start the meeting (owner only): https://" in text
 
 
 def test_create_MeetingWithInvitee_KeepsTheLinks(env):
     data = _create(env, "--meeting", "--invite", OTHER)
-    assert data["meeting_join_link"] and data["meeting_start_link"]
+    assert data["join_link_for_guests"] and data["start_link_owner_only"]
 
 
 # --------------------------------------------------------------------------------------------- read
@@ -254,7 +254,26 @@ def test_change_MeetingEvent_KeepsTheMeetingAndShowsItsLinks(env):
     data = _create(env, "--meeting")
     changed = json.loads(env.ok("event", "change", data["uid"], "--start", "2026-11-20 11:00", "--json").stdout)
     assert "conference" not in _sent_event(env, "PUT")
-    assert (changed["meeting_join_link"], changed["meeting_start_link"]) ==            (data["meeting_join_link"], data["meeting_start_link"])
+    assert (changed["join_link_for_guests"], changed["start_link_owner_only"]) ==            (data["join_link_for_guests"], data["start_link_owner_only"])
+
+
+def _everything_sent(env) -> str:
+    return json.dumps(env.zoho.calendar.calls, default=str)
+
+
+def test_meeting_StartLink_NeverReachesWhatAGuestReceives(env):
+    # Only the host link starts the meeting; a guest holding it would start it as the owner.
+    data = _create(env, "--meeting", "--invite", OTHER, "--description", "agenda")
+    host = data["start_link_owner_only"]
+    env.ok("event", "change", data["uid"], "--title", "renamed", "--description", "new agenda")
+    assert host not in _everything_sent(env)
+    for option in ("--description", "--location", "--title"):
+        refused = env.run("event", "change", data["uid"], option, f"start it here {host}")
+        assert refused.exit_code == 2 and "start link" in refused.output
+    refused = env.run("event", "create", "--title", "x", "--start", "2026-11-21 10:00", "--invite", OTHER,
+                      "--description", f"host: {host}")
+    assert refused.exit_code == 2 and "start link" in refused.output
+    assert host not in _everything_sent(env)
 
 
 def test_occurrence_ChangeOneThenDeleteOneThenTheSeries(env):
@@ -307,6 +326,19 @@ def test_occurrence_SecondChange_KeepsTheFirstChange(env):
                                    "timezone": "America/Toronto"}
     # The answer shows the occurrence, not the series.
     assert (shown["title"], shown["start"], shown["description"]) == ("Moved", "2026-11-21T12:00:00-05:00", "agenda")
+
+
+def test_occurrence_SecondChange_KeepsItsOwnInviteesAndReminders(env):
+    # Someone removed from one occurrence must not be invited to it again by a later change to it.
+    data = _create(env, "--repeat", "FREQ=DAILY;COUNT=3", "--invite", OTHER, "--reminder", "email:30")
+    env.ok("event", "change", data["uid"], "--occurrence", "20261121T150000Z", "--uninvite", OTHER,
+           "--no-reminders")
+    env.ok("event", "change", data["uid"], "--occurrence", "20261121T150000Z", "--title", "Renamed")
+    sent = _sent_event(env, "PUT")
+    assert "attendees" not in sent and sent["reminders"] == []
+    # And an invitee added to one occurrence is read back from that occurrence, not reported dropped.
+    alone = _create(env, "--repeat", "FREQ=DAILY;COUNT=3", "--title", "alone")
+    env.ok("event", "change", alone["uid"], "--occurrence", "20261122T150000Z", "--invite", OTHER)
 
 
 def test_occurrence_DeleteAChangedOne_UsesItsOwnEtag(env):

@@ -198,10 +198,27 @@ def event(client: ZohoClient, cal_uid: str, uid: str) -> dict:
     return dict(series[0], _changed=changed, _deleted=deleted)
 
 
+# The two links, labelled for what they do. Only the host link starts the meeting - Zoho Calendar's own start
+# button left guests "waiting for the host" (the owner, 8 November 2026) - so it must never reach a guest.
+JOIN_KEY, JOIN_LABEL = "join_link_for_guests", "join link for guests"
+START_KEY, START_LABEL = "start_link_owner_only", "start the meeting (owner only)"
+START_LINK_MARK = "/meeting/meeting-start"
+
+
 def meeting_links(raw: dict) -> dict:
     guest = ((raw.get("conference_data") or {}).get("meetingdata") or {}).get("meeting_link")
     host = ((raw.get("app_data") or {}).get("meetingdata") or {}).get("meetinglink")
-    return {"meeting_join_link": guest, "meeting_start_link": host}
+    return {JOIN_KEY: guest, START_KEY: host}
+
+
+def check_no_start_link(texts: dict, host_link: Optional[str] = None) -> None:
+    """Refuse text bound for the invitation that carries a meeting's start link: whoever has it starts the
+    meeting as its owner."""
+    for option, text in texts.items():
+        if text and (START_LINK_MARK in text or (host_link and host_link in text)):
+            raise DtZohoError(f"{option} carries a Zoho Meeting start link, which starts the meeting as its owner and "
+                              "would reach every invitee. Give guests the join link instead. Nothing was sent.",
+                              exit_code=2)
 
 
 def event_record(raw: dict) -> dict:
