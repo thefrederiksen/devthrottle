@@ -187,6 +187,24 @@ export function SessionDetail() {
     });
   }, []);
 
+  // Which agent and which MODEL the open session is running (issue devthrottle_internal#1340), and the session's
+  // Mission (the Mission Button on the Web mission). The roster says the model for every row; this says it for the
+  // session actually on screen. Both are the Gateway's folds, drawn verbatim by shared readers and the ONE shared
+  // MissionButton the phone's session app bar also mounts; each renders nothing when the row carries no verdict.
+  //
+  // They sit on the row UNDER the tabs, at its right (Web UI Polish, fix 6): in the tab strip they pushed "Source
+  // Control" onto two lines and ran the Mission button under the Queue panel at 1600 pixels. On Chat they ride the
+  // filter row itself; the other tabs have no filter row, so there they get a slim row of their own.
+  const headerExtras = selected ? (
+    <>
+      <SessionModelChip session={selected} />
+      <span className="session-mission">
+        <MissionButton display={selected.missionButton} sessionId={selected.sessionId} />
+      </span>
+    </>
+  ) : null;
+  const chatRowCarriesExtras = mainTab === "chat" && !selected?.apiMode && !(sessions === null && !rosterError);
+
   return (
     <div
       className={`session-detail${showDock ? "" : " session-detail-wide"}${
@@ -250,20 +268,6 @@ export function SessionDetail() {
           >
             Reports
           </button>
-          {/* Which agent and which MODEL the open session is running (issue devthrottle_internal#1340).
-              The roster says it for every row; this says it for the session actually on screen, so the
-              answer is on the surface you are looking at rather than one click away. Both the words and
-              the tooltip are the Gateway's fold, read through the same shared reader the roster and the
-              Fleet Map use. */}
-          {selected && <SessionModelChip session={selected} />}
-          {/* The session's Mission (the Mission Button on the Web mission): the Gateway's verdict, drawn by the ONE
-              shared component the phone's session app bar also mounts, beside the session's actions. Renders
-              nothing when the row carries no verdict. */}
-          {selected && (
-            <span className="session-mission">
-              <MissionButton display={selected.missionButton} sessionId={selected.sessionId} />
-            </span>
-          )}
           {/* This session asked to talk to another (issue #3631): a chip whose popover approves or denies it. */}
           {sessionId && <LinkRequestChip sessionId={sessionId} />}
           {/* This session asked for a secret from another machine (issue #2943): a chip whose popover approves or
@@ -273,6 +277,8 @@ export function SessionDetail() {
               the session header, driving the shared Gateway calls. */}
           {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate(`/sessions${filterSearch}`)} />}
         </div>
+
+        {headerExtras !== null && !chatRowCarriesExtras && <div className="session-subbar">{headerExtras}</div>}
 
         <div className="session-content">
           {/* The terminal is ALWAYS mounted (hidden, not unmounted, when Chat or Voice is active) so its
@@ -294,7 +300,7 @@ export function SessionDetail() {
                   <div className="chat-empty" role="status">Loading session...</div>
                 </div>
               ) : (
-                <ChatTab sessionId={sessionId} />
+                <ChatTab sessionId={sessionId} toolbarEnd={headerExtras ?? undefined} />
               )}
             </div>
           )}

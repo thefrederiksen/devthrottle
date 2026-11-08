@@ -2087,6 +2087,65 @@ body {
   margin-left: 8px;
 }
 
+/* Web UI Polish, fix 6: the chip and the Mission button left the tab strip, so the tabs have the top row to
+   themselves at 1600 pixels. On Chat they sit at the right of the filter row (.chat-filter-end); on the other
+   tabs, which have no filter row, they sit at the right of a slim row of their own (.session-subbar). Either way
+   the strip's push-right and baseline nudge no longer apply. */
+.session-subbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.chat-filter-end {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-filter-end + .chat-live {
+  margin-left: 4px;
+}
+/* One line at 1600 pixels: when the pair is on the filter row, the row does not wrap. The detail switch, the
+   prompts pill, the model chip and LIVE keep their size; a long Mission name is what gives way, cut off at its end
+   (the Gateway's tooltip on the button still says it whole). */
+.chat-filter:has(.chat-filter-end) {
+  flex-wrap: nowrap;
+}
+.chat-filter:has(.chat-filter-end) > * {
+  flex-shrink: 0;
+}
+.chat-filter > .chat-filter-end {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.chat-filter-end .session-model {
+  flex: 0 0 auto;
+}
+.chat-filter-end .session-mission,
+.chat-filter-end .mb-root,
+.chat-filter-end .mb-btn {
+  min-width: 0;
+  max-width: 100%;
+}
+.chat-filter-end .mb-btn {
+  overflow: hidden;
+}
+.chat-filter-end .mb-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-subbar .session-model,
+.session-subbar .session-mission,
+.chat-filter-end .session-model,
+.chat-filter-end .session-mission {
+  margin: 0;
+}
+
 .session-model-agent {
   color: var(--text-dim);
   font-weight: 500;

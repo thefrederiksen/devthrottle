@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { chatLinkLabel, chatPathLabel } from "@devthrottle/client-core/history/chatView";
 import { isNotOnDisk, usePathStatuses } from "@devthrottle/client-core/history/usePathStatuses";
@@ -58,7 +58,7 @@ function turnClock(r: RenderedBubble): string {
 // The surface name the path-status hint reports a background failure under (issue #4078).
 const SURFACE_PATHS = "cockpit-chat-paths";
 
-export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
+export function ChatTab({ sessionId, toolbarEnd }: { sessionId: string | undefined; toolbarEnd?: ReactNode }) {
   const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter, hasEarlier, loadingEarlier, earlierPages, earlierError, loadEarlier } =
     useSessionChat(sessionId, { turns: CHAT_TURNS });
   // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
@@ -222,6 +222,9 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
           />
           My prompts only
         </label>
+        {/* The session header's agent chip and Mission button, handed in by the session view (Web UI Polish, fix
+            6): on this row they leave the tab strip to the tabs, so the tabs never wrap at 1600 pixels. */}
+        {toolbarEnd !== undefined && <span className="chat-filter-end">{toolbarEnd}</span>}
         <span className="chat-live">live</span>
       </div>
 

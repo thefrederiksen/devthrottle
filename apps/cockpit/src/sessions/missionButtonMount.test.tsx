@@ -21,7 +21,9 @@ vi.mock("./SessionComposer", () => ({ SessionComposer: () => <div /> }));
 vi.mock("./SessionMenu", () => ({ SessionMenu: () => <span data-testid="session-menu" /> }));
 vi.mock("./LinkRequests", () => ({ LinkRequestChip: () => null }));
 vi.mock("./SecretTransferChip", () => ({ SecretTransferChip: () => null }));
-vi.mock("./ChatTab", () => ({ ChatTab: () => <div /> }));
+vi.mock("./ChatTab", () => ({
+  ChatTab: ({ toolbarEnd }: { toolbarEnd?: import("react").ReactNode }) => <div data-testid="chat-filter-row">{toolbarEnd}</div>,
+}));
 vi.mock("./VoiceTab", () => ({ VoiceTab: () => <div /> }));
 vi.mock("./SourceControlTab", () => ({ SourceControlTab: () => <div /> }));
 vi.mock("./ReportsTab", () => ({ ReportsTab: () => <div /> }));
@@ -39,12 +41,12 @@ function row(sessionId: string, missionButton: SessionDto["missionButton"]): Ses
   return { sessionId, name: sessionId, missionButton } as SessionDto;
 }
 
-function renderDetail(sessions: SessionDto[]) {
+function renderDetail(sessions: SessionDto[], tab = "terminal") {
   function Shell() {
     return <Outlet context={{ sessions, directors: [], refreshNow: vi.fn() }} />;
   }
   return render(
-    <MemoryRouter initialEntries={[`/sessions/${SID}?tab=terminal`]}>
+    <MemoryRouter initialEntries={[`/sessions/${SID}?tab=${tab}`]}>
       <Routes>
         <Route element={<Shell />}>
           <Route path="/sessions/:sessionId" element={<SessionDetail />} />
@@ -73,14 +75,25 @@ describe("the Cockpit session header", () => {
     expect(link.className).toContain("mb-mission");
     expect(link.getAttribute("href")).toBe("/r/a24e87a1-fd9e-4f8b-87e6-04013cf1e75f");
     expect(link.getAttribute("target")).toBe("_blank");
-    // In the session header (the tab strip), before the session menu.
-    const header = link.closest(".session-tabs");
-    expect(header).not.toBeNull();
+    // On the row UNDER the tab strip (Web UI Polish, fix 6), so the tabs have the top row to themselves; the
+    // session menu stays at the top right of the strip.
+    expect(link.closest(".session-tabs")).toBeNull();
+    expect(link.closest(".session-subbar")).not.toBeNull();
     const menu = screen.getByTestId("session-menu");
-    expect(header?.contains(menu)).toBe(true);
-    expect(link.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(menu.closest(".session-tabs")).not.toBeNull();
     // The other row's yellow verdict is not drawn on this session's screen.
     expect(screen.queryByRole("button", { name: "Mission" })).toBeNull();
+  });
+
+  it("SessionDetail_ChatTab_PutsMissionOnTheChatFilterRowNotARowOfItsOwn", () => {
+    const { container } = renderDetail(
+      [row(SID, { verdict: "no-mission", label: "Mission", colorKey: "warning", iconKey: "warning", tooltip: "none", documentAddress: null })],
+      "chat",
+    );
+    const button = screen.getByRole("button", { name: "Mission" });
+    expect(button.closest("[data-testid='chat-filter-row']")).not.toBeNull();
+    expect(container.querySelector(".session-subbar")).toBeNull();
+    expect(button.closest(".session-tabs")).toBeNull();
   });
 
   it("SessionDetail_SelectedRowWithNoMission_DrawsYellowNoMission", () => {
