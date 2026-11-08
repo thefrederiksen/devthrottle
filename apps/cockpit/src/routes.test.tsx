@@ -103,6 +103,15 @@ describe("Cockpit routes", () => {
     expect(screen.getByTestId("where").textContent).toBe("/fleet-map");
   });
 
+  // A reload or an old bookmark of /missions, or one mission's address pasted in (the Gateway hands a browser the
+  // Cockpit for both, Web UI Polish 7 November 2026), lands on the Fleet Map, the missions' home.
+  it.each([["/missions"], ["/missions/f8264528-2e8f-4ce4-84e2-86012250f81d"]])("sends %s to the Fleet Map", async (path) => {
+    renderAt(path);
+
+    expect(await screen.findByText("fleet map page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/fleet-map");
+  });
+
   it("serves the walkthrough at its own address, without redirecting it", async () => {
     renderAt("/fleet-manager/walkthrough");
 
