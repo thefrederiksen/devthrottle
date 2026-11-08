@@ -13,9 +13,9 @@ namespace CcDirector.Avalonia;
 ///
 /// IT RENDERS THE GATEWAY'S VERDICT AND NOTHING ELSE (CLAUDE.md rule 7). The label, the tooltip and the address come
 /// from <see cref="Session.GatewayMissionButton"/>, the Gateway's <see cref="MissionButtonDisplay"/>, verbatim. The
-/// colour key maps to one of three looks in MainWindow.axaml and to nothing else; this class never reads the verdict
-/// to decide what a state means. A colour key this build does not know is a broken contract: it is logged, and no
-/// button is drawn rather than a guessed look. A Gateway that sends no verdict (one older than the mission) means no
+/// colour key maps to one of three looks in MainWindow.axaml and the icon key to one of the icons drawn before the word,
+/// and to nothing else; this class never reads the verdict to decide what a state means. A colour key or an icon key
+/// this build does not know is a broken contract: it is logged, and no button is drawn rather than a guessed look. A Gateway that sends no verdict (one older than the mission) means no
 /// button, which is the merge plan's promise.
 /// </summary>
 public sealed class MissionButtonPresenter
@@ -38,6 +38,14 @@ public sealed class MissionButtonPresenter
         [MissionButtonDisplay.ColorMission] = LookFilled,
         [MissionButtonDisplay.ColorMissionOutline] = LookOutline,
         [MissionButtonDisplay.ColorWarning] = LookWarning,
+    };
+
+    /// <summary>The only other mapping: the Gateway's icon key to the icon drawn before the word.</summary>
+    private static readonly IReadOnlyDictionary<string, MissionButtonIcon> Icons = new Dictionary<string, MissionButtonIcon>(StringComparer.Ordinal)
+    {
+        [MissionButtonDisplay.IconDocument] = MissionButtonIcon.Document,
+        [MissionButtonDisplay.IconNone] = MissionButtonIcon.None,
+        [MissionButtonDisplay.IconWarning] = MissionButtonIcon.Warning,
     };
 
     private readonly Action<Action> _post;
@@ -65,7 +73,8 @@ public sealed class MissionButtonPresenter
     /// (see <see cref="Problem"/>).</summary>
     public MissionButtonDisplay? Verdict => Problem is null ? _shown : null;
 
-    /// <summary>Why the Gateway's verdict cannot be drawn: a colour key this build does not know. Null otherwise.</summary>
+    /// <summary>Why the Gateway's verdict cannot be drawn: a colour key or an icon key this build does not know. Null
+    /// otherwise.</summary>
     public string? Problem => ProblemWith(_shown);
 
     /// <summary>The line shown in place of the button when the Gateway's verdict cannot be drawn - the
@@ -85,12 +94,20 @@ public sealed class MissionButtonPresenter
     /// <summary>The style class that draws the Gateway's colour key; null when there is no button.</summary>
     public string? Look => Verdict is { } v ? LookFor(v.ColorKey) : null;
 
+    /// <summary>The icon drawn before the word, from the Gateway's icon key; <see cref="MissionButtonIcon.None"/> when
+    /// there is no button.</summary>
+    public MissionButtonIcon Icon => Verdict is { } v && IconFor(v.IconKey) is { } icon ? icon : MissionButtonIcon.None;
+
     /// <summary>True when a click opens something: the Gateway gave an address.</summary>
     public bool CanOpen => Verdict?.DocumentAddress is not null;
 
     /// <summary>The style class for a colour key, or null for a key this build does not know.</summary>
     public static string? LookFor(string? colorKey) =>
         colorKey is not null && Looks.TryGetValue(colorKey, out var look) ? look : null;
+
+    /// <summary>The icon for an icon key, or null for a key this build does not know.</summary>
+    public static MissionButtonIcon? IconFor(string? iconKey) =>
+        iconKey is not null && Icons.TryGetValue(iconKey, out var icon) ? icon : null;
 
     /// <summary>
     /// The address a click opens: the Gateway base this Director is connected to, then the Gateway's own address for the
@@ -149,6 +166,9 @@ public sealed class MissionButtonPresenter
         if (LookFor(verdict.ColorKey) is null)
             return $"The Gateway sent a Mission button colour this Director does not know (\"{verdict.ColorKey}\"), so no Mission "
                 + "button is shown. Update the Director or the Gateway so they agree.";
+        if (IconFor(verdict.IconKey) is null)
+            return $"The Gateway sent a Mission button icon this Director does not know (\"{verdict.IconKey}\"), so no Mission "
+                + "button is shown. Update the Director or the Gateway so they agree.";
         return null;
     }
 
@@ -157,4 +177,17 @@ public sealed class MissionButtonPresenter
         try { Changed?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[MissionButtonPresenter] Changed handler FAILED: {ex.Message}"); }
     }
+}
+
+/// <summary>The icon drawn before the word on the Mission button, as the Gateway's icon key names it.</summary>
+public enum MissionButtonIcon
+{
+    /// <summary>No icon: the word alone (a Mission with no document yet).</summary>
+    None,
+
+    /// <summary>A small document (a Mission with a document).</summary>
+    Document,
+
+    /// <summary>A small yellow circle with an exclamation mark (a session with no Mission).</summary>
+    Warning,
 }

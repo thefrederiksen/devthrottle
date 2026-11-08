@@ -6756,9 +6756,9 @@ internal static partial class GatewayEndpoints
         // stays null, so it is unchanged on the wire. It reads nothing the colour, the label or the bucket read, and they
         // do not read it.
         ApiModeDisplay.ApiModeRowStamp.Stamp(all, apiModeFacts, tenant);
-        // THE MISSION BUTTON (the Missions First-Class mission): the Mission's name, colour key, tooltip and document
-        // address, or the yellow "No mission". It reads nothing the colour, the label or the bucket read, and they do
-        // not read it. Assigned on every row either way.
+        // THE MISSION BUTTON (the Missions First-Class mission): the word "Mission", colour key, icon key, a tooltip
+        // naming the Mission and its goal, and the document address. It reads nothing the colour, the label or the
+        // bucket read, and they do not read it. Assigned on every row either way.
         Missions.MissionButtonFold.Stamp(all,
             tenant is { IsValid: true } missionTenant && missionsFor is not null ? missionsFor(missionTenant) : null);
 

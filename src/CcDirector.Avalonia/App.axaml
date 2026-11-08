@@ -35,11 +35,14 @@
         <SolidColorBrush x:Key="TextForeground" Color="#CCCCCC" />
         <SolidColorBrush x:Key="AccentBrush" Color="#007ACC" />
         <SolidColorBrush x:Key="SelectedItemBrush" Color="#094771" />
-        <!-- The Mission button (Missions First-Class mission): indigo for a Mission, yellow for none. Both the session
-             tab bar and the toolbar corner draw it, in three looks, so the colours live here once. -->
+        <!-- The Mission button (Missions First-Class mission): indigo for a Mission, a yellow outline for none. Both the
+             session tab bar and the toolbar corner draw it, in three looks, so the colours live here once. The values
+             are the owner-approved mockup's (7 November 2026), the same as the Cockpit's and the phone's. -->
         <SolidColorBrush x:Key="MissionBrush" Color="#4338CA" />
-        <SolidColorBrush x:Key="MissionOutlineText" Color="#A5B4FC" />
-        <SolidColorBrush x:Key="MissionWarningBrush" Color="#EAB308" />
-        <SolidColorBrush x:Key="MissionWarningText" Color="#1E1E1E" />
+        <SolidColorBrush x:Key="MissionBorderBrush" Color="#6366F1" />
+        <SolidColorBrush x:Key="MissionOutlineText" Color="#C7D2FE" />
+        <SolidColorBrush x:Key="MissionWarningBrush" Color="#CA8A04" />
+        <SolidColorBrush x:Key="MissionWarningText" Color="#FDE68A" />
+        <SolidColorBrush x:Key="MissionWarningIcon" Color="#EAB308" />
     </Application.Resources>
 </Application>

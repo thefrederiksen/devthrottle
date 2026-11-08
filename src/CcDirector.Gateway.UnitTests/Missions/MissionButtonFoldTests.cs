@@ -37,15 +37,16 @@ public sealed class MissionButtonFoldTests
     private static Dictionary<Guid, Mission> Store(params Mission[] missions) => missions.ToDictionary(m => m.MissionId);
 
     [Fact]
-    public void For_MissionWithDocument_ShowsNameInMissionColourWithGoalTooltipAndAddress()
+    public void For_MissionWithDocument_SaysMissionFilledWithDocumentIconNameAndGoalInTooltipAndAddress()
     {
         var verdict = MissionButtonFold.For(Session(MissionId),
             Store(MissionRecord(ReportId, goal: "Every session shows its Mission.")));
 
         Assert.Equal(MissionButtonDisplay.VerdictMissionWithDocument, verdict.Verdict);
-        Assert.Equal("Missions First-Class", verdict.Label);
+        Assert.Equal("Mission", verdict.Label);
         Assert.Equal(MissionButtonDisplay.ColorMission, verdict.ColorKey);
-        Assert.Equal("Mission: Missions First-Class\nGoal: Every session shows its Mission.", verdict.Tooltip);
+        Assert.Equal(MissionButtonDisplay.IconDocument, verdict.IconKey);
+        Assert.Equal("Mission: Missions First-Class\nGoal: Every session shows its Mission.\nClick to open the mission document.", verdict.Tooltip);
         Assert.Equal($"/r/{ReportId:D}", verdict.DocumentAddress);
     }
 
@@ -56,30 +57,33 @@ public sealed class MissionButtonFoldTests
 
         Assert.Equal(MissionButtonDisplay.VerdictMissionWithDocument, verdict.Verdict);
         Assert.Equal(MissionButtonDisplay.ColorMission, verdict.ColorKey);
-        Assert.Equal("Mission: Missions First-Class\nGoal: not set - the mission document has no goal section.", verdict.Tooltip);
+        Assert.Equal(MissionButtonDisplay.IconDocument, verdict.IconKey);
+        Assert.Equal("Mission: Missions First-Class\nGoal: not set - the mission document has no goal section.\nClick to open the mission document.", verdict.Tooltip);
         Assert.Equal($"/r/{ReportId:D}", verdict.DocumentAddress);
     }
 
     [Fact]
-    public void For_MissionWithoutDocument_ShowsNameAsOutlineWithNoAddress()
+    public void For_MissionWithoutDocument_SaysMissionAsOutlineWithNoIconNameInTooltipAndNoAddress()
     {
         var verdict = MissionButtonFold.For(Session(MissionId), Store(MissionRecord(document: null)));
 
         Assert.Equal(MissionButtonDisplay.VerdictMissionWithoutDocument, verdict.Verdict);
-        Assert.Equal("Missions First-Class", verdict.Label);
+        Assert.Equal("Mission", verdict.Label);
         Assert.Equal(MissionButtonDisplay.ColorMissionOutline, verdict.ColorKey);
+        Assert.Equal(MissionButtonDisplay.IconNone, verdict.IconKey);
         Assert.Equal("Mission: Missions First-Class\nThis Mission has no document yet.", verdict.Tooltip);
         Assert.Null(verdict.DocumentAddress);
     }
 
     [Fact]
-    public void For_NoMission_ShowsYellowNoMissionWithNoAddress()
+    public void For_NoMission_SaysMissionInYellowWithWarningIconAndNoAddress()
     {
         var verdict = MissionButtonFold.For(Session(missionId: null), Store(MissionRecord(ReportId)));
 
         Assert.Equal(MissionButtonDisplay.VerdictNoMission, verdict.Verdict);
-        Assert.Equal("No mission", verdict.Label);
+        Assert.Equal("Mission", verdict.Label);
         Assert.Equal(MissionButtonDisplay.ColorWarning, verdict.ColorKey);
+        Assert.Equal(MissionButtonDisplay.IconWarning, verdict.IconKey);
         Assert.StartsWith("This session has no Mission.", verdict.Tooltip);
         Assert.Null(verdict.DocumentAddress);
     }
@@ -98,7 +102,7 @@ public sealed class MissionButtonFoldTests
         var verdict = MissionButtonFold.For(Session(MissionId, cachedName: "Old name"),
             Store(MissionRecord(ReportId, goal: "g", name: "New name")));
 
-        Assert.Equal("New name", verdict.Label);
+        Assert.Equal("Mission", verdict.Label);
         Assert.StartsWith("Mission: New name", verdict.Tooltip);
     }
 
@@ -108,7 +112,8 @@ public sealed class MissionButtonFoldTests
         var verdict = MissionButtonFold.For(Session(MissionId, cachedName: "Elsewhere"), Store());
 
         Assert.Equal(MissionButtonDisplay.VerdictMissionWithoutDocument, verdict.Verdict);
-        Assert.Equal("Elsewhere", verdict.Label);
+        Assert.Equal("Mission", verdict.Label);
+        Assert.StartsWith("Mission: Elsewhere\n", verdict.Tooltip);
         Assert.Null(verdict.DocumentAddress);
     }
 
@@ -139,7 +144,9 @@ public sealed class MissionButtonFoldTests
 
         Assert.Equal(MissionButtonDisplay.VerdictMissionWithDocument, linked.MissionButton?.Verdict);
         Assert.Equal($"/r/{ReportId:D}", linked.MissionButton?.DocumentAddress);
+        Assert.Equal(MissionButtonDisplay.IconDocument, linked.MissionButton?.IconKey);
         Assert.Equal(MissionButtonDisplay.VerdictNoMission, none.MissionButton?.Verdict);
+        Assert.Equal(MissionButtonDisplay.IconWarning, none.MissionButton?.IconKey);
     }
 
     [Fact]

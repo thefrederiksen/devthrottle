@@ -11,43 +11,53 @@
         Background="{DynamicResource PanelBackground}"
         Icon="avares://cc-director/app.ico">
 
+    <Window.Resources>
+        <!-- The Mission button's two icons, drawn on a 16 by 16 grid. Both buttons in this window (the toolbar corner and
+             the session tab bar) use these, so the shapes cannot drift apart. The exclamation mark's dot is an Ellipse
+             beside it. -->
+        <StreamGeometry x:Key="MissionDocumentIconGeometry">M4,1.5 H9.5 L12.5,4.5 V14.5 H4 Z M9.5,1.5 V4.5 H12.5 M6,8 H10.5 M6,10.5 H10.5</StreamGeometry>
+        <StreamGeometry x:Key="MissionWarningIconGeometry">M1.5,8 A6.5,6.5 0 1 1 14.5,8 A6.5,6.5 0 1 1 1.5,8 Z M8,4.5 V8.8</StreamGeometry>
+    </Window.Resources>
+
     <Window.Styles>
-        <!-- The Mission button (Missions First-Class mission), on the session tab bar and in the toolbar corner. Three
-             looks, one per Gateway colour key, chosen by MissionButtonPresenter; the colours are App.axaml's Mission
-             brushes. The window decides no state: it only sets the class the presenter names. -->
+        <!-- The Mission button (Missions First-Class mission), on the session tab bar and in the toolbar corner. Small -
+             22 pixels high, the word "Mission" and at most one icon - the same in both headers and the same as the
+             Cockpit's and the phone's (the owner-approved mockup of 7 November 2026). Three looks, one per Gateway
+             colour key, and an icon per Gateway icon key, both chosen by MissionButtonPresenter; the colours are
+             App.axaml's Mission brushes. The window decides no state: it only sets the class and the icon the presenter
+             names. -->
         <Style Selector="Button.missionBtn">
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="5" />
-            <Setter Property="Padding" Value="10,4" />
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="MinHeight" Value="22" />
+            <Setter Property="Padding" Value="9,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="MaxWidth" Value="280" />
             <Setter Property="Focusable" Value="False" />
         </Style>
         <Style Selector="Button.missionBtn.missionFilled">
             <Setter Property="Background" Value="{DynamicResource MissionBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource MissionBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MissionBorderBrush}" />
             <Setter Property="Foreground" Value="White" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
         <Style Selector="Button.missionBtn.missionOutline">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="{DynamicResource MissionBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MissionBorderBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource MissionOutlineText}" />
             <Setter Property="Cursor" Value="Arrow" />
         </Style>
         <Style Selector="Button.missionBtn.missionWarning">
-            <Setter Property="Background" Value="{DynamicResource MissionWarningBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="{DynamicResource MissionWarningBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource MissionWarningText}" />
             <Setter Property="Cursor" Value="Arrow" />
         </Style>
-        <Style Selector="Button.missionBtn TextBlock">
-            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-        </Style>
         <!-- Styles/ButtonStyles.axaml keeps a button's own background under the pointer but not its border or its text
              colour, which the Fluent theme repaints - so the outline look lost its indigo border on hover and the
-             yellow look would turn its dark text white. Keep the button's own border and text colour, as that policy
+             light text and the document icon drawn in it would change colour. Keep the button's own border and text colour, as that policy
              keeps the background; opacity still carries the hover feedback. -->
         <Style Selector="Button.missionBtn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="BorderBrush" Value="{Binding $parent[Button].BorderBrush}" />
@@ -231,7 +241,25 @@
                             Margin="0,0,6,0"
                             VerticalAlignment="Center"
                             IsVisible="False">
-                        <TextBlock x:Name="BtnMissionText" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                            <!-- The icon key "document": a small document, drawn in the button's text colour. -->
+                            <Viewbox x:Name="BtnMissionDocumentIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
+                                <Path Width="16" Height="16" StrokeThickness="1.5" Fill="Transparent"
+                                      Stroke="{Binding $parent[Button].Foreground}"
+                                      Data="{StaticResource MissionDocumentIconGeometry}" />
+                            </Viewbox>
+                            <!-- The icon key "warning": a small yellow circle with an exclamation mark (not a triangle: the license warning is one). -->
+                            <Viewbox x:Name="BtnMissionWarningIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
+                                <Canvas Width="16" Height="16">
+                                    <Path StrokeThickness="1.6" StrokeLineCap="Round" Fill="Transparent"
+                                          Stroke="{DynamicResource MissionWarningIcon}"
+                                          Data="{StaticResource MissionWarningIconGeometry}" />
+                                    <Ellipse Canvas.Left="7.3" Canvas.Top="10.6" Width="1.4" Height="1.4"
+                                             Fill="{DynamicResource MissionWarningIcon}" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock x:Name="BtnMissionText" VerticalAlignment="Center" />
+                        </StackPanel>
                     </Button>
 
                     <!-- Cockpit (asks the local gateway for the Tailscale URL, then opens it) -->
@@ -1364,8 +1392,27 @@
                             <Button x:Name="TabBarMissionButton" Classes="missionBtn"
                                     Click="MissionButton_Click"
                                     Margin="6,0,0,0"
+                                    VerticalAlignment="Center"
                                     IsVisible="False">
-                                <TextBlock x:Name="TabBarMissionText" VerticalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                    <!-- The icon key "document": a small document, drawn in the button's text colour. -->
+                                    <Viewbox x:Name="TabBarMissionDocumentIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
+                                        <Path Width="16" Height="16" StrokeThickness="1.5" Fill="Transparent"
+                                              Stroke="{Binding $parent[Button].Foreground}"
+                                              Data="{StaticResource MissionDocumentIconGeometry}" />
+                                    </Viewbox>
+                                    <!-- The icon key "warning": a small yellow circle with an exclamation mark (not a triangle: the license warning is one). -->
+                                    <Viewbox x:Name="TabBarMissionWarningIcon" Width="13" Height="13" VerticalAlignment="Center" IsVisible="False">
+                                        <Canvas Width="16" Height="16">
+                                            <Path StrokeThickness="1.6" StrokeLineCap="Round" Fill="Transparent"
+                                                  Stroke="{DynamicResource MissionWarningIcon}"
+                                                  Data="{StaticResource MissionWarningIconGeometry}" />
+                                            <Ellipse Canvas.Left="7.3" Canvas.Top="10.6" Width="1.4" Height="1.4"
+                                                     Fill="{DynamicResource MissionWarningIcon}" />
+                                        </Canvas>
+                                    </Viewbox>
+                                    <TextBlock x:Name="TabBarMissionText" VerticalAlignment="Center" />
+                                </StackPanel>
                             </Button>
                             <Button x:Name="TabBarCockpitButton"
                                     Content="Cockpit &#x2197;"

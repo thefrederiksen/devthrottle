@@ -8,7 +8,8 @@ namespace CcDirector.Avalonia.Tests;
 
 /// <summary>
 /// The Director's Mission button (the Missions First-Class mission, phase 2), through its presenter. Pinned: each of the
-/// Gateway's three colour keys maps to its one look and an unknown key draws no button; the label and the tooltip are
+/// Gateway's three colour keys maps to its one look and each of its three icon keys to its one icon, and an unknown key of
+/// either kind draws no button; the label and the tooltip are
 /// the Gateway's words, verbatim; no verdict means no button; the button follows the selected session and a new verdict
 /// for it; and a click opens the Gateway base plus the Gateway's address, or nothing when there is no address. The
 /// verdicts below are built the way the Gateway's MissionButtonFold builds them, field for field. No screen, no
@@ -19,27 +20,30 @@ public sealed class MissionButtonPresenterTests
     private static MissionButtonDisplay WithDocument => new()
     {
         Verdict = MissionButtonDisplay.VerdictMissionWithDocument,
-        Label = "Missions First-Class - phase 2 fixture",
+        Label = "Mission",
         ColorKey = MissionButtonDisplay.ColorMission,
-        Tooltip = "Mission: Missions First-Class - phase 2 fixture\nGoal: three states, screenshotted",
+        IconKey = MissionButtonDisplay.IconDocument,
+        Tooltip = "Mission: Missions First-Class - phase 2 fixture\nGoal: three states, screenshotted\nClick to open the mission document.",
         DocumentAddress = "/r/3f2b6c1e-0000-4000-8000-000000000001",
     };
 
     private static MissionButtonDisplay WithoutDocument => new()
     {
         Verdict = MissionButtonDisplay.VerdictMissionWithoutDocument,
-        Label = "Repeat Events",
+        Label = "Mission",
         ColorKey = MissionButtonDisplay.ColorMissionOutline,
-        Tooltip = "Mission: Repeat Events\nThis Mission has no mission document yet.",
+        IconKey = MissionButtonDisplay.IconNone,
+        Tooltip = "Mission: Repeat Events\nThis Mission has no document yet.",
         DocumentAddress = null,
     };
 
     private static MissionButtonDisplay NoMission => new()
     {
         Verdict = MissionButtonDisplay.VerdictNoMission,
-        Label = "No mission",
+        Label = "Mission",
         ColorKey = MissionButtonDisplay.ColorWarning,
-        Tooltip = "This session is not attached to a Mission.",
+        IconKey = MissionButtonDisplay.IconWarning,
+        Tooltip = "This session has no Mission. Attach it to one with: cc-devthrottle mission attach <session> <mission>",
         DocumentAddress = null,
     };
 
@@ -152,6 +156,68 @@ public sealed class MissionButtonPresenterTests
         Assert.Null(presenter.Note);
     }
 
+    [Theory]
+    [InlineData(MissionButtonDisplay.IconDocument, MissionButtonIcon.Document)]
+    [InlineData(MissionButtonDisplay.IconNone, MissionButtonIcon.None)]
+    [InlineData(MissionButtonDisplay.IconWarning, MissionButtonIcon.Warning)]
+    public void IconFor_KnownIconKey_ReturnsItsOneIcon(string iconKey, MissionButtonIcon expected)
+    {
+        // Act
+        var icon = MissionButtonPresenter.IconFor(iconKey);
+
+        // Assert
+        Assert.Equal(expected, icon);
+    }
+
+    [Theory]
+    [InlineData("star")]
+    [InlineData("Document")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void IconFor_UnknownIconKey_ReturnsNoIcon(string? iconKey)
+    {
+        // Act
+        var icon = MissionButtonPresenter.IconFor(iconKey);
+
+        // Assert: no guessed icon - not even for a key that differs only in case, and not for an absent one.
+        Assert.Null(icon);
+    }
+
+    [Fact]
+    public void Attach_UnknownIconKey_ShowsNoButtonAndTheNoteNamesTheKey()
+    {
+        // Arrange
+        var verdict = WithDocument;
+        verdict.IconKey = "star";
+
+        // Act
+        var (presenter, _) = NewPresenter(NewSession(verdict));
+
+        // Assert
+        Assert.False(presenter.IsVisible);
+        Assert.Null(presenter.Look);
+        Assert.Equal(MissionButtonIcon.None, presenter.Icon);
+        Assert.Equal("", presenter.Label);
+        Assert.False(presenter.CanOpen);
+        Assert.Contains("icon", presenter.Note);
+        Assert.Contains("\"star\"", presenter.Note);
+    }
+
+    [Fact]
+    public void Attach_VerdictWithNoIconKey_IsAProblemNotAGuessedIcon()
+    {
+        // Arrange: a Gateway older than the icon key sends none, which reads as an empty key.
+        var verdict = WithDocument;
+        verdict.IconKey = "";
+
+        // Act
+        var (presenter, _) = NewPresenter(NewSession(verdict));
+
+        // Assert
+        Assert.False(presenter.IsVisible);
+        Assert.Contains("icon", presenter.Problem);
+    }
+
     [Fact]
     public void GatewayPush_BeforeThePostedRedrawRuns_EveryGetterStillReadsTheShownVerdict()
     {
@@ -165,61 +231,64 @@ public sealed class MissionButtonPresenterTests
         Stamp(session, WithDocument);
 
         // Assert: until the posted redraw runs, every getter reads the one verdict being shown - never a mix.
-        Assert.Equal("Repeat Events", presenter.Label);
         Assert.Equal(WithoutDocument.Tooltip, presenter.Tooltip);
         Assert.Equal(MissionButtonPresenter.LookOutline, presenter.Look);
+        Assert.Equal(MissionButtonIcon.None, presenter.Icon);
         Assert.False(presenter.CanOpen);
 
         // Act: the screen thread runs the posted redraw.
         while (queued.Count > 0) queued.Dequeue()();
 
         // Assert: now every getter reads the new verdict.
-        Assert.Equal(WithDocument.Label, presenter.Label);
         Assert.Equal(WithDocument.Tooltip, presenter.Tooltip);
         Assert.Equal(MissionButtonPresenter.LookFilled, presenter.Look);
+        Assert.Equal(MissionButtonIcon.Document, presenter.Icon);
         Assert.True(presenter.CanOpen);
     }
 
     [Fact]
-    public void Attach_MissionWithDocument_CarriesLabelAndTooltipVerbatimInTheFilledLook()
+    public void Attach_MissionWithDocument_CarriesLabelAndTooltipVerbatimInTheFilledLookWithTheDocumentIcon()
     {
         // Act
         var (presenter, _) = NewPresenter(NewSession(WithDocument));
 
         // Assert
         Assert.True(presenter.IsVisible);
-        Assert.Equal(WithDocument.Label, presenter.Label);
+        Assert.Equal("Mission", presenter.Label);
         Assert.Equal(WithDocument.Tooltip, presenter.Tooltip);
         Assert.Equal(MissionButtonPresenter.LookFilled, presenter.Look);
+        Assert.Equal(MissionButtonIcon.Document, presenter.Icon);
         Assert.True(presenter.CanOpen);
         Assert.Null(presenter.Problem);
     }
 
     [Fact]
-    public void Attach_MissionWithoutDocument_OutlineLookAndNothingToOpen()
+    public void Attach_MissionWithoutDocument_OutlineLookNoIconAndNothingToOpen()
     {
         // Act
         var (presenter, _) = NewPresenter(NewSession(WithoutDocument));
 
         // Assert
         Assert.True(presenter.IsVisible);
-        Assert.Equal("Repeat Events", presenter.Label);
+        Assert.Equal("Mission", presenter.Label);
         Assert.Equal(WithoutDocument.Tooltip, presenter.Tooltip);
         Assert.Equal(MissionButtonPresenter.LookOutline, presenter.Look);
+        Assert.Equal(MissionButtonIcon.None, presenter.Icon);
         Assert.False(presenter.CanOpen);
     }
 
     [Fact]
-    public void Attach_NoMission_WarningLookSayingNoMission()
+    public void Attach_NoMission_WarningLookWithTheWarningIcon()
     {
         // Act
         var (presenter, _) = NewPresenter(NewSession(NoMission));
 
         // Assert
         Assert.True(presenter.IsVisible);
-        Assert.Equal("No mission", presenter.Label);
+        Assert.Equal("Mission", presenter.Label);
         Assert.Equal(NoMission.Tooltip, presenter.Tooltip);
         Assert.Equal(MissionButtonPresenter.LookWarning, presenter.Look);
+        Assert.Equal(MissionButtonIcon.Warning, presenter.Icon);
         Assert.False(presenter.CanOpen);
     }
 
@@ -260,7 +329,7 @@ public sealed class MissionButtonPresenterTests
 
         // Assert
         Assert.Same(second, presenter.Session);
-        Assert.Equal("No mission", presenter.Label);
+        Assert.Equal(NoMission.Tooltip, presenter.Tooltip);
         Assert.Equal(MissionButtonPresenter.LookWarning, presenter.Look);
         Assert.True(changes.Count > before);
     }
@@ -280,7 +349,7 @@ public sealed class MissionButtonPresenterTests
 
         // Assert
         Assert.Equal(before, changes.Count);
-        Assert.Equal("No mission", presenter.Label);
+        Assert.Equal(NoMission.Tooltip, presenter.Tooltip);
     }
 
     [Fact]
@@ -296,8 +365,9 @@ public sealed class MissionButtonPresenterTests
 
         // Assert
         Assert.True(changes.Count > before);
-        Assert.Equal(WithDocument.Label, presenter.Label);
+        Assert.Equal(WithDocument.Tooltip, presenter.Tooltip);
         Assert.Equal(MissionButtonPresenter.LookFilled, presenter.Look);
+        Assert.Equal(MissionButtonIcon.Document, presenter.Icon);
         Assert.True(presenter.CanOpen);
     }
 
@@ -323,10 +393,10 @@ public sealed class MissionButtonPresenterTests
         var session = NewSession(verdict);
 
         // Act
-        verdict.Label = "changed after the push";
+        verdict.Tooltip = "changed after the push";
 
         // Assert
-        Assert.Equal(WithDocument.Label, session.GatewayMissionButton!.Label);
+        Assert.Equal(WithDocument.Tooltip, session.GatewayMissionButton!.Tooltip);
     }
 
     [Theory]

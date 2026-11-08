@@ -64,15 +64,18 @@ export type SessionDto = components["schemas"]["SessionDto"] & {
 
 /** The Mission button's verdict for one session (see the C# MissionButtonDisplay). Hand-written because the committed
  *  `schema.ts` has not been regenerated (`npm run gen:api` against a running Gateway) since the Gateway gained this
- *  field; regenerating it makes this interface redundant. Rendered verbatim - a client reads `colorKey`
- *  only to pick how to draw it, and never reads `verdict` to decide anything. */
+ *  field; regenerating it makes this interface redundant. Rendered verbatim - a client reads `colorKey` and `iconKey`
+ *  only to pick how to draw them, and never reads `verdict` to decide anything. */
 export interface MissionButtonDisplay {
   /** `mission-with-document` | `mission-without-document` | `no-mission`. Carried for the record; never branched on. */
   verdict: string;
-  /** The words on the button: the Mission's name, or "No mission". */
+  /** The words on the button. Always "Mission" since 7 November 2026; the Mission's name is in the tooltip. */
   label: string;
   /** `mission` | `mission-outline` | `warning`. Any other key is a broken contract and draws a problem note. */
   colorKey: string;
+  /** `document` | `none` | `warning`: the icon drawn before the word. Any other key, or none at all, is a broken
+   *  contract and draws a problem note. */
+  iconKey: string;
   /** The words shown on hover, finished. May hold line breaks. */
   tooltip: string;
   /** The Gateway-relative address of the Mission's document (`/r/<report id>`), or null when there is none. */
