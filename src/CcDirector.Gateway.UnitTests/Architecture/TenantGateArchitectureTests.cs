@@ -99,6 +99,9 @@ public sealed class TenantGateArchitectureTests
         // TenantId is a plain data column (whose account this session belongs to), and it is what the auth
         // gate then enters as the caller's scope for the rest of the request.
         nameof(SessionKeyEntity),
+        // The website's key to one account's Your inbox (brief E), global for the same reason as the session key above: it
+        // is resolved by its hash before any account is known, and the row carries the one account it can write to.
+        nameof(WebsiteInboxKeyEntity),
         // The turn-log capture switch (the turn-end research plan, area A). An OPERATOR setting, not tenant
         // data: an administrator switches capture on for an account that is not their own, so a tenant-scoped
         // row could not be written by the person entitled to write it, and the recorder reads it at the

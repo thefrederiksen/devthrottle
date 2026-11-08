@@ -111,6 +111,8 @@ public static class YourInboxFold
     {
         if (m.FromKind == YourInboxWords.Senders.Gateway)
             return YourInboxWords.GatewayFromLabel(m.Seat);
+        if (m.FromKind == YourInboxWords.Senders.Website)
+            return YourInboxWords.WebsiteFromLabel(m.Seat);
         if (m.FromKind == YourInboxWords.Senders.Factory)
         {
             var title = FactoryTitle(m.Factory!, factoryTitles);
@@ -139,7 +141,7 @@ public static class YourInboxFold
     /// route says so and offers the factory or a new session instead.
     /// </summary>
     public static YourInboxReplyToDto? ReplyTo(YourInboxMessageEntity m, IReadOnlyDictionary<string, string> factoryTitles)
-        => m.FromKind == YourInboxWords.Senders.Gateway
+        => m.FromKind is YourInboxWords.Senders.Gateway or YourInboxWords.Senders.Website
             ? null
             : m.FromKind == YourInboxWords.Senders.Factory
             ? new(YourInboxWords.ReplyTargets.Factory, $"Reply into the Factory inbox of {FactoryTitle(m.Factory!, factoryTitles)}")

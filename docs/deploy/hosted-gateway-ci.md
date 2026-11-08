@@ -88,10 +88,22 @@ token guards a read-only report; the admin token can hand a member a year of pai
 shared credential would mean a leak from a reporting cron could give product away, so the two are
 separate values checked by separate code paths.
 
-Set it on production with `az webapp config appsettings set`. Writing an app setting RESTARTS the
-site, so it costs the same outage a deploy does - about a minute - and it must not be done while a
-deploy is running. (There are no slots any more, so the old "set it on the stopped staging slot first"
-recipe is gone.) The values live in cc-secrets (entries `admin-service-token` and `gateway-admin-url`) and in the website's Vercel project. **Never in this repository** - it is public.
+**No agent sets one of these, and nobody sets one with `az` by hand.** The repository's rules allow
+exactly one way to change the hosted Gateway (the `deploy-hosted-gateway` skill and its workflow), and
+that workflow writes only its own three switches and holds no stored secrets. So it CANNOT set or
+change a service token today. That is a **gap in the workflow**, recorded here rather than worked
+around. Until the workflow can carry a secret, setting or changing one of these settings is **the
+owner's step**, done by the owner himself. When he does it, writing an app setting RESTARTS the site
+(about a minute of outage, as a deploy costs), and it must not be done while a deploy is running.
+(There are no slots any more, so the old "set it on the stopped staging slot first" recipe is gone.)
+The values live in cc-secrets (entries `admin-service-token` and `gateway-admin-url`) and in the
+website's Vercel project. **Never in this repository** - it is public.
+
+A new website credential should not add to this table. The website's key to the owner's Your inbox
+(`WEBSITE_INBOX_KEY`, 8 November 2026) is deliberately NOT an app setting: the owner makes it from his
+phone or Cockpit (Settings, Notifications, Website messages), the Gateway keeps only its hash in its
+database, and the key itself goes only into the website's Vercel project. Nothing about it touches this
+workflow.
 
 The website side needs the matching pair in Vercel: `ADMIN_SERVICE_TOKEN` (the same value) and
 `GATEWAY_ADMIN_URL` (this Gateway's base URL).

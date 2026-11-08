@@ -48,6 +48,11 @@ public sealed class TeamEndpointRulesTests
     [InlineData("PUT", "/gateway/demo-mode")]
     [InlineData("GET", "/sessionsx")]
     [InlineData("GET", "/gateway/skillset")]
+    // The website's key to Your inbox (brief E) is a person's own: a phone or browser key is bound to the person's own
+    // account, so the key is made, read and revoked there, never in a team, and the team gate refuses these in a team.
+    [InlineData("GET", "/gateway/website-inbox-key")]
+    [InlineData("POST", "/gateway/website-inbox-key")]
+    [InlineData("DELETE", "/gateway/website-inbox-key")]
     public void Find_AnUndeclaredEndpoint_StatesNothing(string method, string pattern)
     {
         Assert.Null(TeamEndpointRules.Find(method, pattern));

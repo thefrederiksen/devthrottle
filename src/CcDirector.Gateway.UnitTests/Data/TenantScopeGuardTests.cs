@@ -207,6 +207,10 @@ public sealed class TenantScopeGuardTests : IDisposable
             typeof(DeviceImportMarkerEntity),
             typeof(SessionKeyEntity),
             typeof(TurnLogSwitchEntity),
+            // The website's key to one account's Your inbox (brief E): global for the session key's reason. A presented
+            // key is resolved by its SHA-256 BEFORE any account is known, and the account is read off the matched row,
+            // which the owner's own phone or Cockpit wrote when the key was made.
+            typeof(WebsiteInboxKeyEntity),
         };
 
         var model = Model();
