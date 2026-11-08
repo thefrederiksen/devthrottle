@@ -379,3 +379,90 @@ def test_list_FullPageWithLabel_NextPageHintKeepsTheLabel(env):
 def test_read_EmptyCc_IsNotPrintedAsABlankLine(env):
     _message(env, id="5", folder=INBOX, subject="Hi")
     assert "\ncc:" not in env.ok("read", "5").stdout
+
+
+# --------------------------------------------------------------------------------------------- review findings
+
+
+@pytest.mark.parametrize("term", ["is:unread", "is:read", "is:flagged"])
+def test_search_TermZohoIgnoresAfterOr_IsRefusedBeforeAnyCall(env, term):
+    result = env.run("search", f"subject:invoice::or:{term}")
+    assert result.exit_code == 2 and "silently ignores" in result.output
+    assert env.zoho.calls == [] and env.zoho.token_requests == 0
+
+
+def test_search_OrWithKeptWords_IsSentToZoho(env):
+    env.ok("search", "subject:invoice::or:has:attachment")
+    assert env.zoho.calls[-1][2]["searchKey"] == "subject:invoice::or:has:attachment"
+
+
+def test_list_BadFieldsWithJson_IsUsageErrorBeforeAnyCall(env):
+    result = env.run("list", "--fields", "nope", "--json")
+    assert result.exit_code == 2
+    assert env.zoho.calls == [] and env.zoho.token_requests == 0
+
+
+def test_list_FieldsWithJson_KeepsOnlyThoseFields(env):
+    _message(env, id="1", folder=INBOX, subject="a")
+    data = json.loads(env.ok("list", "--fields", "id,subject", "--json").stdout)
+    assert data["messages"] == [{"id": "1", "subject": "a"}]
+
+
+def test_search_TextOutput_ShowsTheFolderIdReadNeeds(env):
+    _message(env, id="2", folder=SUB, subject="invoice")
+    text = env.ok("search", "subject:invoice").stdout
+    _, rows = parse_list(text, "messages")
+    assert rows[0]["folder_id"] == SUB and "--folder <folder_id>" in text
+
+
+def test_list_OneFolder_DefaultColumnsLeaveOutTheFolderId(env):
+    _message(env, id="1", folder=INBOX, subject="a")
+    _, rows = parse_list(env.ok("list").stdout, "messages")
+    assert "folder_id" not in rows[0]
+
+
+def test_download_AttachmentWithNoName_IsSavedUnderItsId(env, tmp_path):
+    _message(env, id="7", folder=INBOX, subject="x", attachments={"55": (None, b"abc")})
+    data = json.loads(env.ok("download", "7", "--out-dir", str(tmp_path), "--json").stdout)
+    assert (tmp_path / "attachment-55").read_bytes() == b"abc"
+    assert "Traceback" not in json.dumps(data)
+
+
+def test_search_FullPageQueryWithQuote_NextPageHintCanBePasted(env):
+    for i in range(3):
+        _message(env, id=str(i), folder=INBOX, subject=f'"hi" {i}')
+    text = env.ok("search", 'subject:"hi"', "--count", "2").stdout
+    assert """dt-zoho search 'subject:"hi"' --count 2 --start 3""" in text
+
+
+def test_settingsSet_OtherDataCentre_DeletesTheKeptToken(env):
+    env.ok("folders")
+    assert auth.cache_path().exists()
+    env.ok("settings", "set", "--data-centre", "eu")
+    assert not auth.cache_path().exists()
+
+
+def test_settingsSet_SameDataCentre_KeepsTheToken(env):
+    env.ok("folders")
+    env.ok("settings", "set", "--data-centre", "ca")
+    assert auth.cache_path().exists()
+
+
+def test_account_SeveralAndNoneDefault_AsksForAccount(env):
+    second = dict(env.zoho.accounts[0], accountId="2", isDefaultAccount=False, incomingUserName="b@example.com",
+                  emailAddress=[{"isAlias": False, "isPrimary": True, "mailId": "b@example.com"}])
+    env.zoho.accounts[0]["isDefaultAccount"] = False
+    env.zoho.accounts.append(second)
+    result = env.run("list")
+    assert result.exit_code == 1 and "--account" in result.output
+
+
+def test_transport_NoRedirectHandler_NeverFollows():
+    import urllib.request
+    from src import transport
+
+    request = urllib.request.Request("https://mail.zohocloud.ca/api/accounts")
+    assert transport._NoRedirect().redirect_request(request, None, 302, "Found", {},
+                                                   "https://elsewhere.example/") is None
+    handlers = [h for h in transport._opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)]
+    assert handlers and all(isinstance(h, transport._NoRedirect) for h in handlers)

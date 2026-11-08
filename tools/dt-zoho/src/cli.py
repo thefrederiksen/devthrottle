@@ -8,6 +8,7 @@ Every command that reaches Zoho reads the Zoho key from three environment variab
 from __future__ import annotations
 
 import functools
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -76,19 +77,35 @@ def _report(data: dict, json_output: bool) -> None:
             (k, ", ".join(map(str, v)) if isinstance(v, list) else v) for k, v in data.items())])
 
 
-def _print_messages(records: List[dict], fetched: int, start: int, count: int, fields: Optional[str],
-                    json_output: bool, extra: dict, next_command: str, read_folder: Optional[str]) -> None:
+def _message_fields(fields: Optional[str], across_folders: bool) -> List[str]:
+    """The message fields to show, checked before anything reaches Zoho so a typo costs no token."""
+    from cc_shared.axi_output import FieldsError, parse_fields
+
+    default = mail.SUMMARY_DEFAULT_ACROSS_FOLDERS if across_folders else mail.SUMMARY_DEFAULT
+    try:
+        return parse_fields(fields, mail.SUMMARY_FIELDS, default)
+    except FieldsError as exc:
+        raise DtZohoError(str(exc), 2) from exc
+
+
+def _quote(text: str) -> str:
+    """Quote a value for a command the user can paste back."""
+    return f'"{text}"' if '"' not in text else shlex.quote(text)
+
+
+def _print_messages(records: List[dict], fetched: int, start: int, count: int, chosen: List[str],
+                    fields_given: bool, json_output: bool, extra: dict, next_command: str,
+                    read_folder: Optional[str]) -> None:
     more = fetched == count
     if json_output:
+        if fields_given:
+            records = [{k: r.get(k) for k in chosen} for r in records]
         output.emit_json({"count": len(records), "fetched": fetched, "start": start,
                           "next_start": start + fetched if more else None, **extra, "messages": records})
         return
-    from cc_shared.axi_output import parse_fields_or_exit
-
-    chosen = parse_fields_or_exit(fields, mail.SUMMARY_FIELDS, mail.SUMMARY_DEFAULT)
     help_lines = []
     if records:
-        folder_part = f' --folder "{read_folder}"' if read_folder else " --folder <folder_id>"
+        folder_part = f" --folder {_quote(read_folder)}" if read_folder else " --folder <folder_id>"
         help_lines.append(f"dt-zoho read <id>{folder_part}")
     if len(records) != fetched:
         help_lines.append(f"{fetched - len(records)} of the {fetched} messages fetched were left out by the filter")
@@ -236,11 +253,12 @@ def list_command(folder: Optional[str] = typer.Option(None, "--folder", "-f",
     """List messages, newest first."""
     if unread and read:
         raise DtZohoError("pass --unread or --read, not both.", 2)
+    if folder is None and label is None and thread is None:
+        folder = "Inbox"
+    chosen_fields = _message_fields(fields, across_folders=folder is None)
     client = _client()
     acct = mail.pick_account(client, account)
     aid = acct["account_id"]
-    if folder is None and label is None and thread is None:
-        folder = "Inbox"
     chosen = mail.resolve_folder(client, aid, folder) if folder is not None else None
     label_id = mail.resolve_label(client, aid, label)["id"] if label is not None else None
     status = "unread" if unread else "read" if read else "all"
@@ -249,7 +267,7 @@ def list_command(folder: Optional[str] = typer.Option(None, "--folder", "-f",
     records = [r for r in fetched if mail.flag_matches(r, flagged)]
     extra = {"account": acct["email"], "folder": chosen["path"] if chosen else None,
              "folder_id": chosen["id"] if chosen else None, "label_id": label_id, "thread_id": thread}
-    _print_messages(records, len(fetched), start, count, fields, json_output, extra,
+    _print_messages(records, len(fetched), start, count, chosen_fields, fields is not None, json_output, extra,
                     _again("dt-zoho list", folder=chosen["path"] if chosen else None, label=label, thread=thread,
                            count=count, switches=(("--unread", unread), ("--read", read), ("--flagged", flagged),
                                                   ("--include-archive", include_archive))),
@@ -261,9 +279,9 @@ def _again(command: str, count: int, switches, folder: Optional[str] = None, lab
     """The same command again with every filter kept, for the next-page hint."""
     parts = [command]
     if folder:
-        parts.append(f'--folder "{folder}"')
+        parts.append(f"--folder {_quote(folder)}")
     if label:
-        parts.append(f'--label "{label}"')
+        parts.append(f"--label {_quote(label)}")
     if thread:
         parts.append(f"--thread {thread}")
     parts += [flag for flag, on in switches if on]
@@ -286,13 +304,14 @@ def search_command(query: str = typer.Argument(..., help="Zoho search words: sen
     if unread and read:
         raise DtZohoError("pass --unread or --read, not both.", 2)
     mail.check_search_key(query)
+    chosen_fields = _message_fields(fields, across_folders=True)
     client = _client()
     acct = mail.pick_account(client, account)
     fetched = mail.search(client, acct["account_id"], query, start, count)
     records = [r for r in fetched if mail.flag_matches(r, flagged) and mail.read_matches(r, unread, read)]
-    _print_messages(records, len(fetched), start, count, fields, json_output,
+    _print_messages(records, len(fetched), start, count, chosen_fields, fields is not None, json_output,
                     {"account": acct["email"], "query": query},
-                    _again(f'dt-zoho search "{query}"', count=count,
+                    _again(f"dt-zoho search {_quote(query)}", count=count,
                            switches=(("--unread", unread), ("--read", read), ("--flagged", flagged))), None)
 
 

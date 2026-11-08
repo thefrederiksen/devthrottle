@@ -23,6 +23,8 @@ FLAGS = ("info", "important", "followup", "flag_not_set")
 SUMMARY_FIELDS = ("id", "folder_id", "thread_id", "received", "from", "to", "cc", "subject", "read", "flag",
                   "attachments", "size", "summary")
 SUMMARY_DEFAULT = ("id", "received", "from", "subject", "read", "flag")
+# A list that spans folders shows each message's folder, which `read` needs.
+SUMMARY_DEFAULT_ACROSS_FOLDERS = ("id", "folder_id", "received", "from", "subject", "read", "flag")
 IGNORED_SEARCH_TERMS = {"is:unread": "--unread", "is:read": "--read", "is:flagged": "--flagged"}
 NOT_PROVIDED = "Not Provided"
 
@@ -174,8 +176,11 @@ def list_messages(client: ZohoClient, account_id: str, folder_id: Optional[str],
 
 def check_search_key(key: str) -> None:
     """Refuse the search words Zoho ignores without saying so, naming the option that does it instead."""
+    # Terms are joined by "::" (and) or "::or:" (or), so each part is a term, with "or:" in front for an OR.
+    terms = {part.strip()[3:] if part.strip().startswith("or:") else part.strip()
+             for part in key.lower().split("::")}
     for term, option in IGNORED_SEARCH_TERMS.items():
-        if re.search(rf"(^|::){re.escape(term)}(::|$)", key.strip().lower()):
+        if term in terms:
             raise DtZohoError(f"Zoho's search silently ignores '{term}' (it returns the same messages without it). "
                               f"Leave it out and pass {option} instead.", exit_code=2)
 
@@ -209,7 +214,10 @@ def original(client: ZohoClient, account_id: str, message_id: str) -> str:
 def attachment_info(client: ZohoClient, account_id: str, folder_id: str, message_id: str) -> List[dict]:
     data = client.mail("GET", f"/api/accounts/{account_id}/folders/{folder_id}/messages/{message_id}/attachmentinfo")
     inner = data.get("data") or {}
-    return [{"id": str(a.get("attachmentId")), "name": a.get("attachmentName"), "size": a.get("attachmentSize")}
+    # A message can carry an attachment with no file name; it is named by its id, so it can still be saved.
+    return [{"id": str(a.get("attachmentId")),
+             "name": a.get("attachmentName") or f"attachment-{a.get('attachmentId')}",
+             "size": a.get("attachmentSize")}
             for a in inner.get("attachments") or []]
 
 
