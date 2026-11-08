@@ -14,7 +14,7 @@ def test_NoDtEmailAccountForTheAddress_SaysToAddOne(iw):
     assert sentence == f"{BOX} has no dt-email account on {MACHINE}: run dt-email account add there"
 
 
-@pytest.mark.parametrize("instance", [None, "default", "devthrottle-2"])
+@pytest.mark.parametrize("instance", [None, "default", "devthrottle-2", "cc-storage"])
 def test_AnAccountSavedUnderAnyCcDirectorFolder_IsFound_AndDtEmailIsPointedAtIt(iw, instance):
     """dt-email account add run in a Director session saves under that session's instance folder; run by hand, under
     the Director's own folder. The check, with no CC_ variable, finds either."""
@@ -37,18 +37,47 @@ def test_NoDtEmailSettingsAnywhere_SaysToAddTheAccount_AndWhereItLooked(iw):
     iw.memory(imap())
     lines = phase2.channel_failed(iw, BOX).splitlines()
     assert lines[0] == f"{BOX} has no dt-email account on {MACHINE}: run dt-email account add there"
-    assert lines[1].endswith("and its instances, which hold no dt-email settings")
+    assert lines[1].endswith("and their instances, which hold no dt-email settings")
     assert iw.tools.log == []     # no settings, so dt-email was never asked
 
 
-def test_ThePasswordIsNotInCcSecretsHere_SaysWhichEntry(iw):
+def test_TheFoldersSearched_IncludeWhereCcStorageSavesDtEmailSettings(iw, monkeypatch):
+    """dt-email saves through cc-storage. Its user folder, with no CC_DIRECTOR_ROOT, must be among the folders the
+    check searches, or an account added from a plain terminal is never found (on Linux it is not the Director's)."""
+    import importlib.util
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setenv("HOME", str(iw.home))
+    spec = importlib.util.spec_from_file_location("cc_storage_for_the_rig",
+                                                  phase2.REPO / "tools" / "cc_storage" / "storage.py")
+    storage = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(storage)
+    assert storage.CcStorage._user_base() in iw.screen.dt_email_bases(str(iw.home))
+
+
+def test_ThePasswordIsNotInCcSecretsHere_TheSentenceIsCcSecretsReason(iw):
     iw.tools.account(entry="desk-mail")
     iw.tools.secrets.clear()
     iw.memory(imap())
     lines = phase2.channel_failed(iw, BOX).splitlines()
-    assert lines[0] == f"the password of {BOX} is not in cc-secrets on {MACHINE}: add it there"
+    assert lines[0] == f"cc-secrets refused the password of {BOX} on {MACHINE}: No secret named 'desk-mail' is on this machine."
     assert lines[1] == ("the dt-email account names the entry desk-mail; cc-secrets said: No secret named 'desk-mail' "
                         "is on this machine.")
+
+
+def test_AnEntryNotAllowedForRun_SaysSoRatherThanToAddIt(iw, monkeypatch):
+    iw.tools.account(entry="desk-mail")
+    iw.tools.secrets.clear()
+    real = iw.tools.secrets_run
+
+    def not_allowed(argv, root):
+        done = real(argv, root)
+        done.stdout = done.stdout.replace(b"No secret named 'desk-mail' is on this machine.",
+                                          b"Secret 'desk-mail' is not allowed for 'run'.")
+        return done
+    monkeypatch.setattr(iw.tools, "secrets_run", not_allowed)
+    iw.memory(imap())
+    assert phase2.channel_failed(iw, BOX).splitlines()[0] == \
+        f"cc-secrets refused the password of {BOX} on {MACHINE}: Secret 'desk-mail' is not allowed for 'run'."
 
 
 @pytest.mark.parametrize("program", ["dt-email", "cc-secrets"])
@@ -101,11 +130,17 @@ def test_ACursorThisReaderDidNotWrite_FailsThatChannel(iw):
 LONG = "a.rather.long.mailbox.name@a-long-domain.example.com"
 
 
-@pytest.mark.parametrize("break_it", ["no-account", "no-secret", "no-dt-email", "no-cc-secrets", "dt-email-error",
-                                      "secrets-broken", "timeout", "not-json"])
-def test_EverySentence_ForALongAddress_FitsWhatTheGatewayKeeps(iw, break_it):
-    """Each failure taken from a real run with a long address and a long entry name, never written out by hand."""
-    iw.tools.account(LONG, entry="x" * 40)
+BEFORE_SIGN_IN = ["no-account", "no-secret", "no-dt-email", "no-cc-secrets"]   # these stop the sign-in, so never file
+ANY_STEP = ["dt-email-error", "secrets-broken", "timeout", "not-json"]
+
+
+@pytest.mark.parametrize("break_it, step", [(b, "signing in") for b in BEFORE_SIGN_IN + ANY_STEP]
+                         + [(b, s) for b in ANY_STEP for s in ("archive", "move")])
+def test_EverySentence_ForALongAddress_AtEveryStep_FitsWhatTheGatewayKeeps(iw, break_it, step):
+    """Each failure taken from a real run with a long address and a long entry name, never written out by hand, while
+    signing in and while filing in live mode."""
+    box = iw.tools.account(LONG, entry="x" * 40)
+    box.inbox(mail("2026-10-18T08:00:00Z"))
     if break_it == "no-account":
         iw.tools.accounts["desk"]["email"] = "someone.else@example.net"
     elif break_it == "no-secret":
@@ -116,7 +151,16 @@ def test_EverySentence_ForALongAddress_FitsWhatTheGatewayKeeps(iw, break_it):
         iw.tools.fail["desk"] = "Error: " + "a very long server complaint " * 10
     else:
         iw.tools.fail["desk"] = break_it
-    iw.memory(imap(LONG))
+    if step != "signing in":
+        iw.tools.fail_only = step
+        key = iw.key(LONG, 1, 1)
+        iw.memory(imap(LONG, mode="live", cursor=cursor(1),
+                       keys={key: {"id": "1.1", "reportedUtc": "2026-10-18T09:00:00Z"}},
+                       filingQueue=[{"messageKey": key, "decision": "archive" if step == "archive" else "junk"}]))
+    else:
+        iw.memory(imap(LONG))
     sentence = phase2.channel_failed(iw, LONG).splitlines()[0]
     assert LONG in sentence
+    if step != "signing in" and break_it != "timeout":
+        assert ("archiving" if step == "archive" else "junk") in sentence
     assert len(sentence) <= iw.screen.SENTENCE_LIMIT, sentence

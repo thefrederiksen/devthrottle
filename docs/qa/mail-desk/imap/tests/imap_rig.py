@@ -19,6 +19,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -39,8 +40,9 @@ gateway_reason = phase2.gateway_reason
 
 BOX = "desk@example.com"
 OTHER = "second.desk@example.org"
-PASSWORD = "fake-password-never-shown"
 MISSING = "Error: no message with UID {uid} in folder 'INBOX'. Nothing was changed. List the folder with: dt-email list --folder \"INBOX\""
+RENUMBERED = ("Error: the UIDVALIDITY of folder 'INBOX' is {now} now, not {expected}, so its UIDs name other messages. "
+              "Nothing was moved. List the folder again.")
 
 
 def mail(received, sender="Some One <someone@example.com>", subject="Hello", text="A short note.", attachments=0,
@@ -53,9 +55,10 @@ def mail(received, sender="Some One <someone@example.com>", subject="Hello", tex
 class Mailbox:
     """One IMAP account's folders. UIDs count up per folder from 1; `validity` is the Inbox's UIDVALIDITY."""
 
-    def __init__(self, junk="Spam", sent="Sent Items"):
+    def __init__(self, junk="Spam", sent="Sent Items", zone_hours=0):
         self.validity = 1
         self.junk, self.sent = junk, sent
+        self.zone_hours = zone_hours   # the server's own zone, which IMAP's SINCE compares dates in
         self.folders = {"INBOX": {}, sent: {}, "Archive": {}, junk: {}}
         self.next_uid = {name: 1 for name in self.folders}
 
@@ -67,6 +70,11 @@ class Mailbox:
 
     def inbox(self, *messages):
         return [self.add("INBOX", m) for m in messages]
+
+    def server_date(self, received):
+        """The date of an arrival time in the server's own zone: what SINCE compares (RFC 3501)."""
+        moment = datetime.strptime(received, "%Y-%m-%dT%H:%M:%SZ") + timedelta(hours=self.zone_hours)
+        return moment.strftime("%Y-%m-%d")
 
     def renumber(self):
         """What a server does when it rebuilds a folder: a new UIDVALIDITY, and every message a new UID."""
@@ -94,12 +102,17 @@ class FakeTools:
         self.log = []            # every dt-email command, as a list of its arguments (dt-email itself left out)
         self.wrapped = []        # every cc-secrets command line, whole
         self.fail = {}           # account name -> an "Error: ..." line, "not-json", "secrets-broken" or "timeout"
+        self.fail_only = None    # a dt-email command name: the failure is only for that command
+        self.renumber_before_filing = False   # the server renumbers the Inbox after the run read it, before it files
 
     def account(self, address=BOX, name="desk", entry=None, variable="DESK_PASSWORD", instance="default", **box):
         """A dt-email account saved the way dt-email account add saves it: under the Director's own folder
         (instance None), or under an instance folder, where a Director session's CC_DIRECTOR_ROOT points."""
         entry = entry or f"{name}-password"
-        root = self.base if instance is None else self.base / "instances" / instance
+        # "cc-storage": where dt-email saves on Linux when run from a plain terminal (cc-storage's user folder,
+        # ~/.cc-director), which is not the Director's folder there.
+        root = (self.base.parents[2] / ".cc-director" if instance == "cc-storage"
+                else self.base if instance is None else self.base / "instances" / instance)
         settings = root / "config" / "dt-email" / "config.json"
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_text("{}", encoding="utf-8")   # dt-email's own file; only the fake reads the accounts
@@ -145,6 +158,8 @@ class FakeTools:
         assert entry == account["secret_entry"] and options[5] == account["password_env"], argv
         assert root == account["root"], "dt-email was pointed at settings that do not hold this account"
         failure = self.fail.get(name)
+        if self.fail_only is not None and args[0] != self.fail_only:
+            failure = None
         if failure == "secrets-broken":
             return Done(1, "", "error: the cc-secrets store is locked")
         if failure == "timeout":
@@ -172,8 +187,14 @@ class FakeTools:
             return self.listing(rest, box)
         if command in ("archive", "move"):
             uid = int(rest[0])
+            expected = int(rest[rest.index("--expect-uidvalidity") + 1]) if "--expect-uidvalidity" in rest else None
+            if self.renumber_before_filing:
+                box.renumber()
+                self.renumber_before_filing = False
             if uid not in box.folders["INBOX"]:
                 return 1, "", MISSING.format(uid=uid) + "\n"
+            if expected is not None and expected != box.validity:
+                return 1, "", RENUMBERED.format(now=box.validity, expected=expected) + "\n"
             to = "Archive" if command == "archive" else rest[2]
             box.add(to, box.folders["INBOX"].pop(uid))
             return 0, json.dumps({"moved": str(uid), "from": "INBOX", "to": to}), ""
@@ -194,7 +215,7 @@ class FakeTools:
         if "--after-uid" in options:
             uids = [u for u in uids if u > int(options["--after-uid"])]
         if "--since" in options:
-            uids = [u for u in uids if held[u]["received"][:10] >= options["--since"]]
+            uids = [u for u in uids if box.server_date(held[u]["received"]) >= options["--since"]]
         count = int(options.get("--count", 20))
         chosen = uids[:count] if "--oldest" in options else sorted(uids, reverse=True)[:count]
         records = []

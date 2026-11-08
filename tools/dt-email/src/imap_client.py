@@ -100,6 +100,9 @@ def uid_set(uids: Sequence[int]) -> str:
     return ",".join(str(u) for u in uids)
 
 
+#: How the error for a renumbered folder begins (move and archive with --expect-uidvalidity).
+RENUMBERED = "the UIDVALIDITY of folder"
+
 # --------------------------------------------------------------------------------------------- records
 
 
@@ -284,6 +287,10 @@ class MailStore:
         """The folder's UIDVALIDITY. A UID means the same message only while this stays the same, so a reader that
         keeps a UID between runs keeps this beside it."""
         self.select(folder, readonly=True)
+        return self._selected_uid_validity(folder)
+
+    def _selected_uid_validity(self, folder: str) -> int:
+        """The UIDVALIDITY the server sent when `folder` was last selected on this connection."""
         _, data = self._conn.response("UIDVALIDITY")
         values = [v for v in (data or []) if v is not None]
         if not values:
@@ -370,6 +377,19 @@ class MailStore:
             f"reading message headers in '{folder}'")
         return parse_fetch_response(data)
 
+    def fetch_start(self, folder: str, uid: int, size: int) -> FetchItem:
+        """The first `size` bytes of a message, without marking it read: enough for its text and the headers of its
+        first parts, without downloading its attachments."""
+        self.select(folder, readonly=True)
+        data = self._ok(self._conn.uid("FETCH", str(uid), f"(UID FLAGS BODY.PEEK[]<0.{size}>)"),
+                        f"reading the start of message {uid} in '{folder}'")
+        items = [i for i in parse_fetch_response(data) if i.uid == uid and i.literal is not None]
+        if not items:
+            raise DtEmailError(
+                f"there is no message with UID {uid} in folder '{folder}'. "
+                f"List the folder with: dt-email list --folder \"{folder}\"")
+        return items[0]
+
     def fetch_message(self, folder: str, uid: int) -> FetchItem:
         """The whole message, without marking it read."""
         self.select(folder, readonly=True)
@@ -404,10 +424,18 @@ class MailStore:
         data = self._ok(self._conn.uid("FETCH", uid_set(uids), "(UID FLAGS)"), f"reading flags in '{folder}'")
         return {i.uid: i.flags() for i in parse_fetch_response(data)}
 
-    def move(self, folder: str, uids: Sequence[int], destination: str) -> None:
+    def move(self, folder: str, uids: Sequence[int], destination: str,
+             expect_uid_validity: Optional[int] = None) -> None:
+        """Moves messages. With `expect_uid_validity`, the folder's UIDVALIDITY is checked on the same connection right
+        before the move, so a UID read before the folder was renumbered never moves another message."""
         self._require("MOVE", "Moving a message")
         self.require_present(folder, uids)
         self.select(folder, readonly=False)
+        if expect_uid_validity is not None:
+            now = self._selected_uid_validity(folder)
+            if now != expect_uid_validity:
+                raise DtEmailError(f"{RENUMBERED} '{folder}' is {now} now, not {expect_uid_validity}, so its UIDs name "
+                                   "other messages. Nothing was moved. List the folder again.")
         self._ok(self._conn.uid("MOVE", uid_set(uids), mailbox_arg(destination)),
                  f"moving messages from '{folder}' to '{destination}'")
 

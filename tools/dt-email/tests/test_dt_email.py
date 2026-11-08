@@ -318,6 +318,24 @@ def test_move_And_ArchiveFoundByName(env):
     assert env.imap.folders["INBOX"].messages == {}
 
 
+@pytest.mark.parametrize("command", [["move", "--to", "Archive"], ["archive"]])
+def test_move_ExpectUidValidity_StillTheSame_Moves(env, command):
+    uid = env.imap.add("INBOX", make_message())
+    env.ok(command[0], str(uid), *command[1:], "--expect-uidvalidity", "1")
+    assert env.imap.folders["INBOX"].messages == {} and len(env.imap.folders["Archive"].messages) == 1
+
+
+@pytest.mark.parametrize("command", [["move", "--to", "Archive"], ["archive"]])
+def test_move_ExpectUidValidity_FolderRenumbered_MovesNothing(env, command):
+    uid = env.imap.add("INBOX", make_message())
+    env.imap.folders["INBOX"].uidvalidity = 2
+    result = env.run(command[0], str(uid), *command[1:], "--expect-uidvalidity", "1")
+    assert result.exit_code == 1
+    assert "the UIDVALIDITY of folder 'INBOX' is 2 now, not 1" in result.output and "Nothing was moved" in result.output
+    assert list(env.imap.folders["INBOX"].messages) == [uid] and env.imap.folders["Archive"].messages == {}
+    assert not any(c[0] == "MOVE" for c in env.imap.commands)
+
+
 def test_move_ServerWithoutMove_ClearError(env):
     env.imap.capabilities = ("IMAP4REV1", "UIDPLUS")
     env.imap.add("INBOX", make_message())
@@ -528,6 +546,15 @@ def test_list_Preview_FirstTextAndAttachmentCount_WithoutMarkingRead(env):
     assert len(message["preview"]) == 200
     assert message["attachments"] == 1
     assert env.imap.folders["INBOX"].messages[uid].flags == []
+
+
+def test_list_Preview_ALargeAttachment_IsNeverDownloaded_ButIsCounted(env):
+    """The preview reads only the first 64 KB: a 2 MB attachment is never downloaded, and still counted."""
+    env.imap.add("INBOX", make_message(body="Short note.", attachments=[("big.bin", b"z" * 2_000_000, "application/octet-stream")]))
+    message = _json(env, "--preview")["messages"][0]
+    assert message["preview"] == "Short note." and message["attachments"] == 1
+    fetches = [c for c in env.imap.commands if c[0] == "FETCH" and "BODY.PEEK[]" in c[2]]
+    assert fetches and all("BODY.PEEK[]<0.65536>" in c[2] for c in fetches)
 
 
 def test_list_Preview_HtmlOnly_TagsAndEntitiesTakenOut(env):

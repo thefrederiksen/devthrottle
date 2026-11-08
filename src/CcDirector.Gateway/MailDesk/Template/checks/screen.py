@@ -1116,13 +1116,36 @@ IMAP_UID = re.compile(r"[1-9][0-9]{0,18}")
 IMAP_MESSAGE_ID = re.compile(r"([1-9][0-9]{0,18})\.([1-9][0-9]{0,18})")   # "<the Inbox's uidvalidity>.<uid>"
 IMAP_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 IMAP_MISSING = "no message with UID"   # how dt-email begins the error for a UID the folder no longer holds
+IMAP_RENUMBERED = "the UIDVALIDITY of folder"   # how it begins the error when --expect-uidvalidity no longer holds
+IMAP_EXPECT = "--expect-uidvalidity"
+IMAP_MAX_RENUMBERED_PAGES = 20         # a renumbered Inbox is searched 200 at a time, at most 4,000 messages
+
+
+def with_error(sentence, error):
+    """`sentence: error`, the error cut to what is left of SENTENCE_LIMIT (at most SHORT_ERROR_CHARS), so a long
+    address, machine name or step never pushes the sentence over what the Gateway keeps. The whole error goes on the
+    detail line. Just the sentence when fewer than 10 characters would be left."""
+    room = min(SHORT_ERROR_CHARS, SENTENCE_LIMIT - len(sentence) - 2)
+    return f"{sentence}: {short_error(error, room)}" if room >= 10 else sentence
+
+
+def dt_email_bases(home):
+    """Every folder dt-email may keep its settings under on this machine, before looking for instances: the Director's
+    own (director_base), and cc-storage's user folder when it differs. dt-email resolves its settings through cc-storage
+    (tools/cc_storage/storage.py, CcStorage._user_base), which on Linux is ~/.cc-director while the Director's is
+    ~/.local/share/cc-director, so an account added from a plain terminal there is saved under ~/.cc-director."""
+    bases = [Path(director_base(home))]
+    if os.name == "posix" and sys.platform != "darwin":
+        bases.append(Path(home) / ".cc-director")
+    return bases
 
 
 def check_dt_email(args, live, junk):
     """The one guard on dt-email, the IMAP reader's only way to a mailbox. It lets out only: account list; list (read
     only, with the options in IMAP_LIST_OPTIONS) and folders of one account; and, in live mode only, archive of one
-    Inbox message or move of one Inbox message to the mailbox's junk folder (`junk`). dt-email can send, reply, forward,
-    draft, mark and delete, so this guard is the only thing that keeps the Mail Desk from doing any of them."""
+    Inbox message or move of one Inbox message to the mailbox's junk folder (`junk`), each with --expect-uidvalidity so
+    dt-email checks the UID still names that message on the connection that moves it. dt-email can send, reply,
+    forward, draft, mark and delete, so this guard is the only thing that keeps the Mail Desk from doing any of them."""
     def refuse(why):
         raise RefusedRequest(f"refused dt-email {' '.join(str(a) for a in args[:2])}: {why}")
 
@@ -1145,9 +1168,11 @@ def check_dt_email(args, live, junk):
     if command in ("archive", "move"):
         if not live:
             refuse("filing is for live mode only")
-        if command == "archive" and len(rest) == 1 and IMAP_UID.fullmatch(rest[0]):
+        expected = rest[-2:]
+        pinned = len(expected) == 2 and expected[0] == IMAP_EXPECT and IMAP_UID.fullmatch(expected[1])
+        if pinned and command == "archive" and len(rest) == 3 and IMAP_UID.fullmatch(rest[0]):
             return
-        if command == "move" and len(rest) == 3 and IMAP_UID.fullmatch(rest[0]) and rest[1] == "--to" \
+        if pinned and command == "move" and len(rest) == 5 and IMAP_UID.fullmatch(rest[0]) and rest[1] == "--to" \
                 and junk is not None and rest[2] == junk:
             return
     refuse("not one of the commands the Mail Desk may run")
@@ -1209,8 +1234,8 @@ class ImapReader:
     def tool(self, args, what, missing=False, root=None):
         """One dt-email command through the guard, its JSON answer back, with dt-email reading its settings from `root`
         (the account's folder unless given). Every command but account list runs under cc-secrets run. A failure is a
-        sentence naming this mailbox and what was being done; with `missing`, dt-email's "no message with UID" answers
-        None instead."""
+        sentence naming this mailbox and what was being done; with `missing`, dt-email's "no message with UID" and its
+        refusal for a renumbered folder answer None instead."""
         if args[:2] != ["account", "list"]:
             args = [*args, "--account", self.account, "--json"]
         check_dt_email(args, self.live, (self.specials or {}).get("junk"))
@@ -1231,22 +1256,24 @@ class ImapReader:
             raise CheckFailed(f"{argv[0]} did not finish within {IMAP_TIMEOUT_SECONDS} seconds for {self.address} "
                               f"while {what}") from None
         except OSError as e:
-            raise CheckFailed(f"{argv[0]} could not be started on {machine()} for {self.address}: {type(e).__name__}",
-                              str(e)) from None
+            raise CheckFailed(with_error(f"{argv[0]} could not be started on {machine()} for {self.address}",
+                                         type(e).__name__), str(e)) from None
         out = done.stdout.decode("utf-8", "replace")
         err = done.stderr.decode("utf-8", "replace")
         code = done.returncode
         if argv[0] == "cc-secrets":
             wrapper = read_json(out)
             if isinstance(wrapper, dict) and wrapper.get("outcome") == "refused":
-                # The entry's name is the account's to choose, so it goes on the detail line, never in the sentence.
-                raise CheckFailed(f"the password of {self.address} is not in cc-secrets on {machine()}: add it there",
-                                  f"the dt-email account names the entry {entry}; cc-secrets said: "
-                                  f"{wrapper.get('reason') or 'refused'}")
+                # cc-secrets refuses an entry that is missing, one not allowed for run, and one it cannot hide in
+                # output, so its own reason is the sentence; the entry the account names goes on the detail line.
+                reason = " ".join(str(wrapper.get("reason") or "it gave no reason").split())
+                raise CheckFailed(with_error(f"cc-secrets refused the password of {self.address} on {machine()}",
+                                             reason),
+                                  f"the dt-email account names the entry {entry}; cc-secrets said: {reason}")
             if not (isinstance(wrapper, dict) and isinstance(wrapper.get("exitCode"), int)
                     and isinstance(wrapper.get("stdout"), str) and isinstance(wrapper.get("stderr"), str)):
-                raise CheckFailed(f"cc-secrets failed on {machine()} for {self.address} while {what}: "
-                                  f"{short_error(err or out)}", " ".join((err or out).split()))
+                raise CheckFailed(with_error(f"cc-secrets failed on {machine()} for {self.address} while {what}",
+                                             err or out), " ".join((err or out).split()))
             if wrapper.get("timedOut"):
                 raise CheckFailed(f"dt-email did not finish within {IMAP_TIMEOUT_SECONDS} seconds for {self.address} "
                                   f"while {what}")
@@ -1255,9 +1282,9 @@ class ImapReader:
             lines = [line.strip() for line in err.splitlines() if line.strip()]
             message = next((line.removeprefix("Error:").strip() for line in lines if line.startswith("Error:")),
                            lines[0] if lines else f"it exited {code}")
-            if missing and message.startswith(IMAP_MISSING):
+            if missing and message.startswith((IMAP_MISSING, IMAP_RENUMBERED)):
                 return None
-            raise CheckFailed(f"dt-email failed for {self.address} while {what}: {short_error(message)}", message)
+            raise CheckFailed(with_error(f"dt-email failed for {self.address} while {what}", message), message)
         answer = read_json(out)
         if not isinstance(answer, dict):
             raise CheckFailed(f"dt-email answered something that is not JSON for {self.address} while {what}")
@@ -1324,8 +1351,9 @@ class ImapReader:
         # dt-email keeps its settings under the cc-director folder it is given (CC_DIRECTOR_ROOT), else the Director's
         # own. A Director session gives it its instance folder, so an account added from a session is saved there; this
         # check runs with no CC_ variable, so every such folder on the machine is looked in, as for cc-outlook.
-        base = Path(director_base(account_record_home()))
-        roots = [r for r in [base, *sorted(base.glob("instances/*"))] if (r / "config" / "dt-email" / "config.json").is_file()]
+        bases = dt_email_bases(account_record_home())
+        roots = [r for b in bases for r in [b, *sorted(b.glob("instances/*"))]
+                 if (r / "config" / "dt-email" / "config.json").is_file()]
         mine = []
         for root in roots:
             accounts = self.tool(["account", "list", "--json"], "reading dt-email's accounts", root=root).get("accounts")
@@ -1337,7 +1365,8 @@ class ImapReader:
             raise CheckFailed(f"{self.address} has no dt-email account on {machine()}: run dt-email account add there",
                               f"dt-email account add <name> --email {self.address} --imap-host <host> --smtp-host "
                               f"<host> --secret-entry <entry> --password-env <VARIABLE>; looked in "
-                              + (", ".join(str(r) for r in roots) or f"{base} and its instances, which hold no dt-email settings"))
+                              + (", ".join(str(r) for r in roots)
+                                 or " and ".join(str(b) for b in bases) + " and their instances, which hold no dt-email settings"))
         if len(mine) > 1:
             raise CheckFailed(f"{self.address} is in more than one dt-email account on {machine()}: keep one",
                               "the accounts found: " + ", ".join(f"{a.get('name')} in {r}" for r, a in mine))
@@ -1372,17 +1401,40 @@ class ImapReader:
         found = self.in_uid_order(answer["messages"], "reading the Inbox")
         return found, answer["total"] > len(found)
 
-    def first_uid_since(self, moment):
-        """The lowest UID among the most recent 200 Inbox messages that arrived at or after `moment`, or None."""
-        answer = self.listing(["--since", moment[:10], "--count", str(FIRST_RUN_MESSAGES)], "reading the Inbox")
-        found = [m for m in (self.message(r, "reading the Inbox") for r in answer["messages"]) if m["received"] >= moment]
-        return min((m["uid"] for m in found), default=None)
+    @staticmethod
+    def day_before(moment):
+        """The date to give dt-email list --since for an instant: the day before it. IMAP's SINCE compares the date of
+        the arrival time in the server's own zone, so an instant late in the UTC day can be an earlier date there; the
+        time is then compared exactly (received >= moment)."""
+        return (datetime.strptime(moment, "%Y-%m-%dT%H:%M:%SZ") - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    def arrived_since(self, records, moment):
+        return [m for m in (self.message(r, "reading the Inbox") for r in records) if m["received"] >= moment]
 
     def inbox_first_run(self, now):
         """First run: the most recent 200 Inbox messages, or those of the last 30 days, whichever is fewer (D18): the
         lowest UID among them is found first, then they are read from it, oldest first, 10 at a time."""
-        first = self.first_uid_since(iso(now - timedelta(days=FIRST_RUN_DAYS)))
+        since = iso(now - timedelta(days=FIRST_RUN_DAYS))
+        answer = self.listing(["--since", self.day_before(since), "--count", str(FIRST_RUN_MESSAGES)], "reading the Inbox")
+        first = min((m["uid"] for m in self.arrived_since(answer["messages"], since)), default=None)
         return ([], False) if first is None else self.after(first - 1, MAX_MESSAGES_PER_RUN)
+
+    def first_uid_after_renumbering(self, moment):
+        """The lowest UID of a message that arrived at or after `moment`, or None: the Inbox is read oldest first from
+        the day before, 200 at a time, so no message after `moment` is missed however many arrived since."""
+        options, after = ["--since", self.day_before(moment), "--oldest", "--count", str(FIRST_RUN_MESSAGES)], None
+        for _ in range(IMAP_MAX_RENUMBERED_PAGES):
+            answer = self.listing(options + (["--after-uid", str(after)] if after else []), "reading the Inbox")
+            found = self.arrived_since(answer["messages"], moment)
+            if found:
+                return min(m["uid"] for m in found)
+            if answer["total"] <= len(answer["messages"]):
+                return None
+            after = max(r["uid"] for r in answer["messages"])
+        raise CheckFailed(f"the server renumbered the Inbox of {self.address}, and the Mail Desk cannot find where it "
+                          f"stopped among the mail since {moment[:10]}",
+                          f"read {IMAP_MAX_RENUMBERED_PAGES * FIRST_RUN_MESSAGES} messages oldest first and none "
+                          f"arrived at or after {moment}")
 
     def inbox_since(self, cursor, wanted):
         """Inbox messages above the cursor's UID. When the server has renumbered the Inbox (another uidvalidity), the
@@ -1391,19 +1443,21 @@ class ImapReader:
         if cursor["uidValidity"] == self.validity:
             return self.after(cursor["lastUid"], wanted)
         log(f"{self.address}: the server renumbered the Inbox, so new mail is found again by arrival time")
-        first = self.first_uid_since(cursor["newest"])
+        first = self.first_uid_after_renumbering(cursor["newest"])
         return ([], False) if first is None else self.after(first - 1, wanted)
 
     def file(self, message_id, decision):
         """Moves one Inbox message: archive to the Archive folder, junk to the junk folder. Returns "moved", or
-        "already-gone" when the Inbox no longer holds that UID, or the UID is of an Inbox since renumbered."""
+        "already-gone" when the Inbox no longer holds that UID, or the UID is of an Inbox since renumbered - before this
+        run, or (dt-email checks --expect-uidvalidity on the connection that moves it) during it."""
         match = IMAP_MESSAGE_ID.fullmatch(message_id)
         if match is None:
             raise CheckFailed(f"a filing item of {self.address} names a message id this check did not write")
         validity, uid = int(match.group(1)), match.group(2)
         if validity != self.validity:
             return "already-gone"
-        args = ["archive", uid] if decision == "archive" else ["move", uid, "--to", self.special("junk")]
+        pin = [IMAP_EXPECT, str(self.validity)]
+        args = ["archive", uid, *pin] if decision == "archive" else ["move", uid, "--to", self.special("junk"), *pin]
         moved = self.tool(args, "archiving a message" if decision == "archive" else "moving a message to junk",
                           missing=True)
         return "already-gone" if moved is None else "moved"

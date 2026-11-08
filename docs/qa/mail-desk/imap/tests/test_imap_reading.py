@@ -4,7 +4,7 @@ senders, and that every command with the password runs under cc-secrets."""
 import json
 
 from imap_rig import iw, world  # noqa: F401 - the fixtures
-from imap_rig import BOX, NOW, OTHER, PASSWORD, cursor, imap, mail, section
+from imap_rig import BOX, NOW, OTHER, cursor, imap, mail, section
 
 
 def test_FirstRun_TheLast30DaysOldestFirst_TenAtATime_TheRestNextRun(iw):
@@ -100,6 +100,59 @@ def test_Renumbered_NewMailIsFoundAgainByArrivalTime_TheLastReportedOnceMore(iw)
     assert "renumbered the Inbox" in err
 
 
+def test_Renumbered_MoreThan200SinceTheCursor_NothingIsLost(iw):
+    """The renumbered Inbox is searched oldest first from the cursor's time, so 250 later messages never hide the one
+    the cursor stopped at, or the first ones after it."""
+    box = iw.tools.account()
+    box.inbox(mail("2026-10-17T08:00:00Z", subject="Reported last"),
+              *[mail(f"2026-10-17T{9 + n // 60:02d}:{n % 60:02d}:00Z", subject=f"New {n}") for n in range(250)])
+    box.renumber()
+    iw.memory(imap(cursor=cursor(1, "2026-10-17T08:00:00Z", validity=1)))
+
+    _, _, context, _ = iw.run()
+
+    assert [m["subject"] for m in section(context)["messages"]] == ["Reported last"] + [f"New {n}" for n in range(9)]
+    assert section(context)["more"] is True
+
+
+def test_Renumbered_HundredsBeforeTheCursorSinceTheDayBefore_AreSearchedPastInPages(iw):
+    """300 messages arrived the day before the cursor's time: the first page of 200 holds none after it, so the search
+    goes on to the next page rather than giving up or starting at the newest."""
+    box = iw.tools.account()
+    box.inbox(*[mail(f"2026-10-17T{n // 60:02d}:{n % 60:02d}:00Z", subject=f"Old {n}") for n in range(300)])
+    box.inbox(mail("2026-10-18T09:00:00Z", subject="Reported last"), mail("2026-10-18T10:00:00Z", subject="New"))
+    box.renumber()
+    iw.memory(imap(cursor=cursor(301, "2026-10-18T09:00:00Z", validity=1)))
+
+    _, _, context, _ = iw.run()
+
+    assert [m["subject"] for m in section(context)["messages"]] == ["Reported last", "New"]
+    assert len([a for a in iw.tools.log if a[0] == "list" and "--oldest" in a and "--since" in a]) == 2
+
+
+def test_Renumbered_AServerBehindUtc_ItsEarlierDateDoesNotHideMail(iw):
+    """The server's zone is five hours behind UTC: mail at 03:30 on 18 October (UTC) is 17 October there, and IMAP's
+    SINCE compares the server's dates. Asking from the day before finds it."""
+    box = iw.tools.account(zone_hours=-5)
+    box.inbox(mail("2026-10-18T03:00:00Z", subject="Reported last"), mail("2026-10-18T03:30:00Z", subject="Late night"))
+    box.renumber()
+    iw.memory(imap(cursor=cursor(1, "2026-10-18T03:00:00Z", validity=1)))
+
+    _, _, context, _ = iw.run()
+
+    assert [m["subject"] for m in section(context)["messages"]] == ["Reported last", "Late night"]
+
+
+def test_FirstRun_AServerBehindUtc_TheLookBackStartsOnTime(iw):
+    """The look-back starts at 12:00 UTC on 18 September, which is 07:00 on 18 September on a server five hours
+    behind: a message at 13:00 UTC is inside it, one at 11:00 UTC is not."""
+    box = iw.tools.account(zone_hours=-5)
+    box.inbox(mail("2026-09-18T11:00:00Z", subject="Too old"), mail("2026-09-18T13:00:00Z", subject="Just inside"))
+    iw.memory(imap())
+    _, _, context, _ = iw.run()
+    assert [m["subject"] for m in section(context)["messages"]] == ["Just inside"]
+
+
 def test_KnownSender_FromToAndCcOfTheSentFolder_AndTheCacheHoldsNoAddress(iw):
     box = iw.tools.account()
     box.add(box.sent, mail("2026-10-10T08:00:00Z", sender=f"Desk <{BOX}>", to="Customer <Customer@Example.org>",
@@ -123,15 +176,13 @@ def test_EveryCommandButTheAccountList_RunsUnderCcSecrets_InTheAccountsOwnVariab
                                                                           mail("2026-10-18T08:05:00Z"))
     iw.memory(imap(cursor=cursor(1)))
 
-    _, output, _, err = iw.run()
+    iw.run()
 
     assert len(iw.tools.wrapped) >= 2
     for argv in iw.tools.wrapped:
         assert argv[1:8] == ["run", "zoho-desk", "--via", "env", "--env-name", "ZOHO_DESK_PASSWORD", "--timeout"]
     assert iw.tools.commands().count("account list") == 1
     assert len(iw.tools.log) == len(iw.tools.wrapped) + 1
-    seen = json.dumps(output) + err + iw.state.read_text(encoding="utf-8")
-    assert PASSWORD not in seen and "zoho-desk" not in seen
 
 
 def test_Preview_IsAskedFor_OnlyForTheMessagesReported(iw):

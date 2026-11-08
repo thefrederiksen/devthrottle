@@ -249,7 +249,12 @@ class FakeImapConn:
             seq += 1
             m = folder.messages[u]
             flags = " ".join(m.flags)
-            if "BODY.PEEK[]" in items:
+            partial = re.search(r"BODY\.PEEK\[\]<0\.(\d+)>", items)
+            if partial:
+                data = m.raw[:int(partial.group(1))]
+                out.append((f"{seq} (FLAGS ({flags}) UID {u} BODY[]<0> {{{len(data)}}}".encode(), data))
+                out.append(b")")
+            elif "BODY.PEEK[]" in items:
                 out.append((f"{seq} (FLAGS ({flags}) UID {u} BODY[] {{{len(m.raw)}}}".encode(), m.raw))
                 out.append(b")")
             elif "HEADER.FIELDS" in items:

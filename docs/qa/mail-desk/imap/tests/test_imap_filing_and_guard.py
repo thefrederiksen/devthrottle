@@ -34,8 +34,8 @@ def test_LiveMode_ArchiveToArchive_JunkToTheJunkFolderDtEmailNames(iw):
     box, _ = queued(iw, "live", (1, "archive"), (2, "junk"))
     code, output, context, _ = iw.run()
     assert code == 0
-    assert iw.tools.filed() == [["archive", "1", "--account", "desk", "--json"],
-                                ["move", "2", "--to", "Spam", "--account", "desk", "--json"]]
+    assert iw.tools.filed() == [["archive", "1", "--expect-uidvalidity", "1", "--account", "desk", "--json"],
+                                ["move", "2", "--to", "Spam", "--expect-uidvalidity", "1", "--account", "desk", "--json"]]
     assert [r["result"] for r in section(context)["filing"]] == ["moved", "moved"]
     assert box.folders["INBOX"] == {} and len(box.folders["Archive"]) == 1 and len(box.folders["Spam"]) == 1
     assert iw.read_memory()["channels"][0]["filingQueue"] == []
@@ -60,6 +60,29 @@ def test_LiveMode_AfterTheInboxWasRenumbered_AnOldUidIsAlreadyGone_AndNothingIsM
     assert sorted(box.folders["INBOX"]) == [1, 2]
 
 
+def test_LiveMode_TheInboxRenumberedDuringTheRun_NothingIsMoved(iw):
+    """The run read the Inbox under uidvalidity 1; the server renumbers it before the move. dt-email checks the
+    uidvalidity on the connection that moves, so UID 1 - now another message - is not filed."""
+    box, queue = queued(iw, "live", (1, "archive"), (2, "junk"))
+    iw.tools.renumber_before_filing = True
+
+    _, _, context, _ = iw.run()
+
+    # dt-email refused the move; the run's next read of the Inbox saw the new uidvalidity and failed this channel for
+    # this run, so its memory - the queue - came back whole.
+    assert box.folders["Archive"] == {} and box.folders["Spam"] == {} and sorted(box.folders["INBOX"]) == [1, 2]
+    assert all(a[a.index("--expect-uidvalidity") + 1] == "1" for a in iw.tools.filed()) and iw.tools.filed()
+    assert section(context)["failure"]["sentence"] ==         f"the server renumbered the Inbox of {BOX} during the run; the next run reads it again"
+    assert iw.read_memory()["channels"][0]["filingQueue"] == queue
+
+    filed_before = len(iw.tools.filed())
+    _, _, context, _ = iw.run()
+
+    # The next run: both ids are of the old uidvalidity, so they are already-gone and no command is sent for them.
+    assert [r["result"] for r in section(context)["filing"]] == ["already-gone", "already-gone"]
+    assert len(iw.tools.filed()) == filed_before and sorted(box.folders["INBOX"]) == [1, 2]
+
+
 @pytest.mark.parametrize("args", [
     ["send", "--to", "someone@example.com", "--subject", "x", "--body", "y", "--account", "desk", "--json"],
     ["reply", "1", "--body", "y", "--account", "desk", "--json"],
@@ -69,10 +92,13 @@ def test_LiveMode_AfterTheInboxWasRenumbered_AnOldUidIsAlreadyGone_AndNothingIsM
     ["delete", "1", "--account", "desk", "--json"],
     ["folder", "create", "x", "--account", "desk", "--json"],
     ["read", "1", "--account", "desk", "--json"],
-    ["move", "1", "--to", "Trash", "--account", "desk", "--json"],
-    ["move", "1", "--to", "Spam", "--folder", "Archive", "--account", "desk", "--json"],
-    ["archive", "1,2", "--account", "desk", "--json"],
-    ["archive", "1", "--folder", "Sent Items", "--account", "desk", "--json"],
+    ["move", "1", "--to", "Trash", "--expect-uidvalidity", "1", "--account", "desk", "--json"],
+    ["move", "1", "--to", "Spam", "--folder", "Archive", "--expect-uidvalidity", "1", "--account", "desk", "--json"],
+    ["move", "1", "--to", "Spam", "--account", "desk", "--json"],
+    ["archive", "1,2", "--expect-uidvalidity", "1", "--account", "desk", "--json"],
+    ["archive", "1", "--folder", "Sent Items", "--expect-uidvalidity", "1", "--account", "desk", "--json"],
+    ["archive", "1", "--account", "desk", "--json"],
+    ["archive", "1", "--expect-uidvalidity", "x", "--account", "desk", "--json"],
     ["list", "--unread", "--account", "desk", "--json"],
     ["list", "--count", "--account", "desk", "--json"],
     ["list", "--folder", "INBOX", "--account", "desk"],
@@ -85,8 +111,8 @@ def test_Guard_RefusesEveryOtherCommand_EvenInLiveMode(iw, args):
 
 
 @pytest.mark.parametrize("args", [
-    ["archive", "1", "--account", "desk", "--json"],
-    ["move", "1", "--to", "Spam", "--account", "desk", "--json"],
+    ["archive", "1", "--expect-uidvalidity", "1", "--account", "desk", "--json"],
+    ["move", "1", "--to", "Spam", "--expect-uidvalidity", "1", "--account", "desk", "--json"],
 ])
 def test_Guard_FilingInObserveMode_IsRefused(iw, args):
     iw.screen.check_dt_email(args, True, "Spam")

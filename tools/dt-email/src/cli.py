@@ -43,6 +43,9 @@ app.add_typer(draft_app, name="draft")
 AccountOpt = typer.Option(None, "--account", "-a", help="Account name. Default: the default account.")
 JsonOpt = typer.Option(False, "--json", help="Print JSON with every field.")
 FolderOpt = typer.Option("INBOX", "--folder", "-f", help="The folder the message is in.")
+ExpectOpt = typer.Option(None, "--expect-uidvalidity", min=1,
+                         help="Move nothing unless the folder's uidvalidity (dt-email list --json) is still this, so "
+                              "a UID read before the folder was renumbered never moves another message.")
 
 
 # --------------------------------------------------------------------------------------------- plumbing
@@ -431,7 +434,8 @@ def list_command(folder: str = typer.Option("INBOX", "--folder", "-f"), count: i
                                              "instead of the newest."),
                  preview: bool = typer.Option(False, "--preview", help=f"Add each message's first "
                                               f"{messages.PREVIEW_CHARS} characters of text and its number of "
-                                              "attachments. Reads each message; does not mark it read."),
+                                              f"attachments, from its first {messages.PREVIEW_BYTES // 1024} KB. "
+                                              "Does not mark it read."),
                  fields: Optional[str] = FieldsOpt, account: Optional[str] = AccountOpt,
                  json_output: bool = JsonOpt) -> None:
     """List the newest messages in a folder, newest first."""
@@ -446,7 +450,8 @@ def list_command(folder: str = typer.Option("INBOX", "--folder", "-f"), count: i
         records = _summaries(store, folder, uids, count, oldest)
         if preview:
             for record in records:
-                record.update(messages.preview(store.fetch_message(folder, record["uid"]).literal))
+                record.update(messages.preview(
+                    store.fetch_start(folder, record["uid"], messages.PREVIEW_BYTES).literal))
         validity = store.uid_validity(folder)
     _print_summaries(records, len(uids), fields, json_output, folder, {"uidvalidity": validity})
 
@@ -779,23 +784,25 @@ def mark_command(uids: List[str] = typer.Argument(..., help="Message UIDs (space
 @app.command("move")
 @_command
 def move_command(uids: List[str] = typer.Argument(...), to: str = typer.Option(..., "--to", help="Destination folder."),
-                 folder: str = FolderOpt, account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
+                 folder: str = FolderOpt, expect: Optional[int] = ExpectOpt, account: Optional[str] = AccountOpt,
+                 json_output: bool = JsonOpt) -> None:
     """Move messages to another folder."""
     numbers = _uids(uids)
     with _store(account) as store:
-        store.move(folder, numbers, to)
+        store.move(folder, numbers, to, expect)
     _report({"moved": ",".join(map(str, numbers)), "from": folder, "to": to}, json_output)
 
 
 @app.command("archive")
 @_command
 def archive_command(uids: List[str] = typer.Argument(...), folder: str = FolderOpt,
-                    account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
+                    expect: Optional[int] = ExpectOpt, account: Optional[str] = AccountOpt,
+                    json_output: bool = JsonOpt) -> None:
     """Move messages to the Archive folder."""
     numbers = _uids(uids)
     with _store(account) as store:
         archive = store.special_folder("archive")
-        store.move(folder, numbers, archive)
+        store.move(folder, numbers, archive, expect)
     _report({"moved": ",".join(map(str, numbers)), "from": folder, "to": archive}, json_output)
 
 

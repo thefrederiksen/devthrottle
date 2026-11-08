@@ -19,6 +19,9 @@ SUMMARY_FIELDS = ["uid", "date", "received", "from", "to", "cc", "subject", "mes
 
 #: How much of the text a preview (dt-email list --preview) carries.
 PREVIEW_CHARS = 200
+
+#: How much of each message a preview reads: the text and the headers of the first parts, never a whole attachment.
+PREVIEW_BYTES = 65536
 SUMMARY_DEFAULT = ["uid", "date", "from", "subject"]
 
 
@@ -64,6 +67,8 @@ def received(internal: Optional[str]) -> Optional[str]:
 
 def preview(raw: bytes) -> dict:
     """The first PREVIEW_CHARS characters of a message's text, its spaces collapsed, and how many attachments it has.
+    `raw` may be only the start of the message (PREVIEW_BYTES): attachments are then counted among the parts that
+    start within it.
     The plain text part is preferred; an HTML-only message has its tags and entities taken out. A message with no text
     part at all (a calendar invitation) has an empty preview."""
     message = parse(raw)
