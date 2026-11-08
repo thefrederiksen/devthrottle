@@ -3,9 +3,10 @@
 Zoho Mail, Calendar and admin through Zoho's own API. It holds what only Zoho's API can do, beside the
 standard tools: `dt-email` (IMAP and SMTP) and `dt-calendar` (CalDAV) work with Zoho too.
 
-This first version reads mail: accounts, folders, labels, message lists, search, one message and its
-attachments. Writing mail, the calendar and the admin calls come in the next versions, and only what was
-proven to work against a real Zoho organisation (8 November 2026) is built.
+This version reads and writes mail: accounts, folders, labels, message lists, search, one message and its
+attachments; sending, replying, drafts, flags, moves, archive, delete, spam, labels, folders, threads and
+scheduled send. The calendar and the admin calls come in the next versions, and only what was proven to
+work against a real Zoho organisation (8 November 2026) is built.
 
 ## The key comes from cc-secrets, never a file
 
@@ -19,7 +20,7 @@ cc-secrets run zoho-api-client-secret --with zoho-api-client-id --with zoho-api-
 ```
 
 A missing variable fails with that exact command. The settings file
-(`<cc-director config>/dt-zoho/config.json`) holds only the data centre.
+(`<cc-director config>/dt-zoho/config.json`) holds the data centre and the test-mode list, never a secret.
 
 **Data centre.** Zoho keeps each organisation in one data centre and a key made in one is refused by the
 others: `ca` (Canada, zohocloud.ca), `com`, `eu`, `in`, `com.au`, `jp`. Only `ca` has been run against a
@@ -59,3 +60,54 @@ Every command takes `--json`; the mail commands take `--account <address>`.
 - **Text attachments come back with CRLF line endings** even when sent with LF. Binary files come back
   byte for byte. `download` says so when a text file has CRLF endings.
 - Reading a message through the API does not mark it read.
+
+## Test mode: allowed recipients
+
+```
+dt-zoho allowed-recipients set soren@devthrottle.com email@devthrottle.com
+dt-zoho allowed-recipients show
+dt-zoho allowed-recipients clear
+```
+
+While a list is set, any To, CC or BCC not on it - in `send` and `reply` - is refused before anything
+reaches Zoho: no attachment is uploaded and nothing is sent. A reply also checks the original's From and
+Reply-To, and `reply --all` every address on the original, because Zoho copies the original CC itself, the
+account's own aliases included. The list is kept in the settings file. A
+draft is never sent, so `draft save` is not checked.
+
+## Commands (writing)
+
+| Command | What it does |
+|---|---|
+| `send --to A [--cc] [--bcc] --subject S --body T\|--body-file F\|--html-file F [--attach F] [--from ALIAS] [--at "YYYY-MM-DD HH:MM" [--time-zone Z]]` | Send now, or at a set time |
+| `reply ID [--all] --body T\|--body-file F\|--html-file F [--attach F] [--from ALIAS]` | Reply, or reply to all, in the same thread |
+| `draft save ...` / `draft list` / `draft delete ID...` | Save a draft (the send options), list drafts, delete them for good |
+| `mark ID... --as read\|unread\|important\|info\|followup\|unflagged` | Read state and flag |
+| `move ID... --to F` / `archive ID...` / `unarchive ID... [--to F]` | Move; archive; move back out of Archive (default Inbox) |
+| `delete ID... [--folder F] [--permanent]` | To Trash, or with `--permanent` for good; refused unless Zoho places each message in that folder |
+| `spam ID...` / `not-spam ID...` | Into Spam; back to Inbox |
+| `label create NAME [--color #RRGGBB]` / `label rename L [--name N] [--color C]` / `label delete L` | Labels |
+| `label apply ID... --label L` / `label remove ID... --label L` / `label clear ID...` | Labels on messages |
+| `folder create NAME [--parent F]` / `rename F --name N` / `move F --to-top` / `mark-read F` / `empty F` / `imap F --show\|--hide` / `delete F` | Folders. `empty` moves the messages to Trash; `delete` moves the folder into Trash, and deleting it again there (`/Trash/<name>`) removes it for good |
+| `thread mark T... --as ...` / `thread label T... --apply L\|--remove L` | Every message in a thread at once |
+
+Ids may be space or comma separated. Every command takes `--json` and `--account <address>`.
+
+## What Zoho's API cannot do, and what to use instead
+
+- **Forward**: Zoho answers 500 and sends nothing. `dt-zoho forward` says so; use `dt-email forward`.
+- **Filters**: there is no filter call. `dt-zoho filters` says so; filters are made in Zoho Mail's web settings.
+- **Send or change a saved draft**: there is no call. Send with `dt-zoho send`, then `dt-zoho draft delete`;
+  to change one, delete it and save it again.
+- **Unarchive**: Zoho's unarchive call answers OK and leaves the message in Archive, so `unarchive` moves it.
+- **A scheduled message cannot be listed or cancelled** once sent with `--at`.
+- **One body**: Zoho sends plain text or HTML, not both, so `--body`, `--body-file` and `--html-file` are one
+  or the other.
+- **Spam acts on the whole conversation.** `spam` on one message moves every message in its thread into
+  Spam, your own sent replies too, and `not-spam` then puts them all in Inbox. Move the sent ones back with
+  `dt-zoho move <id> --to Sent` (seen on 8 November 2026).
+- **Reply to all copies the original CC itself**, own aliases included, whatever CC dt-zoho sends.
+- **On a thread, Zoho marks unread and labels only the received messages**; your sent replies stay read and
+  unlabelled. Read and flag reach every message.
+- **Moving a folder under another folder** was not proven, so only `folder move --to-top` is offered.
+- `--fields` does not apply to `--json`, which always carries every field; giving both is refused.

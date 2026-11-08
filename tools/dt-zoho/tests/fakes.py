@@ -8,6 +8,7 @@ shape `{"data": {"errorCode": ...}, "status": {"code": 404, "description": "Inva
 
 from __future__ import annotations
 
+import html
 import json
 import urllib.parse
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ ACCOUNTS = "https://accounts.zohocloud.ca"
 MAIL = "https://mail.zohocloud.ca"
 ACCOUNT_ID = "636823000000002002"
 INBOX, SENT, SUB, SUB2 = "636823000000002008", "636823000000002012", "636823000000007009", "636823000000007010"
+DRAFTS, ARCHIVE, SPAM, TRASH = "636823000000002010", "636823000000002020", "636823000000002016", "636823000000002014"
 
 
 def _ok(data, code=200) -> Response:
@@ -46,6 +48,7 @@ class Message:
     html: str = "<div>Hello<br>there</div>"
     attachments: Dict[str, tuple] = field(default_factory=dict)   # id -> (name, bytes)
     received: str = "1794144262990"
+    reply_to: Optional[str] = None
 
     def summary(self) -> dict:
         data = {"summary": "Hello there", "sentDateInGMT": self.received, "subject": self.subject,
@@ -78,7 +81,16 @@ class FakeZoho:
              "imapAccess": True, "parentFolderId": INBOX},
             {"folderId": SUB2, "folderName": "Reports", "path": "/Reports", "folderType": "Inbox",
              "imapAccess": False},
+            {"folderId": DRAFTS, "folderName": "Drafts", "path": "/Drafts", "folderType": "Drafts", "imapAccess": True},
+            {"folderId": ARCHIVE, "folderName": "Archive", "path": "/Archive", "folderType": "Archive",
+             "imapAccess": True},
+            {"folderId": SPAM, "folderName": "Spam", "path": "/Spam", "folderType": "Spam", "imapAccess": True},
+            {"folderId": TRASH, "folderName": "Trash", "path": "/Trash", "folderType": "Trash", "imapAccess": True},
         ]
+        self.sent: List[dict] = []                   # every POST to .../messages and .../messages/{m}, with its path
+        self.uploads: List[tuple] = []               # (fileName, bytes)
+        self.fail_action: Optional[str] = None       # answer 500 to a send with this action, as Zoho does to forward
+        self.next_id = 900000000000000000
         self.labels = [{"labelId": "636823000000007002", "displayName": "LWTBI", "color": "#dd902f"}]
         self.messages: List[Message] = []
 
@@ -100,7 +112,7 @@ class FakeZoho:
                                              "status": {"code": 401, "description": "Invalid Input"}}).encode())
         if base != MAIL:
             return _mail_error(404, "URL_RULE_NOT_CONFIGURED")
-        return self._mail(method, parts.path, query)
+        return self._mail(method, parts.path, query, body)
 
     def _token(self, form: dict) -> Response:
         self.token_requests += 1
@@ -128,7 +140,123 @@ class FakeZoho:
                 return m
         return None
 
-    def _mail(self, method: str, path: str, query: dict) -> Response:
+    def _new_id(self) -> str:
+        self.next_id += 1
+        return str(self.next_id)
+
+    def _write(self, method: str, rest: List[str], query: dict, raw: Optional[bytes]) -> Optional[Response]:
+        """The writing calls. None when the path is not one of them."""
+        body = json.loads(raw.decode()) if raw and rest != ["messages", "attachments"] else {}
+        if rest == ["messages", "attachments"] and method == "POST":
+            self.uploads.append((query["fileName"], raw))
+            return _ok({"storeName": "110003647767", "attachmentName": query["fileName"],
+                        "attachmentPath": f"/Mail/{len(self.uploads)}-{query['fileName']}"})
+        if method == "POST" and (rest == ["messages"] or (len(rest) == 2 and rest[0] == "messages")):
+            if self.fail_action and body.get("action") == self.fail_action:
+                return Response(500, json.dumps({"status": {"code": 500, "description": "Internal Error"},
+                                                 "data": {"moreInfo": "An internal error occurred"}}).encode())
+            self.sent.append(dict(body, _path="/".join(rest)))
+            mid = self._new_id()
+            if body.get("mode") == "draft":
+                self.messages.append(Message(id=mid, folder=DRAFTS, subject=body.get("subject", "")))
+            return _ok(dict(body, messageId=mid, mailId=f"<{mid}@devthrottle.com>"))
+        if rest == ["updatemessage"] and method == "PUT":
+            self._apply(body, [m for m in self.messages if m.id in body["messageId"]])
+            return _ok(None)
+        if rest == ["updatethread"] and method == "PUT":
+            wanted = {str(t) for t in body["threadId"]}
+            self._apply(body, [m for m in self.messages if (m.thread or m.id) in wanted])
+            return _ok(None)
+        if len(rest) == 4 and rest[0] == "folders" and rest[2] == "messages" and method == "DELETE":
+            m = self._message(rest[3], rest[1])
+            if m is None:
+                return _mail_error(404, "INVALID_MESSAGE")
+            if query.get("expunge") == "true":
+                self.messages.remove(m)
+            else:
+                m.folder = TRASH
+            return _ok(None)
+        if rest == ["folders"] and method == "POST":
+            fid = self._new_id()
+            parent = next((f for f in self.folders if f["folderId"] == body.get("parentFolderId")), None)
+            path = (parent["path"] if parent else "") + "/" + body["folderName"]
+            folder = {"folderId": fid, "folderName": body["folderName"], "path": path, "folderType": "Inbox",
+                      "imapAccess": True}
+            if parent:
+                folder["parentFolderId"] = parent["folderId"]
+            self.folders.append(folder)
+            return _ok({"folderId": fid, "folderName": body["folderName"], "path": path})
+        if len(rest) == 2 and rest[0] == "folders" and method in ("PUT", "DELETE"):
+            folder = next((f for f in self.folders if f["folderId"] == rest[1]), None)
+            if folder is None:
+                return _mail_error(404, "INVALID_FOLDER")
+            if method == "DELETE":
+                # As Zoho does: a folder outside Trash moves into it; a folder in Trash is removed for good.
+                if folder["path"].startswith("/Trash/"):
+                    self.folders.remove(folder)
+                else:
+                    folder["path"] = "/Trash" + folder["path"]
+                return _ok(None)
+            mode = body.get("mode")
+            if mode == "rename":
+                folder["folderName"] = body["folderName"]
+                folder["path"] = folder["path"].rsplit("/", 1)[0] + "/" + body["folderName"]
+            elif mode == "move":
+                folder.pop("parentFolderId", None)
+                folder["path"] = "/" + folder["folderName"]
+            elif mode in ("setViewableInIMAP", "removeViewableInIMAP"):
+                folder["imapAccess"] = mode == "setViewableInIMAP"
+            elif mode == "markAsRead":
+                for m in self.messages:
+                    if m.folder == folder["folderId"]:
+                        m.read = True
+            elif mode == "emptyFolder":
+                for m in self.messages:
+                    if m.folder == folder["folderId"]:
+                        m.folder = TRASH
+            else:
+                return _mail_error(400, "INVALID_MODE")
+            return _ok(None)
+        if rest == ["labels"] and method == "POST":
+            lid = self._new_id()
+            self.labels.append({"labelId": lid, "displayName": body["displayName"], "color": body["color"]})
+            return _ok({"labelId": lid, "displayName": body["displayName"]})
+        if len(rest) == 2 and rest[0] == "labels" and method in ("PUT", "DELETE"):
+            label = next((l for l in self.labels if l["labelId"] == rest[1]), None)
+            if label is None:
+                return _mail_error(404, "INVALID_LABEL")
+            if method == "DELETE":
+                self.labels.remove(label)
+            else:
+                label.update(displayName=body["displayName"], color=body["color"])
+            return _ok(None)
+        return None
+
+    def _apply(self, body: dict, targets: List["Message"]) -> None:
+        mode = body["mode"]
+        for m in targets:
+            if mode in ("markAsRead", "markAsUnread"):
+                m.read = mode == "markAsRead"
+            elif mode == "setFlag":
+                m.flag = body["flagid"]
+            elif mode == "moveMessage":
+                m.folder = body["destfolderId"]
+            elif mode == "archiveMails":
+                m.folder = ARCHIVE
+            elif mode == "moveToSpam":
+                m.folder = SPAM
+            elif mode == "markNotSpam":
+                m.folder = INBOX
+            elif mode == "applyLabel":
+                m.labels = sorted(set(m.labels) | set(body["labelId"]))
+            elif mode == "removeLabel":
+                m.labels = [l for l in m.labels if l not in body["labelId"]]
+            elif mode == "removeAllLabels":
+                m.labels = []
+            else:
+                raise AssertionError(f"the fake Zoho does not know the mode {mode}")
+
+    def _mail(self, method: str, path: str, query: dict, raw: Optional[bytes] = None) -> Response:
         p = path.split("/")
         if path == "/api/accounts" and method == "GET":
             return _ok(self.accounts)
@@ -137,6 +265,9 @@ class FakeZoho:
         if len(p) < 4 or p[3] != ACCOUNT_ID:
             return _mail_error(404, "INVALID_ACCOUNT")
         rest = p[4:]
+        written = self._write(method, rest, query, raw)
+        if written is not None:
+            return written
         if rest == ["folders"]:
             return _ok(self.folders)
         if rest == ["labels"]:
@@ -158,14 +289,24 @@ class FakeZoho:
             m = self._message(rest[1])
             if m is None:
                 return _mail_error(404, "INVALID_MESSAGE")
-            return _ok({"messageId": int(m.id), "content": f"From: {m.sender}\r\nSubject: {m.subject}\r\n\r\nHello"})
+            headers = f"From: {m.sender_name} <{m.sender}>\r\nTo: {html.unescape(m.to)}\r\n"
+            if m.cc != "Not Provided":
+                headers += f"Cc: {html.unescape(m.cc)}\r\n"
+            if m.reply_to:
+                headers += f"Reply-To: {m.reply_to}\r\n"
+            return _ok({"messageId": int(m.id), "content": f"{headers}Subject: {m.subject}\r\n\r\nHello"})
         if len(rest) >= 5 and rest[0] == "folders" and rest[2] == "messages":
+            what = rest[4]
+            if what == "details":
+                # Looked up by id alone: the worst case for a caller that trusts the folder in the path, since it
+                # was not proven whether Zoho honours it.
+                m = self._message(rest[3])
+                if m is None:
+                    return _mail_error(404, "INVALID_MESSAGE")
+                return _ok(m.summary())
             m = self._message(rest[3], rest[1])
             if m is None:
                 return _mail_error(404, "INVALID_MESSAGE")
-            what = rest[4]
-            if what == "details":
-                return _ok(m.summary())
             if what == "content":
                 return _ok({"messageId": int(m.id), "content": m.html})
             if what == "header":

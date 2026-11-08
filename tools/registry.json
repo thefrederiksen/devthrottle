@@ -94,7 +94,7 @@
       "name": "dt-zoho",
       "category": "email",
       "type": "python",
-      "description": "Zoho Mail, Calendar and admin through Zoho's own API: folders, labels, messages, search, attachments",
+      "description": "Zoho Mail, Calendar and admin through Zoho's own API: read, search, send, reply, drafts, flags, moves, labels, folders, threads, scheduled send",
       "built": true,
       "ship": true,
       "requirements": ["A Zoho Self Client key (client id, client secret, refresh token) in cc-secrets"]

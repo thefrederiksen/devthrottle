@@ -47,8 +47,12 @@ class ZohoClient:
             raise DtZohoError(_error_sentence("GET", path, answer))
         return answer.body
 
+    def mail_upload(self, path: str, query: Dict[str, Any], data: bytes) -> Any:
+        """A POST whose body is a file's exact bytes (an attachment upload), answered with JSON."""
+        return self._call("POST", self.centre.mail + path, query=query, raw_body=data)
+
     def _call(self, method: str, url: str, query: Optional[Dict[str, Any]] = None,
-              json_body: Optional[Any] = None) -> Any:
+              json_body: Optional[Any] = None, raw_body: Optional[bytes] = None) -> Any:
         if query:
             url += ("&" if "?" in url else "?") + urllib.parse.urlencode(
                 {k: v for k, v in query.items() if v is not None})
@@ -57,6 +61,9 @@ class ZohoClient:
         if json_body is not None:
             body = json.dumps(json_body).encode("utf-8")
             headers["Content-Type"] = "application/json"
+        elif raw_body is not None:
+            body = raw_body
+            headers["Content-Type"] = "application/octet-stream"
         answer = self._send(method, url, headers, body)
         path = url.split("?")[0]
         data = _json(answer)
