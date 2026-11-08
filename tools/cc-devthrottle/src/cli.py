@@ -6135,7 +6135,7 @@ def maildesk_decisions(
 @maildesk_app.command("providers")
 def maildesk_providers(
     provider: Optional[str] = typer.Argument(
-        None, help="One provider in full: zoho, imap, gmail or outlook. The Gateway holds the list."
+        None, help="One provider in full. The Gateway holds the list; run with no provider to see them all."
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON. The provider filter still applies."),
 ) -> None:

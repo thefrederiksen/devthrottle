@@ -2742,8 +2742,7 @@ COMMANDS:
 
 A `PATTERN` is an exact address or `*@domain`. A block entry's own reason is its `--why`.
 
-- **`providers` is the one list of what is supported.** For each provider (`zoho`, `imap`, `gmail`,
-  `outlook`) it prints the tool an agent uses, how many email and calendar features were proven to work
+- **`providers` is the one list of what is supported.** For each provider it prints the tool an agent uses, how many email and calendar features were proven to work
   and how many failed or were not tested, and whether the Mail Desk reads it. `providers PROVIDER` prints
   one in full: every proven feature, every one that failed or was not tested and why, and what the
   provider needs before a mailbox can be added. The list is the Gateway's

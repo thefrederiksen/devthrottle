@@ -585,19 +585,9 @@ def set_setting(name: str, value: str, why: Optional[str]) -> None:
 # ---------- what is supported ----------
 
 
-def _area_summary(area: Any) -> str:
-    """'9 work, 1 not tested' for one area of a provider, from the Gateway's lists."""
-    area = area if isinstance(area, dict) else {}
-    works = area.get("works") if isinstance(area.get("works"), list) else []
-    not_working = area.get("notWorking") if isinstance(area.get("notWorking"), list) else []
-    failed = sum(1 for f in not_working if isinstance(f, dict) and f.get("state") == "fail")
-    untested = sum(1 for f in not_working if isinstance(f, dict) and f.get("state") == "not-tested")
-    words = [f"{len(works)} work"]
-    if failed:
-        words.append(f"{failed} fail")
-    if untested:
-        words.append(f"{untested} not tested")
-    return ", ".join(words)
+def _area_summary(area: Any) -> Any:
+    """The Gateway's own count of one area of a provider ('9 work, 1 not tested'); this module counts nothing."""
+    return _cell(area.get("summary")) if isinstance(area, dict) else None
 
 
 def providers(provider: Optional[str], json_output: bool) -> None:
@@ -608,7 +598,6 @@ def providers(provider: Optional[str], json_output: bool) -> None:
         return
     rows = _list_of(answer, "providers", "/providers")
     if provider is None:
-        on_desk = answer.get("mailDesk") if isinstance(answer, dict) else None
         records = []
         for p in rows:
             p = p if isinstance(p, dict) else {}
@@ -621,8 +610,8 @@ def providers(provider: Optional[str], json_output: bool) -> None:
                 "calendar": _area_summary(p.get("calendar")),
             })
         _write(
-            _line(f"{_count(answer, rows)} (on the Mail Desk {on_desk}, not yet {len(rows) - on_desk})"
-                  if isinstance(on_desk, int) and not isinstance(on_desk, bool) else _count(answer, rows)),
+            _count(answer, rows),
+            _line(f"summary: {_cell(answer.get('summary')) if isinstance(answer, dict) else None}"),
             axi_output.render_list("providers", ["provider", "tool", "mail-desk", "email", "calendar"], records),
         )
         axi_cli.print_next([f"{_PROVIDERS} <provider>", f"{_PROVIDERS} --json"])

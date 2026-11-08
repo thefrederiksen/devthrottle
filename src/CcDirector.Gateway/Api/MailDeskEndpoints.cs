@@ -127,7 +127,7 @@ internal static class MailDeskEndpoints
         gate.MapGet(p + "/providers", (HttpContext ctx, CancellationToken _) => ListProviders(ctx, resolveTenant));
         gate.MapPost(p + "/settings", (HttpContext ctx, CancellationToken ct) => SetSettingAsync(ctx, resolveTenant, parts, ct));
 
-        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions and settings");
+        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions, settings and providers");
     }
 
     // ---------- reads ----------
@@ -195,11 +195,14 @@ internal static class MailDeskEndpoints
             shown = new[] { one };
         }
         FileLog.Write($"[{Tag}] {route}: account={tenant.ToLogString()} provider={(asked.Length > 0 ? asked : "all")} count={shown.Count}");
+        var onDesk = all.Count(p => p.MailDesk.State == MailDeskProviders.MailDeskStates.Yes);
         return Results.Json(new
         {
             count = shown.Count,
             total = all.Count,
-            mailDesk = all.Count(p => p.MailDesk.State == MailDeskProviders.MailDeskStates.Yes),
+            mailDesk = onDesk,
+            notYet = all.Count - onDesk,
+            summary = MailDeskProviders.SummaryOf(all),
             providers = shown,
         });
     }

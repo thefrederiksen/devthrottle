@@ -21,6 +21,10 @@ public sealed partial class MailDeskEndpointTests
         Assert.Equal(4, body.GetProperty("count").GetInt32());
         Assert.Equal(4, body.GetProperty("total").GetInt32());
         Assert.Equal(MailDeskWords.Providers.All.Count, body.GetProperty("mailDesk").GetInt32());
+        Assert.Equal(4 - MailDeskWords.Providers.All.Count, body.GetProperty("notYet").GetInt32());
+        Assert.Equal(MailDeskProviders.SummaryOf(MailDeskProviders.All), body.GetProperty("summary").GetString());
+        var imap = body.GetProperty("providers")[1];
+        Assert.Equal("9 work, 1 not tested", imap.GetProperty("email").GetProperty("summary").GetString());
         var ids = body.GetProperty("providers").EnumerateArray().Select(p => p.GetProperty("provider").GetString()).ToList();
         Assert.Equal(new[] { "zoho", "imap", "gmail", "outlook" }, ids);
     }

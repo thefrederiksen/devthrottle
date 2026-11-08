@@ -35,7 +35,10 @@ public static class MailDeskProviders
     public const string Zoho = "zoho";
     public const string Imap = "imap";
 
-    private const string ProvenZoho = "Proven 7 and 8 November 2026 against Zoho's IMAP, SMTP and CalDAV servers on soren@devthrottle.com.";
+    private const string ProvenZoho =
+        "Proven by hand on 7 and 8 November 2026 over IMAP, SMTP and CalDAV against Zoho's servers, on soren@devthrottle.com, "
+        + "before dt-email and dt-calendar were built: the tools follow that proof, but were not themselves run in it. "
+        + "No other provider's servers were tested.";
 
     /// <summary>Every provider, fully described. The Mail Desk column is folded in from <see cref="MailDeskWords.Providers.All"/>.</summary>
     public static IReadOnlyList<MailDeskProvider> All => Raw.Select(WithMailDesk).ToList();
@@ -54,6 +57,14 @@ public static class MailDeskProviders
                     $"Yes. Add a mailbox with: {MailDeskWords.ChannelAddCommand("<machine>", p.Provider)}")
                 : new MailDeskProviderMailDesk(MailDeskStates.NotYet, p.MailDesk.Label),
         };
+    }
+
+    /// <summary>"4 providers: on the Mail Desk 2, not yet 2" - the whole list in one line.</summary>
+    public static string SummaryOf(IReadOnlyList<MailDeskProvider> providers)
+    {
+        ArgumentNullException.ThrowIfNull(providers);
+        var on = providers.Count(p => p.MailDesk.State == MailDeskStates.Yes);
+        return $"{providers.Count} providers: on the Mail Desk {on}, not yet {providers.Count - on}";
     }
 
     private static MailDeskProviderFeature Fail(string feature, string why) => new(feature, States.Fail, why);
@@ -141,7 +152,7 @@ public static class MailDeskProviders
                 "Send attachments",
                 "Reply and reply-all, keeping the thread",
                 "Drafts",
-                "Mark read, star",
+                "Mark read, mark unread, star",
                 "Move, archive, delete to Trash",
                 "Create labels",
                 "Gmail labels: create, apply, search by label",
@@ -150,7 +161,7 @@ public static class MailDeskProviders
                 Fail("Download attachments", "cc-gmail has no command for it, and read does not show attachments."),
                 Fail("Forward", "cc-gmail has no forward command."),
                 Fail("Send from an alias", "send, reply and draft have no From option."),
-                Fail("Remove a star, mark unread", "No command removes a label from a message."),
+                Fail("Remove a star, mark read without opening", "No command removes a label from a message, and only read marks one read."),
                 Fail("Delete permanently", "Refused by Google: the sign-in does not have the full mail scope. Trash empties itself after 30 days."),
                 Fail("List messages by a label you made", "list -l fails for every label you made; search \"label:...\" works."),
             }),
@@ -191,6 +202,7 @@ public static class MailDeskProviders
             {
                 Fail("Send from an alias", "send, reply, forward and draft have no From option."),
                 Fail("Mark unread", "read marks a message read; no command marks one unread."),
+                Fail("List or search a folder you made", "list -f and search -f cannot open a folder made by create-folder, though move finds it."),
             }),
             Calendar: new MailDeskProviderArea(new[]
             {
@@ -202,7 +214,7 @@ public static class MailDeskProviders
                 Fail("Change an event", "Changing the subject works, but changing the time fails, and changing the location crashes."),
                 Fail("Accept or decline an invitation", "calendar respond crashes (devthrottle issue 4771)."),
             }),
-            ProvenOn: "Proven 7 November 2026 on email@devthrottle.com's Microsoft 365 mailbox, and read only on soren.frederiksen@mindzie.com."),
+            ProvenOn: "Proven 7 November 2026 on email@devthrottle.com's Microsoft 365 mailbox, and with reads, one send and the accept or decline test on soren.frederiksen@mindzie.com."),
     };
 }
 
@@ -221,8 +233,31 @@ public sealed record MailDeskProvider(
 /// <summary>Whether the Mail Desk reads this provider (<c>yes</c> or <c>not-yet</c>), in words.</summary>
 public sealed record MailDeskProviderMailDesk(string State, string Label);
 
-/// <summary>What was proven working, and what failed or was not tested, each with why.</summary>
-public sealed record MailDeskProviderArea(IReadOnlyList<string> Works, IReadOnlyList<MailDeskProviderFeature> NotWorking);
+/// <summary>What was proven working, and what failed or was not tested, each with why, and the counts in words.</summary>
+public sealed record MailDeskProviderArea(IReadOnlyList<string> Works, IReadOnlyList<MailDeskProviderFeature> NotWorking)
+{
+    /// <summary>How many features failed.</summary>
+    public int Failed => NotWorking.Count(f => f.State == MailDeskProviders.States.Fail);
+
+    /// <summary>How many features were not tested.</summary>
+    public int NotTested => NotWorking.Count(f => f.State == MailDeskProviders.States.NotTested);
+
+    /// <summary>"9 work, 1 fail, 1 not tested": works always, each other count when it is not zero. A feature in a
+    /// state this list does not name is refused rather than left out of the count.</summary>
+    public string Summary
+    {
+        get
+        {
+            var unknown = NotWorking.FirstOrDefault(f => f.State != MailDeskProviders.States.Fail && f.State != MailDeskProviders.States.NotTested);
+            if (unknown is not null)
+                throw new InvalidOperationException($"The feature '{unknown.Feature}' is in the state '{unknown.State}', which has no words.");
+            var words = new List<string> { $"{Works.Count} work" };
+            if (Failed > 0) words.Add($"{Failed} fail");
+            if (NotTested > 0) words.Add($"{NotTested} not tested");
+            return string.Join(", ", words);
+        }
+    }
+}
 
 /// <summary>A feature that was not proven working: <c>fail</c> or <c>not-tested</c>, and why.</summary>
 public sealed record MailDeskProviderFeature(string Feature, string State, string Why);

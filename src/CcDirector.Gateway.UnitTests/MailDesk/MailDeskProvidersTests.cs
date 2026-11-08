@@ -98,6 +98,8 @@ public sealed class MailDeskProvidersTests
     [InlineData("gmail", "email", "Delete permanently", MailDeskProviders.States.Fail)]
     [InlineData("gmail", "calendar", "Accept or decline an invitation", MailDeskProviders.States.Fail)]
     [InlineData("outlook", "email", "Mark unread", MailDeskProviders.States.Fail)]
+    [InlineData("outlook", "email", "List or search a folder you made", MailDeskProviders.States.Fail)]
+    [InlineData("gmail", "email", "Remove a star, mark read without opening", MailDeskProviders.States.Fail)]
     [InlineData("outlook", "calendar", "Change an event", MailDeskProviders.States.Fail)]
     [InlineData("outlook", "calendar", "Accept or decline an invitation", MailDeskProviders.States.Fail)]
     public void TheProofsFailuresAndGaps_AreListedAsNotWorking(string provider, string area, string feature, string state)
@@ -106,6 +108,35 @@ public sealed class MailDeskProvidersTests
         var found = (area == "email" ? p.Email : p.Calendar).NotWorking.Single(f => f.Feature == feature);
 
         Assert.Equal(state, found.State);
+    }
+
+    [Fact]
+    public void Gmail_MarkUnread_WhichTheProofPassed_IsListedAsWorking()
+    {
+        Assert.Contains("Mark read, mark unread, star", MailDeskProviders.Find("gmail")!.Email.Works);
+    }
+
+    [Fact]
+    public void Summary_CountsEachStateAndLeavesOutZeros()
+    {
+        Assert.Equal("9 work, 1 not tested", MailDeskProviders.Find("imap")!.Email.Summary);
+        Assert.Equal("3 work, 1 fail", MailDeskProviders.Find("imap")!.Calendar.Summary);
+        Assert.Equal("0 work, 1 not tested", MailDeskProviders.Find("zoho")!.Email.Summary);
+    }
+
+    [Fact]
+    public void Summary_AStateWithNoWords_Throws()
+    {
+        var area = new MailDeskProviderArea(new[] { "a" }, new[] { new MailDeskProviderFeature("b", "maybe", "c") });
+
+        Assert.Throws<InvalidOperationException>(() => area.Summary);
+    }
+
+    [Fact]
+    public void SummaryOf_TheWholeList_CountsTheMailDesk()
+    {
+        var on = MailDeskWords.Providers.All.Count;
+        Assert.Equal($"4 providers: on the Mail Desk {on}, not yet {4 - on}", MailDeskProviders.SummaryOf(MailDeskProviders.All));
     }
 
     [Fact]

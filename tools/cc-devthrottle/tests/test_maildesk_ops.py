@@ -1002,10 +1002,12 @@ PROVIDER_IMAP = {
     "needs": ["A lantern lit on the hill.", "The key under the mat on every machine."],
     "admin": "None: ask the lighthouse.",
     "email": {
+        "summary": "Two letters and an owl",
         "works": ["Read a letter", "Send a letter, with a ribbon"],
         "notWorking": [{"feature": "Send from an alias", "state": "not-tested", "why": "No alias owl was found."}],
     },
     "calendar": {
+        "summary": "One moon, one shipwreck",
         "works": ["List the moons"],
         "notWorking": [{"feature": "Invite people", "state": "fail", "why": "Strangers are dropped into the sea."}],
     },
@@ -1013,10 +1015,10 @@ PROVIDER_IMAP = {
 }
 PROVIDER_OUTLOOK = dict(PROVIDER_IMAP, provider="outlook", name="Outlook", tool="cc-outlook",
                mailDesk={"state": "yes", "label": "Yes. Add a mailbox with: something"},
-               email={"works": ["a", "b", "c"], "notWorking": []},
-               calendar={"works": [], "notWorking": [{"feature": "x", "state": "fail", "why": "y"},
-                                                     {"feature": "z", "state": "not-tested", "why": "w"}]})
-PROVIDERS_ALL = {"count": 2, "total": 2, "mailDesk": 1, "providers": [PROVIDER_IMAP, PROVIDER_OUTLOOK]}
+               email={"summary": "Three of three", "works": ["a", "b", "c"], "notWorking": []},
+               calendar={"summary": "None, sadly", "works": [], "notWorking": [{"feature": "x", "state": "fail", "why": "y"}]})
+PROVIDERS_ALL = {"count": 2, "total": 2, "mailDesk": 1, "notYet": 1, "summary": "Two kinds of owl, one awake",
+                 "providers": [PROVIDER_IMAP, PROVIDER_OUTLOOK]}
 
 
 def test_providers_NoProvider_AsksForAllAndPrintsOneRowEachWithTheirAreasCounted(fake_gateway):
@@ -1030,10 +1032,11 @@ def test_providers_NoProvider_AsksForAllAndPrintsOneRowEachWithTheirAreasCounted
     assert result.exit_code == 0, result.output
     call = _only_call(fake_gateway)
     assert (call["method"], call["path"], call["query"]) == ("GET", "/gateway/mail-desk/providers", {})
-    assert "count: 2 (on the Mail Desk 1, not yet 1)" in result.stdout
+    assert "count: 2" in result.stdout
+    assert "summary: Two kinds of owl, one awake" in result.stdout
     assert "providers[2]{provider,tool,mail-desk,email,calendar}:" in result.stdout
-    assert 'imap,"dt-email, dt-calendar",not-yet,"2 work, 1 not tested","1 work, 1 fail"' in result.stdout
-    assert 'outlook,cc-outlook,yes,3 work,"0 work, 1 fail, 1 not tested"' in result.stdout
+    assert 'imap,"dt-email, dt-calendar",not-yet,Two letters and an owl,"One moon, one shipwreck"' in result.stdout
+    assert 'outlook,cc-outlook,yes,Three of three,"None, sadly"' in result.stdout
     assert "cc-devthrottle maildesk providers <provider>" in result.stdout
     assert result.stdout.isascii()
 
@@ -1112,5 +1115,5 @@ def test_providers_Help_SaysWhatItIsAndTakesOneOptionalProvider():
     assert result.exit_code == 0
     assert "What is supported, by provider" in result.output
     assert "[PROVIDER]" in result.output
-    for word in ("zoho", "imap", "gmail", "outlook"):
-        assert word in result.output
+    flat = " ".join(result.output.replace("|", " ").split())
+    assert "The Gateway holds the list" in flat
