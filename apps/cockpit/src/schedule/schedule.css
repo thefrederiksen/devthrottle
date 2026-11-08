@@ -291,6 +291,47 @@
   text-align: right;
 }
 
+/* Web UI Polish, fix 7: Shift folds under the time and "Closes itself" under Last run, so each of those cells is a
+   stack of a main line and a smaller second line; one line each, cut off at the end with the whole text on hover. */
+.sched-cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sched-cell-sub {
+  display: block;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The "..." beside Run now that holds Edit and Delete (Web UI Polish, fix 7). */
+.sched-rowmenu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0 6px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.sched-rowmenu-btn:hover,
+.sched-rowmenu-btn[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
 .sched-linkbtn {
   background: none;
   border: none;

@@ -15,6 +15,7 @@ import {
 import { savedWarnings } from "@devthrottle/client-core/schedule/savedWarnings";
 import { LoadStrip, machineShown, resolveHourPick } from "./LoadStrip";
 import { ScheduleEditor, type ScheduleEditorRequest } from "./ScheduleEditor";
+import { ScheduleRowMenu } from "./ScheduleRowMenu";
 import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "./SchedulerPause";
 import { getGatewaySettings } from "@devthrottle/client-core/settings/settingsClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
@@ -277,7 +278,7 @@ export function ScheduleView() {
       {
         key: "name",
         header: "Name",
-        width: "200px",
+        width: "190px",
         sortable: true,
         sortValue: (job) => job.name.toLowerCase(),
         render: (job) => (
@@ -298,7 +299,7 @@ export function ScheduleView() {
       {
         key: "runs",
         header: "Runs",
-        width: "220px",
+        width: "170px",
         sortable: true,
         sortValue: (job) => actionShortLabel(job).toLowerCase(),
         render: (job) => (
@@ -328,45 +329,41 @@ export function ScheduleView() {
         ),
       },
       {
+        // The shifts this schedule works in, and its shift-end warning (Factory Control, step 3), fold UNDER the time
+        // (Web UI Polish, fix 7) instead of taking a column of their own, so the table fits the page at 1600 pixels.
+        // Both are the Gateway's words; the line only marks the warning it is given, and the detail says it in full.
         key: "schedule",
         header: "Schedule",
-        width: "195px",
+        width: "200px",
         sortable: true,
         sortValue: (job) => cronToEnglish(scheduleCron(job)).toLowerCase(),
         render: (job) => (
-          <span className="sched-schedule" title={scheduleCron(job) ?? undefined}>
-            <span className={`sched-repeats ${repeatsLabel(job) === "ONCE" ? "once" : "repeats"}`}>
-              {repeatsLabel(job)}
-            </span>
-            {scheduleEnglish(job)}
-            {notifyEnabled(job) && (
-              <span className="sched-notify-badge" title={notifyTitle(job)}>
-                {notifyLabel(job)}
+          <span className="sched-cell-stack">
+            <span className="sched-schedule" title={scheduleCron(job) ?? undefined}>
+              <span className={`sched-repeats ${repeatsLabel(job) === "ONCE" ? "once" : "repeats"}`}>
+                {repeatsLabel(job)}
               </span>
-            )}
-          </span>
-        ),
-      },
-      {
-        // The shifts this schedule works in, and its shift-end warning (Factory Control, step 3). Both are the
-        // Gateway's words; the cell only marks the warning it is given, and the detail below says it in full.
-        key: "shift",
-        header: "Shift",
-        width: "150px",
-        render: (job) => (
-          <span
-            className={`sched-shift ${job.shiftWarning ? "warn" : ""}`}
-            title={job.shiftWarning ?? undefined}
-            data-testid={`sched-shift-${job.id}`}
-          >
-            {job.shiftText ?? "-"}
+              {scheduleEnglish(job)}
+              {notifyEnabled(job) && (
+                <span className="sched-notify-badge" title={notifyTitle(job)}>
+                  {notifyLabel(job)}
+                </span>
+              )}
+            </span>
+            <span
+              className={`sched-shift sched-cell-sub ${job.shiftWarning ? "warn" : ""}`}
+              title={job.shiftWarning ?? undefined}
+              data-testid={`sched-shift-${job.id}`}
+            >
+              {job.shiftText ?? "-"}
+            </span>
           </span>
         ),
       },
       {
         key: "next",
         header: "Next run",
-        width: "90px",
+        width: "80px",
         sortable: true,
         sortValue: (job) => epochOrMax(nextRunInstant(job)),
         render: (job) => (
@@ -378,7 +375,7 @@ export function ScheduleView() {
       {
         key: "last",
         header: "Last run",
-        width: "260px",
+        width: "240px",
         sortable: true,
         sortValue: (job) => epochOrMax(job.lastFiredUtc),
         render: (job) => {
@@ -399,23 +396,20 @@ export function ScheduleView() {
                   {job.lastRunText}
                 </span>
               )}
+              {/* Whether this schedule's sessions close themselves (the owner, 2026-10-09), folded under Last run
+                  (Web UI Polish, fix 7). The words and the verdict are the Gateway's; the line only colours it. */}
+              {job.runRecord?.text && (
+                <span
+                  className={`sched-runrecord sched-cell-sub ${runRecordClass(job.runRecord.verdict)}`}
+                  title={job.runRecord.text}
+                  data-testid={`sched-runrecord-${job.id}`}
+                >
+                  {job.runRecord.text}
+                </span>
+              )}
             </span>
           );
         },
-      },
-      {
-        // Whether this schedule's sessions close themselves (the owner, 2026-10-09). The words and the verdict are
-        // the Gateway's; the page only colours the verdict it is given.
-        key: "closes",
-        header: "Closes itself",
-        width: "230px",
-        sortable: true,
-        sortValue: (job) => runRecordRank(job.runRecord?.verdict),
-        render: (job) => (
-          <span className={`sched-runrecord ${runRecordClass(job.runRecord?.verdict)}`}>
-            {job.runRecord?.text ?? "-"}
-          </span>
-        ),
       },
       {
         // One word everywhere (issue #3910): Active or Paused, as the Gateway stamped it. A tap pauses or resumes.
@@ -438,8 +432,9 @@ export function ScheduleView() {
       {
         key: "actions",
         header: "",
-        // Wide enough for Resume, Run now, Edit and Delete on a paused row without clipping Delete.
-        width: "225px",
+        // Resume (on a paused row), Run now, and the "..." that holds Edit and Delete - or Edit in factory
+        // (Web UI Polish, fix 7).
+        width: "150px",
         align: "right",
         className: "ui-table-cell-stop",
         render: (job) => (
@@ -454,18 +449,9 @@ export function ScheduleView() {
             </button>
             {isFactorySchedule(job) ? (
               // One place to change a factory's schedule: its factory (the owner, 2026-10-09).
-              <Link className="sched-linkbtn" to={factoryHref(job)}>
-                Edit in factory
-              </Link>
+              <ScheduleRowMenu jobName={job.name} factoryHref={factoryHref(job)} />
             ) : (
-              <>
-                <button className="sched-linkbtn" onClick={() => openEdit(job)}>
-                  Edit
-                </button>
-                <button className="sched-linkbtn del" onClick={() => setPendingDelete(job)}>
-                  Delete
-                </button>
-              </>
+              <ScheduleRowMenu jobName={job.name} onEdit={() => openEdit(job)} onDelete={() => setPendingDelete(job)} />
             )}
           </span>
         ),
@@ -952,10 +938,4 @@ function runRecordClass(verdict: string | null | undefined): string {
   return "none";
 }
 
-// Sort order for the Closes itself column: schedules whose sessions are left behind first, so they are found.
-function runRecordRank(verdict: string | null | undefined): number {
-  if (verdict === "bad") return 0;
-  if (verdict === "ok") return 2;
-  return 1;
-}
 
