@@ -19,7 +19,7 @@ on:
 jobs:
   inventory-drift:
     name: Inventory drift check
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, devthrottle-product-linux]
     # Measured at well under a minute. The cap is a stuck-process backstop, not a target.
     timeout-minutes: 15
     steps:
