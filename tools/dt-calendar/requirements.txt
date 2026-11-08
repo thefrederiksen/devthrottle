@@ -1,0 +1,4 @@
+typer>=0.9.0
+cc-shared
+cc-storage
+tzdata; sys_platform == "win32"
