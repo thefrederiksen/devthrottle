@@ -30,7 +30,7 @@ import { AppBarAlerts } from "./AppBarAlerts";
 // (see ConnectionBanner - the app says nothing while the connection is fine). The corner is the
 // button's for good. Nothing guesses any widths: both rows are plain flex.
 //
-//   row 1:  [<- Sessions] ................... [...]     navigation left, menu right
+//   row 1:  [Back] ...... [Mission] [!4] [bell] [...]   navigation left, menu right
 //   row 2:  102 devthrottle / f9e7 .....................  the name gets the whole row
 //
 // THE STOP SHEET IS A PLAIN CONFIRMATION (issue internal#1992). It was built as the Cockpit's stop
@@ -163,7 +163,6 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
         <button
           type="button"
           className="back-link"
-          data-testid="session-back"
           onClick={() =>
             navigate("/", backState !== undefined ? { state: backState, replace: true } : undefined)
           }

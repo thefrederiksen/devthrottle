@@ -51,11 +51,10 @@ describe("the phone session header fits", () => {
       </MemoryRouter>,
     );
 
-    const back = screen.getByTestId("session-back");
+    // Its accessible name still says where it goes; what it shows is the word every phone screen shows.
+    const back = screen.getByRole("button", { name: "Back to sessions" });
     expect(back.textContent).toBe("Back");
     expect(back.className).toBe("back-link");
-    // Its accessible name still says where it goes.
-    expect(screen.getByRole("button", { name: "Back to sessions" })).toBe(back);
   });
 
   it("ViewTabs_VoiceTab_IsOneWord", () => {
