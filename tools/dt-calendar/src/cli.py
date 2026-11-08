@@ -141,8 +141,12 @@ def _times(start: str, end: Optional[str], duration: Optional[int], all_day: boo
 
 def _record(resource: caldav.EventResource, calendar_name: str) -> dict:
     event = ics.master_event(ics.parse(resource.data))
-    start, start_utc = ics.time_value(event.get("DTSTART"))
-    end, _ = ics.time_value(event.get("DTEND"))
+    owner = f"event {resource.id}"
+    start, start_utc = ics.time_value(event.get("DTSTART"), owner)
+    end, _ = ics.time_value(event.get("DTEND"), owner)
+    if end is not None and len(end) == 10:
+        # An all-day DTEND is the day AFTER the event; show the last day, the same way --end takes it.
+        end = (date.fromisoformat(end) - timedelta(days=1)).isoformat()
     organizer = event.get("ORGANIZER")
     people = ics.attendees(event)
     summary = event.get("SUMMARY")
@@ -351,6 +355,9 @@ def events_command(calendar: Optional[str] = CalendarOpt,
                    fields: Optional[str] = typer.Option(None, "--fields", help="Fields: " + ",".join(EVENT_FIELDS) + "."),
                    account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
     """List events in a date range, earliest first. A recurring event is listed once, at its first start."""
+    from cc_shared.axi_output import parse_fields_or_exit
+
+    chosen = parse_fields_or_exit(fields, EVENT_FIELDS, EVENT_DEFAULT)
     first = _day(from_, "--from") if from_ else date.today()
     last = _day(to, "--to") if to else first + timedelta(days=30)
     if last < first:
@@ -367,9 +374,6 @@ def events_command(calendar: Optional[str] = CalendarOpt,
         output.emit_json({"count": len(shown), "total": total, "calendar": cal.name, "from": first.isoformat(),
                           "to": last.isoformat(), "events": shown})
         return
-    from cc_shared.axi_output import parse_fields_or_exit
-
-    chosen = parse_fields_or_exit(fields, EVENT_FIELDS, EVENT_DEFAULT)
     output.emit_list("events", chosen, shown, total,
                      [f'dt-calendar event <id> --calendar "{cal.name}"'] if shown else [])
 
@@ -460,6 +464,16 @@ def change_command(event_id: str = typer.Argument(..., help="The event id, from 
     if len([c for c in calendar_obj.children if c.name == "VEVENT"]) > 1:
         raise DtCalendarError("this recurring event has changed occurrences; dt-calendar changes only simple "
                               "events and whole series without exceptions.", exit_code=2)
+    organizer = event.get("ORGANIZER")
+    organizer_address = ics.address(organizer.value).lower() if organizer else None
+    i_organise = organizer_address is None or organizer_address == acct.email.lower()
+    if (added or removed) and not i_organise:
+        raise DtCalendarError(f"only the organizer ({organizer_address}) can change who is invited to this event.",
+                              exit_code=2)
+    if i_organise:
+        # A change the organizer saves is sent to everyone still invited, so test mode checks them all.
+        notified = [p["address"].lower() for p in ics.attendees(event) if p["address"].lower() not in removed]
+        config.check_invitees(cfg, [a for a in notified if a != acct.email.lower()] + added)
     if summary is not None:
         event.set("SUMMARY", ics.escape_text(summary))
     for name, value in (("LOCATION", location), ("DESCRIPTION", description)):
@@ -498,9 +512,12 @@ def change_command(event_id: str = typer.Argument(..., help="The event id, from 
 
 
 def _change_times(event: ics.Component, start: Optional[str], end: Optional[str], duration: Optional[int]) -> None:
-    all_day = (event.get("DTSTART") is not None and event.get("DTSTART").param("VALUE") == "DATE")
+    """Move an event, keeping the form its times are stored in: a known time zone stays that zone (so a
+    recurring series keeps its wall-clock time across daylight saving), UTC stays UTC."""
+    first = event.get("DTSTART")
+    all_day = first is not None and first.param("VALUE") == "DATE"
     if all_day:
-        old_start = _day(ics.time_value(event.get("DTSTART"))[0], "the event's start")
+        old_start = _day(ics.time_value(first)[0], "the event's start")
         new_start = start or old_start.isoformat()
         if end is None and duration is None and start is not None and event.get("DTEND") is not None:
             days = (_day(ics.time_value(event.get("DTEND"))[0], "the event's end") - old_start).days
@@ -509,11 +526,24 @@ def _change_times(event: ics.Component, start: Optional[str], end: Optional[str]
         event.set("DTSTART", dtstart, [("VALUE", "DATE")])
         event.set("DTEND", dtend, [("VALUE", "DATE")])
         return
-    _, old_start = ics.time_value(event.get("DTSTART"))
+    zone = ics.zone_of(first)
+    in_utc = first is not None and first.value.strip().endswith("Z")
+    if event.get("RRULE") is not None and zone is None and not in_utc:
+        raise DtCalendarError("this is a recurring series whose times are floating or in a time zone this machine "
+                              "does not know; dt-calendar moves a series only when it is in UTC or a known time zone.",
+                              exit_code=2)
+    _, old_start = ics.time_value(first)
     _, old_end = ics.time_value(event.get("DTEND"))
-    if old_start is None or (start is not None and end is None and duration is None and old_end is None):
-        raise DtCalendarError("this event's times use a time zone this machine does not know; pass both --start "
-                              "and --end.", exit_code=2)
+    if start is None and old_start is None:
+        raise DtCalendarError("this event's start is in a time zone this machine does not know; pass --start too.",
+                              exit_code=2)
+    if end is None and duration is None:
+        if event.get("DTEND") is None:
+            raise DtCalendarError("this event has no end time dt-calendar can read (it gives a DURATION); pass --end "
+                                  "or --duration.", exit_code=2)
+        if old_end is None or old_start is None:
+            raise DtCalendarError("this event's times are in a time zone this machine does not know; pass --end or "
+                                  "--duration.", exit_code=2)
     new_start = _moment(start, "--start") if start is not None else old_start
     if end is not None:
         new_end = _moment(end, "--end")
@@ -524,8 +554,13 @@ def _change_times(event: ics.Component, start: Optional[str], end: Optional[str]
     if new_end <= new_start:
         raise DtCalendarError("the event must end after it starts.", exit_code=2)
     event.remove("DURATION")
-    event.set("DTSTART", ics.utc_stamp(new_start))
-    event.set("DTEND", ics.utc_stamp(new_end))
+    if zone is not None:
+        tzid = [("TZID", first.param("TZID"))]
+        event.set("DTSTART", ics.local_stamp(new_start, zone), tzid)
+        event.set("DTEND", ics.local_stamp(new_end, zone), list(tzid))
+    else:
+        event.set("DTSTART", ics.utc_stamp(new_start))
+        event.set("DTEND", ics.utc_stamp(new_end))
 
 
 @app.command("delete")
@@ -554,10 +589,14 @@ def respond_command(event_id: str = typer.Argument(..., help="The invitation's i
     answer on to the organizer."""
     if as_ not in ANSWERS:
         raise DtCalendarError(f"--as must be one of {', '.join(ANSWERS)}, not '{as_}'.", exit_code=2)
-    _, acct, client = _client(account)
+    cfg, acct, client = _client(account)
     cal = client.calendar(calendar)
     current = client.get(cal, event_id)
     calendar_obj = ics.parse(current.data)
+    organizer = ics.master_event(calendar_obj).get("ORGANIZER")
+    if organizer is not None:
+        # The server sends the answer to the organizer, so test mode checks that address.
+        config.check_invitees(cfg, [ics.address(organizer.value).lower()])
     mine = [p for c in calendar_obj.children if c.name == "VEVENT" for p in c.all("ATTENDEE")
             if ics.address(p.value).lower() == acct.email.lower()]
     if not mine:

@@ -185,29 +185,51 @@ def date_stamp(day: date) -> str:
     return day.strftime("%Y%m%d")
 
 
-def time_value(prop: Optional[Prop]) -> Tuple[Optional[str], Optional[datetime]]:
+def zone_of(prop: Optional[Prop]) -> Optional[ZoneInfo]:
+    """The time zone named by a DTSTART's TZID, when this machine knows it; None for UTC, floating or unknown."""
+    tzid = prop.param("TZID") if prop is not None else None
+    if not tzid:
+        return None
+    try:
+        return ZoneInfo(tzid.strip('"'))
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def time_value(prop: Optional[Prop], owner: str = "this event") -> Tuple[Optional[str], Optional[datetime]]:
     """(text to show, the moment in UTC for sorting) of a DTSTART or DTEND.
 
     UTC times are shown in this machine's time zone; a time with a TZID in that zone; an all-day date as
-    the date. A TZID this machine does not know is shown as written, with its name, never guessed."""
+    the date. A TZID this machine does not know is shown as written, with its name, never guessed. A value
+    in any other form is an error naming `owner`, never a guess."""
     if prop is None:
         return None, None
     value = prop.value.strip()
-    if prop.param("VALUE") == "DATE" or re.fullmatch(r"\d{8}", value):
-        day = datetime.strptime(value[:8], "%Y%m%d")
-        return day.date().isoformat(), day.replace(tzinfo=timezone.utc)
-    if value.endswith("Z"):
-        moment = datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        return moment.astimezone().isoformat(timespec="minutes"), moment
-    naive = datetime.strptime(value, "%Y%m%dT%H%M%S")
+    if not re.fullmatch(r"\d{8}(T\d{6}Z?)?", value):
+        raise DtCalendarError(f"{owner}: {prop.name} value '{value}' is not a date or time form dt-calendar reads.")
+    try:
+        if prop.param("VALUE") == "DATE" or len(value) == 8:
+            day = datetime.strptime(value[:8], "%Y%m%d")
+            return day.date().isoformat(), day.replace(tzinfo=timezone.utc)
+        if value.endswith("Z"):
+            moment = datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            return moment.astimezone().isoformat(timespec="minutes"), moment
+        naive = datetime.strptime(value, "%Y%m%dT%H%M%S")
+    except ValueError as exc:
+        raise DtCalendarError(f"{owner}: {prop.name} value '{value}' is not a real date or time ({exc}).") from exc
     tzid = prop.param("TZID")
     if tzid:
-        try:
-            moment = naive.replace(tzinfo=ZoneInfo(tzid.strip('"')))
-        except (ZoneInfoNotFoundError, ValueError):
+        zone = zone_of(prop)
+        if zone is None:
             return f"{naive.isoformat(timespec='minutes')} ({tzid.strip(chr(34))})", None
+        moment = naive.replace(tzinfo=zone)
         return moment.isoformat(timespec="minutes"), moment.astimezone(timezone.utc)
     return naive.isoformat(timespec="minutes"), naive.astimezone(timezone.utc)
+
+
+def local_stamp(moment: datetime, zone: ZoneInfo) -> str:
+    """The wall time in `zone`, written for a property that carries TZID."""
+    return moment.astimezone(zone).strftime("%Y%m%dT%H%M%S")
 
 
 def address(value: str) -> str:

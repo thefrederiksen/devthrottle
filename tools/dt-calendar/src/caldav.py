@@ -98,7 +98,17 @@ class CalDavClient:
         for _ in range(MAX_REDIRECTS + 1):
             status, response_headers, data = send(method, url, all_headers, body)
             if status in (301, 302, 307, 308) and "location" in response_headers:
-                url = urllib.parse.urljoin(url, response_headers["location"])
+                target = urllib.parse.urljoin(url, response_headers["location"])
+                base = urllib.parse.urlparse(self._base)
+                moved = urllib.parse.urlparse(target)
+                # The password goes with every request, so it never follows a redirect off the account's own
+                # server or down to plain http.
+                if moved.scheme != "https" or moved.netloc.lower() != base.netloc.lower():
+                    raise DtCalendarError(
+                        f"the CalDAV server redirected to {target}, which is not the account's server "
+                        f"({self._base}); the password is not sent there. If that server is right, set it as the "
+                        "account's --url.")
+                url = target
                 continue
             if status == 401:
                 raise DtCalendarError(
@@ -220,6 +230,10 @@ class CalDavClient:
             headers["If-None-Match"] = "*"
         elif etag:
             headers["If-Match"] = etag
+        else:
+            raise DtCalendarError(
+                "the server sent no ETag for this event, so dt-calendar cannot change it without risking "
+                "overwriting someone else's change. Nothing was changed.")
         status, _, data = self.request("PUT", href, ics_text.encode("utf-8"), headers, ok=(200, 201, 204, 409, 412))
         if status in (409, 412):
             what = "an event with this id already exists" if create else "the event changed on the server since it was read"

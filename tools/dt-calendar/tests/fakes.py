@@ -44,7 +44,10 @@ class FakeCalDav:
         # Zoho keeps an attendee the organizer removes over CalDAV (seen in the live run).
         self.keeps_removed_attendees = keeps_removed_attendees
         self.org_domain = org_domain
+        # True redirects to /dav/ on the same server; a string redirects to that address.
         self.redirect_well_known = redirect_well_known
+        self.send_etags = True
+        self.urls: List[str] = []
         self.users: Dict[str, FakeUser] = {}
         self.requests: List[Tuple[str, str, Dict[str, str]]] = []
 
@@ -88,6 +91,7 @@ class FakeCalDav:
 
     def send(self, method, url, headers, body):
         path = urllib.parse.urlparse(url).path
+        self.urls.append(url)
         self.requests.append((method, path, dict(headers)))
         user = self._user(headers)
         if user is None:
@@ -106,7 +110,7 @@ class FakeCalDav:
             if name not in user.events:
                 return 200, {}, b""  # Zoho: a deleted event answers 200 with nothing in it
             text, etag = user.events[name]
-            return 200, {"etag": etag}, text.encode()
+            return 200, ({"etag": etag} if self.send_etags else {}), text.encode()
         if method == "PUT":
             return self._put(user, name, headers, body.decode("utf-8"))
         if method == "DELETE":
@@ -123,7 +127,8 @@ class FakeCalDav:
     def _propfind(self, user: FakeUser, path: str, depth: str):
         if path == "/.well-known/caldav":
             if self.redirect_well_known:
-                return 301, {"location": "/dav/"}, b""
+                target = "/dav/" if self.redirect_well_known is True else self.redirect_well_known
+                return 301, {"location": target}, b""
             return 207, {}, self._ms([self._resp(path, f"<D:current-user-principal><D:href>/caldav/{user.key}/user/"
                                                        "</D:href></D:current-user-principal>")])
         if path == "/dav/":
@@ -165,8 +170,8 @@ class FakeCalDav:
                 if name in user.events:
                     text, etag = user.events[name]
                     data = text.replace("&", "&amp;").replace("<", "&lt;")
-                    out.append(self._resp(href.text, f"<D:getetag>{etag}</D:getetag>"
-                                                     f"<C:calendar-data>{data}</C:calendar-data>"))
+                    tag = f"<D:getetag>{etag}</D:getetag>" if self.send_etags else ""
+                    out.append(self._resp(href.text, f"{tag}<C:calendar-data>{data}</C:calendar-data>"))
             return 207, {}, self._ms(out)
         return 400, {}, b""
 
