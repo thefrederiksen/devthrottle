@@ -12,14 +12,10 @@ public enum LicenseOwnerEmailOutcome
 
     /// <summary>Not written this time; it may be tried again on a later minute check.</summary>
     Failed,
-
-    /// <summary>There is nobody to tell. Trying again cannot help. Your inbox exists on every Gateway, so
-    /// <see cref="LicenseOwnerInbox"/> never answers this; the license checks still handle it from an older channel.</summary>
-    NoAccount,
 }
 
 /// <summary>The result of one attempt to tell the owner.</summary>
-/// <param name="Outcome">Sent, failed (try again later), or nobody to tell.</param>
+/// <param name="Outcome">Sent, or failed (try again later).</param>
 /// <param name="Detail">One plain sentence saying why it was not sent; null when it was.</param>
 /// <param name="RetryAfter">How long the channel asked this Gateway to wait before trying again, when it said.</param>
 public sealed record LicenseOwnerEmailResult(LicenseOwnerEmailOutcome Outcome, string? Detail, TimeSpan? RetryAfter = null);
@@ -76,8 +72,10 @@ public sealed class LicenseOwnerInbox
 
     /// <summary>
     /// <paramref name="send"/>, followed by one push to the owner's phones when it answered
-    /// <see cref="LicenseOwnerEmailOutcome.Sent"/>. Nothing is pushed for a message that was not written. The push names
-    /// no one message (the sender does not return it), so a tap opens Your inbox.
+    /// <see cref="LicenseOwnerEmailOutcome.Sent"/>. Nothing is pushed for a message that was not written. The push is
+    /// best effort AFTER the write (<see cref="SystemAlertInbox.PushBestEffortAsync"/>): a push that throws or is
+    /// cancelled never turns a written message into a failure, so the check marks it told and never writes it again.
+    /// The push names no one message (the sender does not return it), so a tap opens Your inbox.
     /// </summary>
     public static LicenseOwnerEmailSender ThenPush(LicenseOwnerEmailSender send, SystemAlertPusher push)
     {
@@ -87,7 +85,8 @@ public sealed class LicenseOwnerInbox
         {
             var result = await send(tenant, email, ct).ConfigureAwait(false);
             if (result.Outcome == LicenseOwnerEmailOutcome.Sent)
-                await push(tenant, YourInboxWords.LicensesSeat, email.Subject, null, ct).ConfigureAwait(false);
+                await SystemAlertInbox.PushBestEffortAsync(push, tenant, YourInboxWords.LicensesSeat, email.Subject, null, ct)
+                    .ConfigureAwait(false);
             return result;
         };
     }

@@ -91,6 +91,21 @@ public sealed class NetDiagAlertServiceTests
     }
 
     [Fact]
+    public void OnDrift_ThePushIsCancelledAfterTheWrite_StillMarksTheDeviceWarned()
+    {
+        var s = new NetDiagAlertService(new DirectorEventLog(), new SystemAlertInbox(
+            (tenant, message) => _written.Add((tenant, message)),
+            (_, _, _, _, _) => throw new OperationCanceledException("the push was cancelled")));
+
+        s.OnDrift("Phone");
+        s.OnResolve("Phone");
+
+        // The drift was written, so the owner was told, and the recovery closes that loop.
+        Assert.Equal(2, _written.Count);
+        Assert.Contains("recovered", _written[1].message.Subject);
+    }
+
+    [Fact]
     public void DailyCap_LimitsMessagesAndPushesPerDay()
     {
         var s = Make(cap: 2);

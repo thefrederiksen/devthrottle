@@ -289,14 +289,6 @@ public sealed class LicenseRenewalEmailService
                 foreach (var (rowId, _) in warnings)
                     MarkConfirmed(tenant, rowId);
                 break;
-            case LicenseOwnerEmailOutcome.NoAccount:
-                foreach (var (rowId, facts) in warnings)
-                {
-                    _log.RecordEmail(tenant, rowId, LicenseGatewayReasonCodes.NoOwnerAccount,
-                        WarningMessage(facts, $"no Your inbox message was written because {result.Detail}"), null);
-                    ForgetEmailWait(tenant, rowId);
-                }
-                break;
             default:
                 // The waits are set before any row is written, so a database that refuses a write still gets them.
                 foreach (var (rowId, _) in warnings)

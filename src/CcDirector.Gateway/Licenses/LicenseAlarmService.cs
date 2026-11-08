@@ -574,13 +574,6 @@ public sealed class LicenseAlarmService
                 foreach (var alarm in alarms)
                     MarkEmailed(tenant, alarm.Id);
                 break;
-            case LicenseOwnerEmailOutcome.NoAccount:
-                foreach (var alarm in alarms)
-                {
-                    RecordEmail(tenant, alarm.Id, LicenseGatewayReasonCodes.NoOwnerAccount, null);
-                    ForgetEmail(tenant, alarm.Id);
-                }
-                break;
             default:
                 // The waits are set before any row is written, so a database that refuses a write still gets them.
                 foreach (var alarm in alarms)

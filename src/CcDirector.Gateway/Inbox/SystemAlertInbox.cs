@@ -19,7 +19,9 @@ public delegate Task SystemAlertPusher(TenantId tenant, string seat, string subj
 /// email. Each caller keeps its own limits (per day, per episode); this class only writes and pushes.
 ///
 /// A message that cannot be written THROWS, and nothing is pushed: a push about a message that is not there would send
-/// the owner to an empty inbox. A push that fails is logged by the pusher and never undoes the message.
+/// the owner to an empty inbox. THE MESSAGE IS THE RECORD, AND THE PUSH IS BEST EFFORT AFTER IT: once the message is
+/// written, a push that throws - or is cancelled - is logged and swallowed here, so the caller still sees the alert as
+/// told. A lost push must never undo the message or make a caller write it a second time.
 /// </summary>
 public sealed class SystemAlertInbox
 {
@@ -51,7 +53,26 @@ public sealed class SystemAlertInbox
             throw;
         }
         FileLog.Write($"[SystemAlertInbox] wrote to Your inbox: message={row.Id:D}, seat={seat}");
-        await _push(tenant, seat, row.Subject, row.Id, ct).ConfigureAwait(false);
+        await PushBestEffortAsync(_push, tenant, seat, row.Subject, row.Id, ct).ConfigureAwait(false);
         return row;
+    }
+
+    /// <summary>
+    /// Push one alert whose Your inbox message is ALREADY written. Never throws - not even when <paramref name="ct"/> is
+    /// cancelled - because the message is the record: a push that is lost is logged, and the alert stays told.
+    /// </summary>
+    public static async Task PushBestEffortAsync(SystemAlertPusher push, TenantId tenant, string seat, string subject,
+        Guid? messageId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(push);
+        try
+        {
+            await push(tenant, seat, subject, messageId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Deliberately catches cancellation too: the message is written, and only the push was lost.
+            FileLog.Write($"[SystemAlertInbox] push LOST after the message was written: seat={seat}, message={messageId?.ToString("D") ?? "(none)"} ({ex.GetType().Name}): {ex.Message}");
+        }
     }
 }

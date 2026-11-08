@@ -109,6 +109,26 @@ public sealed class SystemAlertsToYourInboxTests : IDisposable
         Assert.Empty(_pushed);
     }
 
+    [Fact]
+    public async Task TellAsync_ThePushIsCancelledAfterTheWrite_StillReturnsTheWrittenMessage()
+    {
+        var alerts = new SystemAlertInbox(Write, (_, _, _, _, _) => throw new OperationCanceledException("the push was cancelled"), () => T0);
+
+        var written = await alerts.TellAsync(Tenant, YourInboxWords.NetworkSeat, "Subject", "Body", CancellationToken.None);
+
+        Assert.Same(written, Assert.Single(_written).message);
+    }
+
+    [Fact]
+    public async Task TellAsync_ThePushThrows_StillReturnsTheWrittenMessage()
+    {
+        var alerts = new SystemAlertInbox(Write, (_, _, _, _, _) => throw new InvalidOperationException("push service down"), () => T0);
+
+        var written = await alerts.TellAsync(Tenant, YourInboxWords.SessionSupervisorSeat, "Subject", "Body", CancellationToken.None);
+
+        Assert.Same(written, Assert.Single(_written).message);
+    }
+
     // ---------------------------------------------------------------- the license alerts
 
     private static LicenseOwnerEmail AlarmEmail() =>
@@ -151,6 +171,19 @@ public sealed class SystemAlertsToYourInboxTests : IDisposable
         Assert.Equal(LicenseOwnerEmailOutcome.Sent, result.Outcome);
         Assert.Single(_written);
         Assert.Equal((Tenant, YourInboxWords.LicensesSeat, AlarmEmail().Subject, (Guid?)null), Assert.Single(_pushed));
+    }
+
+    [Fact]
+    public async Task LicenseOwnerInbox_ThenPush_ThePushIsCancelledAfterTheWrite_StillAnswersSent()
+    {
+        var send = LicenseOwnerInbox.ThenPush(new LicenseOwnerInbox(Write, () => T0).SendAsync,
+            (_, _, _, _, _) => throw new OperationCanceledException("the push was cancelled"));
+
+        var result = await send(Tenant, AlarmEmail(), CancellationToken.None);
+
+        // Sent, so the renewal check marks its row told and never writes a second message.
+        Assert.Equal(LicenseOwnerEmailOutcome.Sent, result.Outcome);
+        Assert.Single(_written);
     }
 
     [Fact]

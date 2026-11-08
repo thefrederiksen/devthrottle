@@ -822,20 +822,6 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task TickAsync_SeveralSignInsDue_OnAGatewayWithNoAccountToEmail_RecordsThatOnEveryRow_AndNeverTriesAgain()
-    {
-        ThreeSignInsFailAtOnce();
-        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.NoAccount, "this self-hosted Gateway has no DevThrottle account to email");
-
-        Assert.Equal(1, await Tick());
-        _now = T0.AddHours(3);
-        Assert.Equal(0, await Tick());
-
-        Assert.Single(_sent);
-        Assert.All(Rows(), row => Assert.Equal((LicenseGatewayReasonCodes.NoOwnerAccount, 0), (row.ReasonCode, row.SendCount)));
-    }
-
-    [Fact]
     public async Task ASecondSignInOfOneMachine_ThatStartsFailingLater_IsItsOwnStreak_AndEachEndsOnItsOwn()
     {
         Reports(One, Mac, Failing(A, TwoDays), Renewed(B, TwoDays, active: false));
@@ -928,22 +914,6 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Contains("expires in 1 day ", _sent[1].Email.Subject);
         Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, TheRow().ReasonCode);
         Assert.Single(Rows());
-    }
-
-    [Fact]
-    public async Task AGatewayWithNoAccountToEmail_RecordsThat_AndNeverTriesAgain()
-    {
-        Reports(One, Mac, Failing(A, TwoDays));
-        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.NoAccount, "this self-hosted Gateway has no DevThrottle account to email");
-
-        Assert.Equal(1, await Tick());
-        _now = T0.AddHours(3);
-        Assert.Equal(0, await Tick());
-
-        Assert.Single(_sent);
-        var row = TheRow();
-        Assert.Equal((LicenseGatewayReasonCodes.NoOwnerAccount, 0, LicenseLogStates.Open), (row.ReasonCode, row.SendCount, row.State));
-        Assert.EndsWith("; no Your inbox message was written because this self-hosted Gateway has no DevThrottle account to email.", row.Message);
     }
 
     // ----- one account never hears of another's -----

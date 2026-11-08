@@ -1141,7 +1141,8 @@ public static partial class LicenseDisplayFold
         LicenseGatewayReasonCodes.DirectorOffline => "The machine's Director was not connected.",
         LicenseGatewayReasonCodes.OwnerEmailed => "The owner was told.",
         LicenseGatewayReasonCodes.OwnerEmailFailed => "The owner has not been told yet; it is tried again.",
-        LicenseGatewayReasonCodes.NoOwnerAccount => "This Gateway has no DevThrottle account to email.",
+        // Only on rows written before license alerts moved to Your inbox: nothing records it any more.
+        LicenseGatewayReasonCodes.NoOwnerAccount => "This Gateway had no DevThrottle account to email, so the owner was not told.",
         LicenseGatewayReasonCodes.DirectorError => "The machine's Director answered with an error.",
         LicenseGatewayReasonCodes.MachineForgotten => "The machine was forgotten, so this switch can never be answered.",
         LicenseCannotSwitchReasons.ToolMissing => "The DevThrottle tool is missing from the machine's Python tool environment.",
