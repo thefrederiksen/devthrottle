@@ -68,6 +68,26 @@ def test_replyAll_OwnAliasOnTheOriginalNotAllowed_IsRefused(env):
     assert env.zoho.sent[-1]["toAddress"] == OTHER
 
 
+def test_reply_FromSomeoneNotAllowed_IsRefusedEvenWithAnAllowedReplyTo(env):
+    env.ok("allowed-recipients", "set", ME, OTHER)
+    _message(env, id="5", folder=INBOX, subject="hi", sender="stranger@example.org", reply_to=OTHER)
+    result = env.run("reply", "5", "--body", "b")
+    assert result.exit_code == 1 and "stranger@example.org" in result.output and env.zoho.sent == []
+
+
+def test_send_AllowedAddressWrittenWithNameAndCapitals_IsSent(env):
+    env.ok("allowed-recipients", "set", ME, OTHER)
+    env.ok("send", "--to", "Email <EMAIL@devthrottle.com>", "--subject", "s", "--body", "b")
+    assert env.zoho.sent[-1]["toAddress"] == "EMAIL@devthrottle.com"
+
+
+def test_replyAll_FromAlias_LeavesThatAliasOutOfTheCheck(env):
+    env.ok("allowed-recipients", "set", ME, OTHER)
+    _message(env, id="5", folder=INBOX, subject="hi", sender=OTHER, to="info@example.com")
+    env.ok("reply", "5", "--all", "--from", "info@example.com", "--body", "b")
+    assert env.zoho.sent[-1]["fromAddress"] == "info@example.com"
+
+
 # --------------------------------------------------------------------------------------------- send
 
 
@@ -98,6 +118,41 @@ def test_send_TwoBodies_IsUsageErrorBeforeAnyCall(env, tmp_path):
 
 def test_send_NoTo_IsUsageError(env):
     assert env.run("send", "--cc", OTHER, "--subject", "s", "--body", "b").exit_code == 2
+
+
+@pytest.mark.parametrize("command", [("send", "--to", OTHER, "--subject", "s"), ("reply", "5")])
+def test_sendOrReply_NoBody_IsUsageErrorBeforeAnyCall(env, command):
+    result = env.run(*command)
+    assert result.exit_code == 2 and "--body" in result.output and env.zoho.calls == []
+
+
+def test_draftSave_NoBody_IsSaved(env):
+    env.ok("draft", "save", "--to", OTHER, "--subject", "later")
+    assert env.zoho.sent[-1]["content"] == ""
+
+
+@pytest.mark.parametrize("given", ["soren@devthrottle.com email@devthrottle.com", "@devthrottle.com", "soren@"])
+def test_send_AddressesNotSeparatedOrHalf_IsUsageErrorBeforeAnyCall(env, given):
+    result = env.run("send", "--to", given, "--subject", "s", "--body", "b")
+    assert result.exit_code == 2 and "commas" in result.output and env.zoho.calls == []
+
+
+def test_send_UploadAnswerWithoutItsFields_IsOneSentenceAndNothingSent(env, tmp_path, monkeypatch):
+    from fakes import _ok
+    attached = tmp_path / "a.txt"
+    attached.write_text("x", encoding="utf-8")
+    real = env.zoho._write
+    monkeypatch.setattr(env.zoho, "_write", lambda method, rest, query, raw: _ok({"storeName": "1"})
+                        if rest == ["messages", "attachments"] else real(method, rest, query, raw))
+    result = env.run("send", "--to", OTHER, "--subject", "s", "--body", "b", "--attach", str(attached))
+    assert result.exit_code == 1 and "attachmentPath" in result.output and "Traceback" not in result.output
+    assert env.zoho.sent == []
+
+
+def test_send_AtWhenTheAccountHasNoTimeZone_SaysPassTimeZone(env):
+    env.zoho.accounts[0]["timeZone"] = None
+    result = env.run("send", "--to", OTHER, "--subject", "s", "--body", "b", "--at", "2026-11-09 09:05")
+    assert result.exit_code == 2 and "--time-zone" in result.output and env.zoho.sent == []
 
 
 def test_send_Attachments_UploadedThenCarried(env, tmp_path):
@@ -272,6 +327,14 @@ def test_delete_MovesToTrash_ThenPermanentRemoves(env):
     assert m not in env.zoho.messages
 
 
+@pytest.mark.parametrize("command", [("delete", "1", "--permanent"), ("draft", "delete", "1")])
+def test_delete_MessageNotInThatFolder_IsRefusedAndNothingDeleted(env, command):
+    m = _message(env, id="1", folder=SUB, subject="a")
+    result = env.run(*command)
+    assert result.exit_code == 2 and "Nothing was deleted" in result.output
+    assert m in env.zoho.messages and m.folder == SUB and all(c[0] != "DELETE" for c in env.zoho.calls)
+
+
 def test_delete_InTrashWithoutPermanent_SaysHowAndDeletesNothing(env):
     m = _message(env, id="1", folder=TRASH, subject="a")
     result = env.run("delete", "1", "--folder", "Trash")
@@ -365,8 +428,9 @@ def test_thread_MarkAndLabel_ReachEveryMessageInIt(env):
     assert first.labels == second.labels == []
 
 
-def test_thread_Label_NeedsApplyOrRemove(env):
-    assert env.run("thread", "label", "10").exit_code == 2
+@pytest.mark.parametrize("args", [(), ("--apply", "LWTBI", "--remove", "LWTBI")])
+def test_thread_Label_NeedsApplyOrRemoveNotBoth(env, args):
+    assert env.run("thread", "label", "10", *args).exit_code == 2
     assert env.zoho.calls == []
 
 

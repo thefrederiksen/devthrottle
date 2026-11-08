@@ -154,9 +154,9 @@ def reply_command(message_id: str = typer.Argument(..., help="The message to rep
     own = acct["addresses"] + [acct["email"]] + ([from_] if from_ else [])
     to_list, cc_list = write.reply_recipients(original, own, all_)
     sender = _from_address(acct, from_)
-    # On a reply to all Zoho copies the original CC itself, so every address on the original is checked too,
-    # except the one this reply is sent from.
-    copied = [a for a in write.original_addresses(original) if a.lower() != sender.lower()] if all_ else []
+    # Zoho may mail addresses on the original itself (on a reply to all it copies the original CC), so those are
+    # checked too, except the one this reply is sent from.
+    copied = [a for a in write.original_addresses(original, all_) if a.lower() != sender.lower()]
     config.check_recipients(config.load(), to_list + cc_list + copied)
     uploads = [write.upload(client, aid, f) for f in files]
     body_data = write.message_body(sender, to_list, cc_list, [],
@@ -196,7 +196,7 @@ def draft_save(to: Optional[List[str]] = ToOpt, cc: Optional[List[str]] = CcOpt,
                account: Optional[str] = AccountOpt, json_output: bool = JsonOpt) -> None:
     """Save a draft in Drafts. Nothing is sent. To change one, delete it and save it again."""
     to_list, cc_list, bcc_list = write.split_addresses(to), write.split_addresses(cc), write.split_addresses(bcc)
-    content, mail_format = write.read_body(body, body_file, html_file)
+    content, mail_format = write.read_body(body, body_file, html_file, required=False)
     files = write.check_files(attach)
     client = _client()
     acct = mail.pick_account(client, account)
@@ -241,6 +241,8 @@ def draft_delete(message_ids: List[str] = IdsArg, account: Optional[str] = Accou
     client = _client()
     acct = mail.pick_account(client, account)
     drafts = mail.resolve_folder(client, acct["account_id"], "Drafts")
+    for mid in ids:
+        write.check_in_folder(client, acct["account_id"], drafts, mid)
     for mid in ids:
         write.delete_message(client, acct["account_id"], drafts["id"], mid, permanent=True)
     _report(_ids_record("deleted", ids, folder=drafts["path"], permanent=True), json_output)
@@ -326,6 +328,8 @@ def delete_command(message_ids: List[str] = IdsArg, folder: str = FolderOpt,
     if not permanent and (chosen["type"] or "").lower() == "trash":
         raise DtZohoError(f"these messages are already in {chosen['path']}. To remove them for good: "
                           f"dt-zoho delete {' '.join(ids)} --folder \"{chosen['path']}\" --permanent", exit_code=2)
+    for mid in ids:
+        write.check_in_folder(client, acct["account_id"], chosen, mid)
     for mid in ids:
         write.delete_message(client, acct["account_id"], chosen["id"], mid, permanent)
     _report(_ids_record("deleted", ids, folder=chosen["path"], permanent=permanent), json_output)

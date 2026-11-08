@@ -50,9 +50,15 @@ def split_addresses(values: Optional[Sequence[str]]) -> List[str]:
     if not values:
         return []
     found = [a.strip() for _, a in getaddresses(list(values)) if a.strip()]
+    if sum(v.count("@") for v in values) != len(found):
+        # The parser drops what it cannot read ("soren@" vanishes), so a count that differs means one was lost.
+        raise DtZohoError(f"could not read every address in {', '.join(values)}. Write each as name@domain; "
+                          "separate several with commas, or repeat the option.", exit_code=2)
     for a in found:
-        if "@" not in a:
-            raise DtZohoError(f"'{a}' is not an email address.", exit_code=2)
+        local, at, domain = a.rpartition("@")
+        if not at or not local or not domain or any(c.isspace() for c in a):
+            raise DtZohoError(f"'{a}' is not an email address (from {', '.join(values)}). Separate several "
+                              "addresses with commas, or repeat the option.", exit_code=2)
     return found
 
 
@@ -105,13 +111,16 @@ def reply_recipients(original_mime: str, own: Sequence[str], reply_all: bool) ->
     return to, cc
 
 
-def original_addresses(original_mime: str) -> List[str]:
-    """Every address on the original: From, Reply-To, To and CC.
+def original_addresses(original_mime: str, reply_all: bool) -> List[str]:
+    """The addresses on the original that Zoho may mail on a reply, which test mode checks as well.
 
     On a reply to all, Zoho copies the original's CC itself (run 8 November 2026: a reply-all sent with no CC
-    arrived copied to the CC of the original, one of the account's own aliases), so test mode checks them all."""
+    arrived copied to the CC of the original, one of the account's own aliases), so every address is checked:
+    From, Reply-To, To and CC. Whether a plain reply also goes to the From when there is a Reply-To was not
+    proven, so a plain reply checks From and Reply-To."""
     message = BytesParser(policy=policy.default).parsebytes(original_mime.encode("utf-8"))
-    values = [str(v) for h in ("From", "Reply-To", "To", "Cc") for v in (message.get_all(h) or [])]
+    headers = ("From", "Reply-To", "To", "Cc") if reply_all else ("From", "Reply-To")
+    values = [str(v) for h in headers for v in (message.get_all(h) or [])]
     return [a for _, a in getaddresses(values) if a]
 
 
@@ -127,10 +136,14 @@ def reply_subject(subject: str) -> str:
 # --------------------------------------------------------------------------------------------- composing
 
 
-def read_body(body: Optional[str], body_file: Optional[Path], html_file: Optional[Path]) -> tuple[str, str]:
-    """(content, mailFormat). Zoho sends one body, so plain text and HTML are one or the other."""
+def read_body(body: Optional[str], body_file: Optional[Path], html_file: Optional[Path],
+              required: bool = True) -> tuple[str, str]:
+    """(content, mailFormat). Zoho sends one body, so plain text and HTML are one or the other. A message that is
+    sent needs one; a draft may be saved without."""
     given = [name for name, value in (("--body", body), ("--body-file", body_file), ("--html-file", html_file))
              if value is not None]
+    if required and not given:
+        raise DtZohoError("pass the body: --body, --body-file or --html-file.", exit_code=2)
     if len(given) > 1:
         raise DtZohoError(f"pass one of --body, --body-file or --html-file, not {' and '.join(given)}: Zoho sends "
                           "one body, as plain text or as HTML.", exit_code=2)
@@ -179,8 +192,13 @@ def schedule_fields(at: str, time_zone: Optional[str]) -> dict:
 
 def upload(client: ZohoClient, account_id: str, path: Path) -> dict:
     data = client.mail_upload(f"/api/accounts/{account_id}/messages/attachments", {"fileName": path.name},
-                              path.read_bytes())["data"]
-    return {k: data[k] for k in ("storeName", "attachmentPath", "attachmentName")}
+                              path.read_bytes()).get("data") or {}
+    fields = ("storeName", "attachmentPath", "attachmentName")
+    missing = [k for k in fields if not data.get(k)]
+    if missing:
+        raise DtZohoError(f"Zoho took the upload of {path.name} but its answer has no {', '.join(missing)}, which a "
+                          "send needs. Nothing was sent.")
+    return {k: data[k] for k in fields}
 
 
 def message_body(from_address: str, to: List[str], cc: List[str], bcc: List[str], subject: str, content: str,
@@ -223,6 +241,17 @@ def update_messages(client: ZohoClient, account_id: str, message_ids: List[str],
 def update_threads(client: ZohoClient, account_id: str, thread_ids: List[str], body: dict) -> None:
     client.mail("PUT", f"/api/accounts/{account_id}/updatethread",
                 json_body=dict(body, threadId=[int(t) for t in thread_ids]))
+
+
+def check_in_folder(client: ZohoClient, account_id: str, folder: dict, message_id: str) -> None:
+    """Refuse when Zoho does not place the message in this folder, so a delete never reaches another folder's
+    message (whether Zoho's delete honours the folder in its path was not proven)."""
+    found = client.mail("GET", f"/api/accounts/{account_id}/folders/{folder['id']}/messages/{message_id}/details")
+    actual = str((found.get("data") or {}).get("folderId") or "")
+    if actual != folder["id"]:
+        where = actual or "none"
+        raise DtZohoError(f"message {message_id} is not in {folder['path']} (Zoho places it in folder {where}). "
+                          "Nothing was deleted. Pass the folder it is in with --folder.", exit_code=2)
 
 
 def delete_message(client: ZohoClient, account_id: str, folder_id: str, message_id: str, permanent: bool) -> None:

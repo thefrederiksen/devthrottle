@@ -20,7 +20,7 @@ cc-secrets run zoho-api-client-secret --with zoho-api-client-id --with zoho-api-
 ```
 
 A missing variable fails with that exact command. The settings file
-(`<cc-director config>/dt-zoho/config.json`) holds only the data centre.
+(`<cc-director config>/dt-zoho/config.json`) holds the data centre and the test-mode list, never a secret.
 
 **Data centre.** Zoho keeps each organisation in one data centre and a key made in one is refused by the
 others: `ca` (Canada, zohocloud.ca), `com`, `eu`, `in`, `com.au`, `jp`. Only `ca` has been run against a
@@ -70,8 +70,9 @@ dt-zoho allowed-recipients clear
 ```
 
 While a list is set, any To, CC or BCC not on it - in `send` and `reply` - is refused before anything
-reaches Zoho: no attachment is uploaded and nothing is sent. On `reply --all` every address on the original
-is checked too, because Zoho copies the original CC itself, the account's own aliases included. The list is kept in the settings file. A
+reaches Zoho: no attachment is uploaded and nothing is sent. A reply also checks the original's From and
+Reply-To, and `reply --all` every address on the original, because Zoho copies the original CC itself, the
+account's own aliases included. The list is kept in the settings file. A
 draft is never sent, so `draft save` is not checked.
 
 ## Commands (writing)
@@ -83,7 +84,7 @@ draft is never sent, so `draft save` is not checked.
 | `draft save ...` / `draft list` / `draft delete ID...` | Save a draft (the send options), list drafts, delete them for good |
 | `mark ID... --as read\|unread\|important\|info\|followup\|unflagged` | Read state and flag |
 | `move ID... --to F` / `archive ID...` / `unarchive ID... [--to F]` | Move; archive; move back out of Archive (default Inbox) |
-| `delete ID... [--folder F] [--permanent]` | To Trash, or with `--permanent` for good |
+| `delete ID... [--folder F] [--permanent]` | To Trash, or with `--permanent` for good; refused unless Zoho places each message in that folder |
 | `spam ID...` / `not-spam ID...` | Into Spam; back to Inbox |
 | `label create NAME [--color #RRGGBB]` / `label rename L [--name N] [--color C]` / `label delete L` | Labels |
 | `label apply ID... --label L` / `label remove ID... --label L` / `label clear ID...` | Labels on messages |

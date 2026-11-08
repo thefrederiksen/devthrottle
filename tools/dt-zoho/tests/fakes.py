@@ -296,12 +296,17 @@ class FakeZoho:
                 headers += f"Reply-To: {m.reply_to}\r\n"
             return _ok({"messageId": int(m.id), "content": f"{headers}Subject: {m.subject}\r\n\r\nHello"})
         if len(rest) >= 5 and rest[0] == "folders" and rest[2] == "messages":
+            what = rest[4]
+            if what == "details":
+                # Looked up by id alone: the worst case for a caller that trusts the folder in the path, since it
+                # was not proven whether Zoho honours it.
+                m = self._message(rest[3])
+                if m is None:
+                    return _mail_error(404, "INVALID_MESSAGE")
+                return _ok(m.summary())
             m = self._message(rest[3], rest[1])
             if m is None:
                 return _mail_error(404, "INVALID_MESSAGE")
-            what = rest[4]
-            if what == "details":
-                return _ok(m.summary())
             if what == "content":
                 return _ok({"messageId": int(m.id), "content": m.html})
             if what == "header":
