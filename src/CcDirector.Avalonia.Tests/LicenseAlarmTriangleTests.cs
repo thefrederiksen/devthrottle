@@ -8,16 +8,16 @@ using Xunit;
 namespace CcDirector.Avalonia.Tests;
 
 /// <summary>
-/// THE LICENSE BANNER ON THE DIRECTOR DESKTOP (mission "Licenses - Always Ready, Loud When Not", step 2). What these
+/// THE LICENSE WARNING TRIANGLE ON THE DIRECTOR DESKTOP (issue 4728, which replaced the full-width banner). What these
 /// hold down: the Director's client reads <c>GET /gateway/licenses/alarms</c>; the cache keeps its last answer when a read
-/// fails and says so only when the banner changed; the bar draws the Gateway's summary, link words and tone verbatim and
+/// fails and says so only when the answer changed; the triangle draws the Gateway's count, words and tone verbatim and
 /// decides nothing - it is hidden only when no alarm is open, and a tone this build does not know is shown, uncoloured,
-/// never guessed; and the link asks the Gateway for the Licenses page rather than composing it.
+/// never guessed; and the click asks the Gateway for the Licenses page rather than composing it.
 ///
 /// The client is the REAL <see cref="GatewayClient"/> behind a stub message handler. Plain [Fact]: nothing here touches
 /// an Avalonia object.
 /// </summary>
-public sealed class LicenseAlarmBarTests
+public sealed class LicenseAlarmTriangleTests
 {
     private const string OneWarning =
         "{\"asOfUtc\":\"2026-11-06T12:00:00Z\",\"count\":1,\"summary\":\"License alarm: a machine cannot switch accounts.\","
@@ -102,6 +102,28 @@ public sealed class LicenseAlarmBarTests
     }
 
     [Fact]
+    public async Task RefreshAsync_OneAlarmClosesAndAnotherOpens_SameCountAndTone_RaisesChanged()
+    {
+        // The triangle's tooltip names every open alarm, so a swap with the count, words and tone unchanged must redraw it.
+        static LicenseAlarmsResponse With(string id, string text) => new()
+        {
+            Count = 1, Summary = "1 license problem", LinkText = "Open Licenses", Tone = "warning",
+            Alarms = { new LicenseAlarmDto { AlarmId = id, Text = text, Tone = "warning" } },
+        };
+        var gateway = new FakeGateway { Answer = With("a1", "The approver for a@example.com needs a fresh sign-in.") };
+        var cache = new LicenseAlarmsCache(() => gateway);
+        await cache.RefreshAsync();
+        var changes = 0;
+        cache.Changed += () => changes++;
+
+        gateway.Answer = With("b2", "Renewing the sign-in for b@example.com on LAPTOP failed.");
+        await cache.RefreshAsync();
+
+        Assert.Equal(1, changes);
+        Assert.Equal("b2", Assert.Single(cache.Current!.Alarms).AlarmId);
+    }
+
+    [Fact]
     public async Task RefreshAsync_AFailedRead_KeepsTheLastAnswer_AndSaysWhy()
     {
         var gateway = new FakeGateway { Answer = Open("warning") };
@@ -126,35 +148,61 @@ public sealed class LicenseAlarmBarTests
         Assert.Null(cache.Error);
     }
 
-    // ---- the bar ---------------------------------------------------------------------------------------
+    // ---- the triangle ----------------------------------------------------------------------------------
+
+    private static LicenseAlarmsResponse Three(string? tone) => new()
+    {
+        Count = 3, Summary = "3 license problems", LinkText = "Open Licenses", Tone = tone,
+        Alarms =
+        {
+            new LicenseAlarmDto { Text = "Renewing the sign-in for dev@example.com on LAPTOP failed.", Tone = "warning" },
+            new LicenseAlarmDto { Text = "The approver for a@example.com needs a fresh sign-in.", Tone = "warning" },
+            new LicenseAlarmDto { Text = "The approver for b@example.com needs a fresh sign-in.", Tone = "warning" },
+        },
+    };
+
+    private static readonly string Gap = Environment.NewLine + Environment.NewLine;
 
     [Fact]
     public void From_NoAnswerOrNoAlarmOpen_IsHidden()
     {
-        Assert.Equal(LicenseAlarmBarView.Hidden, LicenseAlarmBarView.From(null));
-        Assert.Equal(LicenseAlarmBarView.Hidden, LicenseAlarmBarView.From(new LicenseAlarmsResponse { Count = 0 }));
+        Assert.Equal(LicenseAlarmTriangleView.Hidden, LicenseAlarmTriangleView.From(null));
+        Assert.Equal(LicenseAlarmTriangleView.Hidden, LicenseAlarmTriangleView.From(new LicenseAlarmsResponse { Count = 0 }));
     }
 
     [Theory]
     [InlineData("warning")]
     [InlineData("critical")]
-    public void From_AnOpenAlarm_DrawsTheGatewaysWordsInTheGatewaysTone(string tone)
+    public void From_OpenAlarms_ShowsTheGatewaysCount_ItsLinesVerbatim_InItsTone(string tone)
     {
-        var view = LicenseAlarmBarView.From(Open(tone));
+        var view = LicenseAlarmTriangleView.From(Three(tone));
 
-        Assert.Equal(new LicenseAlarmBarView(true, "License alarm: a machine cannot switch accounts.", "Open Licenses", tone), view);
+        Assert.True(view.IsVisible);
+        Assert.Equal("3", view.Count);
+        Assert.Equal(tone, view.Tone);
+        Assert.Equal("3 license problems" + Gap
+                     + "Renewing the sign-in for dev@example.com on LAPTOP failed." + Gap
+                     + "The approver for a@example.com needs a fresh sign-in." + Gap
+                     + "The approver for b@example.com needs a fresh sign-in." + Gap
+                     + "Open Licenses", view.ToolTip);
     }
 
     [Fact]
     public void From_AToneThisBuildDoesNotKnow_IsShownUncoloured_AndSaysSo()
     {
-        var view = LicenseAlarmBarView.From(Open("purple"));
+        var view = LicenseAlarmTriangleView.From(Open("purple"));
 
         Assert.True(view.IsVisible);
         Assert.Null(view.Tone);
-        Assert.Equal("License alarm: a machine cannot switch accounts. (This Director cannot draw the tone \"purple\"; update it.)",
-            view.Summary);
+        Assert.Equal("1", view.Count);
+        Assert.Equal("License alarm: a machine cannot switch accounts." + Gap
+                     + "(This Director cannot draw the tone \"purple\"; update it.)" + Gap
+                     + "Open Licenses", view.ToolTip);
     }
+
+    [Fact]
+    public void From_OpenAlarmsWithNoSummary_Throws()
+        => Assert.Throws<InvalidOperationException>(() => LicenseAlarmTriangleView.From(new LicenseAlarmsResponse { Count = 1 }));
 
     [Fact]
     public void BuildCockpitLicensesRequestUrl_AsksTheGatewayForTheLicensesPage()

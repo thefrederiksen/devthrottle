@@ -81,8 +81,8 @@ Design reference for CC Director's dark-theme UI, inspired by VS Code. Use this 
 | No-mission border (`MissionWarningBrush`) | `#CA8A04` | The yellow outline of the Mission button when the session has no Mission. Deliberately yellow, not the warning amber above: the owner asked for yellow |
 | No-mission text (`MissionWarningText`) | `#FDE68A` | The word "Mission" on the transparent no-mission button |
 | No-mission icon (`MissionWarningIcon`) | `#EAB308` | The circle with an exclamation mark drawn before the word on the no-mission button. A circle, not a triangle: the license warning is a triangle and the two must not look alike |
-| License warning yellow | `#EAB308` | The license banner across the top of the Director window while the Gateway's tone is `warning`, with `#1E1E1E` text. The owner: "a warning should be yellow, not red" |
-| License critical red | `#B91C1C` | The same banner when the Gateway's tone is `critical` (a machine stuck above the switching threshold), with `#FFFFFF` text |
+| License warning yellow | `#EAB308` | The license warning triangle and its count in the Director toolbar, beside the resource meter, while the Gateway's tone is `warning` (issue 4728; it replaced the full-width banner). The owner: "a warning should be yellow, not red" |
+| License critical red | `#F14C4C` | The same triangle and count while the Gateway's tone is `critical`. The resource meter's own critical red, so the two side by side in the toolbar are one red |
 
 ### Text Hierarchy
 
