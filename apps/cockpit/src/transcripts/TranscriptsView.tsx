@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   deleteRecording,
   getAgentInfo,
@@ -10,7 +9,7 @@ import {
   updateRecordingMeta,
   type RecordingListItem,
 } from "@devthrottle/client-core/recordings/recordingsClient";
-import { ConfirmDialog, EmptyState, ErrorBanner, LoadingState } from "../components";
+import { ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { ClipboardRefusedError } from "../components/clipboardFailure";
 
@@ -246,27 +245,28 @@ export function TranscriptsView() {
   return (
     <div className="ts-root">
       <div className="ts-wrap">
-        <div className="ts-top">
-          <h1>Voice Recorder</h1>
-          <div className="ts-topactions">
-            <span className="ts-agentmsg">{agentMsg}</span>
-            <button
-              className="ts-ghost"
-              title="Copy API endpoint + directory + usage so an external agent can connect and process these transcripts"
-              onClick={() => void copyAgentInfo()}
-            >
-              Copy agent info
-            </button>
-            <Link className="ts-back" to="/">
-              &larr; Sessions
-            </Link>
-          </div>
-        </div>
-        <p className="ts-sub">
-          Recordings uploaded from the phone and transcribed. These are kept locally and are temporary.
-          Use "Save to vault" to keep one permanently, or "Delete" to remove a transient transcript.
-          Click one to read it or play the audio.
-        </p>
+        {/* The shared page header, left-aligned under the rail like every other page (Web UI Polish, fix 9). The
+            "Sessions" back link that sat at top right is gone: the left rail is the navigation. */}
+        <PageHeader
+          title="Voice Recorder"
+          subtitle={
+            'Recordings uploaded from the phone and transcribed. These are kept locally and are temporary. ' +
+            'Use "Save to vault" to keep one permanently, or "Delete" to remove a transient transcript. ' +
+            "Click one to read it or play the audio."
+          }
+          actions={
+            <>
+              <span className="ts-agentmsg">{agentMsg}</span>
+              <button
+                className="ts-ghost"
+                title="Copy API endpoint + directory + usage so an external agent can connect and process these transcripts"
+                onClick={() => void copyAgentInfo()}
+              >
+                Copy agent info
+              </button>
+            </>
+          }
+        />
 
         {items === null ? (
           error !== null ? (

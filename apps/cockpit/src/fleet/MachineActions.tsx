@@ -9,6 +9,7 @@ import {
 } from "@devthrottle/client-core/fleet/machinesClient";
 import { ConfirmDialog } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { ClampText } from "../components/ClampText";
 
 const SURFACE = "cockpit-machine-actions";
 
@@ -89,9 +90,9 @@ export function MachineActions({
         </div>
       )}
       {showUpdateReason && !machine.update.offered && (machine.update.reason ?? "").length > 0 && (
-        <div className="fm-why">
+        <ClampText className="fm-why" testId="fm-update-why">
           <span className="fm-why-label">{machine.update.label}:</span> {machine.update.reason}
-        </div>
+        </ClampText>
       )}
       <ConfirmDialog
         open={pending !== null}

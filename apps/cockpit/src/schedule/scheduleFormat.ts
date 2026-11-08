@@ -182,6 +182,19 @@ export function epochOrMax(iso: string | null | undefined): number {
   return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
 }
 
+// The Last run column's sort: the run-record rank first (sessions left behind, then unknown, then closing
+// themselves), then the last run's time. A string, so the time never loses precision when the two are combined.
+export function lastRunSortKey(job: CronJob): string {
+  return `${runRecordRank(job.runRecord?.verdict)}|${String(epochOrMax(job.lastFiredUtc)).padStart(16, "0")}`;
+}
+
+// Schedules whose sessions are left behind first, so they are found.
+function runRecordRank(verdict: string | null | undefined): number {
+  if (verdict === "bad") return 0;
+  if (verdict === "ok") return 2;
+  return 1;
+}
+
 // ===== Last-run outcome badge =================================================================
 
 /** How a last-run outcome is coloured: a success, a failure, an in-between, or none recorded. */

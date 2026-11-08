@@ -996,6 +996,18 @@
   max-width: 420px;
 }
 
+/* Web UI Polish, fix 8: the machine's status is one paragraph held to two lines with a "More" link, in a column wide
+   enough for two lines to say something, so one machine's row is no longer a whole screen tall. */
+.fm-status-cell {
+  width: 340px;
+  min-width: 260px;
+}
+
+.fm-status .fm-why {
+  margin-top: 0;
+  max-width: none;
+}
+
 .fm-why-label {
   font-weight: 600;
 }

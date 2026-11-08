@@ -110,7 +110,9 @@ describe("Schedule page: your own jobs first, factory schedules behind a switch"
 
     expect(await screen.findByText(/Funnel builder run|builder run/)).toBeTruthy();
     expect(window.localStorage.getItem("schedule.showFactorySchedules")).toBe("1");
-    const toFactory = screen.getAllByRole("link", { name: "Edit in factory" });
+    // Edit in factory sits in the row's "..." menu beside Run now (Web UI Polish, fix 7).
+    fireEvent.click(screen.getByRole("button", { name: /More actions for .*builder run/ }));
+    const toFactory = screen.getAllByRole("menuitem", { name: "Edit in factory" });
     expect(toFactory.length).toBe(1);
     expect(toFactory[0].getAttribute("href")).toBe("/factories/clickfunnels/seats");
   });
@@ -119,9 +121,19 @@ describe("Schedule page: your own jobs first, factory schedules behind a switch"
     renderPage();
     await screen.findByText("Own morning sweep");
 
-    // Two own jobs, each with Edit and Delete; no link to a factory.
-    expect(screen.getAllByRole("button", { name: "Edit" }).length).toBe(2);
-    expect(screen.getAllByRole("button", { name: "Delete" }).length).toBe(2);
+    // Two own jobs, each with Edit and Delete in its "..." menu beside Run now (Web UI Polish, fix 7); no link to a
+    // factory.
+    const menus = screen.getAllByRole("button", { name: /^More actions for / });
+    expect(menus.length).toBe(2);
+    expect(screen.getAllByRole("button", { name: "Run now" }).length).toBe(2);
+    for (const menu of menus) {
+      fireEvent.click(menu);
+      expect(screen.getByRole("menuitem", { name: "Edit" })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+      expect(screen.queryByRole("menuitem", { name: "Edit in factory" })).toBeNull();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+    }
     expect(screen.queryByRole("link", { name: "Edit in factory" })).toBeNull();
   });
 
@@ -174,10 +186,12 @@ describe("Schedule page: shifts and the shift-end warning", () => {
     const warned = await screen.findByTestId("sched-shift-cj_own");
     expect(warned.textContent).toBe("Morning shift");
     expect(warned.className).toContain("warn");
-    expect(warned.getAttribute("title")).toBe(WARNING);
+    // The line can be cut off, so its hover says the whole shift, then the Gateway's warning (review of fix 7).
+    expect(warned.getAttribute("title")).toBe(`Morning shift\n${WARNING}`);
     const quiet = screen.getByTestId("sched-shift-cj_orphan");
     expect(quiet.textContent).toBe("Night shift");
     expect(quiet.className).not.toContain("warn");
+    expect(quiet.getAttribute("title")).toBe("Night shift");
 
     fireEvent.click(screen.getByText("Own morning sweep"));
 
