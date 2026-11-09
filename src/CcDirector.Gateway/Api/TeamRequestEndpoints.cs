@@ -34,7 +34,7 @@ namespace CcDirector.Gateway.Api;
 internal static class TeamRequestEndpoints
 {
     /// <summary>The error code on a refusal for a caller that is not a person's own phone or browser.</summary>
-    public const string PersonOnlyCode = "person_only";
+    public const string PersonOnlyCode = PersonOnlyCaller.Code;
 
     /// <summary>What every caller that is not a person's own phone or browser is told.</summary>
     internal const string PersonOnlyRefusal =
@@ -115,31 +115,11 @@ internal static class TeamRequestEndpoints
     }
 
     /// <summary>
-    /// Null when the request was made with a person's own phone or browser key; otherwise the 403 answer. Internal so
-    /// every credential shape is tested.
+    /// Null when the request was made with a person's own phone or browser key; otherwise the 403 answer. The rule is the
+    /// one person-only rule (<see cref="PersonOnlyCaller.Require"/>); only the sentence is the Requests routes'.
     /// </summary>
-    internal static IResult? RequirePerson(HttpContext ctx)
-    {
-        ArgumentNullException.ThrowIfNull(ctx);
-        if (AuthMiddleware.CallingSession(ctx) is { } session)
-        {
-            FileLog.Write($"[TeamRequestEndpoints] REFUSED: session {session.SessionId} asked a request route - a request never reaches an agent");
-            return PersonOnly();
-        }
-
-        var device = ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var d) ? d as DeviceCredentialIdentity : null;
-        if (device is null || SessionOriginSurfaces.FromDeviceType(device.DeviceType) == SessionOriginSurfaces.Unknown)
-        {
-            var kind = AuthMiddleware.IdentityKind(ctx);
-            FileLog.Write($"[TeamRequestEndpoints] REFUSED: a {(device is null ? kind : $"{kind} ({device.DeviceType})")} credential asked a request route - people only");
-            return PersonOnly();
-        }
-
-        return null;
-    }
-
-    private static IResult PersonOnly() =>
-        Results.Json(new { error = PersonOnlyRefusal, code = PersonOnlyCode }, statusCode: StatusCodes.Status403Forbidden);
+    internal static IResult? RequirePerson(HttpContext ctx) =>
+        PersonOnlyCaller.Require(ctx, "a request route", PersonOnlyRefusal);
 
     /// <summary>A send or decision as HTTP: the request as it now stands, or the refusal with its status.</summary>
     internal static IResult Answer(TeamRequestResult result, string what, int successStatus)

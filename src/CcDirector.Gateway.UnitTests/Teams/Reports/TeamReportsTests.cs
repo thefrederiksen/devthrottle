@@ -566,7 +566,7 @@ public sealed class TeamReportsTests : IDisposable
     private DeviceCredentialIdentity OwnAccountKey(string subject)
     {
         var tenant = _tenants.LookupBySubject(subject)!.Value;
-        var key = _devices.RegisterForTenant(tenant, subject, "browser-" + subject, "Browser").DeviceKey;
+        var key = _devices.RegisterForTenant(tenant, subject, "browser-" + subject, "Browser", deviceType: "browser").DeviceKey;
         return _devices.ResolveCredential(key).Identity!;
     }
 

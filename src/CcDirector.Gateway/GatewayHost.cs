@@ -6246,40 +6246,19 @@ public sealed class GatewayHost : IAsyncDisposable
         // deploy of main exposes no team route.
         if (TeamsReleased)
         {
-            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry,
-                new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions), Devices);
-            // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
-            TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer, () => GatewayPublicUrl.ResolveBase(Hosted));
-            // Requests to the Owner and Managers (devthrottle_internal#2308), behind the same switch. People only - a request
-            // is never readable with a session key or a Director's key.
-            TeamRequestEndpoints.Map(_app, TeamRequests, _tenantBoundary, TenantRegistry);
-            // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow
-            // routes mounted again under /teams/{teamId}, answering for the team's tenant, plus the Skills and
-            // workflows page's read. Dark with the rest of Teams.
-            TeamLibraryEndpoints.Map(_app, _skills, _workflows, TeamRegistry, TeamAccess, _tenantBoundary, TenantRegistry);
-            // The team's Governance tab (Teams v1): its rules and the record of every change. Dark with the rest of Teams.
-            TeamGovernanceEndpoints.Map(_app, TeamRegistry, _skills, _workflows, _tenantBoundary, TenantRegistry);
-
-            // The Mentor's weekly page, read (devthrottle_internal#2305), behind the same switch. Whether the writer
-            // runs is a separate switch; the page reads whatever is stored.
-            TeamMentorEndpoints.Map(_app, TeamRegistry, TeamAccess, TeamMentorStore, _tenantBoundary, TenantRegistry,
-                _tenantSettingsResolver.TimeZone, mentorRunning: TeamMentorWriter is not null);
-            // The same page for a person's own account (owner, 8 Oct 2026), from the same tables keyed by their own
-            // tenant. The weekly writer does not write personal pages yet; this reads whatever is stored.
-            PersonalMentorEndpoints.Map(_app, TeamMentorStore, _tenantBoundary, TenantRegistry, _tenantSettingsResolver.TimeZone);
+            // Every route under /teams and /team-invitations, and the personal Mentor page, in one place - so the
+            // person-only walk (security review M1) maps and walks exactly what is mapped here.
+            Teams.TeamRoutes.Map(_app, new Teams.TeamRouteServices(
+                Teams: TeamRegistry, Access: TeamAccess, Boundary: _tenantBoundary, Tenants: TenantRegistry, Devices: Devices,
+                FleetMap: new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions),
+                InvitationMailer: TeamInvitationMailer, PublicBase: () => GatewayPublicUrl.ResolveBase(Hosted),
+                Requests: TeamRequests, Skills: _skills, Workflows: _workflows,
+                MentorStore: TeamMentorStore, TimeZoneOf: _tenantSettingsResolver.TimeZone, MentorRunning: TeamMentorWriter is not null,
+                Reports: _devReports, Recipients: _devReportRecipients, Comments: _devReportComments, Delivery: _devReportDelivery));
             // The administrator routes that fill one team so it can be shown as it is, and empty it again by one tag
             // (owner, 8 Oct 2026). Same admin service token as the factory switch; exact-match public in AuthMiddleware.
             AdminTeamShowcaseEndpoint.Map(_app, Hosted, new Teams.TeamShowcase(_gatewayDb, TeamRegistry, TenantRegistry,
                 _tenantSettingsResolver.TimeZone));
-            // A dev report sent to a member of the team, and that member's Reports page (devthrottle_internal#2309).
-            // Dark with the rest of Teams.
-            // The questions in those reports, waiting on the members they were sent to (devthrottle_internal#2307): the
-            // choice goes to the session through the one answer delivery, the words to the author person. Dark with the rest.
-            var teamQuestions = new TeamQuestions(_devReports, _devReportRecipients, _devReportComments, TeamRegistry, TeamAccess,
-                _devReportDelivery);
-            TeamReportEndpoints.Map(_app, _devReports, _devReportRecipients, _devReportComments, TeamRegistry, TeamAccess,
-                _tenantBoundary, TenantRegistry, teamQuestions);
-            TeamQuestionEndpoints.Map(_app, teamQuestions, _tenantBoundary, TenantRegistry);
         }
         // The team bill's two passes (Teams v1, the team bill without Stripe): the seat count's safety net, and the
         // renewal at each period's end. Hosted with Teams released only - both are null everywhere else.

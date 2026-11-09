@@ -104,7 +104,28 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
         Assert.Equal("device_credential_revoked", revoked.Code);
         Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", aliceThere)).Status);
         Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", bobHere)).Status);
-        Assert.Equal(HttpStatusCode.OK, (await Get("teams", alicePersonal)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", alicePersonal)).Status);
+    }
+
+    [Fact]
+    public async Task ADirectorKeyOfAPersonalAccount_OnATeamRoute_IsRefusedPersonOnly_AndThePersonsBrowserIsServed_OverTheWire()
+    {
+        // Security review M1: a Director's key is a file agents on its computer can read, so it never counts as the
+        // person on a team route - through the real auth middleware and the real gate.
+        var team = _gateway.TeamRegistry.CreateTeam(_alice, "Acme").Team!.TeamId;
+        var director = HostedTestEnrollment.Enroll(_gateway, _alice, "alice@example.com", "director-alice-home", "M").DeviceKey;
+        var browser = _gateway.Devices.RegisterForTenant(_gateway.TenantRegistry.MintOrLookupBySubject(_alice, "alice@example.com"),
+            _alice, "browser-alice", "Browser", deviceType: "browser").DeviceKey;
+
+        var refused = await Get("teams", director);
+        Assert.Equal(HttpStatusCode.Forbidden, refused.Status);
+        Assert.Equal(PersonOnlyCaller.Code, refused.Code);
+        var members = await Get($"teams/{team}/members", director);
+        Assert.Equal(HttpStatusCode.Forbidden, members.Status);
+        Assert.Equal(PersonOnlyCaller.Code, members.Code);
+
+        Assert.Equal(HttpStatusCode.OK, (await Get("teams", browser)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Get($"teams/{team}/members", browser)).Status);
     }
 
     [Fact]
