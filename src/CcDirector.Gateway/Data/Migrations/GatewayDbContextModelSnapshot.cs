@@ -1558,6 +1558,44 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("factory_check_state", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryContributorEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContributorSubject")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SharedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SharedBySubject")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ContributorSubject");
+
+                    b.HasIndex("TenantId", "Factory", "ContributorSubject")
+                        .IsUnique();
+
+                    b.ToTable("factory_contributors", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryDefinitionVersionEntity", b =>
                 {
                     b.Property<string>("TenantId")

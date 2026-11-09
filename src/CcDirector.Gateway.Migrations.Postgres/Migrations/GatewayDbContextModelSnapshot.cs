@@ -1603,6 +1603,44 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("factory_check_state", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryContributorEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContributorSubject")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("SharedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SharedBySubject")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ContributorSubject");
+
+                    b.HasIndex("TenantId", "Factory", "ContributorSubject")
+                        .IsUnique();
+
+                    b.ToTable("factory_contributors", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryDefinitionVersionEntity", b =>
                 {
                     b.Property<string>("TenantId")

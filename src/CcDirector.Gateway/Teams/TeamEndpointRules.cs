@@ -168,6 +168,16 @@ public static class TeamEndpointRules
         // row, every role. The endpoint answers only questions in a report sent to the caller.
         new TeamEndpointRule(Api.TeamQuestionEndpoints.GroupPath, TeamMethods.Any, TeamAction.AnswerQuestionsSendRequestsReadReports,
             TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // A contributor's Factories and Inbox (Team implementation piece 4.1). Reading what was sent to you is the row
+        // "answer questions, send requests and read reports sent to them" - every role, like the reports sent to you. The
+        // endpoint answers only the factories sent to the caller by name, through the one check ContributorFactoryAccess,
+        // which also refuses anyone who is not a contributor of the team; a factory it refuses is not found.
+        new TeamEndpointRule(Api.ContributorEndpoints.GroupPath, TeamMethods.Read, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // Sending a whole factory to a contributor, and taking it back: the team's Owner alone, the row that opens and runs
+        // the team's factories. A contributor is refused.
+        new TeamEndpointRule(Api.FactoryShareEndpoints.Pattern, TeamMethods.Any, Factories,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         // The person's OWN reports in the team: the list is cut by the endpoint to the reports the caller wrote; one
         // report - reading it, its comments, sending it to members - is the caller's own only when they wrote it, and
         // touching another person's is watching their session, which no role may. A Collaborator runs no sessions, so

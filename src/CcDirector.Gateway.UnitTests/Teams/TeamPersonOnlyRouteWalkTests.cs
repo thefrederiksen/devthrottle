@@ -111,7 +111,11 @@ public sealed class TeamPersonOnlyRouteWalkTests : IAsyncLifetime
             MentorStore: new TeamMentorStore(_db), TimeZoneOf: _ => "UTC", MentorRunning: false,
             Reports: reports, Recipients: new DevReportRecipients(_db), Comments: new DevReportPersonComments(_db),
             Delivery: new DevReportDelivery(reports, (_, _) => throw new InvalidOperationException("no session is asked in this test"),
-                (_, _) => null, CancellationToken.None)));
+                (_, _) => null, CancellationToken.None),
+            Factories: new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(_db),
+            Activity: new CcDirector.Gateway.Factory.FactoryActivityRecord(_db),
+            FactoryContributors: new FactoryContributors(_db),
+            FactorySwitch: new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: true, new CcDirector.Gateway.Settings.TenantSettingsStore(_db))));
 
         _teamRoutes = ((IEndpointRouteBuilder)_app).DataSources
             .SelectMany(d => d.Endpoints)
@@ -190,6 +194,35 @@ public sealed class TeamPersonOnlyRouteWalkTests : IAsyncLifetime
     }
 
     private static string Name((string Method, string Pattern) route) => $"{route.Method} {route.Pattern}";
+
+    // ---- Every route a contributor can reach is under /teams/{teamId}/ (security review M2, piece 4.1) -------------
+
+    [Fact]
+    public void EveryRouteAContributorCanReach_IsUnderTheTeamsOwnAddress()
+    {
+        // A route serves a contributor inside a team only when a rule states its action and the contributor's cell for
+        // that action is not "no" (default deny). Every such MAPPED route must take its team from /teams/{teamId}/, so the
+        // gate asks the role table for that very team; one addressed any other way would run in the caller's own tenant
+        // and could look a factory or report up by a global id (M2).
+        var reachable = _teamRoutes
+            .Select(r => (Route: r, Rule: TeamEndpointRules.Find(r.Method, r.Pattern)))
+            .Where(x => x.Rule is not null && TeamPermissions.Grant(TeamRole.Collaborator, x.Rule.Action) != TeamGrant.No)
+            .ToList();
+
+        Assert.Contains(reachable, x => x.Route.Pattern == CcDirector.Gateway.Api.ContributorEndpoints.FactoriesPattern + "/{factory}");
+        Assert.Contains(reachable, x => x.Route.Pattern == CcDirector.Gateway.Api.ContributorEndpoints.InboxPattern);
+        foreach (var (route, rule) in reachable)
+        {
+            Assert.True(route.Pattern.StartsWith("/teams/{teamId}/", StringComparison.Ordinal), $"{Name(route)} is not under /teams/{{teamId}}/");
+            Assert.Equal(TeamFrom.RouteTeamId, rule!.TeamFrom);
+        }
+
+        // And no rule anywhere opens a route to a contributor by the request's own tenant: inside a team, everything a
+        // contributor is given is addressed by the team in the route.
+        Assert.All(TeamEndpointRules.All.Where(r => TeamPermissions.Grant(TeamRole.Collaborator, r.Action) != TeamGrant.No),
+            r => Assert.True(r.TeamFrom == TeamFrom.RouteTeamId && r.Prefix.StartsWith("/teams/{teamId}/", StringComparison.Ordinal),
+                $"the rule for {r.Prefix} opens a route to a contributor outside /teams/{{teamId}}/"));
+    }
 
     // ---- The walk: every mapped team route, refused to every computer --------------------------------------------
 

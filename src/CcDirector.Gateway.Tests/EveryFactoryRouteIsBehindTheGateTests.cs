@@ -33,6 +33,18 @@ public sealed class EveryFactoryRouteIsBehindTheGateTests
         ["POST /gateway/factory-agents/factories/{factory}/problems/{runId}/handle"] = "a talk that asks the decision itself",
         ["POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk"] = "a talk that asks the decision itself",
         ["POST /gateway/factory-agents/factory-manager/talk"] = "the Factory Manager's talk, which asks the decision itself",
+        // The Owner sending a factory to a contributor (Team implementation 4.1), mapped under /teams so the team gate
+        // admits it. FactoryShares asks the same decision for the TEAM's account first - proven in
+        // ContributorFactoriesAndInboxTests.ShareRoutes_TheTeamsFactoryAreaIsOff_AnswerNotFoundAndRecordNothing.
+        ["GET /teams/{teamId}/factories/{factory}/contributors/"] = "an owner action that asks the decision itself",
+        ["POST /teams/{teamId}/factories/{factory}/contributors/"] = "an owner action that asks the decision itself",
+        ["DELETE /teams/{teamId}/factories/{factory}/contributors/{memberId}"] = "an owner action that asks the decision itself",
+        // A contributor's own customer pages (Team implementation 4.1): not the factory area, but what the team's Owner
+        // already SENT to them by name - the factory's title and the sentences its agents wrote for a contributor, read
+        // through the one check ContributorFactoryAccess. A contributor holds no plan of their own, so the switch's
+        // answer for their account says nothing, and a 404 for one team would fail the page that shows all their teams.
+        ["GET /teams/{teamId}/contributor/factories"] = "a contributor's own pages, behind ContributorFactoryAccess",
+        ["GET /teams/{teamId}/contributor/factories/{factory}"] = "a contributor's own pages, behind ContributorFactoryAccess",
     };
 
     private static async Task<IReadOnlyList<(string Route, bool Gated)>> FactoryRoutesAsync()
