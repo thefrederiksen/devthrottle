@@ -2383,7 +2383,10 @@ public sealed class GatewayHost : IAsyncDisposable
         TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, bills: TeamBills,
             readTeamBill: EntitlementRegistry.ReadTeamBill,
             billEndedNotice: Hosted && TeamsReleased ? new Teams.TeamBillEndedNotice(teamMailer) : null,
-            governance: TeamGovernance);
+            governance: TeamGovernance,
+            // Teams come with the pro account (piece 1.6): on the hosted Gateway a team's Owner must be on Pro, read
+            // through the same entitlement registry as every other plan question. Self-host has no plans.
+            ownerPlan: Hosted ? Teams.TeamOwnerPlan.Hosted(EntitlementRegistry) : Teams.TeamOwnerPlan.SelfHost);
         if (Hosted && TeamsReleased)
         {
             TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, TeamBills);

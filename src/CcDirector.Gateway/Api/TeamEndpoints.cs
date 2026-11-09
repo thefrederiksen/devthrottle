@@ -450,6 +450,11 @@ internal static class TeamEndpoints
         var result = teams.CreateTeam(callerSubject, body?.Name);
         if (result.Team is not { } team)
         {
+            if (result.IsUnavailable)
+            {
+                FileLog.Write("[TeamEndpoints] POST /teams: not created for now - something it needs could not be read");
+                return Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
             FileLog.Write("[TeamEndpoints] POST /teams: refused");
             return Results.BadRequest(new { error = result.Refusal });
         }

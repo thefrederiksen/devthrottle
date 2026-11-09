@@ -100,7 +100,7 @@ public sealed partial class TeamRegistry
             return new TeamBillView(
                 State: TeamBillStates.NotStarted,
                 StatusLabel: "Not started",
-                StatusLine: "The team plan has not started. Members can be invited once it has.",
+                StatusLine: "The team plan has not started. Collaborators can be invited now at no charge; Managers and Developers once it has.",
                 Seats: paid,
                 SeatsLine: SeatsWords(paid),
                 PriceLine: PriceWords(TeamBillStore.PricePerSeatCents),
@@ -152,7 +152,7 @@ public sealed partial class TeamRegistry
             Checkout: canRenew ? Checkout("Renew the team plan", bill.Seats, bill.PricePerSeatCents, "Renew now") : null,
             Note: mayChange ? null : OwnerChangesTheBill,
             CancelWarning: mayChange && state == TeamBillStates.Active
-                ? $"The team plan stays active until {end}, then ends. After that nobody can be invited or join, and paid features stop for the team. Until then, switching auto-renew back on keeps it; after it ends, you can renew at any time."
+                ? $"The team plan stays active until {end}, then ends. After that no Manager or Developer can be invited or join, and paid features stop for the team. Collaborators are not affected and stay at no charge. Until then, switching auto-renew back on keeps it; after it ends, you can renew at any time."
                 : null,
             History: history);
     }

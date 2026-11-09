@@ -122,7 +122,10 @@ public sealed class FirstDirectorTrialRouteTests : IAsyncLifetime
     {
         // A Director first set up for a team, moved to the person's own account: a move is never a first arrival
         // (HostedEnrollmentEndpoint.Move passes no ledger), even for an account the Gateway mints a tenant for here.
-        var team = _gateway.TeamRegistry.CreateTeam("sub-fdt-owner-" + Guid.NewGuid().ToString("N"), "Acme").Team!.TeamId;
+        // Teams come with the pro account (piece 1.6): the team's Owner is on Pro.
+        var owner = "sub-fdt-owner-" + Guid.NewGuid().ToString("N");
+        _gateway.SeedEntitlementForTest(owner, tier: EntitlementRegistry.TierPro);
+        var team = _gateway.TeamRegistry.CreateTeam(owner, "Acme").Team!.TeamId;
         Assert.True(_gateway.TeamRegistry.AddMember(team, _subject, TeamRole.Developer).IsDone);
         _gateway.Devices.RegisterForTenant(new TenantId(team), _subject,
             HostedEnrollmentEndpoint.TeamScopedDeviceId(team, _subject, "director-1"), "M");

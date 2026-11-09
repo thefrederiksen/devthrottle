@@ -40,6 +40,8 @@ public sealed partial class TeamRegistry
     private readonly TeamGovernanceStore _governance;
     private readonly Func<string, TeamBill> _readTeamBill;
     private readonly TeamBillEndedNotice? _billEndedNotice;
+    // Teams come with the pro account (piece 1.6): asked of whoever creates a team, and of a team's Owner when anyone is added.
+    private readonly TeamOwnerPlan _ownerPlan;
     // "May this person do this in this team", asked of the one place that answers it (devthrottle_internal#2302).
     private readonly TeamAccess _access;
     private readonly object _writeLock = new();
@@ -64,10 +66,14 @@ public sealed partial class TeamRegistry
     /// <param name="billEndedNotice">Tells a team's Owner, once per ended bill, that someone was refused because the
     /// bill has ended. Null on a Gateway with no team bills, and then such a refusal says in the log that nobody was
     /// told.</param>
+    /// <param name="ownerPlan">Reads whether an account's own plan carries teams (piece 1.6). The hosted Gateway passes
+    /// <see cref="TeamOwnerPlan.Hosted"/>; omitted, it is <see cref="TeamOwnerPlan.SelfHost"/> - a Gateway with no plans,
+    /// where every owner is granted.</param>
     public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null,
         TeamBillStore? bills = null, Func<string, TeamBill>? readTeamBill = null, TeamBillEndedNotice? billEndedNotice = null,
-        TeamGovernanceStore? governance = null)
+        TeamGovernanceStore? governance = null, TeamOwnerPlan? ownerPlan = null)
     {
+        _ownerPlan = ownerPlan ?? TeamOwnerPlan.SelfHost;
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
@@ -84,6 +90,9 @@ public sealed partial class TeamRegistry
     /// CREATE A TEAM - the one place a team comes into being. The creating account becomes its Owner in the same
     /// database write, so a team can never exist without one. Starting the team's bill (devthrottle_internal#2299)
     /// attaches HERE and nowhere else.
+    ///
+    /// TEAMS COME WITH THE PRO ACCOUNT (piece 1.6): the creator's own plan must carry teams (<see cref="TeamOwnerPlan"/>).
+    /// Refused in plain words when it does not, and refused as unavailable - try again - when it could not be read.
     /// </summary>
     /// <param name="ownerSubject">The verified account subject of the person creating the team.</param>
     /// <param name="name">The team's display name, as typed. Trimmed; refused when empty, too long, or holding a
@@ -98,6 +107,20 @@ public sealed partial class TeamRegistry
         {
             FileLog.Write("[TeamRegistry] CreateTeam: REFUSED - the name is not usable");
             return TeamCreateResult.Refused(refusal);
+        }
+
+        switch (_ownerPlan.Read(subject, _utcNow()))
+        {
+            case TeamOwnerPlanAnswer.Granted:
+                break;
+            case TeamOwnerPlanAnswer.NotPro:
+                FileLog.Write("[TeamRegistry] CreateTeam: REFUSED - the creator's plan does not include teams");
+                return TeamCreateResult.Refused(TeamRefusals.CreateNeedsPro);
+            case TeamOwnerPlanAnswer.Unknown:
+                FileLog.Write("[TeamRegistry] CreateTeam: REFUSED for now - the creator's plan could not be read");
+                return TeamCreateResult.Unavailable(TeamRefusals.CreatePlanUnreadable);
+            default:
+                throw new InvalidOperationException("TeamOwnerPlan gave an answer this code does not know.");
         }
 
         var teamName = name!.Trim();
@@ -478,6 +501,13 @@ public static class TeamRefusals
 {
     public const string NoSuchTeam = "There is no such team.";
 
+    /// <summary>Creating a team on an account whose plan does not include teams (piece 1.6).</summary>
+    public const string CreateNeedsPro =
+        "Teams come with a Pro account, and your account is not on Pro, so the team was not created. Choose Pro at devthrottle.com/pricing, then create the team.";
+
+    /// <summary>Creating a team when the creator's plan could not be read: not a no, so try again.</summary>
+    public const string CreatePlanUnreadable = "DevThrottle could not check your plan just now, so the team was not created. Try again shortly.";
+
     public const string NotAMember = "That person is not a member of this team.";
 
     public const string AlreadyAMember = "That person is already a member of this team. To give them a different role, change their role instead.";
@@ -513,11 +543,14 @@ public sealed record TeamMember(string AccountSubject, string? Email, TeamRole R
 }
 
 /// <summary>The outcome of <see cref="TeamRegistry.CreateTeam"/>: the new team, or the reason it was refused.</summary>
-public sealed record TeamCreateResult(TeamSummary? Team, string? Refusal)
+public sealed record TeamCreateResult(TeamSummary? Team, string? Refusal, bool IsUnavailable = false)
 {
     public static TeamCreateResult Created(TeamSummary team) => new(team, null);
 
     public static TeamCreateResult Refused(string reason) => new(null, reason);
+
+    /// <summary>Not created because something needed could not be read just now; the caller says to try again.</summary>
+    public static TeamCreateResult Unavailable(string reason) => new(null, reason, IsUnavailable: true);
 }
 
 /// <summary>The outcome of a membership write: done, or the reason it was refused.</summary>
