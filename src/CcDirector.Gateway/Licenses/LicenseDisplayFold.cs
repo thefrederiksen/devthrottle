@@ -537,7 +537,10 @@ public static partial class LicenseDisplayFold
             });
         }
         dto.CanSwitchNow = dto.SwitchTargets.Any(t => t.CanChoose);
-        if (!dto.CanSwitchNow)
+        dto.SwitchNowTargetAccountEmail = dto.SwitchTargets.FirstOrDefault(t => t.IsAutomaticChoice && t.CanChoose)?.AccountEmail;
+        if (dto.CanSwitchNow)
+            dto.SwitchNowText = $"Moves {dto.Label} off {on}. The other machines stay where they are.";
+        else
             dto.SwitchNowText = dto.SwitchTargets.Count == 0
                 ? $"There is no other license to switch {dto.Label} to."
                 : $"No other license can take {dto.Label} now. {firstRefusal}";

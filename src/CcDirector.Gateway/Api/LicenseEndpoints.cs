@@ -463,11 +463,13 @@ public static partial class LicenseEndpoints
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_machine", "machineId is the machine's machineId in the overview: 32 hexadecimal digits.");
             if (body.TargetAccountEmail is { } named && !string.IsNullOrWhiteSpace(named) && NotAnAccountEmail(named))
                 return InvalidAccount("targetAccountEmail");
+            if (body.ExpectedAccountEmail is { } expected && !string.IsNullOrWhiteSpace(expected) && NotAnAccountEmail(expected))
+                return InvalidAccount("expectedAccountEmail");
             // As Switch now: the switch is written for the caller's account and SENT in the scope in effect.
             if (tenantInScope() is not { } scope || scope != tenant)
                 throw new InvalidOperationException("Switch this machine now was called outside the scope of the caller's own account; nothing was written or sent.");
 
-            var result = await switches.SwitchMachineNowAsync(tenant, machineId, body.TargetAccountEmail, ctx.RequestAborted);
+            var result = await switches.SwitchMachineNowAsync(tenant, machineId, body.ExpectedAccountEmail, body.TargetAccountEmail, ctx.RequestAborted);
             var machines = store.ListMachineNames(tenant);
             if (!result.Accepted)
             {

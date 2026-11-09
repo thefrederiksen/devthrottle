@@ -170,7 +170,7 @@ public sealed class LicenseEndpointsTests : IDisposable
             "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
             "readiness", "readinessTargetAccountEmail", "readinessText", "readinessTone",
             "nextLicenseState", "nextLicenseText", "nextLicenseTone", "recommendedAccountEmail", "recommendedSignInAction",
-            "readyForNext", "readyForNextText", "readyForNextTone", "canSwitchNow", "switchNowText", "switchTargets",
+            "readyForNext", "readyForNextText", "readyForNextTone", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
         }, Names(machine));
         Assert.Equal((true, "Ready", "good"),
             (machine.GetProperty("readyForNext").GetBoolean(), machine.GetProperty("readyForNextText").GetString(), machine.GetProperty("readyForNextTone").GetString()));

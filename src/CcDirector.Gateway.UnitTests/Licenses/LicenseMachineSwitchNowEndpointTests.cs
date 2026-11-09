@@ -153,7 +153,9 @@ public sealed class LicenseMachineSwitchNowEndpointTests : IDisposable
 
         var machine = MachineOnThePage(Windows);
         Assert.True(machine.GetProperty("canSwitchNow").GetBoolean());
-        Assert.Equal(JsonValueKind.Null, machine.GetProperty("switchNowText").ValueKind);
+        Assert.Equal($"Moves {Windows} off {A}. The other machines stay where they are.", machine.GetProperty("switchNowText").GetString());
+        // The confirmation starts on the Gateway's own choice; the page picks nothing itself.
+        Assert.Equal(B, machine.GetProperty("switchNowTargetAccountEmail").GetString());
         var targets = machine.GetProperty("switchTargets").EnumerateArray()
             .ToDictionary(t => t.GetProperty("accountEmail").GetString()!, t => t);
         Assert.Equal(new[] { B, C }, targets.Keys.OrderBy(k => k, StringComparer.Ordinal).ToArray());
@@ -179,7 +181,7 @@ public sealed class LicenseMachineSwitchNowEndpointTests : IDisposable
         var service = new LicenseSwitchService(_store, _snapshots,
             (_, _, _) => Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer")),
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)), () => _now);
-        await service.SwitchMachineNowAsync(TenantOne, Guid.ParseExact(id, "N"), B, CancellationToken.None);
+        await service.SwitchMachineNowAsync(TenantOne, Guid.ParseExact(id, "N"), A, B, CancellationToken.None);
 
         var machine = MachineOnThePage(Windows);
         Assert.False(machine.GetProperty("canSwitchNow").GetBoolean());
@@ -190,6 +192,48 @@ public sealed class LicenseMachineSwitchNowEndpointTests : IDisposable
 
         Assert.Equal(409, status);
         Assert.Equal(LicenseManualRefusals.NoMachineToSwitch, json.GetProperty("code").GetString());
+        // Said of the one machine asked about, never of "every machine on" its license.
+        Assert.Equal($"{Windows} cannot be switched now: a switch sent to it has not finished.", json.GetProperty("error").GetString());
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public void SwitchMachineNow_AMachineThatMovedSinceThePageWasRead_IsRefused409_AndNothingIsWrittenOrSent()
+    {
+        Reports(Windows, "dir-win", A, new[] { B, C });
+        var id = IdOf(Windows);
+        // The page showed it on A; it reports on B before the click arrives.
+        Reports(Windows, "dir-win", B, new[] { A, C });
+
+        var (status, json) = Post(new LicenseMachineSwitchNowRequest { MachineId = id, ExpectedAccountEmail = A, TargetAccountEmail = C });
+
+        Assert.Equal(409, status);
+        Assert.Equal((LicenseManualRefusals.MachineMoved, $"{Windows} is no longer on {A}: it is on {B} now. Look at it again before switching it."),
+            (json.GetProperty("code").GetString(), json.GetProperty("error").GetString()));
+        Assert.Empty(_sent);
+        Assert.Empty(Switches());
+    }
+
+    [Fact]
+    public void SwitchMachineNow_TheLicenseThePageShowed_IsOnlyCompared_AndTheMachineLeavesTheOneItIsOn()
+    {
+        Reports(Windows, "dir-win", A, new[] { B });
+
+        var (status, _) = Post(new LicenseMachineSwitchNowRequest { MachineId = IdOf(Windows), ExpectedAccountEmail = " Account-A@Example.com ", TargetAccountEmail = B });
+
+        Assert.Equal(200, status);
+        Assert.Equal((A, B), (_sent.Single().Request.ExpectedActiveAccountEmail, _sent.Single().Request.TargetAccountEmail));
+    }
+
+    [Fact]
+    public void SwitchMachineNow_ToTheLicenseItIsAlreadyOn_IsRefused_InTheMachinesOwnWords()
+    {
+        Reports(Windows, "dir-win", A, new[] { B });
+
+        var (status, json) = Post(new LicenseMachineSwitchNowRequest { MachineId = IdOf(Windows), TargetAccountEmail = A });
+
+        Assert.Equal((409, LicenseManualRefusals.TargetIsSource), (status, json.GetProperty("code").GetString()));
+        Assert.Equal($"{Windows} is already on {A}.", json.GetProperty("error").GetString());
         Assert.Empty(_sent);
     }
 

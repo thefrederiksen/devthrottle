@@ -256,8 +256,10 @@ export interface LicenseMachine extends LicenseMachineRef {
   readyForNextTone: LicenseTone;
   /** The drawer offers "Switch this machine to...": at least one of switchTargets can be chosen. */
   canSwitchNow: boolean;
-  /** Why the drawer offers no switch; null when it offers one. */
+  /** The drawer's sentence: what the switch does when one is offered, or why none is. */
   switchNowText: string | null;
+  /** The target the confirmation starts on: the Gateway's own choice when it can be chosen; else null. */
+  switchNowTargetAccountEmail: string | null;
   /** Every other license as a target for this machine alone. */
   switchTargets: LicenseSwitchTarget[];
 }
@@ -716,17 +718,24 @@ export async function switchLicenseNow(
 
 /**
  * POST /gateway/licenses/machines/switch-now - Switch this machine now: move ONE machine off the license it is on, to
- * `targetAccountEmail` (null lets the Gateway choose). The Gateway reads which license it leaves. The answer has the
- * same shape as Switch now; a refusal throws GatewayError carrying the Gateway's own sentence.
+ * `targetAccountEmail` (null lets the Gateway choose). `expectedAccountEmail` is the license the page showed it on: the
+ * Gateway refuses (machine-moved) when it is on another one now, and reads the license it leaves itself. The answer has
+ * the same shape as Switch now; a refusal throws GatewayError carrying the Gateway's own sentence.
  */
 export async function switchLicenseMachineNow(
   machineId: string,
+  expectedAccountEmail: string | null,
   targetAccountEmail: string | null,
   signal?: AbortSignal,
 ): Promise<LicenseSwitchNowResult> {
   const res = await gatewayFetch(
     "/gateway/licenses/machines/switch-now",
-    { method: "POST", headers: jsonWriteHeaders(), body: JSON.stringify({ machineId, targetAccountEmail }), signal },
+    {
+      method: "POST",
+      headers: jsonWriteHeaders(),
+      body: JSON.stringify({ machineId, expectedAccountEmail, targetAccountEmail }),
+      signal,
+    },
     { timeoutMs: SWITCH_NOW_TIMEOUT_MS },
   );
   if (!res.ok) throw await GatewayError.from(res, "switch the machine");

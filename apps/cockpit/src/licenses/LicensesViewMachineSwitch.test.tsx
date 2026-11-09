@@ -86,6 +86,15 @@ describe("LicensesView: Switch this machine to..., in the machine's drawer", () 
     expect(within(drawer).getByTestId("lic-drawer-switch-text").textContent).toBe(why);
   });
 
+  it("starts on no target where the Gateway names none, and cannot be confirmed until one is picked", async () => {
+    mac().switchNowTargetAccountEmail = null;
+    render(<LicensesView />);
+
+    const dialog = await openSwitch();
+    expect(within(dialog).getAllByRole("radio").some((r) => (r as HTMLInputElement).checked)).toBe(false);
+    expect((within(dialog).getByRole("button", { name: "Switch now" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("lists the Gateway's targets for the machine, starts on the Gateway's choice, and sends nothing when cancelled", async () => {
     render(<LicensesView />);
 
@@ -110,7 +119,11 @@ describe("LicensesView: Switch this machine to..., in the machine's drawer", () 
 
     expect((await screen.findByTestId("lic-switch-answer-text")).textContent).toBe(SWITCH_NOW_ACCEPTED.text);
     expect(switches()).toEqual([
-      { call: SWITCH, contentType: "application/json", body: { machineId: mac().machineId, targetAccountEmail: ACCOUNT_B } },
+      {
+        call: SWITCH,
+        contentType: "application/json",
+        body: { machineId: mac().machineId, expectedAccountEmail: ACCOUNT_A, targetAccountEmail: ACCOUNT_B },
+      },
     ]);
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });

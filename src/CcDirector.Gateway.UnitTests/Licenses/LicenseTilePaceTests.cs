@@ -12,7 +12,7 @@ public sealed class LicenseTilePaceTests
     [Theory]
     [InlineData(3.4, "+3.4% an hour")]
     [InlineData(3.44, "+3.4% an hour")]
-    [InlineData(12.0, "+12.0% an hour")]
+    [InlineData(12.0, "+12% an hour")]
     [InlineData(0.06, "+0.1% an hour")]
     public void PaceText_ARisingWeek_IsSaidPerHour(double perHour, string expected)
     {

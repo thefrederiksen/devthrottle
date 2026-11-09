@@ -357,7 +357,8 @@ export const OVERVIEW: LicenseOverview = {
       "readyForNextText": "Ready",
       "readyForNextTone": "good",
       "canSwitchNow": true,
-      "switchNowText": null,
+      "switchNowText": "Moves the-mac off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
       "switchTargets": [
         {
           "accountEmail": "account-b@example.com",
@@ -464,7 +465,8 @@ export const OVERVIEW: LicenseOverview = {
       "readyForNextText": "Ready",
       "readyForNextTone": "good",
       "canSwitchNow": true,
-      "switchNowText": null,
+      "switchNowText": "Moves the-windows-machine off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
       "switchTargets": [
         {
           "accountEmail": "account-b@example.com",

@@ -247,13 +247,19 @@ Each account also has `paceText`: how fast its weekly use is rising, from the fo
 hour"), or null when it is not rising or the forecast cannot say. Each machine also has `canSwitchNow`, `switchNowText`
 and `switchTargets` for the drawer's "Switch this machine to...": the same target list an account's Switch now has
 (below), asked of the engine for that machine alone, so the drawer offers exactly what
-`POST /gateway/licenses/machines/switch-now` accepts. `switchNowText` says why none is offered ("the-mac cannot be
-switched now: ...", "No other license can take the-mac now. ..."), and is null when one is.
+`POST /gateway/licenses/machines/switch-now` accepts. `switchNowText` is the drawer's sentence: what the switch does
+when one is offered ("Moves the-mac off account-a@example.com. The other machines stay where they are."), or why none
+is ("the-mac cannot be switched now: ...", "No other license can take the-mac now. ..."). `switchNowTargetAccountEmail`
+is the target the confirmation starts on: the Gateway's own choice when it can be chosen, else null and the owner picks.
 
-`POST /gateway/licenses/machines/switch-now` takes `{"machineId": "...", "targetAccountEmail": "..."}` (a null target
-lets the Gateway choose) and moves that one machine off the license it is on now, which the Gateway reads itself. It is
-answered exactly as Switch now is - 200 with the machine's switch, or 409 with the refusal word and its sentence - and,
-like Switch now, it is the owner's own action: refused to every session key, device key and the shared machine token.
+`POST /gateway/licenses/machines/switch-now` takes `{"machineId": "...", "expectedAccountEmail": "...",
+"targetAccountEmail": "..."}` (a null target lets the Gateway choose) and moves that one machine off the license it is
+on now, which the Gateway reads itself. `expectedAccountEmail` is the license the page showed it on: when the machine is
+on another one now the call is refused with `machine-moved` ("the-mac is no longer on a@example.com: it is on
+b@example.com now. Look at it again before switching it."), and nothing is written or sent; it is only ever compared,
+never used as the license to leave. It is answered exactly as Switch now is - 200 with the machine's switch, or 409 with
+the refusal word and a sentence about that one machine - and, like Switch now, it is the owner's own action: refused to
+every session key, device key and the shared machine token.
 
 ### Example
 
@@ -581,7 +587,8 @@ like Switch now, it is the owner's own action: refused to every session key, dev
       "readyForNextText": "Ready",
       "readyForNextTone": "good",
       "canSwitchNow": true,
-      "switchNowText": null,
+      "switchNowText": "Moves the-mac off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
       "switchTargets": [
         {
           "accountEmail": "account-b@example.com",
@@ -688,7 +695,8 @@ like Switch now, it is the owner's own action: refused to every session key, dev
       "readyForNextText": "Ready",
       "readyForNextTone": "good",
       "canSwitchNow": true,
-      "switchNowText": null,
+      "switchNowText": "Moves the-windows-machine off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
       "switchTargets": [
         {
           "accountEmail": "account-b@example.com",

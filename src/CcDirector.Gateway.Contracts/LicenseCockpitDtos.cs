@@ -637,8 +637,13 @@ public sealed class LicenseMachineDto
     /// chosen. The route (<see cref="LicenseRoutes.MachineSwitchNow"/>) accepts exactly these.</summary>
     public bool CanSwitchNow { get; set; }
 
-    /// <summary>Why the drawer offers no switch; null when it offers one.</summary>
+    /// <summary>The drawer's sentence: what the switch does when one is offered ("Moves the-mac off a@example.com. The
+    /// other machines stay where they are."), or why none is. Null only for a machine the fold has not reached.</summary>
     public string? SwitchNowText { get; set; }
+
+    /// <summary>The target the confirmation starts on: the Gateway's own choice, when it can be chosen; else null, and the
+    /// owner picks one.</summary>
+    public string? SwitchNowTargetAccountEmail { get; set; }
 
     /// <summary>Every other license as a target for this machine alone; empty when the machine is on none.</summary>
     public List<LicenseSwitchTargetDto> SwitchTargets { get; set; } = new();
@@ -1190,6 +1195,11 @@ public sealed class LicenseMachineSwitchNowRequest
     /// <summary>The machine to switch: its <see cref="LicenseMachineDto.MachineId"/> in the overview. It moves off the
     /// account it is on now, which the Gateway reads itself.</summary>
     public string? MachineId { get; set; }
+
+    /// <summary>The license the page showed the machine on. When given and the machine is on another one now, the switch
+    /// is refused (<c>machine-moved</c>) rather than run from a license the owner did not see. Only compared, never used
+    /// as the license to leave.</summary>
+    public string? ExpectedAccountEmail { get; set; }
 
     /// <summary>The account to move it to; null or blank lets the Gateway choose, as an automatic switch would.</summary>
     public string? TargetAccountEmail { get; set; }

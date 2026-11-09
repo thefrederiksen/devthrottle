@@ -213,20 +213,21 @@ export function LicensesView({ initialTab = "overview" }: { initialTab?: License
   };
 
   // SWITCH THIS MACHINE TO... (the drawer): one machine, to a target the person picks from the Gateway's list for that
-  // machine alone. The pick starts on the Gateway's own choice when it can be chosen; it is always sent as named. The
-  // answer is shown where Switch now's is, in the same shape.
+  // machine alone. The pick starts where the Gateway says (switchNowTargetAccountEmail, null when its choice cannot be
+  // chosen, and then the person picks); it is always sent as named, with the license the page showed the machine on, so
+  // a machine that moved meanwhile is refused rather than switched from a license nobody saw. The answer is shown where
+  // Switch now's is, in the same shape.
   const [switchingMachine, setSwitchingMachine] = useState<LicenseMachine | null>(null);
   const [machineTarget, setMachineTarget] = useState<string | null>(null);
 
   const askSwitchMachine = (machine: LicenseMachine) => {
-    const choosable = machine.switchTargets.filter((t) => t.canChoose);
-    setMachineTarget((choosable.find((t) => t.isAutomaticChoice) ?? choosable[0])?.accountEmail ?? null);
+    setMachineTarget(machine.switchNowTargetAccountEmail);
     setSwitchingMachine(machine);
   };
 
   const confirmSwitchMachine = async () => {
     if (switchingMachine === null || machineTarget === null) return;
-    setLastSwitch(await switchLicenseMachineNow(switchingMachine.machineId, machineTarget));
+    setLastSwitch(await switchLicenseMachineNow(switchingMachine.machineId, switchingMachine.activeAccountEmail, machineTarget));
     refreshAll();
   };
 
@@ -498,9 +499,7 @@ export function LicensesView({ initialTab = "overview" }: { initialTab?: License
         message={
           switchingMachine === null ? null : (
             <div className="lic-choice">
-              <p className="lic-choice-text">
-                Moves {switchingMachine.label} off {switchingMachine.activeAccountEmail}. The other machines stay where they are.
-              </p>
+              {switchingMachine.switchNowText !== null && <p className="lic-choice-text">{switchingMachine.switchNowText}</p>}
               <SwitchTargetList targets={switchingMachine.switchTargets} target={machineTarget} onPick={setMachineTarget} />
             </div>
           )

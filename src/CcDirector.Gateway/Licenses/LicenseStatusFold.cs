@@ -96,7 +96,7 @@ public static class LicenseStatusFold
     /// as the Forecast tab rounds it, so a rise too small to show as 0.1 is not shown at all.</summary>
     internal static string? PaceText(double? percentPerHour)
         => percentPerHour is { } perHour && Math.Round(perHour, 1) > 0
-            ? $"+{perHour.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}% an hour"
+            ? $"+{perHour.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}% an hour"
             : null;
 
     private static void ApplyAccount(LicenseAccountDto account,
