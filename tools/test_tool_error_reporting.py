@@ -31,7 +31,6 @@ TOOLS_DIR = Path(__file__).resolve().parent
 #: Tools, files or single sites that do not go through the hook, each with the reason. A key is a tool
 #: ("cc-trisight"), a file ("cc-scrub/src/cli.py") or a site ("cc-scrub/src/cli.py:30").
 EXEMPT: Dict[str, str] = {
-    "cc-browser-archived": "Archived: kept for reference, never built or shipped, and has no entry point to wire.",
     "cc-trisight": "A .NET tool; its two Python files are standalone helper scripts it launches, not a cc-* entry point. "
                    "The hook is Python; .NET tools report through the Director's own reporter work, not this one.",
     "cc-computer": "A .NET tool; its Python file is a standalone helper script, not a cc-* entry point.",
