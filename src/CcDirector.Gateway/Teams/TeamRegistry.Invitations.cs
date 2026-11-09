@@ -272,7 +272,7 @@ public sealed partial class TeamRegistry
             return InvitationRefused("OpenInvitation", notTheirs.Outcome, notTheirs.Kind, notTheirs.Text);
 
         var now = _utcNow();
-        var view = Describe(ctx, team, row, now);
+        var view = DescribeForInvitee(ctx, team, row, now);
         var refusal = AcceptRefusal(ctx, row, view, caller);
         FileLog.Write($"[TeamRegistry] OpenInvitation: invitation {row.Id} state={view.State} canRespond={refusal is null} refusal={refusal?.Kind ?? "none"}");
         return TeamInvitationResult.Done(view with
@@ -302,7 +302,7 @@ public sealed partial class TeamRegistry
                 return InvitationNotFound("AcceptInvitation");
 
             var now = _utcNow();
-            var refusal = AcceptRefusal(ctx, row, Describe(ctx, team, row, now), caller);
+            var refusal = AcceptRefusal(ctx, row, DescribeForInvitee(ctx, team, row, now), caller);
             if (refusal is not null)
                 return InvitationRefused("AcceptInvitation", refusal.Outcome, refusal.Kind, refusal.Text);
 
@@ -319,7 +319,7 @@ public sealed partial class TeamRegistry
             CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded, caller, row.Role);
 
             FileLog.Write($"[TeamRegistry] AcceptInvitation: invitation {row.Id} accepted - joined team {LogTeam(team.Id)} as {row.Role}");
-            return TeamInvitationResult.Done(Describe(ctx, team, row, now) with { SignedInAs = DisplayFor(ctx, caller, role: null) });
+            return TeamInvitationResult.Done(DescribeForInvitee(ctx, team, row, now) with { SignedInAs = DisplayFor(ctx, caller, role: null) });
         }
     }
 
@@ -345,7 +345,7 @@ public sealed partial class TeamRegistry
                 return InvitationRefused("DeclineInvitation", notTheirs.Outcome, notTheirs.Kind, notTheirs.Text);
 
             var now = _utcNow();
-            var view = Describe(ctx, team, row, now);
+            var view = DescribeForInvitee(ctx, team, row, now);
             if (StateRefusal(view) is { } refusal)
                 return InvitationRefused("DeclineInvitation", TeamInvitationOutcome.Refused, view.State, refusal);
 
@@ -354,7 +354,7 @@ public sealed partial class TeamRegistry
             ctx.SaveChanges();
 
             FileLog.Write($"[TeamRegistry] DeclineInvitation: invitation {row.Id} declined");
-            return TeamInvitationResult.Done(Describe(ctx, team, row, now) with { SignedInAs = DisplayFor(ctx, caller, role: null) });
+            return TeamInvitationResult.Done(DescribeForInvitee(ctx, team, row, now) with { SignedInAs = DisplayFor(ctx, caller, role: null) });
         }
     }
 
@@ -686,13 +686,7 @@ public sealed partial class TeamRegistry
             : ctx.Tenants.AsNoTracking().Where(t => t.AccountSubject == subject).Select(t => t.Email).FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(email))
             return email!;
-        return role switch
-        {
-            TeamRole.Owner => "the team's Owner",
-            TeamRole.Manager => "a Manager of the team",
-            null => "an account with no email recorded",
-            _ => $"a {TeamRoles.Label(role.Value)} of the team",
-        };
+        return role is { } held ? RoleName(held) : "an account with no email recorded";
     }
 
     private static string RoleHint(TeamRole role, string payer) => role switch
@@ -723,6 +717,28 @@ public sealed partial class TeamRegistry
             CanRespond: false,
             Refusal: null);
     }
+
+    /// <summary>
+    /// The invitation as the PERSON INVITED reads it on the accept page - open, accept, decline, and every refusal there.
+    /// An invitation to a role that may not see the team's members (a Collaborator, devthrottle_internal#2787) names the
+    /// inviter and the payer by role, never by address: the person invited sees only that they were invited. Every
+    /// other role is described as the team's own screens describe it.
+    /// </summary>
+    private static TeamInvitation DescribeForInvitee(GatewayDbContext ctx, TeamEntity team, TeamInvitationEntity row, DateTime now)
+    {
+        var view = Describe(ctx, team, row, now);
+        if (TeamPermissions.Allows(row.Role, TeamAction.SeeMembersAndRoles))
+            return view;
+        var inviterRole = MemberRole(ctx, team.Id, row.InvitedBySubject);
+        return view with
+        {
+            InvitedBy = inviterRole is { } held ? RoleName(held) : FormerMemberName,
+            PaidBy = view.PaidBy is null ? null : RoleName(TeamRole.Owner),
+        };
+    }
+
+    /// <summary>How the accept page names an inviter who is no longer in the team, to a person who may not see the members.</summary>
+    internal const string FormerMemberName = "a former member of the team";
 
     /// <summary>A link secret: 32 random bytes, URL-safe. Unguessable, and carried only by the email.</summary>
     private static string NewAcceptToken() =>

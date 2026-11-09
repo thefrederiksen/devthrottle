@@ -114,6 +114,8 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
     {
         // Security review M1: a Director's key is a file agents on its computer can read, so it never counts as the
         // person on a team route - through the real auth middleware and the real gate.
+        // Teams come with the pro account (piece 1.6): Alice, who creates this team, is on Pro.
+        _gateway.SeedEntitlementForTest(_alice, tier: CcDirector.Gateway.Tenancy.EntitlementRegistry.TierPro);
         var team = _gateway.TeamRegistry.CreateTeam(_alice, "Acme").Team!.TeamId;
         var director = HostedTestEnrollment.Enroll(_gateway, _alice, "alice@example.com", "director-alice-home", "M").DeviceKey;
         var browser = _gateway.Devices.RegisterForTenant(_gateway.TenantRegistry.MintOrLookupBySubject(_alice, "alice@example.com"),

@@ -64,14 +64,25 @@ public sealed class TeamInvitationGateTests : IDisposable
     [InlineData(Owner)]
     [InlineData(Manager)]
     [InlineData(Developer)]
-    [InlineData(Collaborator)]
-    public void ReadingTheInvitations_IsOpenToEveryMember_LikeTheMemberList(string member)
+    public void ReadingTheInvitations_IsOpenToEveryMemberWhoSeesTheMemberList(string member)
     {
         // The form tells a Developer why they cannot invite; the list the registry gives them is empty.
         foreach (var pattern in new[] { Invitations, Options })
         {
             var verdict = ByRoute("GET", pattern, member);
             Assert.Equal(TeamGateOutcome.Allowed, verdict.Outcome);
+            Assert.Equal(TeamAction.SeeMembersAndRoles, verdict.Action);
+        }
+    }
+
+    [Fact]
+    public void ReadingTheInvitations_ACollaborator_IsRefusedLikeTheMemberList()
+    {
+        // devthrottle_internal#2787: a Collaborator sees no member list, and the waiting list names other people.
+        foreach (var pattern in new[] { Invitations, Options })
+        {
+            var verdict = ByRoute("GET", pattern, Collaborator);
+            Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
             Assert.Equal(TeamAction.SeeMembersAndRoles, verdict.Action);
         }
     }

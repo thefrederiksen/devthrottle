@@ -310,10 +310,11 @@ public sealed class TeamRegistryTests : IDisposable
         _teams.AddMember(team.TeamId, Bob, TeamRole.Collaborator);
         _teams.AddMember(team.TeamId, Carol, TeamRole.Manager);   // Carol has no personal tenant row: no email
 
-        var result = _teams.ListMembers(team.TeamId, Bob);
+        // Asked by the Manager: a Collaborator is shown no other member's address (devthrottle_internal#2787).
+        var result = _teams.ListMembers(team.TeamId, Carol);
 
         Assert.Equal(TeamMembersOutcome.Found, result.Outcome);
-        Assert.Equal(TeamRole.Collaborator, result.Team!.Role);   // the CALLER's role
+        Assert.Equal(TeamRole.Manager, result.Team!.Role);   // the CALLER's role
         Assert.Equal(3, result.Team.MemberCount);
         Assert.Equal(new[] { TeamRole.Owner, TeamRole.Manager, TeamRole.Collaborator }, result.Members.Select(m => m.Role));
         Assert.Equal(new[] { "alice@example.com", null, "bob@example.com" }, result.Members.Select(m => m.Email));

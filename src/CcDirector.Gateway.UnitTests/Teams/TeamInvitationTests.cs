@@ -123,7 +123,8 @@ public sealed class TeamInvitationTests : IDisposable
         Assert.Equal("This invitation was cancelled by the team, so it can no longer be accepted. Ask owner@acme.example if you still want to join.", c.Refusal);
 
         var d = _teams.AcceptInvitation(declined, "sub-declined");
-        Assert.Equal("This invitation was declined, so it can no longer be accepted. Ask manager@acme.example to send a new one if you want to join.", d.Refusal);
+        // A Collaborator's invitation names the inviter by role, never by address (devthrottle_internal#2787).
+        Assert.Equal("This invitation was declined, so it can no longer be accepted. Ask a Manager of the team to send a new one if you want to join.", d.Refusal);
 
         Assert.Null(_teams.RoleOf(_team, "sub-late"));
         Assert.Null(_teams.RoleOf(_team, "sub-cancelled"));

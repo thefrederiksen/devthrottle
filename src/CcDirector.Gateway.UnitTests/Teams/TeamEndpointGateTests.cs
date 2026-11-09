@@ -442,9 +442,21 @@ public sealed class TeamEndpointGateTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_TheMembersRoute_ACollaboratorIsRefusedByTheRoleTable()
+    {
+        // devthrottle_internal#2787: a Collaborator sees no member list.
+        var collaborator = Request("GET", "/teams/{teamId}/members", _tenants.MintOrLookupBySubject(Collaborator, null).Value, _team);
+
+        await _gate.RunAsync(collaborator, () => throw new InvalidOperationException("the endpoint ran"));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, collaborator.Response.StatusCode);
+        Assert.Equal(TeamEndpointGate.RefusalCode, Body(collaborator).GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task RunAsync_TheMembersRoute_AMemberGoesOn_AStrangerIsToldThereIsNoSuchTeam()
     {
-        var member = Request("GET", "/teams/{teamId}/members", _tenants.MintOrLookupBySubject(Collaborator, null).Value, _team);
+        var member = Request("GET", "/teams/{teamId}/members", _tenants.MintOrLookupBySubject(Developer, null).Value, _team);
         var reached = false;
         await _gate.RunAsync(member, () => { reached = true; return Task.CompletedTask; });
         Assert.True(reached);
