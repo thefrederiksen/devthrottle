@@ -50,8 +50,10 @@ public sealed class StartupLoadSampler : IDisposable
 
     // Instruments Npgsql reports by observation (read on demand): the last value seen is the current value.
     private readonly ConcurrentDictionary<(string Instrument, string Pool, string State), double> _observed = new();
-    // Instruments Npgsql reports by adding (up-down counters and counters): the running sum is the current value,
-    // which is right because the listener starts before the Gateway opens any connection.
+    // Instruments Npgsql reports by adding (up-down counters and counters): the running sum is the current value.
+    // That is ONLY right for a listener created before the process opened its first database connection - one
+    // created later would miss the earlier adds and print wrong, even negative, numbers. GatewayEntryPoint starts
+    // the sampler before the host is built, which is what makes these sums true.
     private readonly ConcurrentDictionary<(string Instrument, string Pool, string State), double> _summed = new();
     private readonly MeterListener _listener = new();
     private readonly ConcurrentDictionary<string, byte> _listened = new(StringComparer.Ordinal);
@@ -90,24 +92,43 @@ public sealed class StartupLoadSampler : IDisposable
 
     /// <summary>
     /// Start the sampler on its own background thread, writing through <paramref name="write"/> (the Gateway
-    /// passes <c>FileLog.Write</c>). Returns the thread, which ends by itself after <see cref="Window"/>.
+    /// passes <c>FileLog.Write</c>). <paramref name="firstOnThread"/>, when given, runs on that thread before the
+    /// first sample (the Gateway uses it for the log folder's prune, to keep it off the boot path). Returns the
+    /// thread, which ends by itself after <see cref="Window"/>.
     /// </summary>
-    public static Thread StartOnOwnThread(Action<string> write)
+    public static Thread StartOnOwnThread(Action<string> write, Action? firstOnThread = null)
     {
         ArgumentNullException.ThrowIfNull(write);
         var sampler = new StartupLoadSampler();
         var clock = Stopwatch.StartNew();
-        var thread = new Thread(() =>
-        {
-            using (sampler)
-                sampler.Run(() => clock.Elapsed, delay => { Thread.Sleep(delay); return true; }, write, () => DateTime.UtcNow);
-        })
+        var thread = new Thread(() => RunThread(sampler, clock, write, firstOnThread))
         {
             IsBackground = true,
             Name = "StartupLoadSampler",
         };
         thread.Start();
         return thread;
+    }
+
+    /// <summary>
+    /// The thread's entry point. An exception escaping a dedicated thread ends the PROCESS, and a measurement must
+    /// never take the Gateway down mid-deploy, so anything thrown here is written as one line and the sampler
+    /// stops. Internal so that guarantee is tested.
+    /// </summary>
+    internal static void RunThread(StartupLoadSampler sampler, Stopwatch clock, Action<string> write, Action? firstOnThread)
+    {
+        try
+        {
+            using (sampler)
+            {
+                firstOnThread?.Invoke();
+                sampler.Run(() => clock.Elapsed, delay => { Thread.Sleep(delay); return true; }, write, () => DateTime.UtcNow);
+            }
+        }
+        catch (Exception ex)
+        {
+            write($"{LinePrefix} FAILED and stopped: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>

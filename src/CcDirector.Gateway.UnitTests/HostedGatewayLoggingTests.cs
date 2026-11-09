@@ -78,28 +78,30 @@ public sealed class HostedGatewayLoggingTests : IDisposable
     [Fact]
     public void Prune_OverTheSizeCap_RemovesOldestFirst()
     {
-        // Sparse lengths stand in for real volume: SetLength does not write the bytes.
-        var half = HostedLogRetention.MaxTotalBytes / 2;
+        // The cap is passed in small, so the test writes bytes, not gigabytes (SetLength allocates on NTFS).
+        const long cap = 200;
+        const long half = cap / 2;
         var oldest = Make("director-a.log", half, Now - TimeSpan.FromDays(3));
         var middle = Make("director-b.log", half, Now - TimeSpan.FromDays(2));
         var newest = Make("director-c.log", half, Now - TimeSpan.FromDays(1));
 
-        var result = HostedLogRetention.Prune(_dir, Now);
+        var result = HostedLogRetention.Prune(_dir, Now, cap);
 
         Assert.False(File.Exists(oldest));
         Assert.True(File.Exists(middle));
         Assert.True(File.Exists(newest));
         Assert.Equal(1, result.Removed);
-        Assert.True(result.BytesKept <= HostedLogRetention.MaxTotalBytes);
+        Assert.True(result.BytesKept <= cap);
     }
 
     [Fact]
     public void Prune_OverTheSizeCap_NeverRemovesAFileStillBeingWritten()
     {
         // The outgoing container of a deploy is still writing its file; it must survive any size cap.
-        var active = Make("director-live.log", HostedLogRetention.MaxTotalBytes + 1, Now - TimeSpan.FromMinutes(5));
+        const long cap = 100;
+        var active = Make("director-live.log", cap + 1, Now - TimeSpan.FromMinutes(5));
 
-        var result = HostedLogRetention.Prune(_dir, Now);
+        var result = HostedLogRetention.Prune(_dir, Now, cap);
 
         Assert.True(File.Exists(active));
         Assert.Equal(0, result.Removed);
@@ -119,6 +121,18 @@ public sealed class HostedGatewayLoggingTests : IDisposable
         Assert.True(File.Exists(other));
         Assert.True(File.Exists(nested));
         Assert.Equal(0, result.Removed);
+    }
+
+    [Fact]
+    public void PruneAndReport_ReportsWhatItRemoved()
+    {
+        Make("director-old.log", 10, Now - HostedLogRetention.MaxAge - TimeSpan.FromDays(1));
+        var lines = new List<string>();
+
+        HostedLogRetention.PruneAndReport(_dir, Now, lines.Add);
+
+        var line = Assert.Single(lines);
+        Assert.Contains("kept 0 file(s), 0 bytes; removed 1 file(s), 10 bytes", line);
     }
 
     private string Make(string name, long length, DateTime lastWriteUtc)

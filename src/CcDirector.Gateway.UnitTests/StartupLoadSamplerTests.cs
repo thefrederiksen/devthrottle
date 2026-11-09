@@ -140,6 +140,22 @@ public sealed class StartupLoadSamplerTests
     }
 
     [Fact]
+    public void RunThread_FirstStepThrows_WritesOneLineAndDoesNotThrow()
+    {
+        // An exception escaping the sampler's dedicated thread would end the Gateway process.
+        var lines = new List<string>();
+
+        StartupLoadSampler.RunThread(
+            new StartupLoadSampler(listenToNpgsql: false),
+            System.Diagnostics.Stopwatch.StartNew(),
+            Bounded(lines),
+            firstOnThread: () => throw new InvalidOperationException("share went away"));
+
+        var line = Assert.Single(lines);
+        Assert.Contains("FAILED and stopped: InvalidOperationException: share went away", line);
+    }
+
+    [Fact]
     public void PoolLabel_IsStableAndShort()
     {
         Assert.Equal(StartupLoadSampler.PoolLabel("a"), StartupLoadSampler.PoolLabel("a"));

@@ -35,7 +35,10 @@ public static class HostedLogRetention
     /// A file that cannot be removed is reported in <see cref="Result.Failures"/> rather than thrown: the prune
     /// runs before the log opens, and a share hiccup here must not stop the Gateway from starting.
     /// </summary>
-    public static Result Prune(string logDirectory, DateTime utcNow)
+    public static Result Prune(string logDirectory, DateTime utcNow) => Prune(logDirectory, utcNow, MaxTotalBytes);
+
+    /// <summary>The prune with the size cap passed in, so a test can prove the cap with small files.</summary>
+    internal static Result Prune(string logDirectory, DateTime utcNow, long maxTotalBytes)
     {
         if (string.IsNullOrWhiteSpace(logDirectory))
             throw new ArgumentException("A log directory is required.", nameof(logDirectory));
@@ -72,7 +75,7 @@ public static class HostedLogRetention
         // Oldest first; stop at the active window, because everything after it is newer still.
         foreach (var file in kept.ToList())
         {
-            if (total <= MaxTotalBytes) break;
+            if (total <= maxTotalBytes) break;
             if (utcNow - file.LastWriteTimeUtc < ActiveWindow) break;
             if (!TryDelete(file, failures)) continue;
             removed++;
@@ -82,6 +85,29 @@ public static class HostedLogRetention
         }
 
         return new Result(kept.Count, removed, bytesRemoved, total, failures);
+    }
+
+    /// <summary>
+    /// Prune, then say what happened through <paramref name="write"/>. Runs on the start-up sampler's thread, off
+    /// the boot path. That thread is its entry point, so a listing the share refuses is reported, not thrown:
+    /// nothing is removed and the next start tries again.
+    /// </summary>
+    public static void PruneAndReport(string logDirectory, DateTime utcNow, Action<string> write)
+    {
+        Result result;
+        try
+        {
+            result = Prune(logDirectory, utcNow);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            write($"[HostedLogRetention] {logDirectory}: prune FAILED, nothing removed: {ex.GetType().Name}: {ex.Message}");
+            return;
+        }
+        write($"[HostedLogRetention] {logDirectory}: kept {result.Kept} file(s), {result.BytesKept} bytes; " +
+              $"removed {result.Removed} file(s), {result.BytesRemoved} bytes");
+        foreach (var failure in result.Failures)
+            write($"[HostedLogRetention] could not remove {failure}");
     }
 
     private static bool TryDelete(FileInfo file, List<string> failures)

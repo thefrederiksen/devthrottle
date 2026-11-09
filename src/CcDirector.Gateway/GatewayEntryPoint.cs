@@ -32,7 +32,7 @@ public static class GatewayEntryPoint
         //  - Its own log file. The default discriminator is the process id, which is 1 in EVERY container,
         //    so both containers computed the same path on the Server Message Block mount and clobbered each
         //    other's records mid-line. Each container start now draws a random file token instead, so two
-        //    overlapping containers can never write one file. Both settings must be applied before
+        //    overlapping containers can never write one file (a container writes one file per day under it). Both settings must be applied before
         //    FileLog.Start().
         //  - On the persistent shared drive, so it SURVIVES A DEPLOY (owner decision, 9 November 2026). From
         //    September to November 2026 it lived on the container's temporary disk to save share traffic, and
@@ -46,27 +46,27 @@ public static class GatewayEntryPoint
         // config restore can drop the environment variable, and the moment it does is exactly when two
         // containers are running and the logging matters most.
         string? hostedLogDirectory = null;
-        Diagnostics.HostedLogRetention.Result? hostedLogPrune = null;
-        string? hostedLogPruneError = null;
         if (GatewayHostedMode.IsHostedImage)
         {
             hostedLogDirectory = ResolveHostedLogDirectory(CcStorage.Root());
-            // The prune reads the share before the log is open. A share that refuses the listing must not stop the
-            // Gateway from starting: it is recorded, said in the log below, and the log itself then reports its own
-            // sink health as it always has.
-            try
-            {
-                hostedLogPrune = Diagnostics.HostedLogRetention.Prune(hostedLogDirectory, DateTime.UtcNow);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                hostedLogPruneError = $"{ex.GetType().Name}: {ex.Message}";
-            }
             FileLog.UseUniqueInstanceId(hostedLogDirectory);
             FileLog.MirrorToConsole = true;
         }
 
-        FileLog.Start();
+        // On hosted the log folder is on the shared drive, and the writer creates it here. The Gateway already
+        // needs that drive to start (every store under CcStorage.Root() is on it), so a drive that refuses the folder
+        // is a start-up failure - said on standard error, which the platform keeps, rather than an exit with no line.
+        try
+        {
+            FileLog.Start();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine(
+                $"Gateway failed: cannot create its log folder {FileLog.LogDirectory} ({ex.GetType().Name}: {ex.Message}). " +
+                "On hosted this folder is on the Azure Files share mounted at the storage root; check the share is mounted and writable.");
+            return 1;
+        }
         FileLog.Write($"[Program] CC Director Gateway starting, log: {FileLog.CurrentLogPath}");
         // This is the real Gateway process, so its own failure lines go into the error store as well as this log
         // (the Error Logging mission, issue #3675).
@@ -78,23 +78,15 @@ public static class GatewayEntryPoint
             FileLog.Write(
                 $"[Program] hosted container: machine={Environment.MachineName} " +
                 $"pid={Environment.ProcessId} instance={Environment.GetEnvironmentVariable("WEBSITE_INSTANCE_ID") ?? "<unset>"}");
-            if (hostedLogPrune is null)
-            {
-                FileLog.Write($"[Program] hosted log folder {hostedLogDirectory}: prune FAILED, nothing removed: {hostedLogPruneError}");
-            }
-            else
-            {
-                FileLog.Write(
-                    $"[Program] hosted log folder {hostedLogDirectory}: kept {hostedLogPrune.Kept} file(s), " +
-                    $"{hostedLogPrune.BytesKept} bytes; removed {hostedLogPrune.Removed} file(s), {hostedLogPrune.BytesRemoved} bytes");
-                foreach (var failure in hostedLogPrune.Failures)
-                    FileLog.Write($"[Program] hosted log prune could not remove {failure}");
-            }
 
             // The deploy outage measurement (owner decision, 9 November 2026): a load line every two seconds for
             // the first ten minutes, into the log above, which survives the deploy. Started here, before the
-            // host opens any database connection, so its view of the database pools is complete from zero.
-            Diagnostics.StartupLoadSampler.StartOnOwnThread(FileLog.Write);
+            // host opens any database connection, so its view of the database pools is complete from zero. The
+            // log folder's retention prune runs first on the same thread, so it never holds up start-up.
+            var logDirectory = hostedLogDirectory!;
+            Diagnostics.StartupLoadSampler.StartOnOwnThread(
+                FileLog.Write,
+                firstOnThread: () => Diagnostics.HostedLogRetention.PruneAndReport(logDirectory, DateTime.UtcNow, FileLog.Write));
         }
 
         int port = GatewayHost.DefaultPort;
@@ -187,7 +179,8 @@ public static class GatewayEntryPoint
     }
 
     /// <summary>
-    /// Locate the hosted process log on the Gateway's storage root - on Azure App Service, the Azure Files
+    /// Locate the hosted process log on the Gateway's storage root (one file per container per day, named by a
+    /// random token drawn at start, so two containers never share one) - on Azure App Service, the Azure Files
     /// share mounted at <c>/home/gateway/cc-director</c> (storage account <c>stdevthrottlegw</c>, share
     /// <c>gwdata</c>), so the folder is <c>logs/hosted-gateway</c> on that share and outlives every container.
     /// Its own folder, not the desktop's <c>logs/director</c>, so the retention prune touches nothing else.
