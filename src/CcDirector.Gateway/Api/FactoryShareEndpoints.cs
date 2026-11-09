@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tenancy;
@@ -113,19 +114,46 @@ internal sealed class FactoryShares
     private readonly TeamRegistry _teams;
     private readonly FactoryRegistryStore _factories;
     private readonly FactoryContributors _shares;
+    private readonly FactoryAgentsSwitch _factorySwitch;
     private readonly Func<DateTime> _utcNow;
 
-    public FactoryShares(TeamRegistry teams, FactoryRegistryStore factories, FactoryContributors shares, Func<DateTime>? utcNow = null)
+    public FactoryShares(TeamRegistry teams, FactoryRegistryStore factories, FactoryContributors shares,
+        FactoryAgentsSwitch factorySwitch, Func<DateTime>? utcNow = null)
     {
         _teams = teams ?? throw new ArgumentNullException(nameof(teams));
         _factories = factories ?? throw new ArgumentNullException(nameof(factories));
         _shares = shares ?? throw new ArgumentNullException(nameof(shares));
+        _factorySwitch = factorySwitch ?? throw new ArgumentNullException(nameof(factorySwitch));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// THE FACTORY AREA'S ONE DECISION, FOR THE TEAM. Sharing a factory is an Owner's act on the team's factories, so it
+    /// asks exactly what every other factory route asks for the team's account (FactoryAgentsSwitch, the decision behind
+    /// FactoryAgentsGate): off answers 404 with the sentence the owner actions say, an unreadable plan a temporary 503.
+    /// Null when the area is on. These routes are mapped under /teams, outside the gate's group, so they ask it here -
+    /// EveryFactoryRouteIsBehindTheGateTests names them as routes that ask the decision themselves.
+    /// </summary>
+    private IResult? AreaRefusal(string teamId, string what)
+    {
+        var answer = _factorySwitch.Answer(new TenantId(teamId));
+        if (answer.State == FactoryAgentsState.Unknown)
+        {
+            FileLog.Write($"[FactoryShares] {what}: team {new TenantId(teamId).ToLogString()} UNKNOWN: {answer.Why} - answering 503");
+            return HostedAi.HostedAiHttp.EntitlementUnknown();
+        }
+        if (answer.IsOn)
+            return null;
+        FileLog.Write($"[FactoryShares] {what}: team {new TenantId(teamId).ToLogString()} REFUSED: {answer.OffReason}: {answer.Why}");
+        return NotFound(FactoryAgentsGate.OffSentence(answer, "nothing was done"));
     }
 
     /// <summary>Who the factory is sent to, and which contributors it can still go to.</summary>
     public IResult Describe(string teamId, string caller, string factory)
     {
+        FileLog.Write($"[FactoryShares] Describe: team {new TenantId(teamId).ToLogString()} factory={factory}");
+        if (AreaRefusal(teamId, "Describe") is { } off)
+            return off;
         if (Registered(teamId, factory) is not { } f)
             return NotFound(FactoryShareEndpoints.NoSuchFactory);
         return Results.Json(Describe(teamId, caller, f.Factory, f.Title));
@@ -134,6 +162,8 @@ internal sealed class FactoryShares
     /// <summary>Send the factory to one contributor of the team, named by their Team page id.</summary>
     public IResult Share(string teamId, string caller, string factory, string memberId)
     {
+        if (AreaRefusal(teamId, "Share") is { } off)
+            return off;
         if (Registered(teamId, factory) is not { } f)
             return NotFound(FactoryShareEndpoints.NoSuchFactory);
         if (f.ArchivedAtUtc is not null)
@@ -151,13 +181,19 @@ internal sealed class FactoryShares
     /// change of role.</summary>
     public IResult Unshare(string teamId, string caller, string factory, string memberId)
     {
+        if (AreaRefusal(teamId, "Unshare") is { } off)
+            return off;
         if (Registered(teamId, factory) is not { } f)
             return NotFound(FactoryShareEndpoints.NoSuchFactory);
         var team = new TenantId(teamId);
         var share = _shares.ContributorsOf(team, f.Factory)
             .FirstOrDefault(s => string.Equals(TeamMemberIds.For(teamId, s.ContributorSubject), memberId, StringComparison.Ordinal));
         if (share is null || !_shares.Unshare(team, f.Factory, share.ContributorSubject))
+        {
+            FileLog.Write($"[FactoryShares] Unshare: team {team.ToLogString()} factory={f.Factory} - not sent to that person, REFUSED");
             return NotFound(FactoryShareEndpoints.NotSentToThem);
+        }
+        FileLog.Write($"[FactoryShares] Unshare: team {team.ToLogString()} factory={f.Factory} - taken back");
         return Results.Json(Describe(teamId, caller, f.Factory, f.Title));
     }
 

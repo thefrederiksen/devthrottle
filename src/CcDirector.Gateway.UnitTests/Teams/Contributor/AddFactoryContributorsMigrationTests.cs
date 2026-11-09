@@ -14,8 +14,8 @@ namespace CcDirector.Gateway.Tests.Teams.Contributor;
 /// </summary>
 public sealed class AddFactoryContributorsMigrationTests
 {
-    private const string MigrationBefore = "20261109062935_AddDevReportItemAnswererRole";
-    private const string MigrationUnderTest = "20261109103816_AddFactoryContributors";
+    private const string MigrationBefore = "20261109081212_AddTeamMembershipEvents";
+    private const string MigrationUnderTest = "20261109122437_AddFactoryContributors";
 
     [Fact]
     public void AddFactoryContributors_UpThenDown_AddsAndRemovesTheOneTable()

@@ -20,8 +20,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class AddFactoryContributorsPostgresTests
 {
-    private const string MigrationBefore = "20261109063046_AddDevReportItemAnswererRole";
-    private const string MigrationUnderTest = "20261109103904_AddFactoryContributors";
+    private const string MigrationBefore = "20261109081340_AddTeamMembershipEvents";
+    private const string MigrationUnderTest = "20261109122447_AddFactoryContributors";
 
     private static string Connection => PostgresProofDatabase.Connection;
 
@@ -80,6 +80,11 @@ public sealed class AddFactoryContributorsPostgresTests
             Assert.Equal(MigrationUnderTest, ctx.Database.GetAppliedMigrations().Last());
         }
         Assert.Equal("1", TablePresent());
+        using (var ctx = NewContext())
+        {
+            ctx.GetService<IMigrator>().Migrate();
+            Assert.False(ctx.Database.HasPendingModelChanges());
+        }
 
         using (var ctx = NewContext())
         {

@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261109103816_AddFactoryContributors")]
+    [Migration("20261109122437_AddFactoryContributors")]
     partial class AddFactoryContributors
     {
         /// <inheritdoc />
@@ -5769,6 +5769,55 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("team_members", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMembershipEventEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AccountSubject")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("account_subject");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("at_utc");
+
+                    b.Property<string>("BySubject")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("by_subject");
+
+                    b.Property<string>("Event")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("event");
+
+                    b.Property<string>("FromRole")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("from_role");
+
+                    b.Property<string>("TeamId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("ToRole")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("to_role");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeamId", "AccountSubject");
+
+                    b.HasIndex("TeamId", "AtUtc");
+
+                    b.ToTable("team_membership_events", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMentorBlockEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -7337,6 +7386,15 @@ namespace CcDirector.Gateway.Data.Migrations
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMembershipEventEntity", b =>
                 {
                     b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
                         .WithMany()

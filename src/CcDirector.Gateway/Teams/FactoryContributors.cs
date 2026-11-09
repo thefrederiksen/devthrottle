@@ -103,6 +103,7 @@ public sealed class FactoryContributors
         using var ctx = _db.CreateContext(team);
         var row = ctx.FactoryContributors.AsNoTracking()
             .FirstOrDefault(r => r.Factory == factory && r.ContributorSubject == contributorSubject);
+        FileLog.Write($"[FactoryContributors] Find: team {team.ToLogString()} factory={factory} sent={row is not null}");
         return row is null ? null : Share(row);
     }
 
@@ -111,23 +112,14 @@ public sealed class FactoryContributors
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(factory);
         using var ctx = _db.CreateContext(team);
-        return ctx.FactoryContributors.AsNoTracking()
+        var shares = ctx.FactoryContributors.AsNoTracking()
             .Where(r => r.Factory == factory)
             .ToList()
             .OrderBy(r => r.SharedAtUtc)
             .Select(Share)
             .ToList();
-    }
-
-    /// <summary>Remove every factory sent to the person in the team - what removing them from the team clears. The number
-    /// of rows removed.</summary>
-    public int ClearFor(TenantId team, string contributorSubject)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(contributorSubject);
-        using var ctx = _db.CreateContext(team);
-        var removed = ctx.FactoryContributors.Where(r => r.ContributorSubject == contributorSubject).ExecuteDelete();
-        FileLog.Write($"[FactoryContributors] ClearFor: team {team.ToLogString()} removed={removed}");
-        return removed;
+        FileLog.Write($"[FactoryContributors] ContributorsOf: team {team.ToLogString()} factory={factory} count={shares.Count}");
+        return shares;
     }
 
     private static FactoryShare Share(FactoryContributorEntity r) =>

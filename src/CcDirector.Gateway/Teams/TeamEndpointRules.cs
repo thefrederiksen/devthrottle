@@ -176,7 +176,7 @@ public static class TeamEndpointRules
             TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         // Sending a whole factory to a contributor, and taking it back: the team's Owner alone, the row that opens and runs
         // the team's factories. A contributor is refused.
-        new TeamEndpointRule(Api.FactoryShareEndpoints.Pattern, TeamMethods.Any, TeamAction.MakeManagersAndChangeRoles,
+        new TeamEndpointRule(Api.FactoryShareEndpoints.Pattern, TeamMethods.Any, Factories,
             TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         // The person's OWN reports in the team: the list is cut by the endpoint to the reports the caller wrote; one
         // report - reading it, its comments, sending it to members - is the caller's own only when they wrote it, and

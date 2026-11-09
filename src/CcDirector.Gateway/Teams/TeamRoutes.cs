@@ -35,6 +35,7 @@ internal sealed record TeamRouteServices(
     Factory.Registry.FactoryRegistryStore Factories,
     Factory.FactoryActivityRecord Activity,
     FactoryContributors FactoryContributors,
+    Factory.FactoryAgentsSwitch FactorySwitch,
     Func<DateTime>? UtcNow = null);
 
 /// <summary>
@@ -82,7 +83,7 @@ internal static class TeamRoutes
         var customerAccess = new ContributorFactoryAccess(s.Teams, s.Factories, s.FactoryContributors);
         ContributorEndpoints.Map(app, new ContributorPages(customerAccess, s.Activity, s.Reports, s.Recipients, questions,
             s.Requests, s.Teams, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants);
-        FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.UtcNow), s.Boundary, s.Tenants);
+        FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.FactorySwitch, s.UtcNow), s.Boundary, s.Tenants);
 
         FileLog.Write("[TeamRoutes] mapped every route under /teams and /team-invitations, and /account/mentor");
     }

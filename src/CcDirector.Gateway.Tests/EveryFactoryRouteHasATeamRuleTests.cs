@@ -30,6 +30,14 @@ public sealed class EveryFactoryRouteHasATeamRuleTests
         // The administrator's switch, called with the admin service token: never a member's key, never in a team.
         ["GET /gateway/admin/factory-agents"] = "the administrator route",
         ["POST /gateway/admin/factory-agents"] = "the administrator route",
+        // A contributor's own customer pages (Team implementation 4.1): the factories the team's Owner SENT to them, by
+        // name. Not the Owner's alone and never will be - they exist for the contributor. Their rule is the row "answer
+        // questions, send requests and read reports sent to them", and the endpoint answers only through the one check,
+        // ContributorFactoryAccess.Check, which refuses anyone who is not a contributor of the team and any factory not
+        // sent to them by name. They read nothing the factory pages do: no floor, no seat, no session, no journal - only
+        // the factory's title and the sentences its agents wrote for a contributor.
+        ["GET /teams/{teamId}/contributor/factories"] = "a contributor's own customer pages, gated by ContributorFactoryAccess",
+        ["GET /teams/{teamId}/contributor/factories/{factory}"] = "a contributor's own customer pages, gated by ContributorFactoryAccess",
     };
 
     private static bool IsFactoryRoute(string pattern) =>
@@ -92,8 +100,10 @@ public sealed class EveryFactoryRouteHasATeamRuleTests
             foreach (var (role, subject) in members)
                 Assert.True(teams.AddMember(team, subject, role).IsDone);
 
+            // A route under /teams/{teamId}/ names its team in the address (TeamFrom.RouteTeamId); give it this team, as
+            // a request to it would. Every other factory route takes the team from the calling key's tenant.
             TeamGateVerdict Check(string method, string pattern, string subject) =>
-                gate.Check(method, pattern, _ => null, teamTenant, () => subject, _ => TeamOwnership.Callers);
+                gate.Check(method, pattern, name => name == "teamId" ? team : null, teamTenant, () => subject, _ => TeamOwnership.Callers);
 
             var wrong = new List<string>();
             foreach (var (method, pattern) in routes)

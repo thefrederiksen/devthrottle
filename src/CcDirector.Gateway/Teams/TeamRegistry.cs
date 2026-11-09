@@ -469,14 +469,15 @@ public sealed partial class TeamRegistry
         string accountSubject, TeamRole? role, string membershipEvent, TeamRole? fromRole, string? bySubject)
     {
         AddMembershipRecord(ctx, teamId, accountSubject, membershipEvent, fromRole, role, bySubject, _utcNow());
-        var cleared = change == TeamMembershipChange.MemberRemoved ? ClearWhatWasSentTo(ctx, teamId, accountSubject) : 0;
+        var cleared = change == TeamMembershipChange.MemberRemoved ? ClearWhatWasSentTo(ctx, teamId, accountSubject) : default;
 
         // Read before the save: a query goes to the database, which does not yet hold the pending change.
         var paidBefore = TeamBillStore.PaidSeats(ctx, teamId);
         ctx.SaveChanges();
         var paidAfter = TeamBillStore.PaidSeats(ctx, teamId);
         FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} event={membershipEvent} committed, paid seats {paidBefore} -> {paidAfter}" +
-                      (change == TeamMembershipChange.MemberRemoved ? $", {cleared} report(s) sent to them cleared" : ""));
+                      (change == TeamMembershipChange.MemberRemoved
+                          ? $", {cleared.Reports} report(s) and {cleared.Factories} factory share(s) sent to them cleared" : ""));
 
         if (change == TeamMembershipChange.TeamCreated)
             FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - a new team has no bill yet, so no seat count was recorded");
@@ -568,18 +569,24 @@ public sealed partial class TeamRegistry
     }
 
     /// <summary>
-    /// Marks for deletion, in the caller's pending save, every report a person was sent in a team: their rows in
-    /// <c>dev_report_recipients</c>, which both their Reports page and their Questions page read (security review M4).
-    /// Read through the unscoped context, so the tenant filter is lifted and the team's id is named explicitly. Returns
-    /// how many rows were marked.
+    /// Marks for deletion, in the caller's pending save, everything a person was sent in a team: their rows in
+    /// <c>dev_report_recipients</c>, which both their Reports page and their Questions page read (security review M4),
+    /// and the factories shared with them in <c>factory_contributors</c>, which their Factories page and the customer
+    /// page check read (Team implementation piece 4.1) - so a person added back starts empty and sees no old factory
+    /// until the Owner shares it again. Read through the unscoped context, so the tenant filter is lifted and the team's
+    /// id is named explicitly. Returns how many rows of each were marked.
     /// </summary>
-    private static int ClearWhatWasSentTo(GatewayDbContext ctx, string teamId, string accountSubject)
+    private static (int Reports, int Factories) ClearWhatWasSentTo(GatewayDbContext ctx, string teamId, string accountSubject)
     {
-        var rows = ctx.DevReportRecipients.IgnoreQueryFilters()
+        var reports = ctx.DevReportRecipients.IgnoreQueryFilters()
             .Where(r => r.TenantId == teamId && r.RecipientSubject == accountSubject)
             .ToList();
-        ctx.DevReportRecipients.RemoveRange(rows);
-        return rows.Count;
+        ctx.DevReportRecipients.RemoveRange(reports);
+        var factories = ctx.FactoryContributors.IgnoreQueryFilters()
+            .Where(r => r.TenantId == teamId && r.ContributorSubject == accountSubject)
+            .ToList();
+        ctx.FactoryContributors.RemoveRange(factories);
+        return (reports.Count, factories.Count);
     }
 
     /// <summary>The subject of whoever made a change, trimmed, or null when no person is behind it.</summary>

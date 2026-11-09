@@ -51,6 +51,7 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
     private readonly ContributorFactoryAccess _check;
     private readonly ContributorPages _pages;
     private readonly FactoryShares _owner;
+    private readonly CcDirector.Gateway.Factory.FactoryAgentsSwitch _factorySwitch;
     private readonly TeamRequestStore _requests;
     private readonly TeamEndpointGate _gate;
     private readonly string _acme;
@@ -81,13 +82,18 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         var questions = new TeamQuestions(_store, _recipients, comments, _teams, _access, delivery, () => Now);
         _requests = new TeamRequestStore(_db, _teams);
         _pages = new ContributorPages(_check, _activity, _store, _recipients, questions, _requests, _teams, _ => "UTC", () => Now);
-        _owner = new FactoryShares(_teams, _factories, _shares, () => Now);
+        // The factory area is off unless switched on per account, as on a Gateway that does not grant it to every one.
+        _factorySwitch = new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: false,
+            new CcDirector.Gateway.Settings.TenantSettingsStore(_db), log: _ => { });
+        _owner = new FactoryShares(_teams, _factories, _shares, _factorySwitch, () => Now);
         var devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
         var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices, hosted: false);
         _gate = new TeamEndpointGate(_access, _teams, _tenants, boundary);
 
         _acme = _teams.CreateTeam(OwnerA, "Acme").Team!.TeamId;
         _beta = _teams.CreateTeam(OwnerB, "Beta").Team!.TeamId;
+        _factorySwitch.Set(new TenantId(_acme), true, "the administrator (test)", "factories for Acme", Now);
+        _factorySwitch.Set(new TenantId(_beta), true, "the administrator (test)", "factories for Beta", Now);
         Assert.True(_teams.AddMember(_acme, Mike, TeamRole.Collaborator).IsDone);
         Assert.True(_teams.AddMember(_acme, Nina, TeamRole.Collaborator).IsDone);
         Assert.True(_teams.AddMember(_beta, Mike, TeamRole.Collaborator).IsDone);
@@ -262,6 +268,28 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         Assert.False(_check.Check(_beta, Mike, "shop").Allowed);
     }
 
+    [Fact]
+    public void RemoveMember_AContributorAddedBack_SeesNoFactorySentBeforeTheRemoval()
+    {
+        Share(_acme, "website", Mike);
+        Share(_acme, "website", Nina);
+        Assert.True(_check.Check(_acme, Mike, "website").Allowed);
+
+        Assert.True(_teams.RemoveMember(_acme, Mike, OwnerA).IsDone);
+        Assert.True(_teams.AddMember(_acme, Mike, TeamRole.Collaborator, OwnerA).IsDone);
+
+        // A person added back starts empty (security review M4): no old factory comes back without the Owner sharing it.
+        var verdict = _check.Check(_acme, Mike, "website");
+        Assert.False(verdict.Allowed);
+        Assert.Equal(ContributorFactoryRefusal.NotSentToThem, verdict.Refusal);
+        var page = Json(_pages.Factories(_acme, Mike));
+        Assert.Equal(0, page.GetProperty("count").GetInt32());
+        Assert.Empty(page.GetProperty("factories").EnumerateArray());
+        Assert.Null(_shares.Find(new TenantId(_acme), "website", Mike));
+        // Only the removed person's shares go; another contributor of the same factory keeps theirs.
+        Assert.True(_check.Check(_acme, Nina, "website").Allowed);
+    }
+
     // ---------------------------------------------------------------- the customer page
 
     [Fact]
@@ -373,6 +401,24 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         Assert.Equal(404, (await Render(_owner.Share(_acme, OwnerA, "shop", mikeId))).Status);
         Assert.Equal(409, (await Render(_owner.Share(_acme, OwnerA, "secret", mikeId))).Status);
         Assert.Empty(_shares.SentTo(new TenantId(_acme), Mike));
+    }
+
+    [Fact]
+    public async Task ShareRoutes_TheTeamsFactoryAreaIsOff_AnswerNotFoundAndRecordNothing()
+    {
+        var mikeId = TeamMemberIds.For(_acme, Mike);
+        Share(_acme, "website", Mike);
+        _factorySwitch.Set(new TenantId(_acme), false, "the administrator (test)", "factories off for Acme", Now);
+
+        var (shareStatus, shareBody) = await Render(_owner.Share(_acme, OwnerA, "secret", mikeId));
+        var (describeStatus, _) = await Render(_owner.Describe(_acme, OwnerA, "website"));
+        var (unshareStatus, _) = await Render(_owner.Unshare(_acme, OwnerA, "website", mikeId));
+
+        // The same answer every other factory route gives an account the area is off for, and nothing changes.
+        Assert.Equal((404, 404, 404), (shareStatus, describeStatus, unshareStatus));
+        Assert.Contains("switched off for this account, so nothing was done", shareBody.GetProperty("error").GetString());
+        Assert.Null(_shares.Find(new TenantId(_acme), "secret", Mike));
+        Assert.NotNull(_shares.Find(new TenantId(_acme), "website", Mike));
     }
 
     [Fact]
