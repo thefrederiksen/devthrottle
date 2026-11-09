@@ -24,7 +24,7 @@ public sealed class StartupLoadSamplerTests
         var samples = sampler.Run(
             elapsed: () => clock,
             wait: d => { waits++; clock += d; return true; },
-            write: lines.Add,
+            write: Bounded(lines),
             utcNow: () => Start + clock);
 
         // 0, 2, 4 ... 598 seconds: 300 samples, and the loop returned by itself at the window.
@@ -43,7 +43,7 @@ public sealed class StartupLoadSamplerTests
         var clock = TimeSpan.Zero;
         var lines = new List<string>();
 
-        sampler.Run(() => clock, d => { clock += d; return true; }, lines.Add, () => Start + clock);
+        sampler.Run(() => clock, d => { clock += d; return true; }, Bounded(lines), () => Start + clock);
 
         var samples = lines.Where(l => l.Contains(" utc=")).ToList();
         Assert.Contains(" utc=2026-11-09T02:00:00.000Z t=0.0s ", samples[0]);
@@ -62,7 +62,7 @@ public sealed class StartupLoadSamplerTests
         sampler.Run(
             () => clock,
             d => { waited.Add(d); clock += d; return true; },
-            line => { lines.Add(line); if (line.Contains(" t=0.0s ")) clock += TimeSpan.FromMilliseconds(500); },
+            line => { Bounded(lines)(line); if (line.Contains(" t=0.0s ")) clock += TimeSpan.FromMilliseconds(500); },
             () => Start + clock);
 
         // The first sample took half a second, so the first wait is the remaining 1.5 seconds, not 2.
@@ -76,7 +76,7 @@ public sealed class StartupLoadSamplerTests
         using var sampler = new StartupLoadSampler();
         var lines = new List<string>();
 
-        var samples = sampler.Run(() => StartupLoadSampler.Window, _ => true, lines.Add, () => Start);
+        var samples = sampler.Run(() => StartupLoadSampler.Window, _ => true, Bounded(lines), () => Start);
 
         Assert.Equal(0, samples);
         Assert.Equal(2, lines.Count);
@@ -88,7 +88,7 @@ public sealed class StartupLoadSamplerTests
         using var sampler = new StartupLoadSampler();
         var lines = new List<string>();
 
-        var samples = sampler.Run(() => TimeSpan.Zero, _ => false, lines.Add, () => Start);
+        var samples = sampler.Run(() => TimeSpan.Zero, _ => false, Bounded(lines), () => Start);
 
         Assert.Equal(1, samples);
     }
@@ -160,6 +160,15 @@ public sealed class StartupLoadSamplerTests
         Assert.NotEqual(StartupLoadSampler.PoolLabel("a"), StartupLoadSampler.PoolLabel("b"));
         Assert.Equal(6, StartupLoadSampler.PoolLabel("a").Length);
     }
+
+    // A sampler that never stops would hang the whole gate rather than fail one test, so every fake writer
+    // refuses to go far past the 302 lines a correct ten-minute run writes.
+    private static Action<string> Bounded(List<string> lines) => line =>
+    {
+        if (lines.Count >= 1000)
+            throw new InvalidOperationException("The sampler wrote over 1000 lines; it did not stop at its window.");
+        lines.Add(line);
+    };
 
     private static KeyValuePair<string, object?>[] Tags(string pool, string? state)
     {
