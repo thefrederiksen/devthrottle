@@ -45,7 +45,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
         // fixture without the start that has a check.
         _apply = new FactoryPublishApply(db);
         new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Register(A, DefinitionFixture.Registration(), "test", Now);
-        _account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived);
+        _account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived, (_, _, _) => null);
     }
 
     public void Dispose() => _h.Dispose();

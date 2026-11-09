@@ -50,6 +50,16 @@ public sealed class MachineSessionSpawner
     /// </summary>
     internal Func<NewSessionRequest, string, string?>? RefuseSeatStart { get; init; }
 
+    /// <summary>
+    /// INSIDE A TEAM, A RUN STARTS ONLY ON A COMPUTER OF A MEMBER WHO MAY RUN THE TEAM'S FACTORIES (Team implementation
+    /// 2.1, review of the second commit): the refusal for a create going to the resolved Director, or null when it may go
+    /// (Teams.TeamMachineGuard.RefuseRun). Asked here, once, of the resolved Director before anything is sent, so every
+    /// start the Gateway makes on its own - a schedule firing, run-now, a checked run, a trigger's session, the factory
+    /// inbox's wake - is held to it, however and whenever the schedule, trigger or definition was written. The host always
+    /// sets it; a personal account is never refused. A test spawner with no teams leaves it unset, and nothing is asked.
+    /// </summary>
+    internal Func<string, string?>? RefuseTeamRun { get; init; }
+
     /// <summary>The refusal a spawner with no <see cref="RefuseSeatStart"/> gives a seat start.</summary>
     internal const string CannotTellKit =
         "The Gateway cannot tell whether that Director can build a seat's kit, so no session was started.";
@@ -136,6 +146,12 @@ public sealed class MachineSessionSpawner
         {
             FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync REFUSED before the create: machine={machine}, director={target.DirectorId}: {refusal}");
             return MachineSpawnResult.Failed(refusal, target.DirectorId, outcomeUnknown: false);
+        }
+
+        if (RefuseTeamRun?.Invoke(target.DirectorId) is { } teamRefusal)
+        {
+            FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync REFUSED inside a team before the create: machine={machine}, director={target.DirectorId}");
+            return MachineSpawnResult.Failed(teamRefusal, target.DirectorId, outcomeUnknown: false);
         }
 
         if (req.CarriesSeatStartFields()

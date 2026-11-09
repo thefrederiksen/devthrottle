@@ -56,9 +56,9 @@ public sealed class ScheduleFolderRoutesTests : IAsyncLifetime
             findFactory: (_, _) => null,
             runRecords: new CronRunRecordReader(history, new CcDirector.Gateway.History.SessionHistoryStore(db).EndingsOf),
             accountZoneOf: _ => TimeZoneInfo.Utc, isDefined: (_, _) => false,
-            checkFolder: (_, machine, path, ct) => check.CheckAsync(A, machine, path, ct));
+            checkFolder: (_, machine, path, ct) => check.CheckAsync(A, machine, path, ct), refuseMachine: (_, _, _) => null);
         CronFolderChoicesEndpoint.Map(_app, (_, machine) => new CronFolderChoicesEndpoint.MachineFolders(check.OsOf(A, machine),
-            check.IsOnline(A, machine), new[] { new KnownRepositoryDto { Name = "project", Path = "/Users/pat/Documents/project" } }));
+            check.IsOnline(A, machine), new[] { new KnownRepositoryDto { Name = "project", Path = "/Users/pat/Documents/project" } }), refuseMachine: (_, _, _) => null);
         await _app.StartAsync();
         _http = _app.GetTestClient();
     }

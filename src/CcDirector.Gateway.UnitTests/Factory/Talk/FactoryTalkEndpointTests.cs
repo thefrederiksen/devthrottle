@@ -62,6 +62,10 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     private FactoryBriefStore? _briefs;
     private FactoryBriefStore Briefs => _briefs ??= new FactoryBriefStore(Db, _registry ?? throw new InvalidOperationException("start the route first"));
 
+    /// <summary>The machine check of Team implementation 2.1 (review note N1). A personal account is never refused, which
+    /// is what every test here but the team ones runs as.</summary>
+    private Func<Microsoft.AspNetCore.Http.HttpContext, string?, string, string?> _refuseMachine = (_, _, _) => null;
+
     /// <summary>Every create the route dispatched to a Director, with the Director it went to.</summary>
     private readonly List<(string DirectorId, NewSessionRequest Request)> _sent = new();
 
@@ -200,7 +204,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
         _kit.Record(TenantId.Local, NorthDirector, buildsFactoryKit: true);
         var door = new DirectorSpawnDoor(boundary, _directors, _ => SessionFactoryLookup.InNoFactory, send,
-            Missions: null, WorkflowRuns: null, Workspaces: null, KitCapabilities: _kit);
+            Missions: null, WorkflowRuns: null, Workspaces: null, RefuseMachine: (ctx, machine, what) => _refuseMachine(ctx, machine, what), KitCapabilities: _kit);
 
         var factorySwitch = new FactoryAgentsSwitch(switchOn, new TenantSettingsStore(Db));
         var directors = _directors;
@@ -475,6 +479,50 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal("agent Codex, model gpt-6, machine SOREN_SOUTH, chosen by the person", sent.FactoryStartOverride);
         Assert.Equal("nora-hale", sent.FactorySeat);
         Assert.Equal("SOREN_SOUTH", (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Computer);
+    }
+
+    // ---- inside a team, only the caller's own computers (Team implementation 2.1, review note N1) -------------------
+
+    /// <summary>A real team in which the Owner's Director runs on SOREN_NORTH and a Developer's on SOREN_SOUTH; the talk
+    /// is asked about as the Owner, as the host asks it.</summary>
+    private CcDirector.Gateway.Tests.Teams.TeamMachineFixture TalkAsTheTeamOwner()
+    {
+        var team = new CcDirector.Gateway.Tests.Teams.TeamMachineFixture();
+        team.EnrolledDirector(CcDirector.Gateway.Tests.Teams.TeamMachineFixture.Owner, "team-north", "SOREN_NORTH");
+        team.EnrolledDirector(CcDirector.Gateway.Tests.Teams.TeamMachineFixture.Developer, "team-south", "SOREN_SOUTH");
+        _refuseMachine = (_, machine, what) => CcDirector.Gateway.Teams.TeamMachineGuard.Refuse(team.OwnerCaller, machine, team.Directors, what);
+        return team;
+    }
+
+    [Fact]
+    public async Task Talk_InATeam_TheOwnerOnTheirOwnComputer_IsStarted()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"machine":"SOREN_NORTH"}""");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(NorthDirector, Assert.Single(_sent).DirectorId);
+    }
+
+    [Fact]
+    public async Task Talk_InATeam_TheOwnerNamingADevelopersComputer_IsRefused_AndNothingIsSent()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+        _directors!.RegisterFromStream("dir-south", "SOREN_SOUTH", "test", "2.16.0", pid: 3, startedAt: BriefAt, tenant: TenantId.Local);
+        _kit.Record(TenantId.Local, "dir-south", buildsFactoryKit: true);
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"machine":"SOREN_SOUTH"}""");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var error = await ErrorOf(response);
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, error);
+        Assert.DoesNotContain("SOREN_SOUTH", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(_sent);
     }
 
     [Fact]
@@ -861,6 +909,60 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Contains($"cc-devthrottle run resolve {problem.RunId} \"<one line: what fixed it>\"", sent.PrePrompt);
         // The new session is now the account's Factory Manager.
         Assert.Equal("7d2c0e4e-0000-4000-8000-00000000c0de", _factoryManager);
+    }
+
+    // ---- inside a team, the Factory Manager's starts go through the same door (Team implementation 2.1, F1) ----------
+
+    /// <summary>Registers a Director on the Developer's computer in this rig, so a start there would otherwise go.</summary>
+    private void ADirectorOnTheDevelopersComputer()
+    {
+        _directors!.RegisterFromStream("dir-south", "SOREN_SOUTH", "test", "2.16.0", pid: 3, startedAt: BriefAt, tenant: TenantId.Local);
+        _kit.Record(TenantId.Local, "dir-south", buildsFactoryKit: true);
+    }
+
+    [Fact]
+    public async Task TalkToFactoryManager_InATeam_OnTheOwnersComputer_IsStarted()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+
+        var response = await TalkToFactoryManager(new { computer = "SOREN_NORTH", folder = Folder });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(NorthDirector, Assert.Single(_sent).DirectorId);
+    }
+
+    [Fact]
+    public async Task TalkToFactoryManager_InATeam_NamingADevelopersComputer_IsRefused_NothingStarted_NothingSaved()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+        ADirectorOnTheDevelopersComputer();
+
+        var response = await TalkToFactoryManager(new { computer = "SOREN_SOUTH", folder = Folder });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, await ErrorOf(response));
+        Assert.Empty(_sent);
+        Assert.Null(_placement);
+        Assert.Null(_factoryManager);
+    }
+
+    [Fact]
+    public async Task Handle_InATeam_AFactoryManagerPlacedOnADevelopersComputer_IsRefused_AndNothingIsStarted()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync(bossless: true);
+        ADirectorOnTheDevelopersComputer();
+        _placement = ("SOREN_SOUTH", Folder);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, await ErrorOf(response));
+        Assert.Empty(_sent);
     }
 
     [Fact]

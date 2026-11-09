@@ -114,7 +114,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
             runRecords: runRecords,
             accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, _) => false,
-            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null);
 
         var settings = new TenantSettingsStore(_db);
         var record = _record;
@@ -149,7 +149,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         // The brief's own routes, as the host maps them: what the brief panel's buttons send.
         FactoryBriefEndpoints.Map(app, _ => T, _briefs, _ => sessionFactory ?? SessionFactoryLookup.NotKnown, () => Now,
             new FactoryBriefEndpoints.Defined(defined,
-                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived), new FactoryPublishApply(_db)));
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived, (_, _, _) => null), new FactoryPublishApply(_db)));
 
         await app.StartAsync();
         _app = app;

@@ -102,9 +102,13 @@ internal static class FactoryDefinitionEndpoints
         Func<TenantId, string, bool> isArchived,
         // Phase 5b: the state each check keeps, and the account's triggers the checked starts are run by. REQUIRED:
         // a wiring line that forgot it must not compile.
-        CheckStateParts checkStates)
+        CheckStateParts checkStates,
+        // Team implementation 2.1 (F2): the machine check a publish and a restore ask (see Account.RefuseMachine).
+        // REQUIRED for the same reason as the one above; a harness with no teams passes `(_, _, _) => null`.
+        Func<HttpContext, string?, string, string?> refuseMachine)
     {
         ArgumentNullException.ThrowIfNull(checkStates);
+        ArgumentNullException.ThrowIfNull(refuseMachine);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(apply);
@@ -116,7 +120,7 @@ internal static class FactoryDefinitionEndpoints
         ArgumentNullException.ThrowIfNull(askMachines);
         ArgumentNullException.ThrowIfNull(isArchived);
 
-        var account = new Account(fleetSkillsOf, connectedMachinesOf, askMachines, isArchived);
+        var account = new Account(fleetSkillsOf, connectedMachinesOf, askMachines, isArchived, refuseMachine);
         const string factoryRoute = Prefix + "/{factory}";
         app.MapGet(factoryRoute, (HttpContext ctx, string factory) =>
             ReadPublished(ctx, factory, store, resolveTenant, sessionFactoryOf));
@@ -245,7 +249,12 @@ internal static class FactoryDefinitionEndpoints
         Func<TenantId, IReadOnlyCollection<string>> FleetSkillsOf,
         Func<TenantId, IReadOnlyCollection<string>> ConnectedMachinesOf,
         AskMachinesAsync AskMachines,
-        Func<TenantId, string, bool> IsArchived);
+        Func<TenantId, string, bool> IsArchived,
+        // Team implementation 2.1 (review of the second commit, F2): why this caller may not name a computer, or null -
+        // inside a team only the caller's own computers (Teams.TeamMachineGuard); a personal account is never refused.
+        // A publish and a restore ask it for EVERY computer the definition names, before the check asks those computers
+        // anything and before the apply writes a schedule or a trigger. A harness with no teams passes `(_, _, _) => null`.
+        Func<HttpContext, string?, string, string?> RefuseMachine);
 
     /// <summary>GET the published definition, with its content.</summary>
     internal static IResult ReadPublished(HttpContext ctx, string factory, FactoryDefinitionStore store,
@@ -783,7 +792,7 @@ internal static class FactoryDefinitionEndpoints
             return error!;
 
         return await PublishAs(tenant, folded, body.Version, replaces, caller.PublisherWith(approval), store, apply, account, nowUtc(),
-            ct: ctx.RequestAborted);
+            machine => account.RefuseMachine(ctx, machine, route), ct: ctx.RequestAborted);
     }
 
     /// <summary>
@@ -793,8 +802,12 @@ internal static class FactoryDefinitionEndpoints
     /// answer to a publish that went through; every refusal is answered here, the same for both routes. Null answers as
     /// this route does.
     /// </summary>
+    /// <param name="refuseMachine">Why the caller may not name one computer, or null: the request's own
+    /// <see cref="Account.RefuseMachine"/>, bound to its context. Asked for every computer the version names before
+    /// anything else (Team implementation 2.1, F2).</param>
     internal static async Task<IResult> PublishAs(TenantId tenant, string folded, int version, int? replaces, FactoryPublisher by,
         FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
+        Func<string, string?> refuseMachine,
         Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null, CancellationToken ct = default)
     {
         // THE STORE'S OWN RULINGS COME FIRST (review of 4004, finding 3): no such version, already published, older
@@ -803,6 +816,11 @@ internal static class FactoryDefinitionEndpoints
         // writes only through the transaction below, which rules again on what it reads.
         if (store.RuleOnPublish(tenant, folded, version, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
+
+        // INSIDE A TEAM, ONLY THE CALLER'S OWN COMPUTERS (Team implementation 2.1, F2): before the check asks any computer
+        // about its repositories or secrets, and before the apply writes a schedule or a trigger on one.
+        if (RefuseNamedMachines(wanted!.Files, refuseMachine) is { } machineRefused)
+            return machineRefused;
 
         var check = await PublishCheckAsync(wanted!.Files, folded, tenant, account, ct);
         if (check.HasErrors)
@@ -841,7 +859,7 @@ internal static class FactoryDefinitionEndpoints
             return error!;
 
         return await RestoreAs(tenant, folded, body.Version, body.ExpectedVersion, replaces, caller.PublisherWith(approval), store,
-            apply, account, nowUtc(), ct: ctx.RequestAborted);
+            apply, account, nowUtc(), machine => account.RefuseMachine(ctx, machine, route), ct: ctx.RequestAborted);
     }
 
     /// <summary>
@@ -851,12 +869,17 @@ internal static class FactoryDefinitionEndpoints
     /// </summary>
     internal static async Task<IResult> RestoreAs(TenantId tenant, string folded, int version, int expectedVersion, int? replaces,
         FactoryPublisher by, FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
+        Func<string, string?> refuseMachine,
         Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null, CancellationToken ct = default)
     {
         // The store's own rulings first, as for a publish and asked without writing: no such version, already the
         // published one, a stale view.
         if (store.RuleOnRestore(tenant, folded, version, expectedVersion, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
+
+        // The same as a publish (Team implementation 2.1, F2): every computer the version names is the caller's own.
+        if (RefuseNamedMachines(wanted!.Files, refuseMachine) is { } machineRefused)
+            return machineRefused;
 
         var check = await PublishCheckAsync(wanted!.Files, folded, tenant, account, ct);
         if (check.HasErrors)
@@ -882,6 +905,38 @@ internal static class FactoryDefinitionEndpoints
     }
 
     // ---------- the check ----------
+
+    /// <summary>
+    /// EVERY COMPUTER A DEFINITION NAMES (Team implementation 2.1, F2): its default machine, each seat's machine, and each
+    /// start's backup machines - every computer a publish would ask about its repositories and secrets, or write a
+    /// schedule or a trigger on. Blank names are left out; each name once, whatever its case.
+    /// </summary>
+    internal static IReadOnlyList<string> MachinesNamedBy(FactoryDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return new[] { definition.Defaults.Machine }
+            .Concat(definition.Seats.Select(seat => seat.MachineOrDefault(definition.Defaults)))
+            .Concat(definition.Seats.SelectMany(seat => seat.Starts).SelectMany(start => start.BackupMachines))
+            .Where(machine => !string.IsNullOrWhiteSpace(machine))
+            .Select(machine => machine.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>The 403 a publish or a restore is answered with when the version names a computer the caller may not
+    /// use, or null when it names none such. A version that does not parse names nothing here: the check then refuses
+    /// it on its format, and it raises no question to any computer.</summary>
+    private static IResult? RefuseNamedMachines(IReadOnlyDictionary<string, string> content, Func<string, string?> refuseMachine)
+    {
+        if (FactoryDefinitionCheck.Read(content).Definition is not { } definition)
+            return null;
+        foreach (var machine in MachinesNamedBy(definition))
+        {
+            if (refuseMachine(machine) is { } refusal)
+                return Teams.TeamCallerChecks.Refused(refusal);
+        }
+        return null;
+    }
 
     private static FactoryDefinitionCheckResult Check(IReadOnlyDictionary<string, string> content, string factory,
         TenantId tenant, Account account, DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save)

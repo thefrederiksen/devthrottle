@@ -1029,6 +1029,10 @@ public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourL
         }
     }
 
+    /// <summary>The code on every team gate refusal (<c>TeamEndpointGate.RefusalCode</c> on the Gateway, which this
+    /// project does not reference).</summary>
+    internal const string TeamActionRefusedCode = "team_action_refused";
+
     /// <summary>
     /// The factory triggers this Director runs (the Website Business Factory mission, product track):
     /// <c>GET /directors/{id}/triggers</c>. The Gateway decides which - the triggers on this machine that no other
@@ -1052,6 +1056,14 @@ public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourL
                     return Triggers.TriggerFetch.Failed($"the Gateway does not know Director {directorId} yet");
                 return Triggers.TriggerFetch.Off("the Gateway does not serve triggers (factory agents are off)");
             }
+            // Inside a team, a Director whose person may not run the team's factories (Team implementation 2.1: the
+            // Owner alone in step one) is refused by the team gate. That is a standing answer - "this Director runs no
+            // triggers here" - not a failed fetch, so it is Off, which also clears whatever this Director held. Only the
+            // team gate's own refusal (its code, TeamEndpointGate.RefusalCode on the Gateway) means this; any other 403
+            // stays a failure.
+            if (resp.StatusCode == HttpStatusCode.Forbidden && isJson
+                && (await resp.Content.ReadAsStringAsync(ct)).Contains(TeamActionRefusedCode, StringComparison.Ordinal))
+                return Triggers.TriggerFetch.Off("inside this team, this Director's person does not run the team's factories");
             if (!resp.IsSuccessStatusCode)
                 return Triggers.TriggerFetch.Failed($"GET /directors/{directorId}/triggers returned HTTP {(int)resp.StatusCode}");
             if (!isJson)

@@ -84,13 +84,13 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             askMachines: askMachines ?? DefinitionFixture.AskNobody,
             isArchived: DefinitionFixture.NoneArchived,
             checkStates: new FactoryDefinitionEndpoints.CheckStateParts(_triggers.CheckStates, _triggers.List,
-                _ => Array.Empty<CronJobDto>()));
+                _ => Array.Empty<CronJobDto>()), refuseMachine: (_, _, _) => null);
         FactoryDefinitionEndpoints.MapCreate(routes,
             resolveTenant: ctx => ctx.Items.TryGetValue(AccountItem, out var account) ? (TenantId)account! : A,
             store: new FactoryDefinitionStore(_db),
             sessionFactoryOf: FactoryOf,
             account: new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines,
-                DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived),
+                DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived, (_, _, _) => null),
             nowUtc: () => Now,
             whyNotNew: (_, _) => _taken);
         return routes;

@@ -31,15 +31,23 @@ internal static class CronFolderChoicesEndpoint
 
     /// <param name="machineFolders">What the Gateway knows of the named machine for the caller's account, or null when
     /// the caller has no account.</param>
-    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, string, MachineFolders?> machineFolders)
+    /// <param name="refuseMachine">Why this caller may not read the named computer, or null when they may: inside a team
+    /// only the caller's own computers (Team implementation 2.1, review note N1; Teams.TeamMachineGuard). A personal
+    /// account is never refused.</param>
+    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, string, MachineFolders?> machineFolders,
+        Func<HttpContext, string?, string, string?> refuseMachine)
     {
         ArgumentNullException.ThrowIfNull(machineFolders);
+        ArgumentNullException.ThrowIfNull(refuseMachine);
         app.MapGet(Route, (HttpContext ctx, string? machine) =>
         {
             // Before a machine is chosen the form still shows the Gateway's words in its empty folder box.
             if (string.IsNullOrWhiteSpace(machine))
                 return Results.Json(NoMachine);
             var name = machine.Trim();
+            // Inside a team, another member's computer is never read: its repository list is theirs.
+            if (refuseMachine(ctx, name, $"GET {Route}") is { } machineRefusal)
+                return Teams.TeamCallerChecks.Refused(machineRefusal);
             var known = machineFolders(ctx, name);
             if (known is null)
             {

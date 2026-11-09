@@ -19,6 +19,11 @@ internal sealed record DirectorSpawnDoor(
     Core.Sessions.MissionStore? Missions,
     Workflows.WorkflowRunStore? WorkflowRuns,
     Workspaces.WorkspaceStore? Workspaces,
+    // Team implementation 2.1 (review of the second commit, F1): why this caller may not start a session on the computer
+    // of the Director named, or null when they may - inside a team only the caller's own computers
+    // (Teams.TeamMachineGuard); a personal account is never refused. It is asked HERE, in the one door every start goes
+    // through, so no route that starts a session can miss it. REQUIRED: a door with no teams passes `(_, _, _) => null`.
+    Func<HttpContext, string?, string, string?> RefuseMachine,
     // Factory Definition mission, phase 5: which Directors build a seat's kit, and whether a seat carries rules in a
     // definition version, for the account the request is bound to. A door without the first refuses every seat start;
     // a door without the second refuses a seat's child on an agent that cannot take rules. Neither ever lets one by.
@@ -120,6 +125,10 @@ internal static partial class GatewayEndpoints
     {
         if (!TryResolveOwnedDirector(ctx, door.TenantBoundary, door.Registry, id, out var d, out var ownerErr))
             return DirectorSpawnOutcome.Refused(ownerErr);
+        // INSIDE A TEAM, ONLY THE CALLER'S OWN COMPUTERS (Team implementation 2.1): asked before anything else is
+        // settled or sent, on the computer of the Director this create would reach.
+        if (door.RefuseMachine(ctx, d.MachineName, $"POST /directors/{id}/sessions") is { } machineRefusal)
+            return DirectorSpawnOutcome.Refused(Teams.TeamCallerChecks.Refused(machineRefusal));
         // A SEAT START HAS NO FOLDER (Factory Definition mission, phase 5): the Director runs it in the repository it
         // names or in its kit. Whether this caller may start a seat at all is settled below, from its credential.
         if (req is null || (string.IsNullOrWhiteSpace(req.RepoPath) && !SpawnFactory.StartsWithoutAFolder(req)))

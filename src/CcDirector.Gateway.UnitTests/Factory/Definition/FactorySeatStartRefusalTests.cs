@@ -215,7 +215,7 @@ public sealed class FactorySeatStartRefusalTests : IDisposable
         _registry,
         _ => SessionFactoryLookup.NotKnown,
         Send,
-        Missions: null, WorkflowRuns: null, Workspaces: null,
+        Missions: null, WorkflowRuns: null, Workspaces: null, RefuseMachine: (_, _, _) => null,
         KitCapabilities: _kit,
         SeatRulesFor: _ => (_, _, _) => SeatRulesRead.Carries(true));
 

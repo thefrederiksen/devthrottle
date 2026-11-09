@@ -377,7 +377,12 @@ internal static partial class GatewayEndpoints
         // Issue #4598: records a Boss started for a session in no factory, and reads the record a restore carries.
         // Null leaves such a Boss without the authority to publish, as it was before the record existed.
         SpawnFactory.BossStartRecorder? recordBossStart = null,
-        Func<string, (string Factory, string Seat)?>? bossStartOf = null)
+        Func<string, (string Factory, string Seat)?>? bossStartOf = null,
+        // Team implementation 2.1 (review of the second commit, F1): the machine check the person's New Session door asks
+        // (Teams.TeamMachineGuard), the same one the factory starts' door asks. The host always passes it. On this door it
+        // is a second line, not the only one: the team gate's "/directors" rule already refuses another member's Director
+        // by its {id} (TeamTarget.CallersOwn). Null - a harness with no teams - asks nothing.
+        Func<HttpContext, string?, string, string?>? refuseMachine = null)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
@@ -4967,8 +4972,8 @@ internal static partial class GatewayEndpoints
         // THE PERSON'S NEW SESSION DOOR. Its whole body is StartSessionOnDirectorAsync, so the Factories screen's Talk
         // button starts its session down exactly this path rather than a copy of it (Factories screen mission, phase C).
         var directorSpawnDoor = new DirectorSpawnDoor(tenantBoundary, registry, sessionFactoryOf, sendCommand,
-            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock, bossStartFor,
-            recordBossStart, bossStartOf);
+            missions, workflowRuns, workspaces, refuseMachine ?? ((_, _, _) => null), factoryKitCapabilities, seatRulesFor,
+            spawnDoorClock, bossStartFor, recordBossStart, bossStartOf);
         app.MapPost("/directors/{id}/sessions", async (HttpContext ctx, string id, NewSessionRequest req) =>
         {
             var outcome = await StartSessionOnDirectorAsync(ctx, id, req, directorSpawnDoor);

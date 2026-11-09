@@ -267,7 +267,7 @@ internal sealed class MailDeskHandOffRig : IAsyncDisposable
         TenantId? Resolve(Microsoft.AspNetCore.Http.HttpContext _) => Account;
         TriggerEndpoints.Map(app, Resolve, Triggers, directorMachine: (_, id) => Directors.GetValueOrDefault(id),
             nowUtc: () => Now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: (_, _) => true,
-            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
+            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")), refuseMachine: (_, _, _) => null);
         var decisions = Decisions;
         MailDeskEndpoints.Map(MailDeskGate.Group(app, Switch, Resolve), Resolve, new MailDeskEndpoints.Parts(
             Channels, Rules, decisions, Settings,

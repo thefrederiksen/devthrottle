@@ -57,7 +57,7 @@ public sealed class TriggerRunsOfADeletedTriggerTests : IDisposable
             service, directorMachine: (_, _) => "SOREN_NORTH", nowUtc: () => Now,
             sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
             isDefined: (_, _) => false,
-            dueChecks: DueCheckTestParts.NoDueChecks(_db, _h.LegacyPath("due.runs.json")));
+            dueChecks: DueCheckTestParts.NoDueChecks(_db, _h.LegacyPath("due.runs.json")), refuseMachine: (_, _, _) => null);
     }
 
     public void Dispose()

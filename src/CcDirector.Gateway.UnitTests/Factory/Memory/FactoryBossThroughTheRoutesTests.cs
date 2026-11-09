@@ -134,7 +134,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
             findFactory: (_, id) => id == TheFactory ? Registration() : null,
             runRecords: new CronRunRecordReader(runs, _history.EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, id) => defined && id == TheFactory,
-            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
@@ -145,7 +145,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
             directorMachine: (_, _) => Machine, nowUtc: () => Now, sessionFactoryOf: _history.FactoryOf,
             isDefined: (_, id) => defined && id == TheFactory,
             dueChecks: DueCheckTestParts.NoDueChecks(_db.Open(), Path.Combine(_dir, "due.runs.json")),
-            bossSeatOf: (_, id) => id == TheFactory ? TheBoss : null);
+            bossSeatOf: (_, id) => id == TheFactory ? TheBoss : null, refuseMachine: (_, _, _) => null);
 
         await app.StartAsync();
         _app = app;
