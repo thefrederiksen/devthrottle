@@ -60,15 +60,14 @@ public sealed class PromptQueue
         return item;
     }
 
-    /// <summary>Remove a specific item by ID. No-op if not found.</summary>
+    /// <summary>
+    /// Remove a specific item by ID. No-op if not found. The same claim <see cref="TryTake"/> makes, for a
+    /// caller that does not want the text back - one find-and-remove serves both, and each still writes its
+    /// own log line, because a remove and a take are different intentions to whoever reads the log.
+    /// </summary>
     public bool Remove(Guid id)
     {
-        lock (_gate)
-        {
-            var index = _items.FindIndex(i => i.Id == id);
-            if (index < 0) return false;
-            _items.RemoveAt(index);
-        }
+        if (!Took(id, out _)) return false;
 
         FileLog.Write($"[PromptQueue] Remove: id={id}");
         OnQueueChanged?.Invoke();
@@ -166,6 +165,17 @@ public sealed class PromptQueue
     /// </summary>
     public bool TryTake(Guid id, out string text)
     {
+        if (!Took(id, out text)) return false;
+
+        FileLog.Write($"[PromptQueue] TryTake: id={id}, length={text.Length}");
+        OnQueueChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>The claim itself, under the lock and saying nothing. The two callers above each raise the
+    /// event and write their own line outside it.</summary>
+    private bool Took(Guid id, out string text)
+    {
         lock (_gate)
         {
             var index = _items.FindIndex(i => i.Id == id);
@@ -176,11 +186,8 @@ public sealed class PromptQueue
             }
             text = _items[index].Text;
             _items.RemoveAt(index);
+            return true;
         }
-
-        FileLog.Write($"[PromptQueue] TryTake: id={id}, length={text.Length}");
-        OnQueueChanged?.Invoke();
-        return true;
     }
 
     /// <summary>Find an item by ID.</summary>
