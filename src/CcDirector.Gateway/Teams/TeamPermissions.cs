@@ -85,6 +85,22 @@ public enum TeamAction
     /// <summary>Change the team's governance rules (Teams v1, the team's Governance tab). The owner's brief, 8 Oct 2026:
     /// "changed only by Owner and Manager".</summary>
     ChangeTeamGovernance,
+
+    /// <summary>
+    /// Open, run and talk to the team's factories (Team implementation piece 2.1, devthrottle_internal#2792): every
+    /// factory page and tab (floor, seats, activity, memory, records, definition), the boss chat, pause, archive and
+    /// delete, the factory inbox, the factory's reports and schedules, and creating a factory in the team.
+    ///
+    /// THE OWNER ALONE IN STEP ONE, and why. A factory's Boss and seats run on a computer, and talking to a Boss is acting
+    /// on that computer: "anyone who can talk to a Boss can do anything on that machine" (design.html, the decisions).
+    /// In step one a team's factories run on the Owner's own computers - a Director is enrolled for one person
+    /// (security review, Risk 6) and co-developers sharing computers is a later step. The row "run sessions on their own
+    /// computers" gives a Manager or Developer THEIR OWN computers, not the Owner's, so it does not reach a team
+    /// factory; and "see the team's work" cannot be given apart from running it here, because the factory pages read
+    /// and act on the same routes. A Collaborator never: their factory is the customer page under
+    /// <c>/teams/{teamId}/...</c> (piece 4.1). Opening it to Managers or Developers later is one cell each.
+    /// </summary>
+    OpenRunAndTalkToTeamFactories,
 }
 
 /// <summary>One cell of the role table.</summary>
@@ -163,6 +179,8 @@ public static class TeamPermissions
         // Teams v1, the team's Governance tab: "seen by every member who sees the team tabs; changed only by Owner and Manager".
         new TeamPermissionRow(TeamAction.SeeTeamGovernance, "see the team's governance rules", Yes, Yes, Yes, No),
         new TeamPermissionRow(TeamAction.ChangeTeamGovernance, "change the team's governance rules", Yes, Yes, No, No),
+        // Team implementation 2.1 (devthrottle_internal#2792): the Owner alone in step one - see the action for why.
+        new TeamPermissionRow(TeamAction.OpenRunAndTalkToTeamFactories, "open, run and talk to the team's factories", Yes, No, No, No),
     };
 
     private static readonly IReadOnlyDictionary<TeamAction, TeamPermissionRow> ByAction = BuildIndex();

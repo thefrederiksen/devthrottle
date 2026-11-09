@@ -86,8 +86,9 @@ public sealed record TeamEndpointRule(string Prefix, TeamMethods Methods, TeamAc
 /// not covered here states no action, and in a team it is REFUSED - so an endpoint added later cannot skip the check
 /// by being forgotten, it can only be refused until someone writes down what it does (<see cref="TeamEndpointGate"/>).
 ///
-/// Declared today: the team routes, and the session, computer, transcript, prompt, Mentor and skills families. A
-/// request in another family (missions, schedules, lists, settings, reports, ...) is refused in a team until its
+/// Declared today: the team routes, and the session, computer, transcript, prompt, Mentor, skills and factory families
+/// (the factories with their inbox, triggers and scheduled runs). A request in another family (missions, lists,
+/// settings, the account inbox, ...) is refused in a team until its
 /// row is written here, along with the issue that makes it a team feature.
 ///
 /// A request matches the LONGEST prefix that covers its method, so a narrower rule overrides a family rule.
@@ -97,6 +98,7 @@ public static class TeamEndpointRules
     private const TeamAction Sessions = TeamAction.RunSessionsOnOwnComputers;
     private const TeamAction Watch = TeamAction.JoinOrWatchSomeoneElsesSession;
     private const TeamAction OthersPrompts = TeamAction.ReadAnotherPersonsPrompts;
+    private const TeamAction Factories = TeamAction.OpenRunAndTalkToTeamFactories;
 
     /// <summary>The declarations.</summary>
     public static readonly IReadOnlyList<TeamEndpointRule> All = new[]
@@ -266,7 +268,50 @@ public static class TeamEndpointRules
         // when any event names a Director that is not the calling key's own, or a session that Director does not hold
         // by the one ownership rule. Reading the ledger (GET) stays undeclared: in a team it would read every member's.
         new TeamEndpointRule("/activity-events/batch", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+
+        // ---- FACTORIES INSIDE A TEAM (Team implementation 2.1, devthrottle_internal#2792) ------------------------------
+        // Every route the factory pages and the factory inbox use, read from the hosted Gateway's mapped route table
+        // (EveryFactoryRouteHasATeamRuleTests walks it). Each is the row "open, run and talk to the team's factories" -
+        // the Owner alone in step one (TeamAction.OpenRunAndTalkToTeamFactories says why) - so a Manager, a Developer
+        // and a Collaborator are refused on all of them.
+        //
+        // NOT PERSON-ONLY, ON PURPOSE. The /teams routes refuse every computer (TeamPersonOnlyRoutes, M1). These do not:
+        // a team's factory is RUN by a Director - it pulls its triggers, checks and seat kits, its seats read memory and
+        // write the journal and the activity record, and the Boss session reads its own factory inbox - all with that
+        // Director's key or a session key in the team. The gate names the person behind those keys
+        // (TeamCallerOwnership.PersonOf: a key's account subject, or a session's Director's owner), so the Owner's own
+        // Director is the Owner and is served, and any other member's Director is refused like that member.
+        new TeamEndpointRule("/gateway/factories", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/gateway/factory", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/gateway/factory-agents", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/gateway/factory-email", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/gateway/factory-emails", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/gateway/factory-manager", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/factory-briefs", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/factory-definitions", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/factory-definition-schemas", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/factory-memory", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/factory-records", TeamMethods.Any, Factories, TeamTarget.Team),
+        // The factory's schedules: its triggers, and the scheduled runs the floor reads and resolves. A plain schedule
+        // that is not a factory's uses /cron too; inside a team there is no other kind yet, so the family is the factory's.
+        new TeamEndpointRule("/triggers", TeamMethods.Any, Factories, TeamTarget.Team),
+        new TeamEndpointRule("/cron", TeamMethods.Any, Factories, TeamTarget.Team),
+        // A Director's own pulls for the factories it runs. Narrower than the "/directors" rule above, so they are the
+        // factory row; still only the calling key's OWN Director - another member's is watching their computer.
+        new TeamEndpointRule("/directors/{directorId}/triggers", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
+        new TeamEndpointRule("/directors/{directorId}/factory-checks", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
+        new TeamEndpointRule("/directors/{directorId}/factory-check-inputs", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
+        // The factory inbox as a Boss session reads and answers it, and a session writing to a factory's inbox. Narrower
+        // than the "/sessions" rule, so a Developer's own session cannot reach the team's factory inbox through it.
+        new TeamEndpointRule("/sessions/{sid}/factory-inbox", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
+        new TeamEndpointRule("/sessions/{sid}/factories", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
     };
+
+    /// <summary>The route prefixes of the factory pages and the factory inbox, ruled above as
+    /// <see cref="TeamAction.OpenRunAndTalkToTeamFactories"/> - the list the route-table test checks every mapped factory
+    /// route against.</summary>
+    public static IReadOnlyList<TeamEndpointRule> FactoryRules =>
+        All.Where(r => r.Action == Factories).ToList();
 
     /// <summary>
     /// ENDPOINTS DECLARED AS ACTING FOR THE PERSON'S OWN ACCOUNT, NEVER INSIDE A TEAM - written down so that their absence

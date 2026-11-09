@@ -54,6 +54,10 @@ public static class RoleTableSpec
         // only by Owner and Manager".
         new(TeamAction.SeeTeamGovernance, "YYYN", "GET", "/teams/{teamId}/governance", TeamOwnership.Unknown, null),
         new(TeamAction.ChangeTeamGovernance, "YYNN", "PUT", "/teams/{teamId}/governance", TeamOwnership.Unknown, null),
+        // Team implementation 2.1 (devthrottle_internal#2792, the Delivery Lead's brief): "OWNER-ONLY in step one". Talking
+        // to a Boss acts on the computer it runs on, and in step one that computer is the Owner's.
+        new(TeamAction.OpenRunAndTalkToTeamFactories, "YNNN", "POST", "/gateway/factory-agents/factories/{factory}/seats/{seat}/talk",
+            TeamOwnership.Unknown, null),
     };
 
     public static readonly TeamRole[] Columns = { TeamRole.Owner, TeamRole.Manager, TeamRole.Developer, TeamRole.Collaborator };
