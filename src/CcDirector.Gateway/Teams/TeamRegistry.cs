@@ -542,7 +542,7 @@ public sealed partial class TeamRegistry
 
     /// <summary>
     /// REMOVE THE MADE-UP MEMBERS carrying <paramref name="tag"/> (<see cref="TeamShowcase.Remove"/>), each with its
-    /// membership record, in ONE save under the write lock. Only rows with that tag are touched. Returns how many went.
+    /// membership record and with every report sent to it cleared (security review M4), in ONE save under the write lock. Only rows with that tag are touched. Returns how many went.
     /// </summary>
     /// <param name="bySubject">Who removed the showcase: the team's Owner.</param>
     /// <param name="atUtc">The showcase's clock.</param>
@@ -558,6 +558,8 @@ public sealed partial class TeamRegistry
             {
                 ctx.TeamMembers.Remove(row);
                 AddMembershipRecord(ctx, teamId, row.AccountSubject, TeamMembershipEvents.Removed, row.Role, null, by, atUtc);
+                // A real report sent to a made-up member carries no tag; it goes with the member, as for anyone removed.
+                ClearWhatWasSentTo(ctx, teamId, row.AccountSubject);
             }
             ctx.SaveChanges();
             FileLog.Write($"[TeamRegistry] RemoveShowcaseMembers: team {LogTeam(teamId)} removed {rows.Count} made-up member(s), each recorded");
