@@ -66,6 +66,8 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
     // spare that fills before the reset moves it out.
     private TimeSpan _aWeekResetsIn = TimeSpan.FromDays(1);
     private bool _night;
+    // When machine-a's sign-in on account A ends; null when it does not say.
+    private TimeSpan? _aSignInEndsIn;
 
     public LicenseCannotSwitchAlarmTests()
     {
@@ -132,6 +134,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
     {
         var holding = Holding(A, true, _aFiveHour, _aWeekly, readAt: _now);
         holding.SevenDay!.ResetsAtUtc = _now + _aWeekResetsIn;
+        holding.SignInExpiresAtUtc = _aSignInEndsIn is { } endsIn ? _now + endsIn : null;
         return holding;
     }
 
@@ -249,32 +252,11 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         AssertNothingRaised(tick);
     }
 
-    // READY means its room lasts until the license it is on resets (the owner, 7 November 2026). With account A's week
-    // resetting in four days, at the pace A was used, C (at 40%) fills first: machine-a needs one more license - B, the
-    // most room - and the warning says so and names it. Nothing automatic signs it in for a second license: it is the owner's.
+    // A switch that keeps failing is NOT the one rule (the owner, 8 November 2026): machine-a is at 98% and holds a ready
+    // sign-in for B - its next license is available - but its switch to B has failed three times in a row. No alarm opens;
+    // the Licenses page and the grid still show it, red.
     [Fact]
-    public async Task Tick_TheOnlyReadyLicenseFillsBeforeTheReset_WarnsForOneMore_NamingIt()
-    {
-        _machineAHoldsC = true;
-        _aWeekResetsIn = TimeSpan.FromDays(4);
-        Report();
-
-        var tick = await Tick();
-
-        Assert.Empty(tick.Started);
-        var alarm = Assert.Single(Warnings());
-        Assert.Equal(MachineA, alarm.MachineName);
-        Assert.Contains("account-c@example.com would fill before account-a@example.com resets", alarm.Problem);
-        Assert.EndsWith("it needs account-b@example.com as one more license.", alarm.Problem);
-        Assert.Equal("Sign machine-a in to account-b@example.com from the Licenses page.", alarm.Action);
-    }
-
-    // Rule 4's second half, "or the switch failed: RED" (the review of pull request 4741, finding 1). machine-a is at 98%
-    // and holds a sign-in for B, but its switch to B has failed three times in a row, so the automatic switch holds it out.
-    // Through the real minute check: one red alarm saying the switch keeps failing, no yellow warning, and the verdict the
-    // Licenses page and the grid read says the same - counted, and red - never "no problem".
-    [Fact]
-    public async Task Tick_AMachineWhoseSwitchKeepsFailing_IsRed_OnTheBarThePageAndTheGrid()
+    public async Task Tick_AMachineWhoseSwitchKeepsFailing_RaisesNoAlarm_ButIsRedOnThePageAndTheGrid()
     {
         _aWeekly = 98;
         _machineAHoldsB = true;
@@ -300,12 +282,8 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
         await Tick();
 
-        Assert.Empty(Warnings());
-        var alarm = Assert.Single(Stranded());
-        Assert.Equal((MachineA, LicenseStrandedAlarm.SwitchFailingAction), (alarm.MachineName, alarm.Action));
-        Assert.StartsWith("machine-a is stuck on account-a@example.com, which is at 98% of its weekly limit: its switch from "
-                          + "account-a@example.com to account-b@example.com has failed more than once in a row", alarm.Problem);
-        Assert.Equal(LicenseAlarmTones.Critical, Assert.Single(BannerLines()).Tone);
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(_pushed);
         var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
         var next = Readiness().NextLicenses(One, picture, _now);
         var verdict = next.Single(v => v.MachineName == MachineA);
@@ -483,10 +461,10 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
     // ----- one machine, one fault, one alert -----
 
-    // A fresh picture at 100%: the warning and the stranded alarm are both true for each machine that cannot switch. Each
-    // gets exactly ONE push - the stranded one - and the banner one line each; no warning is open.
+    // A fresh picture at 100%: each machine with no next license gets exactly ONE alarm - the one kind, red - and one push;
+    // the retired stranded kind opens nothing (the owner, 8 November 2026).
     [Fact]
-    public async Task Tick_AFreshPictureAt100_IsOnePushPerStrandedMachine_NotTwo()
+    public async Task Tick_AFreshPictureAt100_IsOneRedAlarmAndOnePushPerMachine()
     {
         _aWeekly = 100;
         _machineBHoldsB = false;
@@ -498,18 +476,19 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
         await Tick();
 
-        Assert.Empty(Warnings());
-        Assert.Equal(new[] { MachineA, MachineB }, Stranded().Select(a => a.MachineName).OrderBy(n => n, StringComparer.Ordinal));
+        Assert.Empty(Stranded());
+        Assert.Equal(new[] { MachineA, MachineB }, Warnings().Select(a => a.MachineName).OrderBy(n => n, StringComparer.Ordinal));
         Assert.Equal(new[] { MachineA, MachineB }, _pushed.Select(p => p.MachineName).OrderBy(n => n, StringComparer.Ordinal));
-        Assert.All(_pushed, p => Assert.Equal(LicenseStrandedAlarm.Kind.Key, p.Kind.Key));
+        Assert.All(_pushed, p => Assert.Equal(LicenseCannotSwitchAlarm.Kind.Key, p.Kind.Key));
         Assert.Equal(2, BannerLines().Count);
+        Assert.All(BannerLines(), l => Assert.Equal(LicenseAlarmTones.Critical, l.Tone));
         Assert.Single(_emails); // both alarms due in one check go out in one email
     }
 
-    // D1's progression on the weekly window: at 85% the warning, at 97% the stranded alarm - the "again". Two pushes and two
-    // emails in all, in that order, and one banner line throughout.
+    // From 85% to 97% of the week: one alarm throughout, yellow and then red - the same alarm, so no second push; the retired
+    // stranded kind opens nothing.
     [Fact]
-    public async Task Tick_From80To97OfTheWeek_TheWarningThenTheStrandedAlarm_TwoPushesInOrder()
+    public async Task Tick_From80To97OfTheWeek_IsOneAlarm_YellowThenRed()
     {
         Report();
         await Tick();
@@ -519,11 +498,11 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Later(30);
         var tick = await Tick();
 
-        Assert.Equal((1, 1), (tick.Alarms!.Closed, tick.StrandedAlarms!.Opened));
+        Assert.Equal((0, 1, 0), (tick.Alarms!.Opened, tick.Alarms.StillOpen, tick.StrandedAlarms!.Opened));
         var line = Assert.Single(BannerLines());
-        Assert.Equal(LicenseStrandedAlarm.Kind.Key, line.Kind);
-        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
-        Assert.Equal(2, _emails.Count);
+        Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, LicenseAlarmTones.Critical), (line.Kind, line.Tone));
+        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
+        Assert.Single(_emails);
     }
 
     // ----- the retired kind -----
@@ -552,6 +531,53 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key }, _alarms.ListOpen(One).Select(a => a.Kind).ToArray());
     }
 
+    // Every kind the readiness check retires - the stranded alarm among them (the owner, 8 November 2026) - closes on the first
+    // minute check after the Gateway starts, with no push and no email, and the one kind is all that is open.
+    [Theory]
+    [InlineData("stranded-on-full-account")]
+    [InlineData("not-ready-at-80")]
+    [InlineData("not-ready-five-hour")]
+    [InlineData("no-room-at-80")]
+    public async Task Tick_AnOpenAlarmOfARetiredReadinessKind_ClosesOnTheFirstCheck(string retiredKind)
+    {
+        _aWeekly = 85;
+        Report();
+        var machineA = _reads.Read(One, _now).Machines.Single(m => m.MachineName == MachineA);
+        var machineB = _reads.Read(One, _now).Machines.Single(m => m.MachineName == MachineB);
+        using (var ctx = _db.CreateContext(One))
+        {
+            // One on the machine the one alarm is true for, one on a machine with nothing wrong.
+            foreach (var (id, name) in new[] { (machineA.MachineId, MachineA), (machineB.MachineId, MachineB) })
+                ctx.LicenseAlarms.Add(new LicenseAlarmEntity
+                {
+                    Kind = retiredKind, MachineId = id, MachineName = name, AccountEmail = A,
+                    Problem = "An older Gateway's alarm.", Action = "Nothing.", OpenedAtUtc = T0.AddMinutes(-30),
+                    TenantId = Assert.IsType<string>(ctx.ActiveTenant),
+                });
+            ctx.SaveChanges();
+        }
+
+        await Tick();
+
+        var open = _alarms.ListOpen(One);
+        Assert.Equal(new[] { (LicenseCannotSwitchAlarm.Kind.Key, MachineA) }, open.Select(a => (a.Kind, a.MachineName)).ToArray());
+        Assert.All(_pushed, p => Assert.Equal(LicenseCannotSwitchAlarm.Kind.Key, p.Kind.Key));
+    }
+
+    // At the threshold a machine with no next license raises the one kind and never the retired stranded one.
+    [Fact]
+    public async Task Tick_At97_AMachineWithNoNextLicense_RaisesTheOneKind_NeverTheStrandedKind()
+    {
+        _aWeekly = 97;
+        Report();
+
+        var tick = await Tick();
+
+        Assert.Equal((0, 0, 0), (tick.StrandedAlarms!.Opened, tick.StrandedAlarms.StillOpen, tick.StrandedAlarms.Closed));
+        Assert.Empty(Stranded());
+        Assert.Equal(MachineA, Assert.Single(Warnings()).MachineName);
+    }
+
     // ----- repeat until fixed (mission "Licenses - Always Ready, Loud When Not", step 2) -----
 
     // The dry run of the owner's ruling: a machine that cannot switch is told about when the warning opens, and again an
@@ -572,7 +598,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
         Assert.Equal((0, 1, 0, 1), (tick.Alarms!.Opened, tick.Alarms.StillOpen, tick.Alarms.Closed, tick.Alarms.Repeated));
         Assert.Equal(new[] { false, true }, _pushed.Select(p => p.IsRepeat).ToArray());
-        Assert.Equal("Still: machine-a: Cannot switch accounts. Open Licenses to see what to do.",
+        Assert.Equal("Still: machine-a: Running out with no next license. Open Licenses to see what to do.",
             LicenseAlarmFold.PushBody(_pushed[1].MachineName, _pushed[1].Kind, _pushed[1].IsRepeat));
         Assert.Equal(2, _emails.Count);
         // The subject names the machine and the hours the forecast gives the account (the rig's readings forecast about 10).
@@ -721,6 +747,149 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
         Assert.Equal(new[] { false, true }, _pushed.Select(p => p.IsRepeat).ToArray());
         Assert.Equal(2, _emails.Count);
+    }
+
+    // ----- the one rule, and its expiry condition (the owner, 8 November 2026) -----
+
+    // A ready next license is an available next license: even one that may fill before the license in use resets raises
+    // nothing. The alarm is only for a machine with NO next license on it.
+    [Fact]
+    public async Task Tick_At80_WithAReadyNextLicenseThatMayFillBeforeTheReset_RaisesNothing()
+    {
+        _machineAHoldsC = true;
+        _aWeekResetsIn = TimeSpan.FromDays(4);
+        Report();
+
+        AssertNothingRaised(await Tick());
+    }
+
+    // The expiry condition, built as the owner's recommended YES: under 80%, the sign-in machine-a runs on ends within the
+    // warning period and it has no next license on it - one alarm, naming when the sign-in ends.
+    [Fact]
+    public async Task Tick_Under80_SignInInUseEndsWithinTheWarning_NoNextLicense_RaisesTheAlarm()
+    {
+        Assert.True(LicenseCannotSwitchAlarm.ExpiringSignInCountsAsRunningOut);
+        _aFiveHour = 10;
+        _aWeekly = 20;
+        _aSignInEndsIn = LicenseContract.SignInExpiryWarning - TimeSpan.FromHours(1);
+        Report();
+
+        var tick = await Tick();
+
+        Assert.Equal(1, tick.Alarms!.Opened);
+        var alarm = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
+        Assert.Equal($"machine-a is on account-a@example.com, whose sign-in on it ends at {(_now + _aSignInEndsIn.Value):yyyy-MM-dd HH:mm} UTC, "
+                     + "and it holds no sign-in for account-b@example.com: it needs account-b@example.com as its next license.", alarm.Problem);
+        Assert.Equal($"machine-a has no next license - its sign-in ends {(_now + _aSignInEndsIn.Value):yyyy-MM-dd HH:mm} UTC", alarm.Subject);
+    }
+
+    // The expiry condition needs no next license too: machine-a holds a sign-in for B, so it raises nothing.
+    [Fact]
+    public async Task Tick_SignInInUseEndsWithinTheWarning_WithANextLicense_RaisesNothing()
+    {
+        _aFiveHour = 10;
+        _aWeekly = 20;
+        _aSignInEndsIn = TimeSpan.FromHours(5);
+        _machineAHoldsB = true;
+        Report();
+
+        AssertNothingRaised(await Tick());
+    }
+
+    // A sign-in that ends after the warning period is not running out.
+    [Fact]
+    public async Task Tick_Under80_SignInInUseEndsAfterTheWarning_RaisesNothing()
+    {
+        _aFiveHour = 10;
+        _aWeekly = 20;
+        _aSignInEndsIn = LicenseContract.SignInExpiryWarning + TimeSpan.FromHours(1);
+        Report();
+
+        AssertNothingRaised(await Tick());
+    }
+
+    // The expiry condition alone, as the pure function a NO would switch off.
+    [Fact]
+    public void SignInExpiring_ReadsOnlyTheActiveSignInsEnd_WithinTheWarning()
+    {
+        var now = T0;
+        LicenseMachineState On(DateTime? endsAt) => new(MachineA, "owner", A, Array.Empty<LicenseSpare>(), now, false, null, endsAt);
+
+        Assert.Equal(now.AddDays(1), LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddDays(1)), now));
+        Assert.Equal(now.AddMinutes(-5), LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddMinutes(-5)), now));
+        Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(now + LicenseContract.SignInExpiryWarning + TimeSpan.FromMinutes(1)), now));
+        Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(null), now));
+        Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddDays(1)) with { ActiveAccountEmail = null }, now));
+        // The owner's answer NO turns the condition off: the one line it takes.
+        Assert.Equal(now.AddDays(1), LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddDays(1)), now, countsAsRunningOut: true));
+        Assert.Null(LicenseCannotSwitchAlarm.SignInExpiring(On(now.AddDays(1)), now, countsAsRunningOut: false));
+    }
+
+    // An alarm the expiry rule opened closes only on a fact (the review of pull request 4791, finding 1): while machine-a
+    // stops reporting it cannot be judged, so it stays open with no second push; once it reports a renewed sign-in it closes.
+    [Fact]
+    public async Task Tick_AnExpiryAlarm_StaysOpenWhileTheMachineCannotBeJudged_AndClosesWhenTheSignInIsRenewed()
+    {
+        _aFiveHour = 10;
+        _aWeekly = 20;
+        _aSignInEndsIn = TimeSpan.FromDays(2);
+        Report();
+        await Tick();
+        var opened = Assert.Single(Warnings());
+
+        _machineASilent = true;
+        _now = T0 + LicenseContract.MachineStaleAfter + TimeSpan.FromMinutes(1);
+        Report();
+        var stale = await Tick();
+
+        Assert.Equal((0, 1, 0), (stale.Alarms!.Opened, stale.Alarms.StillOpen, stale.Alarms.Closed));
+        Assert.Equal(opened.Id, Assert.Single(Warnings()).Id);
+        Assert.Single(_pushed);
+
+        _machineASilent = false;
+        _aSignInEndsIn = TimeSpan.FromDays(30);
+        _now = _now.AddMinutes(1);
+        Report();
+        var renewed = await Tick();
+
+        Assert.Equal(1, renewed.Alarms!.Closed);
+        Assert.Empty(_alarms.ListOpen(One));
+    }
+
+    // A machine HELD because its switch keeps failing, at 90% with no next license on it, meets the rule and raises the one
+    // alarm (the review of pull request 4791, finding 2). The held machine with a READY next license raises nothing: see
+    // Tick_AMachineWhoseSwitchKeepsFailing_RaisesNoAlarm_ButIsRedOnThePageAndTheGrid.
+    [Fact]
+    public async Task Tick_AHeldMachineAt90_WithNoNextLicense_RaisesTheOneAlarm()
+    {
+        _aWeekly = 90;
+        Report();
+        var machineA = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>())
+            .Overview.Machines.Single(m => m.MachineName == MachineA).MachineId;
+        for (var minutesAgo = 3; minutesAgo >= 1; minutesAgo--)
+        {
+            var at = _now.AddMinutes(-minutesAgo);
+            var row = _store.CreatePendingSwitch(One, machineA, A, B, LicenseSwitchReasons.Threshold, at)!;
+            Assert.True(_store.TrySettle(One, new LicenseSwitchResult
+            {
+                SwitchId = row.SwitchId!,
+                Outcome = LicenseSwitchOutcomes.Failed,
+                ReasonCode = LicenseSwitchReasonCodes.ExchangeFailedRestored,
+                Message = "The exchange failed and the account was restored.",
+                ActiveAccountEmailAfter = A,
+                StartedAtUtc = at,
+                FinishedAtUtc = at,
+            }, at.AddSeconds(1)));
+            _store.HoldAfterRepeatedFailure(One, row.SwitchId!);
+        }
+
+        await Tick();
+
+        var alarm = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
+        Assert.Equal("machine-a is on account-a@example.com, which is at 90% of its weekly limit, and it holds no sign-in for "
+                     + "account-b@example.com: it needs account-b@example.com as its next license.", alarm.Problem);
     }
 
     private LicenseReadinessService Readiness()

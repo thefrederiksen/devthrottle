@@ -180,7 +180,7 @@ public sealed class LicenseHostStartPostgresTests : IAsyncLifetime
     }
 
     [RequiresPostgresFact]
-    public async Task AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure()
+    public async Task AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheOneLicenseAlarm_WithoutAFailure()
     {
         var gateway = _gateway!;
         Assert.Equal(HttpStatusCode.OK, await Healthz("before the check"));
@@ -199,31 +199,31 @@ public sealed class LicenseHostStartPostgresTests : IAsyncLifetime
         var first = log.Lines();
         Assert.DoesNotContain(first, l => l.Contains("[License", StringComparison.Ordinal) && l.Contains("FAILED", StringComparison.Ordinal));
         Assert.DoesNotContain(first, l => l.Contains("[GatewayHost] license", StringComparison.Ordinal) && l.Contains("FAILED", StringComparison.Ordinal));
-        var alarm = Assert.Single(gateway.LicenseAlarms.ListOpen(tenant), a => a.Kind == LicenseStrandedAlarm.Kind.Key);
+        var alarm = Assert.Single(gateway.LicenseAlarms.ListOpen(tenant), a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key);
         Assert.Equal((MachineA, A), (alarm.MachineName, alarm.AccountEmail));
         var (emailedTenant, _) = Assert.Single(_emails);
         Assert.Equal(tenant, emailedTenant);
         // And the row is in PostgreSQL, read by raw SQL over a connection of the test's own: no object under test
         // answers this, so a host that quietly kept its data anywhere else fails here.
-        Assert.Equal(1L, OpenStrandedRowsInPostgres(tenant));
+        Assert.Equal(1L, OpenAlarmRowsInPostgres(tenant));
 
         await Bounded(gateway.RunLicenseSwitchCheckAsync(), "the second license minute check (RunLicenseSwitchCheckAsync)");
 
         Assert.DoesNotContain(log.Lines(), l => l.Contains("FAILED", StringComparison.Ordinal)
                                                 && (l.Contains("[License", StringComparison.Ordinal) || l.Contains("[GatewayHost] license", StringComparison.Ordinal)));
-        Assert.Equal(alarm.Id, Assert.Single(gateway.LicenseAlarms.ListOpen(tenant), a => a.Kind == LicenseStrandedAlarm.Kind.Key).Id);
+        Assert.Equal(alarm.Id, Assert.Single(gateway.LicenseAlarms.ListOpen(tenant), a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key).Id);
         Assert.Single(_emails);
         Assert.Equal(HttpStatusCode.OK, await Healthz("after both checks"));
     }
 
-    private long OpenStrandedRowsInPostgres(TenantId tenant)
+    private long OpenAlarmRowsInPostgres(TenantId tenant)
     {
         using var connection = new Npgsql.NpgsqlConnection(_connection);
         connection.Open();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM gateway.license_alarms WHERE tenant_id = @t AND \"Kind\" = @k AND \"ClosedAtUtc\" IS NULL";
         cmd.Parameters.AddWithValue("t", tenant.Value);
-        cmd.Parameters.AddWithValue("k", LicenseStrandedAlarm.Kind.Key);
+        cmd.Parameters.AddWithValue("k", LicenseCannotSwitchAlarm.Kind.Key);
         return Convert.ToInt64(cmd.ExecuteScalar());
     }
 

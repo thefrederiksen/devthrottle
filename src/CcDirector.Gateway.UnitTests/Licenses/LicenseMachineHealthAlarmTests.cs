@@ -65,71 +65,6 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
         => _alarms.ListOpen(tenant ?? Tenant).Where(a => a.Kind == kind).ToList();
 
     [Fact]
-    public async Task ARefusedReport_OpensOneAlarm_NamingTheMachineAndTheReason_AndAnAcceptedReportClosesIt()
-    {
-        Push(Good());
-        Push(HeldTwice());
-
-        await Raise();
-
-        var alarm = Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
-        Assert.Equal("machine-a", alarm.MachineName);
-        Assert.Equal($"machine-a is sending reports the Gateway refuses: it holds {A} twice (once in use and once as a spare).", alarm.Problem);
-        Assert.Equal("Put right what the Licenses page says is wrong in the report from machine-a; the alarm closes by itself when a report from it is accepted.",
-            alarm.Action);
-        var pushed = Assert.Single(_pushed);
-        Assert.Equal("machine-a", pushed.MachineName);
-        Assert.Single(_mailed);
-
-        // Refused every two minutes for an hour, raised every minute: still one alarm, one push, one email.
-        for (var i = 1; i <= 30; i++)
-        {
-            _now = T0.AddMinutes(2 * i);
-            Push(HeldTwice());
-            await Raise();
-        }
-        Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
-        Assert.Single(_pushed);
-        Assert.Single(_mailed);
-
-        Push(Good());
-        await Raise();
-        Assert.Empty(Open(LicenseMachineHealthAlarm.Refused.Key));
-    }
-
-    [Fact]
-    public async Task ARefusalThatChangesItsReason_KeepsTheOneAlarm_AndSaysTheNewReason()
-    {
-        Push(Good());
-        Push(HeldTwice());
-        await Raise();
-
-        _now = T0.AddMinutes(2);
-        Push(Report("machine-a", Holding(A, true), Holding(B, true)));
-        await Raise();
-
-        var alarm = Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
-        Assert.DoesNotContain("twice", alarm.Problem);
-        Assert.StartsWith("machine-a is sending reports the Gateway refuses: ", alarm.Problem);
-        Assert.Single(_pushed);
-        Assert.Single(_mailed);
-    }
-
-    [Fact]
-    public async Task AMachineNeverAccepted_ButRefused_IsAlarmedUnderTheRowThePageListsItUnder()
-    {
-        Push(HeldTwice());
-
-        await Raise();
-
-        var alarm = Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
-        var page = Assert.Single(LicenseTestData.OverviewOf(
-            new LicenseSnapshotSource(_store, new LicenseReadModel(_store)).ReadPicture(Tenant, _now, Array.Empty<LicenseExhaustion>())).Machines);
-        Assert.Equal(page.MachineId, alarm.MachineId.ToString("N"));
-        Assert.Equal("machine-a", alarm.MachineName);
-    }
-
-    [Fact]
     public async Task AMachineSilentPastTheDeadLimit_IsStatusWithoutAnAlarmOrNotification()
     {
         Push(Good());
@@ -168,35 +103,6 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
     }
 
     [Fact]
-    public async Task ASilentMachineWhoseDirectorComesBackRefused_IsNoLongerSilent_OnlyRefused()
-    {
-        // The review of pull request 4172, finding 1: the Director stops, then comes back with reports the Gateway
-        // refuses. It is sending, so "its Director may have stopped" would be false.
-        await GoSilent();
-
-        for (var i = 1; i <= 2; i++)
-        {
-            _now = _now.AddMinutes(1);
-            Push(HeldTwice());
-            await _switches.TickAsync(Tenant, CancellationToken.None);
-            await Raise();
-        }
-
-        Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
-        Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
-        Assert.DoesNotContain(_store.ListOpenMachineHealth(Tenant), r => r.Kind == LicenseLogKinds.MachineSilent);
-        var log = _store.ListLog(Tenant, T0.AddDays(-1));
-        Assert.Equal(LicenseLogStates.Ended, Assert.Single(log, r => r.Kind == LicenseLogKinds.MachineSilent).State);
-        Assert.DoesNotContain(log, r => r.Kind == LicenseLogKinds.ReportingAgain);
-
-        // An accepted report then closes the refusal, and nothing is silent.
-        Push(Good());
-        await _switches.TickAsync(Tenant, CancellationToken.None);
-        await Raise();
-        Assert.Empty(_alarms.ListOpen(Tenant));
-    }
-
-    [Fact]
     public async Task TwoSilentMachinesWithTheLongestNames_AreBothStatusWithoutAlarms()
     {
         // The review of pull request 4172, finding 2: two machines of one 128-character name, told apart by their
@@ -221,39 +127,6 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
     }
 
     [Fact]
-    public async Task ARefusedRaiseThatFails_DoesNotTurnSilenceIntoAnAlarm()
-    {
-        // The review of pull request 4172, finding 2: the two kinds were raised in one try, so a refused raise that
-        // threw left the silent kind unraised every minute. A row no real report could write stands in for a raise
-        // that fails: its machine name is longer than any alarm sentence.
-        Push(Good());
-        _now = T0 + LicenseStore.SilentAfter + TimeSpan.FromMinutes(1);
-        await _switches.TickAsync(Tenant, CancellationToken.None);
-        using (var ctx = _db.CreateContext(Tenant))
-        {
-            ctx.LicenseSwitchLog.Add(new LicenseSwitchLogEntity
-            {
-                Kind = LicenseLogKinds.ReportRefused,
-                MachineName = new string('z', 400),
-                OsUser = "owner",
-                DirectorId = "dir-9",
-                State = LicenseLogStates.Open,
-                Message = LicenseStore.RefusedMessage(new LicenseReportRefusal(LicenseReportRefusalCodes.MoreThanOneInUse, "it has two sign-ins in use")),
-                CreatedAtUtc = _now,
-                SendCount = 1,
-                LastSentAtUtc = _now,
-                TenantId = ctx.ActiveTenant!,
-            });
-            ctx.SaveChanges();
-        }
-
-        await Assert.ThrowsAsync<AggregateException>(() => Raise());
-
-        Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
-        Assert.Empty(Open(LicenseMachineHealthAlarm.Refused.Key));
-    }
-
-    [Fact]
     public async Task NothingOpen_RaisesNothing_AndClosesNoOtherKind()
     {
         Push(Good());
@@ -267,20 +140,6 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
         Assert.Empty(Open(LicenseMachineHealthAlarm.Refused.Key));
         Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
         Assert.Single(_alarms.ListOpen(Tenant));
-    }
-
-    [Fact]
-    public async Task OneAccountsRefusedMachine_RaisesNoAlarmInAnotherAccount()
-    {
-        _ingest.RegisterConnection(Other, "dir-1", "conn-other");
-        Push(HeldTwice());
-        Push(Good(), Other, "conn-other");
-
-        await Raise();
-        await Raise(Other);
-
-        Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
-        Assert.Empty(_alarms.ListOpen(Other));
     }
 
     [Fact]
@@ -301,5 +160,52 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
 
         Assert.Equal("machine-a is sending reports the Gateway refuses; the Licenses page says why.", condition.Problem);
         Assert.True(condition.Action.Length <= LicenseAlarmService.MaxSentenceLength);
+    }
+
+    // RETIRED (the owner, 8 November 2026): the only license alarm is a machine at 80% with no next license on it. A refused
+    // report is status on the Licenses page; however long it is refused, no alarm opens, nobody is pushed or emailed.
+    [Fact]
+    public async Task ARefusedReport_OpensNoAlarm()
+    {
+        Push(Good());
+        Push(HeldTwice());
+
+        await Raise();
+        _now = T0.AddHours(2);
+        Push(HeldTwice());
+        await Raise();
+
+        Assert.Empty(_alarms.ListOpen(Tenant));
+        Assert.Empty(_pushed);
+        Assert.Empty(_mailed);
+    }
+
+    // Alarms of the three retired machine-health kinds left open by an older Gateway close on the first raise after the
+    // Gateway starts, while the machine is still refused, with no push and no email.
+    [Theory]
+    [InlineData("report-refused")]
+    [InlineData("machine-silent")]
+    [InlineData("sign-in-not-kept")]
+    public async Task AnOpenAlarmOfARetiredMachineHealthKind_IsClosedOnTheFirstRaise(string retiredKind)
+    {
+        Push(Good());
+        Push(HeldTwice());
+        var machineId = new LicenseReadModel(_store).Read(Tenant, _now).Machines.Single().MachineId;
+        using (var ctx = _db.CreateContext(Tenant))
+        {
+            ctx.LicenseAlarms.Add(new LicenseAlarmEntity
+            {
+                Kind = retiredKind, MachineId = machineId, MachineName = "machine-a", AccountEmail = "",
+                Problem = "An older Gateway's alarm.", Action = "Nothing.", OpenedAtUtc = T0.AddMinutes(-30),
+                TenantId = Assert.IsType<string>(ctx.ActiveTenant),
+            });
+            ctx.SaveChanges();
+        }
+
+        await Raise();
+
+        Assert.Empty(_alarms.ListOpen(Tenant));
+        Assert.Empty(_pushed);
+        Assert.Empty(_mailed);
     }
 }

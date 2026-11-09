@@ -97,22 +97,6 @@ public sealed class LicenseFireDrillServiceTests : IDisposable
         Assert.DoesNotContain(_store.ListLog(Tenant, T0.AddDays(-1)), r => r.Kind == LicenseLogKinds.Switch);
     }
 
-    // The alarms the retired drill raised close on the next check.
-    [Fact]
-    public async Task Run_AnAlarmTheRetiredDrillLeftOpen_Closes()
-    {
-        Reports(Windows, Holding(A, true, sevenDay: 50, readAt: _now));
-        await _alarms.RaiseAsync(Tenant, LicenseFireDrillFold.RetiredAlarmKind, new[]
-        {
-            new LicenseAlarmCondition(Guid.NewGuid(), "a-machine", A, "The daily license drill found a hole.", "Sign in.", LoudAtNight: false),
-        }, CancellationToken.None);
-        Assert.Single(_alarms.ListOpen(Tenant));
-
-        await _check.RunIfDueAsync(Tenant, CancellationToken.None);
-
-        Assert.Empty(_alarms.ListOpen(Tenant));
-    }
-
     // ----- due -----
 
     [Fact]

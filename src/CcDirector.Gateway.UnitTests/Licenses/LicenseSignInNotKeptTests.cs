@@ -61,39 +61,6 @@ public sealed class LicenseSignInNotKeptTests : IDisposable
     private List<LicenseAlarmEntity> OpenAlarms() => _alarms.ListOpen(Tenant).Where(a => a.Kind == LicenseMachineHealthAlarm.NotKept.Key).ToList();
 
     [Fact]
-    public async Task ApplyReport_AnAccountReportedNotKept_OpensOneRowAndOneAlarm_AndAReportWithoutItEndsBoth()
-    {
-        Push(Array.Empty<LicenseSignInNotKept>());
-        Push(NotKept(A));
-        Push(NotKept(A));
-
-        var row = Assert.Single(Rows());
-        Assert.Equal((A, LicenseLogStates.Open, LicenseNotKeptReasons.SpareFolderHoldsAnotherSignIn), (row.FromAccountEmail, row.State, row.ReasonCode));
-        var entry = LicenseDisplayFold.LogEntry(row);
-        Assert.Equal(("Sign-in not kept", "Not kept", true), (entry.KindText, entry.StateText, entry.IsOpen));
-        Assert.Null(row.FinishedAtUtc);
-        Assert.Equal($"A sign-in by hand on machine-a replaced {A}, and it could not be kept as a spare: its spare folder holds another sign-in.", row.Message);
-
-        await _alarm.RaiseAsync(Tenant, CancellationToken.None);
-
-        var alarm = Assert.Single(OpenAlarms());
-        Assert.Equal(("machine-a", ""), (alarm.MachineName, alarm.AccountEmail));
-        Assert.Equal($"A sign-in by hand on machine-a replaced {A}, and the machine could not keep it as a spare, so it cannot switch to that account.", alarm.Problem);
-        Assert.Contains("cc-devthrottle license list on machine-a", alarm.Action);
-        Assert.Single(_pushed);
-        Assert.DoesNotContain(A, LicenseAlarmFold.PushBody(_pushed[0].MachineName, _pushed[0].Kind));
-
-        Push(Array.Empty<LicenseSignInNotKept>());
-        await _alarm.RaiseAsync(Tenant, CancellationToken.None);
-
-        var ended = Assert.Single(Rows());
-        Assert.Equal(LicenseLogStates.Ended, ended.State);
-        Assert.False(LicenseDisplayFold.LogEntry(ended).IsOpen);
-        Assert.NotNull(ended.FinishedAtUtc);
-        Assert.Empty(OpenAlarms());
-    }
-
-    [Fact]
     public void ApplyReport_ADirectorOlderThanTheField_SaysNothing_AndAnOpenRowIsLeftAsItIs()
     {
         Push(NotKept(A));
@@ -111,37 +78,6 @@ public sealed class LicenseSignInNotKeptTests : IDisposable
         var row = Assert.Single(Rows());
         Assert.Equal(LicenseNotKeptReasons.NotKnown, row.ReasonCode);
         Assert.Equal($"A sign-in by hand on machine-a replaced {A}, and it could not be kept as a spare.", row.Message);
-    }
-
-    [Fact]
-    public async Task RaiseAsync_TwoAccountsNotKeptOnOneMachine_IsOneAlarmNamingBoth()
-    {
-        Push(NotKept(C), NotKept(A));
-
-        await _alarm.RaiseAsync(Tenant, CancellationToken.None);
-
-        Assert.Equal(2, Rows().Count);
-        var alarm = Assert.Single(OpenAlarms());
-        Assert.Equal($"A sign-in by hand on machine-a replaced {A} and {C}, and the machine could not keep them as a spare, so it cannot switch to those accounts.",
-            alarm.Problem);
-    }
-
-    [Fact]
-    public async Task RaiseAsync_OneAccountNotKeptThenTwo_IsTheSameAlarm_ItsWordsBroughtUpToDate_AndNothingIsSentAgain()
-    {
-        // Review of pull request 4713: the alarm is one for each machine, so a second account not kept on the same
-        // machine changes its words in place - it never closes the alarm and opens another with a second push.
-        Push(NotKept(A));
-        await _alarm.RaiseAsync(Tenant, CancellationToken.None);
-        var first = Assert.Single(OpenAlarms());
-
-        Push(NotKept(A), NotKept(C));
-        await _alarm.RaiseAsync(Tenant, CancellationToken.None);
-
-        var still = Assert.Single(OpenAlarms());
-        Assert.Equal(first.Id, still.Id);
-        Assert.Contains($"{A} and {C}", still.Problem);
-        Assert.Single(_pushed);
     }
 
     [Fact]

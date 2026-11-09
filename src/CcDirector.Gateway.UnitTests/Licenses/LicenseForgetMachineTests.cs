@@ -326,21 +326,6 @@ public sealed class LicenseForgetMachineTests : IDisposable
     }
 
     [Fact]
-    public async Task ForgettingARefusedMachineThatNeverReportedWell_ClosesItsAlarm_OnTheNextRaise()
-    {
-        var (alarm, alarms) = HealthAlarm();
-        Assert.Equal(LicenseIngestOutcome.Malformed,
-            _ingest.Ingest(TenantOne, "dir-1", "conn-1", ++_sequence, Report("machine-a", Holding(A, true), Holding(A, false)), _now));
-        await alarm.RaiseAsync(TenantOne, CancellationToken.None);
-        Assert.Single(alarms.ListOpen(TenantOne), a => a.Kind == LicenseMachineHealthAlarm.Refused.Key);
-
-        Assert.Equal(200, Forget(TenantOne, Machines(TenantOne)[0].GetProperty("machineId").GetString()).Status);
-        await alarm.RaiseAsync(TenantOne, CancellationToken.None);
-
-        Assert.Empty(alarms.ListOpen(TenantOne));
-    }
-
-    [Fact]
     public void OneAccount_CannotForgetAnotherAccountsMachine()
     {
         var id = Apply(TenantOne, Good());

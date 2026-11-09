@@ -9,11 +9,11 @@ namespace CcDirector.Gateway.Licenses;
 /// <summary>What one readiness check did for one tenant.</summary>
 /// <param name="Judged">Every machine on an account, judged (<see cref="LicenseReadinessFold.Judge"/>).</param>
 /// <param name="Started">The sign-ins this check started.</param>
-/// <param name="Alarms">What the 80% warning did (<see cref="LicenseCannotSwitchAlarm"/>); null when the check did not run
-/// or its raise failed.</param>
+/// <param name="Alarms">What the one license alarm did (<see cref="LicenseCannotSwitchAlarm"/>); null when the check did
+/// not run or its raise failed.</param>
 /// <param name="NoRoomAlarms">What the 80% no-room alarm did; null when the check did not run or its raise failed.</param>
-/// <param name="StrandedAlarms">What the stranded-machine alarm did (<see cref="LicenseStrandedAlarm"/>); null when the
-/// check did not run or its raise failed.</param>
+/// <param name="StrandedAlarms">What closing the retired stranded-machine kind did (<see cref="LicenseStrandedAlarm"/>):
+/// it never opens one; null when the check did not run or its raise failed.</param>
 public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness> Judged, IReadOnlyList<LicenseSignInStart> Started,
     LicenseAlarmRaised? Alarms, LicenseAlarmRaised? NoRoomAlarms, LicenseAlarmRaised? StrandedAlarms = null)
 {
@@ -21,9 +21,9 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 }
 
 /// <summary>
-/// Readiness is checked every minute and missing sign-ins are fixed at once. Two things raise an alarm, both about a
-/// machine that cannot switch - a fault, never usage: the 80% warning, and a machine stranded on a tired account. Use
-/// alone and no room are status on the Licenses page.
+/// Readiness is checked every minute and missing sign-ins are fixed at once. ONE thing raises an alarm (the owner,
+/// 8 November 2026): a machine running out with no next license on it (<see cref="LicenseCannotSwitchAlarm"/>). Use
+/// alone, no room and a stranded machine's own words are status on the Licenses page.
 ///
 /// Once a minute, for each tenant, <see cref="TickAsync"/>:
 /// 1. judges every machine on an account against the account it would switch to next (<see cref="LicenseReadinessFold"/>);
@@ -32,13 +32,11 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 ///    <see cref="LicenseSignInReasons.AutomaticSpare"/> or <see cref="LicenseSignInReasons.AutomaticRenewal"/>, so the
 ///    Licenses log says it was automatic. That service refuses a second sign-in while one is open for the same machine
 ///    and account, and this check relies on it;
-/// 3. raises the cannot-switch warning (<see cref="LicenseCannotSwitchAlarm"/>): a machine on a license at or above 80% of
-///    either window with no READY next license (<see cref="LicenseNextLicenseFold"/>), while another license has room -
-///    told again every hour until it is fixed; and closes the retired kinds. Each kind is reconciled
-///    independently so a failure cannot stop the other kinds from closing;
-/// 4. raises the stranded-machine alarm (<see cref="LicenseStrandedAlarm"/>): the same fault on a tired account, that
-///    this check is not already repairing - red, and told again every hour until it is fixed. The 80% warning stands down
-///    for every machine whose stranded alarm is open, so one machine has one alert at a time.
+/// 3. raises the one license alarm (<see cref="LicenseCannotSwitchAlarm"/>): a machine running out - its license at or
+///    above 80% of either window, or its sign-in on it about to expire - with no READY next license on it, while another
+///    license has room - told again every hour until it is fixed;
+/// 4. closes the retired kinds, the stranded-machine alarm (<see cref="LicenseStrandedAlarm"/>) among them, by raising
+///    each empty. Each kind is reconciled independently so a failure cannot stop the other kinds from closing.
 ///
 /// The Licenses page reads <see cref="Judge"/>, the same function on the same facts.
 ///
@@ -155,10 +153,9 @@ public sealed class LicenseReadinessService
         var judged = Judge(tenant, picture, openSignIns, outlook.RunsOut, now);
         var next = LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace, outlook.RunsOut);
         var open = _alarms.ListOpen(tenant);
-        var told = open.Where(a => a.Kind == LicenseStrandedAlarm.Kind.Key || a.Kind == LicenseCannotSwitchAlarm.Kind.Key)
+        var told = open.Where(a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key)
             .Select(a => a.MachineId)
-            .Concat(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open)
-                .Concat(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open, outlook.RunsOut))
+            .Concat(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open, outlook.RunsOut)
                 .Select(c => c.MachineId ?? Guid.Empty))
             .Where(id => id != Guid.Empty)
             .ToHashSet();
@@ -208,7 +205,7 @@ public sealed class LicenseReadinessService
     }
 
     /// <summary>
-    /// One readiness check for one tenant: judge, start the sign-ins that are due, raise the 80% warning and the stranded alarm. Must be called
+    /// One readiness check for one tenant: judge, start the sign-ins that are due, raise the one license alarm and close the retired kinds. Must be called
     /// inside the tenant's scope. A check that changes nothing writes no line: it runs every minute, for good.
     /// </summary>
     public async Task<LicenseReadinessTick> TickAsync(TenantId tenant, CancellationToken ct)
@@ -251,17 +248,17 @@ public sealed class LicenseReadinessService
             // The five-hour-only kind is retired: the 80% warning covers both windows. Emptying it closes its stored rows.
             var retiredFiveHour = await RaiseKindAsync(tenant, LicenseReadinessFold.RetiredFiveHourAlarmKind,
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
-            // A machine whose stranded alarm is open is that alarm's alone: the 80% warning stands down for it.
-            var strandedNow = LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
-                next, openSignIns, open);
-            var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open,
-                outlook.RunsOut);
+            // THE ONE LICENSE ALARM (the owner, 8 November 2026): a machine running out with no next license on it.
             var alarms = await RaiseKindAsync(tenant, LicenseCannotSwitchAlarm.Kind,
-                LicenseStrandedAlarm.StandDown(warnings, strandedNow), failures, ct).ConfigureAwait(false);
+                LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns, open,
+                    outlook.RunsOut), failures, ct).ConfigureAwait(false);
             // No room is status on the Licenses page. Emptying the retired kind closes its stored rows.
             var noRoom = await RaiseKindAsync(tenant, LicenseReadinessFold.NoRoomAlarmKind,
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
-            var stranded = await RaiseKindAsync(tenant, LicenseStrandedAlarm.Kind, strandedNow, failures, ct).ConfigureAwait(false);
+            // The stranded alarm is retired: the one alarm above covers a machine at 80% and above, the threshold included.
+            // Emptying the kind closes its stored rows.
+            var stranded = await RaiseKindAsync(tenant, LicenseStrandedAlarm.Kind,
+                Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
             if (started.Count + Changed(retired) + Changed(retiredFiveHour) + Changed(alarms) + Changed(noRoom) + Changed(stranded) > 0)
                 FileLog.Write($"[LicenseReadinessService] TickAsync: tenant={tenant.ToLogString()}, judged={judged.Count}, "
                               + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, retiredClosed={retired?.Closed}, "

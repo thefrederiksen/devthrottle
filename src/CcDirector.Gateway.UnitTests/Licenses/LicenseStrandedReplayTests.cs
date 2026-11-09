@@ -468,15 +468,15 @@ public sealed class LicenseStrandedReplayTests : IDisposable
     [Fact]
     public async Task ApproverAlarmRunning_WithTheSignInHeld_NothingIsLoud()
     {
-        // The negative control: the approver still cannot approve, but no machine needs it, so the approver alarm is the
-        // early warning it always was - one line about the approver, never about a machine.
+        // The approver still cannot approve and no machine needs it. The approver alarm is retired (the owner, 8 November
+        // 2026: the only license alarm is a machine at 80% with no next license on it), so nothing at all is open.
         Picture(OutAt, OutOfWeek, strandedHoldTheSignIn: true);
 
         await OneMinuteAsync();
         await ApproverAlarmAsync();
 
-        var open = Assert.Single(_alarms.ListOpen(Owner));
-        Assert.Equal((LicenseApproverAlarm.Kind.Key, SorenFrederiksen, Guid.Empty), (open.Kind, open.AccountEmail, open.MachineId));
+        Assert.Empty(_alarms.ListOpen(Owner));
+        Assert.Empty(_pushed);
     }
 
     // ----- boundary: usage alone is never policed (#4249) -----

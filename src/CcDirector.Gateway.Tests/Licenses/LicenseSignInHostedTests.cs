@@ -443,7 +443,7 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ASignedOutCheck_OverTheDirectorsHub_OpensTheApproverAlarm_AndACanApproveCheckClosesIt()
+    public async Task ASignedOutCheck_OverTheDirectorsHub_IsRecorded_AndTheRetiredApproverAlarmOpensNothing()
     {
         // Bob has a healthy approver for the SAME account, so a raise that read or wrote across accounts would show.
         using var bobSet = await SetApprover(_bobOwner, A, BobMachine);
@@ -463,14 +463,14 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
         Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(signedOut.Rows).Outcome);
         await _gateway.LicenseApproverAlarm.WhenIdleAsync();
 
-        var open = Assert.Single(_gateway.LicenseAlarms.ListOpen(_alice.Tenant));
-        Assert.Equal((LicenseApproverAlarm.Kind.Key, A), (open.Kind, open.AccountEmail));
-        Assert.Equal($"The approver for {A} (browser profile \"work\" on {ApprovingMachine}) is not signed in to claude.ai.", open.Problem);
+        // The approver alarm is retired (the owner, 8 November 2026: the only license alarm is a machine at 80% with no next
+        // license on it): the check is recorded, and no alarm opens and no email goes for either account.
+        Assert.Empty(_gateway.LicenseAlarms.ListOpen(_alice.Tenant));
         Assert.Empty(_gateway.LicenseAlarms.ListOpen(_bob.Tenant));
         Assert.Equal("ready", (await Get(_bobOwner, LicenseSignInRoutes.Approvers)).GetProperty("approvers")[0].GetProperty("status").GetString());
-        lock (_ownerEmails) Assert.Equal(_alice.Tenant, Assert.Single(_ownerEmails).Tenant);
+        lock (_ownerEmails) Assert.Empty(_ownerEmails);
 
-        // It signs back in, the next check says so, and the alarm closes by itself.
+        // It signs back in, the next check says so, and still nothing is open.
         var healthy = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
         Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(healthy.Rows).Outcome);
         await _gateway.LicenseApproverAlarm.WhenIdleAsync();

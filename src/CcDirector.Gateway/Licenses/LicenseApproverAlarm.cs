@@ -179,11 +179,12 @@ public sealed class LicenseApproverAlarm
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var conditions = ConditionsNow(tenant);
-            var raised = await _alarms.RaiseAsync(tenant, Kind, conditions, ct).ConfigureAwait(false);
-            // Quiet when there is nothing to say; the alarm service logs every open and close itself.
-            if (conditions.Count > 0)
-                _log($"[LicenseApproverAlarm] RaiseAsync: tenant={tenant.ToLogString()}, cannotApprove={conditions.Count}");
+            // RETIRED AS AN ALARM (the owner, 8 November 2026): the only license alarm is a machine at 80% with no next
+            // license on it (LicenseCannotSwitchAlarm). An approver that cannot approve is status on the Licenses page.
+            // Raising the kind empty closes every alarm of it still open, and opens, pushes and mails nothing.
+            var raised = await _alarms.RaiseAsync(tenant, Kind, Array.Empty<LicenseAlarmCondition>(), ct).ConfigureAwait(false);
+            if (raised.Closed > 0)
+                _log($"[LicenseApproverAlarm] RaiseAsync: tenant={tenant.ToLogString()}, retired kind closed={raised.Closed}");
             return raised;
         }
         finally

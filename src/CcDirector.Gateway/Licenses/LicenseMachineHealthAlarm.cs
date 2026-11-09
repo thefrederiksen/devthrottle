@@ -167,20 +167,18 @@ public sealed class LicenseMachineHealthAlarm
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var (refused, _) = ConditionsNow(tenant);
+            // RETIRED AS ALARMS (the owner, 8 November 2026): the only license alarm is a machine at 80% with no next
+            // license on it (LicenseCannotSwitchAlarm). A refused report, a silent machine and a sign-in that was not kept
+            // are status on the Licenses page. Raising each kind empty closes every alarm of it still open, and opens,
+            // pushes and mails nothing.
             var failures = new List<Exception>();
-            var refusedRaised = await RaiseKindAsync(tenant, Refused, refused, failures, ct).ConfigureAwait(false);
-            // A machine that is switched off is status on the Licenses page, not an alarm. Raising the retired kind
-            // with no conditions closes every database row left open by an earlier Gateway without opening, pushing or mailing one.
+            var refusedRaised = await RaiseKindAsync(tenant, Refused, Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
             var silentRaised = await RaiseKindAsync(tenant, Silent, Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
-            var openNotKept = _store.ListOpenNotKept(tenant);
-            var notKept = openNotKept.Count == 0 ? new List<LicenseAlarmCondition>() : NotKeptConditions(openNotKept, _reads.Read(tenant, _nowUtc()).Machines);
-            var notKeptRaised = await RaiseKindAsync(tenant, NotKept, notKept, failures, ct).ConfigureAwait(false);
-            if (notKept.Count > 0 || notKeptRaised?.Closed > 0)
-                FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, notKept={notKept.Count}, notKeptClosed={notKeptRaised?.Closed}");
-            // Quiet when there is nothing to say; the alarm service logs every open and close itself.
-            if (refused.Count > 0 || silentRaised?.Closed > 0)
-                FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, refused={refused.Count}, silentClosed={silentRaised?.Closed}");
+            var notKeptRaised = await RaiseKindAsync(tenant, NotKept, Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
+            var closed = (refusedRaised?.Closed ?? 0) + (silentRaised?.Closed ?? 0) + (notKeptRaised?.Closed ?? 0);
+            if (closed > 0)
+                FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, retired kinds closed: refused={refusedRaised?.Closed}, "
+                              + $"silent={silentRaised?.Closed}, notKept={notKeptRaised?.Closed}");
             if (failures.Count > 0)
                 throw new AggregateException($"The raise of {failures.Count} license alarm kind(s) failed for tenant {tenant.ToLogString()}.", failures);
             return (refusedRaised, silentRaised);

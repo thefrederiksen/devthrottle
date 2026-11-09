@@ -12,7 +12,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 
 /// <summary>
 /// A STRANDED MACHINE IS LOUD ONCE, AND ONLY ABOUT WHAT THE GATEWAY CANNOT REPAIR (mission "Licenses - Loud When
-/// Stranded", step 1) - the readiness check raising the stranded alarm over the real license store, the real sign-in
+/// Stranded", step 1). Since 8 November 2026 the alarm these watch is the one license alarm (LicenseCannotSwitchAlarm),
+/// which took the stranded machine over; the stranded kind is retired and never opens. The rest of this summary is
+/// the history of the step - the readiness check raising the stranded alarm over the real license store, the real sign-in
 /// service, the real approver check and the real license alarm on a throwaway SQLite file. The owner email and the push
 /// are recorders; the Directors answer as each test says; the clock is the test's own.
 ///
@@ -62,8 +64,6 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
     private double _aWeekly = 100;
     private double _bWeekly = 2;
     private bool _machineAHoldsB;
-    // machine-a has left account A: it reports account B as its active account and holds nothing else.
-    private bool _machineAOnB;
 
     public LicenseStrandedAlarmTests()
     {
@@ -109,9 +109,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
     {
         var a = new List<LicenseHolding>
         {
-            _machineAOnB ? Holding(B, true, 5, _bWeekly, readAt: _now) : Holding(A, true, _aFiveHour, _aWeekly, readAt: _now),
+            Holding(A, true, _aFiveHour, _aWeekly, readAt: _now),
         };
-        if (_machineAHoldsB && !_machineAOnB)
+        if (_machineAHoldsB)
             a.Add(Holding(B, false, 5, _bWeekly, readAt: _now));
         _store.ApplyReport(One, DirA, ++_sequence, Report(MachineA, _now, a.ToArray()), _now, TimeSpan.Zero);
         _store.ApplyReport(One, DirB, ++_sequence,
@@ -131,7 +131,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         return tick;
     }
 
-    private List<LicenseAlarmEntity> Stranded() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseStrandedAlarm.Kind.Key).ToList();
+    // The machine's alarm: since 8 November 2026 the one license alarm (LicenseCannotSwitchAlarm), which took over the
+    // stranded machine at the threshold. The stranded kind itself is retired and never opens.
+    private List<LicenseAlarmEntity> Stranded() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key).ToList();
 
     private List<LicenseAlarmEntity> Warning() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key).ToList();
 
@@ -187,327 +189,14 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
 
     // ----- it opens, once -----
 
-    // The 26 October case: one alarm, for machine-a only, saying what is wrong and the one thing to do - which is the
-    // readiness check's own sentence for why the Gateway cannot sign it in.
-    [Fact]
-    public async Task Tick_AMachineOnATiredAccountReadyForNoAccountWithRoom_OpensOneAlarmForIt()
-    {
-        BothReport();
-
-        var tick = await Tick();
-
-        var alarm = Assert.Single(Stranded());
-        Assert.Equal((1, 0, 0), (tick.StrandedAlarms!.Opened, tick.StrandedAlarms.StillOpen, tick.StrandedAlarms.Closed));
-        Assert.Equal((MachineA, A), (alarm.MachineName, alarm.AccountEmail));
-        Assert.Equal("machine-a is stuck on account-a@example.com, which is at 100% of its weekly limit: it cannot switch to "
-                     + "account-b@example.com, the account with room it would go to, because it holds no sign-in for account-b@example.com.",
-            alarm.Problem);
-        Assert.Equal(NoApprover, alarm.Action);
-    }
-
-    // One email, one push, one banner line - and the email's subject names the machine and that it is at its limit, the
-    // body both accounts and the one thing to do. The banner is red: the machine is stuck above the threshold.
-    [Fact]
-    public async Task Tick_TheAlarmOpens_SendsOneEmailOnePushAndOneBannerLine()
-    {
-        var alarm = await OpenTheAlarm();
-
-        var email = Assert.Single(_emails);
-        Assert.Equal("DevThrottle: machine-a cannot switch - at its limit", email.Subject);
-        Assert.Equal(LicenseAlarmTones.Critical, LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Tone);
-        Assert.Contains(alarm.Problem, email.BodyText);
-        Assert.Contains(alarm.Action, email.BodyText);
-        var pushed = Assert.Single(_pushed);
-        Assert.Equal((MachineA, LicenseStrandedAlarm.Kind.Key), (pushed.MachineName, pushed.Kind.Key));
-        Assert.Equal("machine-a: Stuck on a full account. Open Licenses to see what to do.",
-            LicenseAlarmFold.PushBody(pushed.MachineName, pushed.Kind));
-        var line = Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
-        Assert.Equal($"{alarm.Problem} {alarm.Action}", line.Text);
-    }
-
-    // The machine's Director is not connected, so no sign-in can be started there: no automatic fix, so it opens.
-    [Fact]
-    public async Task Tick_TheDirectorIsOffline_NoAutomaticFix_OpensTheAlarm_SayingToStartIt()
-    {
-        TheApproverCanApprove();
-        BothReport();
-        _directors.Disconnect(One, DirA);
-
-        var tick = await Tick();
-
-        Assert.Empty(tick.Started);
-        Assert.Equal("Start the Director on machine-a.", Assert.Single(Stranded()).Action);
-    }
-
-    // The next check, and the one after, find it still true: it stays open and sends nothing more.
-    [Fact]
-    public async Task Tick_TheNextChecks_KeepItOpen_AndSendNothingMore()
-    {
-        var opened = await OpenTheAlarm();
-
-        Later(1);
-        var second = await Tick();
-        Later(2);
-        await Tick();
-
-        Assert.Equal(opened.Id, Assert.Single(Stranded()).Id);
-        Assert.Equal((0, 1, 0), (second.StrandedAlarms!.Opened, second.StrandedAlarms.StillOpen, second.StrandedAlarms.Closed));
-        Assert.Single(_emails);
-        Assert.Single(_pushed);
-    }
-
-    // A Gateway that restarts builds a new alarm service over the same database: the open row is found, nothing is sent.
-    [Fact]
-    public async Task Tick_AfterAGatewayRestart_TheOpenAlarmIsFound_AndNothingIsSentAgain()
-    {
-        var opened = await OpenTheAlarm();
-
-        _alarms = NewAlarmService();
-        Later(1);
-        await Tick();
-        await _alarms.SendDueEmailAsync(One, CancellationToken.None);
-
-        Assert.Equal(opened.Id, Assert.Single(Stranded()).Id);
-        Assert.Single(_emails);
-        Assert.Single(_pushed);
-    }
-
     // ----- it closes, by itself, on each of three facts -----
 
-    // The machine moves off the account (switched by hand, or by the automatic switch): the alarm closes.
-    [Fact]
-    public async Task Tick_TheMachineMovesOffTheAccount_TheAlarmCloses()
-    {
-        await OpenTheAlarm();
-
-        _machineAOnB = true;
-        Later(3);
-        var tick = await Tick();
-
-        Assert.Equal(1, tick.StrandedAlarms!.Closed);
-        Assert.Empty(Stranded());
-    }
-
-    // The account resets: a fresh reading under the threshold closes it, though the machine is still not ready.
-    [Fact]
-    public async Task Tick_TheAccountResets_TheAlarmCloses()
-    {
-        await OpenTheAlarm();
-
-        _aWeekly = 1;
-        Later(3);
-        var tick = await Tick();
-
-        Assert.Equal(1, tick.StrandedAlarms!.Closed);
-        Assert.Empty(Stranded());
-    }
-
-    // The account resets while nothing reports: once the tired window's reset time has passed, it is over.
-    [Fact]
-    public async Task Tick_TheTiredWindowsResetTimePasses_OnAStaleReading_TheAlarmCloses()
-    {
-        await OpenTheAlarm();
-
-        _now = T0.AddDays(4).AddMinutes(1); // the weekly window resets at T0 + 4 days; nothing has reported since
-        var tick = await Tick();
-
-        Assert.Equal(1, tick.StrandedAlarms!.Closed);
-        Assert.Empty(Stranded());
-    }
-
-    // The machine becomes ready - it now holds a sign-in for B - and so the switch takes it: the alarm closes.
-    [Fact]
-    public async Task Tick_TheMachineBecomesReady_TheAlarmCloses()
-    {
-        await OpenTheAlarm();
-
-        _machineAHoldsB = true;
-        Later(3);
-        var tick = await Tick();
-
-        Assert.Equal(1, tick.StrandedAlarms!.Closed);
-        Assert.Empty(Stranded());
-        Assert.Single(_emails);
-    }
-
-    // Not known is not fixed: while nothing reports, the stale reading and the stale machine keep it open, quietly.
-    [Fact]
-    public async Task Tick_WhileTheReadingAndTheMachineAreStale_TheAlarmStaysOpen()
-    {
-        var opened = await OpenTheAlarm();
-
-        _now = T0.AddMinutes(20);
-        var tick = await Tick();
-
-        Assert.Equal((0, 1, 0), (tick.StrandedAlarms!.Opened, tick.StrandedAlarms.StillOpen, tick.StrandedAlarms.Closed));
-        Assert.Equal(opened.Id, Assert.Single(Stranded()).Id);
-        Assert.Single(_emails);
-    }
-
     // ----- review finding 2: loud only about what the Gateway cannot repair -----
-
-    // The Gateway starts its own sign-in on this check: it is repairing the machine, so nothing opens and nobody is told.
-    [Fact]
-    public async Task Tick_TheGatewayStartsItsOwnSignIn_OpensNoAlarm()
-    {
-        TheApproverCanApprove();
-        BothReport();
-
-        var tick = await Tick();
-
-        Assert.Single(tick.Started);
-        Assert.Empty(Stranded());
-        Assert.Empty(_alarms.ListOpen(One));
-        Assert.Empty(_emails);
-        Assert.Empty(_pushed);
-    }
-
-    // While that sign-in runs, the next checks stay quiet too.
-    [Fact]
-    public async Task Tick_WhileTheGatewaysSignInRuns_OpensNoAlarm()
-    {
-        TheApproverCanApprove();
-        BothReport();
-        await Tick();
-
-        Later(1);
-        var tick = await Tick();
-
-        Assert.Equal(LicenseReadinessFixes.SigningIn, Assert.Single(tick.Judged, j => j.MachineName == MachineA).Fix);
-        Assert.Empty(Stranded());
-        Assert.Empty(_emails);
-    }
-
-    // The sign-in ended well and the machine's next report should show it: still the Gateway's repair, still quiet.
-    [Fact]
-    public async Task Tick_TheGatewaysSignInEndedWell_AndWaitsForTheReport_OpensNoAlarm()
-    {
-        TheApproverCanApprove();
-        TheDirectorAdds();
-        BothReport();
-        await Tick();
-
-        Later(1);
-        var tick = await Tick();
-
-        Assert.Equal(LicenseReadinessFixes.AwaitingReport, Assert.Single(tick.Judged, j => j.MachineName == MachineA).Fix);
-        Assert.Empty(Stranded());
-        Assert.Empty(_emails);
-    }
-
-    // The Gateway's own sign-in failed: the fix did not work, so the alarm opens, and its action says what failed and when
-    // it is tried again - never "sign it in by hand" as if nothing were happening.
-    [Fact]
-    public async Task Tick_TheGatewaysSignInFailed_OpensTheAlarm_SayingItFailed()
-    {
-        TheApproverCanApprove();
-        TheDirectorFails();
-        BothReport();
-        await Tick();
-        Assert.Empty(Stranded());
-
-        Later(1);
-        await Tick();
-
-        var alarm = Assert.Single(Stranded());
-        Assert.Equal("The last sign-in failed at 03:12 UTC (The approval in the browser did not complete); DevThrottle tries again at 03:14 UTC. "
-                     + "If this stays, sign machine-a in to account-b@example.com from the Licenses page.", alarm.Action);
-        Assert.Single(_emails);
-        Assert.Single(_pushed);
-    }
-
-    // Once open, a later retry is not yet a fix: the alarm stays open while it runs, with no second email.
-    [Fact]
-    public async Task Tick_AnOpenAlarm_StaysOpenWhileTheGatewayTriesAgain()
-    {
-        TheApproverCanApprove();
-        TheDirectorFails();
-        BothReport();
-        await Tick();
-        Later(1);
-        await Tick();
-        var opened = Assert.Single(Stranded());
-
-        _directorAnswers = false;
-        _directors.Answer = _ => _neverAnswers.Task; // the retry is sent and does not answer: it runs
-        Later(3);
-        var retry = await Tick();
-
-        Assert.Single(retry.Started);
-        Assert.Equal(opened.Id, Assert.Single(Stranded()).Id);
-        Assert.Single(_emails);
-    }
-
-    // ----- review finding 1: one machine, one fault, one alarm -----
-
-    // A fresh picture at 97% of the five-hour window: the 80% warning and the stranded alarm would both be true for
-    // machine-a. Exactly one alarm, one email, one push and one banner line.
-    [Fact]
-    public async Task Tick_At97OfTheFiveHourWindow_AStrandedMachine_GetsOneAlarm()
-    {
-        _aFiveHour = 97;
-        _aWeekly = 50;
-        BothReport();
-
-        await Tick();
-
-        var alarm = Assert.Single(_alarms.ListOpen(One));
-        Assert.Equal((LicenseStrandedAlarm.Kind.Key, MachineA), (alarm.Kind, alarm.MachineName));
-        Assert.Single(_emails);
-        Assert.Single(_pushed);
-        Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
-    }
-
-    // The hand-over from the yellow warning to the red alarm: at 80% of the five-hour window the warning opens; at 97% its
-    // line closes and the stranded alarm opens in its place, each told when it opens and again every hour it stays open
-    // (the owner, 6 November 2026: "repeat until fixed"), and never two banner lines at once.
-    [Fact]
-    public async Task Tick_From80To97OfTheFiveHourWindow_TheWarningHandsOverToTheStrandedAlarm()
-    {
-        _aFiveHour = 85;
-        _aWeekly = 50;
-        BothReport();
-        await Tick();
-        Assert.Single(Warning());
-        Assert.Empty(Stranded());
-
-        _aFiveHour = 97;
-        Later(5);
-        var tick = await Tick();
-
-        Assert.Equal((1, 1), (tick.Alarms!.Closed, tick.StrandedAlarms!.Opened));
-        Assert.Empty(Warning());
-        Assert.Single(Stranded());
-        Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
-        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
-        Assert.Equal(2, _emails.Count);
-    }
-
-    // At 97% while the Gateway is signing machine-a in itself: neither the stranded alarm nor the 80% warning opens. Step
-    // 1's rule binds the warning too (step 2): no alarm while the Gateway's own sign-in runs. The repair is bounded, so a
-    // machine it does not fix is loud once that wait is over (the deaf-Director tests below).
-    [Fact]
-    public async Task Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens()
-    {
-        TheApproverCanApprove();
-        _aFiveHour = 97;
-        _aWeekly = 50;
-        BothReport();
-
-        var tick = await Tick();
-
-        Assert.Single(tick.Started);
-        Assert.Empty(_alarms.ListOpen(One));
-        Assert.Empty(_emails);
-        Assert.Empty(_pushed);
-    }
-
-    // ----- the second review: a Director that is connected and never answers -----
 
     // machine-a's Director is connected and answers every command with a timeout, as the Mac Mini's did on 26 October
     // (issue #4490). The sign-in the Gateway starts is marked unknown at once; the minute settle asks again every minute
     // and settles nothing. Once it is older than the wait the sign-in service gives a sign-in, it is not running as far as
-    // anyone can tell, so it is no repair: the stranded alarm opens, says the sign-in got no answer, and stays open for
+    // anyone can tell, so it is no repair: the alarm opens, says the sign-in got no answer, and stays open for
     // days - and the owner is told again on every check an hour or more after the last time (the owner, 6 November 2026:
     // "repeat until fixed"). Opened at 16 minutes; told again at 180, 1500 and 5000, not at 60.
     [Fact]
@@ -586,43 +275,135 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Single(_emails);
     }
 
-    // The 80-to-97 shape with that deaf Director: at 85% nothing opens while the Gateway's sign-in is young; past the
-    // unanswered wait the 80% warning opens and says the sign-in got no answer; at 97% that line closes as the stranded
-    // alarm opens - the "again". Once the warning is open there is exactly one line on every check, never two. The pushes,
-    // in order: the warning, the stranded alarm, and the stranded alarm told again an hour on (at 90 minutes, 70 after it
-    // opened at 20; not at 30).
+    // The Gateway's own sign-in failed: the fix did not work, so the alarm opens, and its action says what failed and when
+    // it is tried again - never "sign it in by hand" as if nothing were happening.
     [Fact]
-    public async Task Tick_From80To97_WithADirectorThatNeverAnswers_OneLineAlways_AndTheStrandedAlarmIsTheAgain()
+    public async Task Tick_TheGatewaysSignInFailed_OpensTheAlarm_SayingItFailed()
     {
         TheApproverCanApprove();
-        TheDirectorTimesOut();
-        _aFiveHour = 85;
-        _aWeekly = 50;
+        TheDirectorFails();
         BothReport();
         await Tick();
-        Later(5);
-        await Tick();
-        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(Stranded());
 
-        Later(16);
-        await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
+        Later(1);
         await Tick();
-        Assert.StartsWith("The sign-in to account-b@example.com that DevThrottle sent to machine-a at 03:12 UTC got no answer",
-            Assert.Single(Warning()).Action);
 
-        _aFiveHour = 97;
-        foreach (var minutes in new[] { 20, 30, 90 })
-        {
-            Later(minutes);
-            await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
-            await Tick();
-            var line = Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
-            Assert.Equal(LicenseStrandedAlarm.Kind.Key, line.Kind);
-        }
-        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key },
-            _pushed.Select(p => p.Kind.Key).ToArray());
-        Assert.Equal(3, _emails.Count);
+        var alarm = Assert.Single(Stranded());
+        Assert.Equal("The last sign-in failed at 03:12 UTC (The approval in the browser did not complete); DevThrottle tries again at 03:14 UTC. "
+                     + "If this stays, sign machine-a in to account-b@example.com from the Licenses page.", alarm.Action);
+        Assert.Single(_emails);
+        Assert.Single(_pushed);
     }
+
+    // The machine's Director is not connected, so no sign-in can be started there: no automatic fix, so it opens.
+    [Fact]
+    public async Task Tick_TheDirectorIsOffline_NoAutomaticFix_OpensTheAlarm_SayingToStartIt()
+    {
+        TheApproverCanApprove();
+        BothReport();
+        _directors.Disconnect(One, DirA);
+
+        var tick = await Tick();
+
+        Assert.Empty(tick.Started);
+        Assert.Equal("Start the Director on machine-a.", Assert.Single(Stranded()).Action);
+    }
+
+    // Once open, a later retry is not yet a fix: the alarm stays open while it runs, with no second email.
+    [Fact]
+    public async Task Tick_AnOpenAlarm_StaysOpenWhileTheGatewayTriesAgain()
+    {
+        TheApproverCanApprove();
+        TheDirectorFails();
+        BothReport();
+        await Tick();
+        Later(1);
+        await Tick();
+        var opened = Assert.Single(Stranded());
+
+        _directorAnswers = false;
+        _directors.Answer = _ => _neverAnswers.Task; // the retry is sent and does not answer: it runs
+        Later(3);
+        var retry = await Tick();
+
+        Assert.Single(retry.Started);
+        Assert.Equal(opened.Id, Assert.Single(Stranded()).Id);
+        Assert.Single(_emails);
+    }
+
+
+    // The Gateway starts its own sign-in on this check: it is repairing the machine, so nothing opens and nobody is told.
+    [Fact]
+    public async Task Tick_TheGatewayStartsItsOwnSignIn_OpensNoAlarm()
+    {
+        TheApproverCanApprove();
+        BothReport();
+
+        var tick = await Tick();
+
+        Assert.Single(tick.Started);
+        Assert.Empty(Stranded());
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(_emails);
+        Assert.Empty(_pushed);
+    }
+
+    // While that sign-in runs, the next checks stay quiet too.
+    [Fact]
+    public async Task Tick_WhileTheGatewaysSignInRuns_OpensNoAlarm()
+    {
+        TheApproverCanApprove();
+        BothReport();
+        await Tick();
+
+        Later(1);
+        var tick = await Tick();
+
+        Assert.Equal(LicenseReadinessFixes.SigningIn, Assert.Single(tick.Judged, j => j.MachineName == MachineA).Fix);
+        Assert.Empty(Stranded());
+        Assert.Empty(_emails);
+    }
+
+    // The sign-in ended well and the machine's next report should show it: still the Gateway's repair, still quiet.
+    [Fact]
+    public async Task Tick_TheGatewaysSignInEndedWell_AndWaitsForTheReport_OpensNoAlarm()
+    {
+        TheApproverCanApprove();
+        TheDirectorAdds();
+        BothReport();
+        await Tick();
+
+        Later(1);
+        var tick = await Tick();
+
+        Assert.Equal(LicenseReadinessFixes.AwaitingReport, Assert.Single(tick.Judged, j => j.MachineName == MachineA).Fix);
+        Assert.Empty(Stranded());
+        Assert.Empty(_emails);
+    }
+
+    // ----- review finding 1: one machine, one fault, one alarm -----
+
+    // At 97% while the Gateway is signing machine-a in itself: neither the stranded alarm nor the 80% warning opens. Step
+    // 1's rule binds the warning too (step 2): no alarm while the Gateway's own sign-in runs. The repair is bounded, so a
+    // machine it does not fix is loud once that wait is over (the deaf-Director tests below).
+    [Fact]
+    public async Task Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens()
+    {
+        TheApproverCanApprove();
+        _aFiveHour = 97;
+        _aWeekly = 50;
+        BothReport();
+
+        var tick = await Tick();
+
+        Assert.Single(tick.Started);
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(_emails);
+        Assert.Empty(_pushed);
+    }
+
+    // ----- the second review: a Director that is connected and never answers -----
 
     // ----- what it is not -----
 
@@ -662,9 +443,10 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Empty(_pushed);
     }
 
-    // Issue #4249: near the limit, under the threshold, a machine that is not ready raises no stranded alarm.
+    // Near the limit, under the threshold, a machine with no next license raises the one alarm, yellow - never the retired
+    // stranded kind (the owner, 8 November 2026).
     [Fact]
-    public async Task Tick_NearTheLimit_AMachineNotReady_RaisesNoStrandedAlarm()
+    public async Task Tick_NearTheLimit_AMachineWithNoNextLicense_RaisesTheOneAlarmYellow_NeverTheStrandedKind()
     {
         _aWeekly = 96.9;
         BothReport();
@@ -672,6 +454,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         var tick = await Tick();
 
         Assert.Equal(0, tick.StrandedAlarms!.Opened);
-        Assert.Empty(Stranded());
+        Assert.DoesNotContain(_alarms.ListOpen(One), a => a.Kind == LicenseStrandedAlarm.Kind.Key);
+        Assert.Equal(LicenseAlarmTones.Warning, Assert.Single(Stranded()).Tone);
     }
 }
