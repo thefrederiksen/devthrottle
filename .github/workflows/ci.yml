@@ -428,9 +428,10 @@ jobs:
     name: Tool contracts (Python)
     needs: changes
     if: needs.changes.outputs.tools == 'true'
-    # The Linux legs run on our own machine (devlinux, capped), not GitHub's (Repo Merge, phase 1). The
-    # matrix keeps the name ubuntu-latest so job names and the result check stay the same.
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && fromJSON('["self-hosted", "devthrottle-product-linux"]') || matrix.os }}
+    # The Linux and macOS legs run on our own machines, not GitHub's (Repo Merge, phase 1). The matrix
+    # keeps the names ubuntu-latest and macos-latest so job names and the result check stay the same.
+    # The macOS legs run on the Mac mini (devthrottle-mac, nice 10, one job at a time).
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && fromJSON('["self-hosted", "devthrottle-product-linux"]') || matrix.os == 'macos-latest' && fromJSON('["self-hosted", "devthrottle-mac"]') || matrix.os }}
     # Measured at 8-14 minutes when the machine is quiet. The ceiling is 45 rather than 30 because
     # `scripts/test-local.ps1` records Core.Tests at 11 minutes quiet and 33 with the fleet busy, so a
     # loaded day can push a healthy leg well past 30 and a limit that cuts a healthy run is worse than
