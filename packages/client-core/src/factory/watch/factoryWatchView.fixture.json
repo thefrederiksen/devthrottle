@@ -1,0 +1,510 @@
+{
+  "hub": {
+    "factoryId": "website",
+    "title": "Website factory",
+    "layout": "hub",
+    "floorWidth": 13.8,
+    "floorHeight": 13.8,
+    "stations": [
+      {
+        "id": "boss",
+        "label": "Boss",
+        "sub": "Plans and hands out",
+        "isBoss": true,
+        "gx": 5.7,
+        "gy": 5.7,
+        "width": 2.4,
+        "height": 2.4,
+        "line": null
+      },
+      {
+        "id": "website-desk",
+        "label": "Website Desk",
+        "sub": "Builds the site",
+        "isBoss": false,
+        "gx": 6,
+        "gy": 1.75,
+        "width": 1.8,
+        "height": 1.3,
+        "line": null
+      },
+      {
+        "id": "mail-desk",
+        "label": "Mail Desk",
+        "sub": "Reads the mail",
+        "isBoss": false,
+        "gx": 10.28,
+        "gy": 4.86,
+        "width": 1.8,
+        "height": 1.3,
+        "line": null
+      },
+      {
+        "id": "photo-desk",
+        "label": "Photo Desk",
+        "sub": "Prepares the photos",
+        "isBoss": false,
+        "gx": 8.65,
+        "gy": 9.89,
+        "width": 1.8,
+        "height": 1.3,
+        "line": null
+      },
+      {
+        "id": "checker",
+        "label": "Checker",
+        "sub": "Checks the site",
+        "isBoss": false,
+        "gx": 3.35,
+        "gy": 9.89,
+        "width": 1.8,
+        "height": 1.3,
+        "line": null
+      },
+      {
+        "id": "writer",
+        "label": "Writer",
+        "sub": "Writes the replies",
+        "isBoss": false,
+        "gx": 1.72,
+        "gy": 4.86,
+        "width": 1.8,
+        "height": 1.3,
+        "line": null
+      }
+    ],
+    "lines": [],
+    "characters": [
+      {
+        "seat": "boss",
+        "name": "Boss",
+        "colour": "#ffb020",
+        "station": "boss",
+        "homeGx": 6.9,
+        "homeGy": 8.35
+      },
+      {
+        "seat": "website-desk",
+        "name": "Website Desk",
+        "colour": "#5aa0ff",
+        "station": "website-desk",
+        "homeGx": 6.9,
+        "homeGy": 3.3
+      },
+      {
+        "seat": "mail-desk",
+        "name": "Mail Desk",
+        "colour": "#e0904a",
+        "station": "mail-desk",
+        "homeGx": 11.18,
+        "homeGy": 6.41
+      },
+      {
+        "seat": "photo-desk",
+        "name": "Photo Desk",
+        "colour": "#c7d23a",
+        "station": "photo-desk",
+        "homeGx": 9.55,
+        "homeGy": 11.44
+      },
+      {
+        "seat": "checker",
+        "name": "Checker",
+        "colour": "#8d9cff",
+        "station": "checker",
+        "homeGx": 4.25,
+        "homeGy": 11.44
+      },
+      {
+        "seat": "writer",
+        "name": "Writer",
+        "colour": "#f06fa8",
+        "station": "writer",
+        "homeGx": 2.62,
+        "homeGy": 6.41
+      }
+    ],
+    "steps": [
+      {
+        "key": "00000000-0000-0000-0000-000000000001",
+        "kind": "woke",
+        "seat": "boss",
+        "utc": "2026-11-07T22:00:00Z",
+        "toUtc": null,
+        "time": "22:00",
+        "words": "Boss started the Website Desk: new photos arrived.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000002",
+        "kind": "woke",
+        "seat": "website-desk",
+        "utc": "2026-11-07T22:02:00Z",
+        "toUtc": null,
+        "time": "22:02",
+        "words": "The Website Desk started building version 21.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000003",
+        "kind": "checked-nothing",
+        "seat": "mail-desk",
+        "utc": "2026-11-07T22:05:00Z",
+        "toUtc": "2026-11-07T22:15:00Z",
+        "time": "22:05-22:15",
+        "words": "Checked 3 times - nothing to do",
+        "emptyChecks": 3
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000006",
+        "kind": "talked",
+        "seat": "photo-desk",
+        "utc": "2026-11-07T22:20:00Z",
+        "toUtc": null,
+        "time": "22:20",
+        "words": "The Photo Desk asked the Boss which photo goes first.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000007",
+        "kind": "delivered",
+        "seat": "website-desk",
+        "utc": "2026-11-07T22:30:00Z",
+        "toUtc": null,
+        "time": "22:30",
+        "words": "The Website Desk finished: version 21 of the site is live.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000008",
+        "kind": "hiccup",
+        "seat": "checker",
+        "utc": "2026-11-07T22:35:00Z",
+        "toUtc": null,
+        "time": "22:35",
+        "words": "The site check could not open the contact page.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000009",
+        "kind": "delivered",
+        "seat": "writer",
+        "utc": "2026-11-07T22:40:00Z",
+        "toUtc": null,
+        "time": "22:40",
+        "words": "The Writer drafted the reply about version 21.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000010",
+        "kind": "checked-nothing",
+        "seat": "mail-desk",
+        "utc": "2026-11-07T22:45:00Z",
+        "toUtc": null,
+        "time": "22:45",
+        "words": "Checked the mail - nothing to do",
+        "emptyChecks": 1
+      }
+    ],
+    "window": {
+      "key": "last-24h",
+      "label": "Last 24 hours",
+      "fromUtc": "2026-11-07T08:00:00Z",
+      "toUtc": "2026-11-08T08:00:00Z",
+      "fromLocal": "2026-11-07T08:00",
+      "toLocal": "2026-11-08T08:00",
+      "choices": [
+        {
+          "value": "last-24h",
+          "label": "Last 24 hours"
+        },
+        {
+          "value": "last-7d",
+          "label": "Last 7 days"
+        },
+        {
+          "value": "last-30d",
+          "label": "Last 30 days"
+        },
+        {
+          "value": "custom",
+          "label": "Choose dates"
+        }
+      ]
+    },
+    "emptyText": null,
+    "truncatedText": null,
+    "notes": [
+      "Each character is one seat of this factory. What it does comes from the factory's activity record; only the walking and the timing are drawn."
+    ]
+  },
+  "lines": {
+    "factoryId": "books",
+    "title": "Book factory",
+    "layout": "lines",
+    "floorWidth": 8.2,
+    "floorHeight": 12.1,
+    "stations": [
+      {
+        "id": "boss",
+        "label": "Boss",
+        "sub": "Plans and hands out",
+        "isBoss": true,
+        "gx": 2.9,
+        "gy": 1,
+        "width": 2.4,
+        "height": 1.4,
+        "line": null
+      },
+      {
+        "id": "drafter",
+        "label": "Drafter",
+        "sub": "Drafts chapters",
+        "isBoss": false,
+        "gx": 1.6,
+        "gy": 4.7,
+        "width": 2,
+        "height": 1.4,
+        "line": "Writing"
+      },
+      {
+        "id": "editor",
+        "label": "Editor",
+        "sub": "Edits chapters",
+        "isBoss": false,
+        "gx": 4.6,
+        "gy": 4.7,
+        "width": 2,
+        "height": 1.4,
+        "line": "Writing"
+      },
+      {
+        "id": "cover",
+        "label": "Cover Desk",
+        "sub": "Draws covers",
+        "isBoss": false,
+        "gx": 1.6,
+        "gy": 8.6,
+        "width": 2,
+        "height": 1.4,
+        "line": "Design"
+      },
+      {
+        "id": "layout",
+        "label": "Layout Desk",
+        "sub": "Lays out pages",
+        "isBoss": false,
+        "gx": 4.6,
+        "gy": 8.6,
+        "width": 2,
+        "height": 1.4,
+        "line": "Design"
+      }
+    ],
+    "lines": [
+      {
+        "name": "Writing",
+        "index": 0,
+        "gx": 1,
+        "gy": 4.1,
+        "width": 6.2,
+        "height": 3.1
+      },
+      {
+        "name": "Design",
+        "index": 1,
+        "gx": 1,
+        "gy": 8,
+        "width": 6.2,
+        "height": 3.1
+      }
+    ],
+    "characters": [
+      {
+        "seat": "boss",
+        "name": "Boss",
+        "colour": "#ffb020",
+        "station": "boss",
+        "homeGx": 4.1,
+        "homeGy": 2.65
+      },
+      {
+        "seat": "drafter",
+        "name": "Drafter",
+        "colour": "#b58b6a",
+        "station": "drafter",
+        "homeGx": 2.6,
+        "homeGy": 6.35
+      },
+      {
+        "seat": "editor",
+        "name": "Editor",
+        "colour": "#2ec4c4",
+        "station": "editor",
+        "homeGx": 5.6,
+        "homeGy": 6.35
+      },
+      {
+        "seat": "cover",
+        "name": "Cover Desk",
+        "colour": "#a57bf0",
+        "station": "cover",
+        "homeGx": 2.6,
+        "homeGy": 10.25
+      },
+      {
+        "seat": "layout",
+        "name": "Layout Desk",
+        "colour": "#ff7a59",
+        "station": "layout",
+        "homeGx": 5.6,
+        "homeGy": 10.25
+      }
+    ],
+    "steps": [
+      {
+        "key": "00000000-0000-0000-0000-000000000011",
+        "kind": "woke",
+        "seat": "drafter",
+        "utc": "2026-11-08T02:00:00Z",
+        "toUtc": null,
+        "time": "02:00",
+        "words": "The Drafter started chapter 3.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000012",
+        "kind": "delivered",
+        "seat": "cover",
+        "utc": "2026-11-08T02:12:00Z",
+        "toUtc": null,
+        "time": "02:12",
+        "words": "The Cover Desk finished the front cover.",
+        "emptyChecks": 0
+      },
+      {
+        "key": "00000000-0000-0000-0000-000000000013",
+        "kind": "hiccup",
+        "seat": "editor",
+        "utc": "2026-11-08T02:30:00Z",
+        "toUtc": null,
+        "time": "02:30",
+        "words": "The Editor sent chapter 2 back for a rewrite.",
+        "emptyChecks": 0
+      }
+    ],
+    "window": {
+      "key": "last-24h",
+      "label": "Last 24 hours",
+      "fromUtc": "2026-11-07T08:00:00Z",
+      "toUtc": "2026-11-08T08:00:00Z",
+      "fromLocal": "2026-11-07T08:00",
+      "toLocal": "2026-11-08T08:00",
+      "choices": [
+        {
+          "value": "last-24h",
+          "label": "Last 24 hours"
+        },
+        {
+          "value": "last-7d",
+          "label": "Last 7 days"
+        },
+        {
+          "value": "last-30d",
+          "label": "Last 30 days"
+        },
+        {
+          "value": "custom",
+          "label": "Choose dates"
+        }
+      ]
+    },
+    "emptyText": null,
+    "truncatedText": "This window holds more than 3 rows; only the first 3 are shown. Choose a shorter window.",
+    "notes": [
+      "Each character is one seat of this factory. What it does comes from the factory's activity record; only the walking and the timing are drawn."
+    ]
+  },
+  "empty": {
+    "factoryId": "quiet",
+    "title": "Quiet factory",
+    "layout": "workshop",
+    "floorWidth": 7,
+    "floorHeight": 6.4,
+    "stations": [
+      {
+        "id": "boss",
+        "label": "Boss",
+        "sub": "Plans and hands out",
+        "isBoss": true,
+        "gx": 1,
+        "gy": 2,
+        "width": 2,
+        "height": 1.4,
+        "line": null
+      },
+      {
+        "id": "helper",
+        "label": "Helper",
+        "sub": "Helps",
+        "isBoss": false,
+        "gx": 4,
+        "gy": 2,
+        "width": 2,
+        "height": 1.4,
+        "line": null
+      }
+    ],
+    "lines": [],
+    "characters": [
+      {
+        "seat": "boss",
+        "name": "Boss",
+        "colour": "#ffb020",
+        "station": "boss",
+        "homeGx": 2,
+        "homeGy": 3.65
+      },
+      {
+        "seat": "helper",
+        "name": "Helper",
+        "colour": "#5aa0ff",
+        "station": "helper",
+        "homeGx": 5,
+        "homeGy": 3.65
+      }
+    ],
+    "steps": [],
+    "window": {
+      "key": "last-24h",
+      "label": "Last 24 hours",
+      "fromUtc": "2026-11-07T08:00:00Z",
+      "toUtc": "2026-11-08T08:00:00Z",
+      "fromLocal": "2026-11-07T08:00",
+      "toLocal": "2026-11-08T08:00",
+      "choices": [
+        {
+          "value": "last-24h",
+          "label": "Last 24 hours"
+        },
+        {
+          "value": "last-7d",
+          "label": "Last 7 days"
+        },
+        {
+          "value": "last-30d",
+          "label": "Last 30 days"
+        },
+        {
+          "value": "custom",
+          "label": "Choose dates"
+        }
+      ]
+    },
+    "emptyText": "Nothing happened in this factory in the last 24 hours.",
+    "truncatedText": null,
+    "notes": [
+      "Each character is one seat of this factory. What it does comes from the factory's activity record; only the walking and the timing are drawn."
+    ]
+  }
+}

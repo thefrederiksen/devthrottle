@@ -1,0 +1,393 @@
+/* The watch player, shared by the Cockpit and the mobile app (Watch your factory, piece 5).
+ *
+ * The chrome - header, list, controls - uses only the theme tokens both shells define in their own :root (--bg,
+ * --surface, --surface-2, --border, --text, --text-dim, --accent). The floor itself is a drawing with its own fixed
+ * palette, taken from the mockup, so it looks the same in either shell.
+ *
+ * One layout for both widths: side by side when the player is wide, stacked when it is narrow (a container query, so
+ * it follows the space the shell gives it, not the window). Every control is at least 40 pixels tall for a thumb. */
+
+.fwp {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text);
+}
+
+.fwp-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.fwp-title {
+  margin: 0;
+  font-size: 18px;
+}
+.fwp-pill {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+.fwp-clock {
+  margin-left: auto;
+  font: 700 20px ui-monospace, Consolas, monospace;
+  color: var(--accent);
+}
+.fwp-truncated {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.fwp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-areas:
+    "stage side"
+    "caption side"
+    "controls side";
+  grid-template-rows: auto auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.fwp-stage {
+  grid-area: stage;
+}
+.fwp-side {
+  grid-area: side;
+}
+.fwp-controls {
+  grid-area: controls;
+}
+
+/* The step on screen, in its own words: under the stage on a narrow screen, where the floor's bubble is small. On a
+ * wide one the bubble and the list already show it. */
+.fwp-caption {
+  grid-area: caption;
+  display: none;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.fwp-stage {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-height: 72vh;
+  min-height: 240px;
+  background: #1f2433;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.fwp-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.fwp-svg text {
+  user-select: none;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.fwp-outline,
+.fwp-hall-name {
+  paint-order: stroke;
+  stroke: #1f2433;
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+}
+.fwp-character {
+  cursor: pointer;
+}
+
+/* Slow motion: the mockup's letterbox bars and vignette. */
+.fwp-vignette {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.4s;
+  box-shadow: inset 0 0 160px 40px rgba(0, 0, 0, 0.75);
+}
+.fwp-bars {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: #000;
+  transition: height 0.4s;
+}
+.fwp-bars-top {
+  top: 0;
+}
+.fwp-bars-bottom {
+  bottom: 0;
+}
+.fwp-slow .fwp-vignette {
+  opacity: 1;
+}
+.fwp-slow .fwp-bars {
+  height: 7%;
+}
+.fwp-slowtag {
+  pointer-events: none;
+  position: absolute;
+  top: 1.5%;
+  left: 50%;
+  transform: translateX(-50%);
+  font: 800 13px system-ui, sans-serif;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #ffd166;
+  text-shadow: 0 0 12px #000;
+  animation: fwp-flick 1s steps(2) infinite;
+}
+@keyframes fwp-flick {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+.fwp-empty {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(360px, 86%);
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(21, 25, 37, 0.88);
+  color: #eef1f7;
+  font-size: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.fwp-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fwp-zoom button {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid #3a4562;
+  background: rgba(42, 50, 71, 0.92);
+  color: #eef1f7;
+  font: 700 18px system-ui, sans-serif;
+  cursor: pointer;
+}
+.fwp-zoom .fwp-fit {
+  font-size: 12px;
+}
+
+/* ---- the list of steps ---- */
+.fwp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.fwp-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fwp-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  opacity: 0.55;
+}
+.fwp-step[data-state="past"] {
+  opacity: 1;
+}
+.fwp-step[data-state="now"] {
+  opacity: 1;
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.fwp-step-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.fwp-step-time {
+  font: 12px ui-monospace, Consolas, monospace;
+  color: var(--text-dim);
+}
+.fwp-step-who {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fwp-step-who i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.fwp-step-words {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.fwp-step-replay {
+  margin: 8px 8px 0 0;
+  min-height: 32px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.fwp-notes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---- the controls ---- */
+.fwp-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fwp-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.fwp-buttons button,
+.fwp-follow select {
+  min-height: 40px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.fwp-buttons button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+.fwp-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.fwp-buttons .fwp-primary {
+  min-width: 76px;
+}
+.fwp-speeds {
+  display: flex;
+  gap: 4px;
+}
+.fwp-follow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.fwp-scrub {
+  position: relative;
+  height: 32px;
+}
+.fwp-scrub input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+  background: transparent;
+}
+.fwp-mark {
+  position: absolute;
+  top: 2px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* ---- narrow: the phone, or a narrow pane ---- */
+@container (max-width: 760px) {
+  .fwp-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "stage"
+      "caption"
+      "controls"
+      "side";
+    grid-template-rows: none;
+  }
+  .fwp-caption {
+    display: block;
+  }
+  .fwp-zoom {
+    flex-direction: row;
+  }
+  .fwp-side {
+    max-height: none;
+  }
+  .fwp-stage {
+    max-height: 60vh;
+  }
+  .fwp-buttons button,
+  .fwp-follow select {
+    padding: 6px 10px;
+  }
+  .fwp-follow {
+    flex: 1 1 100%;
+  }
+  .fwp-follow select {
+    flex: 1;
+  }
+}
