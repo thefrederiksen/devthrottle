@@ -79,6 +79,33 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         "enter",
     };
 
+    /// <summary>
+    /// The verbs here that put characters into the session's terminal, so their arrival order is the
+    /// person's intent (issue #4490). Each one reaches <c>Session.SendInput</c>,
+    /// <c>PressKeyAfterAnySend</c> or <c>TypeDriverInputAsync</c>:
+    ///
+    ///   prompt             types the text and presses Enter
+    ///   interrupt, escape  the control keys, which must not overtake the line they interrupt
+    ///   terminal-*         the Cockpit's terminal, every chunk of it
+    ///   enter              the phone's Enter key - a raw carriage return, written synchronously
+    ///   clear-context      types /clear
+    ///   compact-context    types /compact
+    ///   history-picker     types the history key
+    ///   execute-action     the Wingman's type / send_keys / submit
+    ///   queue-*            NOT typing, and here for the other reason: the queue behind them is a plain
+    ///                      List that no lock protects, so two at once can tear it (#4815). The delivery
+    ///                      loop serialised them before this change and keeps doing so until it is locked.
+    ///
+    /// Everything else this area owns - create, kill, patch, resize, relink, the mode switches - is not
+    /// ordered and does not hold the delivery loop.
+    /// </summary>
+    public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
+    {
+        "prompt", "interrupt", "escape",
+        "terminal-input", "terminal-keys", "terminal-paste", "terminal-mouse",
+        "enter", "clear-context", "compact-context", "history-picker", "execute-action",
+    };
+
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
     {
         var sessionManager = context.SessionManager;

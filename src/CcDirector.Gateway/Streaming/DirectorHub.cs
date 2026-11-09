@@ -659,6 +659,17 @@ public sealed class DirectorHub : Hub
         if (device is { IsTeamKey: true })
             Context.Items[TeamKeyHolderItemKey] = device.AccountSubject ?? "";
         _store.RegisterConnection(tenant, directorId, Context.ConnectionId);
+
+        // A NEW CONNECTION KNOWS NOTHING YET (issue #4490). What the Gateway has learned about whether
+        // commands are being received belongs to the connection it learned it on, so a Director arriving
+        // here - a restart, a crash that came back, or the same process reconnecting over a half-dead
+        // socket - starts with a clean count rather than inheriting the silence of the connection that
+        // would not answer. Forgetting on DISCONNECT could not cover the last of those three: a reconnect
+        // normally lands this Hello BEFORE the old socket's disconnect fires, so the old connection is no
+        // longer the active one by then and the gate there refuses - leaving the new connection with the
+        // old count. The reviewer of pull request 4813 found that gap; this is the answer to it, and it is
+        // why the disconnect no longer forgets anything.
+        Api.DirectorDownlinkFacts.Forget(directorId);
         // The repository store follows the same ownership discipline: only this - the current -
         // connection may push repository snapshots from now on.
         _repositoryStore?.RegisterConnection(tenant, directorId, Context.ConnectionId);
@@ -1520,6 +1531,7 @@ public sealed class DirectorHub : Hub
             // Unlike the repositories, a Director's desktops go with its connection: they can only be reached through it.
             _hostedDesktops?.UnregisterConnection(t, directorId, Context.ConnectionId);
             _licenseUsage?.UnregisterConnection(t, directorId, Context.ConnectionId);
+
         }
         // MTR-15: drop this connection's abort entry (it is gone now). Keyed by connection id, so it is cleared
         // whether or not a tenant was bound.

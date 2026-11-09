@@ -95,6 +95,13 @@ internal static class DirectorCommandRouter
         try
         {
             var result = await sendCommand(directorId, command, timeoutSource.Token);
+
+            // THE DOWNLINK ANSWERED (issue #4490). A result - success or a typed failure - is the only proof
+            // that commands are reaching this Director at all, and it is the fact that was never kept.
+            // A null result is NOT an answer: nothing came back, and this layer cannot see whether that was
+            // an absent tunnel or a Gateway refusal, so it says nothing about the downlink either way.
+            if (result is not null) DirectorDownlinkFacts.Answered(directorId, DateTime.UtcNow);
+
             FileLog.Write($"[DirectorCommandRouter] {verb} sid={sessionId} director={directorId}: {DescribeSendOutcome(result)}");
             return result;
         }
@@ -109,8 +116,22 @@ internal static class DirectorCommandRouter
             // server." Filtering on the type here silently misreported every real timeout as a tunnel drop -
             // caught only by driving a live Gateway, never by a unit test with a hand-written delegate. The
             // TOKEN is the ground truth for whose deadline fired; the exception type is not.
-            var error = DescribeTimeout(machineName, wait);
-            FileLog.Write($"[DirectorCommandRouter] {verb} sid={sessionId} director={directorId}: TIMED OUT after {wait.TotalSeconds:0} seconds");
+            // A SILENCE, AND WHETHER IT IS THE SECOND ONE MATTERS (issue #4490). One expiry is a slow verb;
+            // two in a row with nothing answered in between is a Director that is not receiving at all - the
+            // state devthrottle-mac-mini was in for fourteen hours while every screen called it healthy.
+            DirectorDownlinkFacts.DidNotAnswer(directorId, DateTime.UtcNow);
+            var facts = DirectorDownlinkFacts.Read(directorId);
+            // A STREAM IS CERTAIN HERE, and that is why this branch can speak about the downlink at all: a
+            // send with no connection returns null and never reaches this catch. So the only question left
+            // is whether the connection that exists is carrying commands.
+            var reach = DirectorReachability.Classify(streamConnected: true, facts);
+
+            var error = DescribeTimeout(machineName, wait, DirectorReachability.Describe(reach, facts));
+            FileLog.Write($"[DirectorCommandRouter] {verb} sid={sessionId} director={directorId}: TIMED OUT after {wait.TotalSeconds:0} seconds"
+                          + (reach == DirectorReach.ReportingButNotReachable
+                              ? $" - DOWNLINK NOT RECEIVING: {facts.SilencesSinceAnAnswer} commands have expired with no answer, "
+                                + $"last answer {(facts.LastAnsweredUtc is { } at ? at.ToString("O") : "never")} (issue #4490)"
+                              : ""));
             return DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, error);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -148,10 +169,19 @@ internal static class DirectorCommandRouter
     /// microseconds; a separate test still runs a real (short) timeout and asserts the router returns exactly
     /// this function's output, so the join between them stays proven rather than assumed.
     /// </remarks>
-    internal static string DescribeTimeout(string? machineName, TimeSpan wait) =>
-        string.IsNullOrWhiteSpace(machineName)
+    internal static string DescribeTimeout(string? machineName, TimeSpan wait, string? downlinkEvidence = null)
+    {
+        var observed = string.IsNullOrWhiteSpace(machineName)
             ? $"The Director did not answer within {wait.TotalSeconds:0} seconds. It is not known whether the command was carried out."
             : $"The Director on {machineName} did not answer within {wait.TotalSeconds:0} seconds. It is not known whether the command was carried out.";
+
+        // THE SENTENCE THAT WAS MISSING ON 26 OCTOBER 2026. The licence switcher sent one command four
+        // times and read this message four times; what nobody could see is that the machine had not
+        // answered anything down that connection since 22:02 the night before. When the facts say that,
+        // they are said - and when they do not, nothing is added, because a guess here would be worse
+        // than the silence it replaces.
+        return downlinkEvidence is null ? observed : observed + " " + downlinkEvidence;
+    }
 
     /// <summary>
     /// The mid-command tunnel-drop message. Same audience as <see cref="DescribeTimeout"/>. It deliberately does

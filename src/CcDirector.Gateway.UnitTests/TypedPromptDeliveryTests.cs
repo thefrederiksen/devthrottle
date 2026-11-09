@@ -20,7 +20,12 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class TypedPromptDeliveryTests : IDisposable
 {
-    private const string DirectorId = "director-typed";
+    // A Director id of its own per test run, not a shared constant. This class times the router out, which
+    // now WRITES what the Gateway knows about that Director's downlink (issue #4490) - a static map. It
+    // asserts only the status today, so a shared id is safe, but a safe write to shared state is the
+    // beginning of a test that passes by the order the tests ran in, which is how the sibling class nearly
+    // shipped one (the reviewer of pull request 4813 found both).
+    private static readonly string DirectorId = "director-typed-" + Guid.NewGuid().ToString("N");
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-typed-prompts-" + Guid.NewGuid().ToString("N"));

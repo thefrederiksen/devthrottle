@@ -74,6 +74,15 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// Null when no <see cref="SessionManager"/> was supplied (older callers and tests that never drive a
     /// stream verb); in that case a stream verb returns a typed Error, exactly as an absent dispatcher does.
     /// </summary>
+    /// <summary>What is holding the one delivery loop (issue #4490). See <see cref="DeliveryLoopWatch"/>.</summary>
+    private readonly DeliveryLoopWatch _deliveryLoop = new();
+
+    /// <summary>
+    /// The delivery loop's watch, for a test that proves the periodic tick asks it. Read-only: an instrument
+    /// is readable, and nothing about delivery can be changed through it.
+    /// </summary>
+    internal DeliveryLoopWatch DeliveryLoop => _deliveryLoop;
+
     private readonly DirectorUpStreamHandler? _upStreamHandler;
 
     /// <summary>
@@ -82,6 +91,41 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// than declined for want of a handler.
     /// </summary>
     private readonly Boxes.DirectorDesktopRelayHandler _desktopRelay;
+
+    /// <summary>
+    /// THE DELIVERY LOOP'S DOOR (issue #4490). Every command the Gateway sends arrives here, and what this
+    /// decides is whether the verb runs ON the loop or beside it.
+    ///
+    /// The loop is one. The SignalR client calls this handler and delivers nothing else until the handler
+    /// hands back its task, so a verb that works synchronously before its first await stops every other
+    /// command from being RECEIVED - not delayed, not queued by the Gateway, simply not read off the
+    /// connection. The uplink is unaffected, because reports and heartbeats do not ride the loop, so the
+    /// machine goes on looking healthy while every switch, spawn and prompt sent to it disappears. That is
+    /// the 25 October failure on devthrottle-mac-mini, fourteen hours of it, and the 430-second create of
+    /// 6 November is the same thing in miniature.
+    ///
+    /// So only the verbs that need the loop keep it - the keystrokes, whose order is the person's intent,
+    /// and the connection-bound stream and desktop verbs - and everything else is handed to the thread pool
+    /// and awaited there. The hold is measured either way, because a keystroke verb can wedge too, and the
+    /// measurement has to come from outside the call: see <see cref="DeliveryLoopWatch"/>.
+    ///
+    /// Internal, so a test can prove the thing that matters: a verb that never returns does not stop the
+    /// next command from being answered.
+    /// </summary>
+    internal Task<DirectorCommandResult> DeliverAsync(DirectorCommand? cmd)
+    {
+        var verb = cmd?.Verb;
+        using var hold = _deliveryLoop.Enter(verb, cmd?.CommandId);
+
+        if (DeliveryLoopOrder.MustStayOnTheLoop(verb))
+            return HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher, _desktopRelay);
+
+        // Task.Run, not a queue: these verbs already run concurrently today whenever each of them reaches
+        // its first await, so nothing here is newly parallel - what changes is that the work BEFORE that
+        // await stops holding the connection. The handler is a boundary and catches its own faults, so the
+        // task this returns completes with a result rather than faulting the hub invocation.
+        return Task.Run(() => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher, _desktopRelay));
+    }
 
     /// <summary>
     /// The Gateway's "Command" call, whole: a stream verb to the up-stream handler, every other verb to the unary
@@ -342,9 +386,19 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     // ten seconds. Both skip paths used to return in silence, so the single event that caused the outage
     // left no trace at all and the investigation had to infer it from a thirty-second hole between two
     // success lines. An event that can take the fleet offline must never be invisible.
-    private void RePushTick()
+    // INTERNAL, not private, so a test can drive this tick directly. The alternative was a test that waits
+    // for the real timer, and a gate test may not let the clock decide whether it passes (the 11 October
+    // ruling). Nothing is added for the test: this is the production tick, called by its own name.
+    internal void RePushTick()
     {
         if (_disposed) return;
+
+        // IS THE DELIVERY LOOP HELD RIGHT NOW (issue #4490)? Asked here because this tick runs on the
+        // background scheduler rather than on the loop, and a held loop cannot report on itself - the
+        // 25 October silence left no line of its own, only a hole between two "Command received" lines
+        // that nothing was watching. Before every return below, because a Director whose loop is wedged
+        // is exactly the one whose connection may also be down.
+        _deliveryLoop.SayIfHeld();
 
         // HOW LATE WAS THIS CALLBACK (issue #2818). Measured FIRST, before any path below can return,
         // and measured from the SCHEDULE rather than from the moment this method began running. Every
@@ -578,13 +632,13 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // on its one delivery loop and moves to the next command only when the handler hands back its task - at its
         // first real wait. Everything a verb does before that holds the loop, and no other command is received
         // meanwhile: a create that waited synchronously on cc-worktrees for 430 seconds left the log with no
-        // "Command received" line from 08:06:49 to 08:14:04, then about forty arrived in one millisecond. So a verb
-        // that does slow work awaits it, or runs it on the thread pool and awaits that (the create verb starts its
-        // session on its own task). The handler itself does NOT push every command onto the thread pool: the terminal
-        // verbs are synchronous, so they run in the order they arrive and keystrokes reach the terminal in order; on
-        // the thread pool two of them could overtake each other.
-        _connection.On<DirectorCommand, DirectorCommandResult>("Command",
-            cmd => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher, _desktopRelay));
+        // "Command received" line from 08:06:49 to 08:14:04, then about forty arrived in one millisecond.
+        //
+        // WHICH VERBS STILL RUN ON THE LOOP IS NOW A DECISION WITH A NAME: see DeliveryLoopOrder, and the areas
+        // that declare their own ordered verbs. This comment used to end "the handler itself does NOT push every
+        // command onto the thread pool", which stopped being true when a verb that holds the loop stopped being
+        // acceptable (issue #4490).
+        _connection.On<DirectorCommand, DirectorCommandResult>("Command", DeliverAsync);
 
         while (!_disposed)
         {
