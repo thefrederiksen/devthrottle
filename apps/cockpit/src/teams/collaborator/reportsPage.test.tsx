@@ -87,9 +87,9 @@ const RECEIVED: ReceivedReports = {
   showYourReports: false,
   reports: [
     { id: "r-new", title: "Signup page rewrite", status: "waiting-on-you", version: 1, from: "soren@odd.example",
-      sentAtUtc: "2026-10-02T09:00:00", read: false, readLabel: "Fresh~odd", questionsLabel: "Odd 1 question waits~q" },
+      sentAtUtc: "2026-10-02T09:00:00", read: false, readLabel: "Fresh~odd", questionsLabel: "Odd 1 question waits~q", questionsPath: "/questions" },
     { id: "r-old", title: "September conversion numbers", status: "done", version: 2, from: "priya@odd.example",
-      sentAtUtc: "2026-09-30T09:00:00", read: true, readLabel: "Seen~odd", questionsLabel: null },
+      sentAtUtc: "2026-09-30T09:00:00", read: true, readLabel: "Seen~odd", questionsLabel: null, questionsPath: null },
   ],
 };
 
@@ -251,6 +251,15 @@ describe("a report sent to you", () => {
     const line = await screen.findByTestId("team-report-questions-waiting");
     expect(line.textContent).toBe("Odd 1 question waits~q");
     expect(within(line).getByRole("link").getAttribute("href")).toBe("/questions");
+  });
+
+  it("Open_ReaderHasNoQuestionsPage_ShowsTheGatewaysLineWithNoLink", async () => {
+    client.receivedDetail = { ...RECEIVED_DETAIL, report: { ...RECEIVED.reports[0], questionsLabel: "Above~odd", questionsPath: null } };
+    renderAt("/reports?report=r-new");
+
+    const line = await screen.findByTestId("team-report-questions-waiting");
+    expect(line.textContent).toBe("Above~odd");
+    expect(within(line).queryByRole("link")).toBeNull();
   });
 
   it("Open_NoQuestionsWait_DrawsNoQuestionsLine", async () => {

@@ -180,12 +180,23 @@ internal sealed class TeamQuestions
     internal static string WordsGoTo(string authorName) => $"Your words go to {authorName}. Only your choice reaches the agent.";
 
     /// <summary>The line on a report sent to a person, when questions in it wait on them (review F11). Null when none do.</summary>
-    internal static string? WaitingLabel(int waiting) => waiting switch
+    internal static string? WaitingLabel(int waiting) => WaitingLabel(waiting, answeredOnQuestionsPage: true);
+
+    /// <summary>The same line for a reader who answers somewhere else: a contributor answers a report's questions above
+    /// the report itself, in their Inbox (Team implementation piece 4.1), and has no Questions page.</summary>
+    internal static string? WaitingLabel(int waiting, bool answeredOnQuestionsPage) => (waiting, answeredOnQuestionsPage) switch
     {
-        0 => null,
-        1 => "1 question waiting on you - answer it on Questions",
-        _ => $"{waiting} questions waiting on you - answer them on Questions",
+        (0, _) => null,
+        (1, true) => "1 question waiting on you - answer it on Questions",
+        (_, true) => $"{waiting} questions waiting on you - answer them on Questions",
+        (1, false) => "1 question waiting on you - answer it above",
+        _ => $"{waiting} questions waiting on you - answer them above",
     };
+
+    /// <summary>The page a reader in <paramref name="role"/> answers questions on, or null when they answer them where the
+    /// report is shown (a contributor, whose app has no Questions page). Read from the one page list (TeamApp).</summary>
+    internal static string? QuestionsPagePath(TeamRole? role) =>
+        role is { } r ? TeamApp.For(r).Pages.FirstOrDefault(p => p.Id == "questions")?.Path : null;
 
     /// <summary>What the page is for, under its title when nothing waits; the empty state alone says nothing does.</summary>
     internal const string PagePurpose = "Questions your team is waiting on you to answer.";

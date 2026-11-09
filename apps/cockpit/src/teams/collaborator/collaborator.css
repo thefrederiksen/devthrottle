@@ -563,6 +563,36 @@
   border-color: var(--accent);
 }
 
+/* A report opens across the page, as on the first version's Reports page: the viewer and its comments need the room.
+   Its own "All reports" control, and the Inbox link above it, lead back to the list. */
+.contributor-two-full .contributor-list {
+  display: none;
+}
+
+.contributor-inbox a.team-report-row,
+.contributor-customer a,
+.contributor-crumbs a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.contributor-inbox a.team-report-row {
+  color: var(--text);
+}
+
+.contributor-customer a:hover,
+.contributor-crumbs a:hover {
+  text-decoration: underline;
+}
+
+.contributor-customer a.ui-btn {
+  text-decoration: none;
+}
+
+.contributor-customer a.ui-btn-primary {
+  color: #fff;
+}
+
 .contributor-write {
   margin-top: 16px;
 }
@@ -594,4 +624,8 @@
   .contributor-two-open .contributor-list {
     display: none;
   }
+}
+
+.contributor-customer a.ui-btn-secondary {
+  color: var(--text);
 }

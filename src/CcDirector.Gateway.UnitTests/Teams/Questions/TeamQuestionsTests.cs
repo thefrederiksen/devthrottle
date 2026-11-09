@@ -605,9 +605,11 @@ public sealed class TeamQuestionsTests : IDisposable
         _reach[sid] = DevReportSessionReach.Busy;
 
         var (_, list) = await Run(_reports.SentToMe(_team, Mike));
-        Assert.Equal("1 question waiting on you - answer it on Questions", list.GetProperty("reports")[0].GetProperty("questionsLabel").GetString());
+        // Mike is a contributor: he has no Questions page, and answers above the report in his Inbox (piece 4.1).
+        Assert.Equal("1 question waiting on you - answer it above", list.GetProperty("reports")[0].GetProperty("questionsLabel").GetString());
+        Assert.Equal(JsonValueKind.Null, list.GetProperty("reports")[0].GetProperty("questionsPath").ValueKind);
         var (_, detail) = await Run(_reports.SentToMeDetail(_team, Mike, report.ToString("D")));
-        Assert.Equal("1 question waiting on you - answer it on Questions", detail.GetProperty("report").GetProperty("questionsLabel").GetString());
+        Assert.Equal("1 question waiting on you - answer it above", detail.GetProperty("report").GetProperty("questionsLabel").GetString());
         // The viewer's answer controls stay off: the answer is given on the Questions page, never in the frame.
         Assert.False(detail.GetProperty("answersOpen").GetBoolean());
 
@@ -679,6 +681,23 @@ public sealed class TeamQuestionsTests : IDisposable
     {
         Assert.Equal(label, TeamQuestions.WaitingLabel(waiting));
         Assert.Equal(subtitle, TeamQuestions.Subtitle(waiting));
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(1, "1 question waiting on you - answer it above")]
+    [InlineData(3, "3 questions waiting on you - answer them above")]
+    public void WaitingLabel_ReaderWithNoQuestionsPage_PointsAboveTheReport(int waiting, string? label)
+    {
+        Assert.Equal(label, TeamQuestions.WaitingLabel(waiting, answeredOnQuestionsPage: false));
+    }
+
+    [Fact]
+    public void QuestionsPagePath_ComesFromTheReadersOwnPageList()
+    {
+        Assert.Equal("/questions", TeamQuestions.QuestionsPagePath(TeamRole.Developer));
+        Assert.Null(TeamQuestions.QuestionsPagePath(TeamRole.Collaborator));
+        Assert.Null(TeamQuestions.QuestionsPagePath(null));
     }
 
     [Fact]

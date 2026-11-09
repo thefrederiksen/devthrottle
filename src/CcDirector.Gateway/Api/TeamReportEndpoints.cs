@@ -307,7 +307,8 @@ internal sealed class TeamReports
         var names = Names(teamId, caller);
         var received = _recipients.SentTo(team, caller);
         var waiting = _questions.WaitingByReport(teamId, caller, received);
-        var list = received.Select(r => Received(r, names, waiting)).ToList();
+        var questionsPath = TeamQuestions.QuestionsPagePath(_teams.RoleOf(teamId, caller));
+        var list = received.Select(r => Received(r, names, waiting, questionsPath)).ToList();
         FileLog.Write($"[TeamReports] SentToMe: team {team.ToLogString()} count={list.Count}");
         return Results.Json(new
         {
@@ -336,7 +337,8 @@ internal sealed class TeamReports
         return Results.Json(new
         {
             report = Received(new DevReportReceived(row, held.Title, held.Status), names,
-                _questions.WaitingByReport(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)])),
+                _questions.WaitingByReport(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)]),
+                TeamQuestions.QuestionsPagePath(_teams.RoleOf(teamId, caller))),
             comments = _comments.From(team, report.Id, caller)
                 .Select(c => new { id = c.Id.ToString("D"), text = c.Text, atUtc = c.AtUtc, aboutLabel = _questions.AboutLabelFor(team, c) })
                 .ToList(),
@@ -650,9 +652,10 @@ internal sealed class TeamReports
     }
 
     /// <summary>One report as its recipient sees it: the version they hold, its title and status, and how many of its
-    /// questions wait on them (devthrottle_internal#2307; review F11).</summary>
+    /// questions wait on them (devthrottle_internal#2307; review F11), and where they answer them: the Questions page's
+    /// address, or null when they answer above the report (a contributor's Inbox, piece 4.1).</summary>
     private static object Received(DevReportReceived received, IReadOnlyDictionary<string, string> names,
-        IReadOnlyDictionary<Guid, int> waiting) => new
+        IReadOnlyDictionary<Guid, int> waiting, string? questionsPath) => new
     {
         id = received.Row.ReportId.ToString("D"),
         title = received.Title,
@@ -662,7 +665,8 @@ internal sealed class TeamReports
         sentAtUtc = received.Row.SentAtUtc,
         read = received.Row.ReadAtUtc is not null,
         readLabel = received.Row.ReadAtUtc is null ? TeamReportEndpoints.NewLabel : TeamReportEndpoints.ReadLabel,
-        questionsLabel = TeamQuestions.WaitingLabel(waiting.TryGetValue(received.Row.ReportId, out var n) ? n : 0),
+        questionsLabel = TeamQuestions.WaitingLabel(waiting.TryGetValue(received.Row.ReportId, out var n) ? n : 0, questionsPath is not null),
+        questionsPath,
     };
 
     private IReadOnlyList<TeamMember> Members(string teamId, string caller)

@@ -33,6 +33,9 @@ export interface ReceivedReport {
   readLabel: string;
   /** How many of its questions wait on this person and where to answer them, or null when none do (#2307). */
   questionsLabel: string | null;
+  /** Where those questions are answered: the Questions page's address, or null when they are answered right above the
+   *  report (a contributor's Inbox). The Gateway's; the page never builds it. */
+  questionsPath?: string | null;
 }
 
 export interface ReceivedReports {

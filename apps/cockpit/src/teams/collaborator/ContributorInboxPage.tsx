@@ -65,7 +65,7 @@ export function ContributorInboxPage() {
       {error && <ErrorBanner message={error} />}
       {items === null && !error && <LoadingState message="Loading your inbox..." />}
       {items !== null && (
-        <div className={open === null ? "contributor-two" : "contributor-two contributor-two-open"}>
+        <div className={open === null ? "contributor-two" : open.kind === "report" ? "contributor-two contributor-two-full" : "contributor-two contributor-two-open"}>
           <div className="contributor-list">
             {items.length === 0 && first !== undefined && <EmptyState message={first.emptyText} />}
             {items.length > 0 && (

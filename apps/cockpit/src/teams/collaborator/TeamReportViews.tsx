@@ -161,7 +161,11 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
               </p>
               {detail.report.questionsLabel !== null && (
                 <p className="team-report-note" data-testid="team-report-questions-waiting">
-                  <Link to="/questions">{detail.report.questionsLabel}</Link>
+                  {detail.report.questionsPath ? (
+                    <Link to={detail.report.questionsPath}>{detail.report.questionsLabel}</Link>
+                  ) : (
+                    detail.report.questionsLabel
+                  )}
                 </p>
               )}
               <p className="team-report-note" data-testid="team-report-comments-note">
