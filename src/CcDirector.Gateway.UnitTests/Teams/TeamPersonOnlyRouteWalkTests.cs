@@ -258,6 +258,8 @@ public sealed class TeamPersonOnlyRouteWalkTests : IAsyncLifetime
         Assert.Contains("POST /team-invitations/accept", names);
         Assert.Contains("POST /team-invitations/decline", names);
         Assert.Contains("GET /teams/{teamId}/members", names);
+        // A contributor's watch view ("Watch your factory", piece 4): mapped, so the walk refuses it to every computer.
+        Assert.Contains("GET " + CcDirector.Gateway.Api.ContributorEndpoints.WatchPattern, names);
         Assert.Contains("GET /teams", names);
         Assert.Contains("POST /teams", names);
         Assert.Contains("GET /teams/{teamId}/library", names);

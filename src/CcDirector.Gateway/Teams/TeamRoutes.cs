@@ -81,7 +81,7 @@ internal static class TeamRoutes
         // pages, through the one check (ContributorFactoryAccess), and only what was sent to them; and the Owner's share of
         // a whole factory with a contributor.
         var customerAccess = new ContributorFactoryAccess(s.Teams, s.Factories, s.FactoryContributors);
-        ContributorEndpoints.Map(app, new ContributorPages(customerAccess, s.Activity, s.Reports, s.Recipients, questions,
+        ContributorEndpoints.Map(app, new ContributorPages(customerAccess, s.FactoryContributors, s.Activity, s.Reports, s.Recipients, questions,
             s.Requests, s.Teams, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants);
         FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.FactorySwitch, s.UtcNow), s.Boundary, s.Tenants);
 
