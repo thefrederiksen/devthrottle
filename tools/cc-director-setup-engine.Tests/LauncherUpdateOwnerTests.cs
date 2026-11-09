@@ -509,6 +509,11 @@ public class LauncherUpdateOwnerTests : IDisposable
         Assert.Equal(new[] { _root }, quits);
         Assert.Equal(new[] { 1001 }, stopped);
         Assert.Contains(result.Steps, s => s.Contains("still holds its instance"));
+
+        // AND THE FILE IT INSTALLED FROM IS GONE (issue #4504, and the review of pull request 4809: no test
+        // asserted this on the swap path). It is spent the moment the swap is applied and the new launcher is
+        // the one running, so the next pass should find nothing to read at all.
+        Assert.False(File.Exists(_staged), "the staged build was installed and then left behind");
     }
 
     [Fact]

@@ -235,13 +235,8 @@ public class LauncherMacInstallerTests : IDisposable
 /// WHICH registration file the macOS launcher step waits for (issue #4519). Kept apart from the tests
 /// above because it moves the process-wide CC_DIRECTOR_ROOT setting.
 /// </summary>
-[Collection(MachineRootCollection.Name)]
-public sealed class LauncherMacInstallerRegistrationPathTests : IDisposable
+public sealed class LauncherMacInstallerRegistrationPathTests
 {
-    private const string RootVariable = "CC_DIRECTOR_ROOT";
-    private readonly string? _previousRoot = Environment.GetEnvironmentVariable(RootVariable);
-
-    public void Dispose() => Environment.SetEnvironmentVariable(RootVariable, _previousRoot);
 
     [Fact]
     public void TheRegistrationItWaitsFor_BelongsToTheInstallItIsPerforming_NotToTheAmbientRoot()
@@ -254,13 +249,13 @@ public sealed class LauncherMacInstallerRegistrationPathTests : IDisposable
         // session, where CC_DIRECTOR_ROOT names that instance. The two halves of one installer disagreed
         // about what the root was.
         //
-        // WHY THE VARIABLE IS SET HERE AND STILL PROVES SOMETHING. DefaultPath is a static resolved ONCE
-        // per process, so setting the variable now cannot move it - which is the whole reason an
-        // installer may not read it: it answers for the process, and an installer was told where to
-        // install. What this asserts is the only thing that holds on every machine and in every process:
-        // the path watched is the one the layout names.
+        // WHY NO VARIABLE IS SET HERE. DefaultPath is a static resolved ONCE per process, so setting
+        // CC_DIRECTOR_ROOT now could not move it - which is the whole reason an installer may not read it:
+        // it answers for the process, and an installer was told where to install. Setting it anyway (as the
+        // first version of this test did) only affects other code in this process that reads the variable
+        // live, which is a coupling for nothing. What this asserts holds on every machine and in every
+        // process: the path watched is the one the layout names.
         var rig = Path.Combine(Path.GetTempPath(), "cc-rig-" + Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable(RootVariable, Path.Combine(rig, "instances", "default"));
         var layout = new InstallLayout(Path.Combine(rig, "local"));
 
         var installer = new LauncherMacInstaller(layout);

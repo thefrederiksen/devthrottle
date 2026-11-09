@@ -11,19 +11,17 @@ namespace CcDirector.Setup.Engine.Tests;
 /// inside a Director session sets CC_DIRECTOR_ROOT, and the ambient path it resolves to is a file no
 /// launcher has ever written.
 /// </summary>
-[Collection(MachineRootCollection.Name)]
-public sealed class LauncherTrayInstallerTests : IDisposable
+public sealed class LauncherTrayInstallerTests
 {
-    private const string RootVariable = "CC_DIRECTOR_ROOT";
-    private readonly string? _previousRoot = Environment.GetEnvironmentVariable(RootVariable);
-
-    public void Dispose() => Environment.SetEnvironmentVariable(RootVariable, _previousRoot);
-
     [Fact]
     public void TheRegistrationItWaitsFor_BelongsToTheInstallItIsPerforming_NotToTheAmbientRoot()
     {
+        // NO ENVIRONMENT VARIABLE IS SET HERE, and the first version of this test set one (the review of
+        // pull request 4808). LauncherDiscovery.DefaultPath is a static resolved ONCE per process, so
+        // setting the variable now cannot move it - the only thing it could affect is other code in this
+        // process that reads the variable live, which is why it had to join the collection that owns the
+        // machine root. What this asserts holds in every process: the path watched is the layout's own.
         var rig = Path.Combine(Path.GetTempPath(), "cc-rig-" + Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable(RootVariable, Path.Combine(rig, "instances", "default"));
         var layout = new InstallLayout(Path.Combine(rig, "local"));
 
         var installer = new LauncherTrayInstaller(layout);

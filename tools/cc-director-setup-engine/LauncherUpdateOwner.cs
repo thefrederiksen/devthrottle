@@ -515,6 +515,14 @@ public sealed class LauncherUpdateOwner
     /// nothing. Anything less - no sidecar, no live launcher, a launcher reporting something older -
     /// keeps the file. A sweep acts only on what it can prove is disposable, and this one deletes two
     /// named files, never a directory.
+    ///
+    /// IT ASKS FOR LESS THAN THE SHORTCUT ABOVE IT, ON PURPOSE. That shortcut requires the launcher to be
+    /// WITNESSED - alive and commandable - before it records a version; this asks only that the installed
+    /// launcher is alive and reports a version at least as new. The difference matters in one state: a
+    /// launcher of the right version that holds no command surface. That machine wants a REPAIR, and this
+    /// file cannot be the repair: FindStagedUpdate has already refused it as not newer than the manifest, so
+    /// nothing in this class would ever install it again. A repair arrives as a newer release, not as the
+    /// build already on disk (the review of pull request 4809 walked this state).
     /// </summary>
     public Task<bool> DiscardSpentStagedBuildAsync()
     {
@@ -551,14 +559,11 @@ public sealed class LauncherUpdateOwner
         if (!File.Exists(stagedPath)) return false;
 
         var staged = ReadVersionOnDisk(stagedPath);
-        if (string.IsNullOrWhiteSpace(staged))
-        {
-            // A staged file with no sidecar was not put there by this product's staging path, and its
-            // version cannot be compared with anything. Somebody else's file is not ours to delete.
-            FileLog.Write($"[LauncherUpdateOwner] {stagedPath} has no recorded version, so whether it is spent "
-                          + "cannot be established; leaving it.");
-            return false;
-        }
+        // A staged file with no sidecar was not put there by this product's staging path, and its version
+        // cannot be compared with anything, so somebody else's file is not ours to delete. NOT LOGGED here:
+        // FindStagedUpdate says the same thing about the same file on the same pass, and two lines a cycle
+        // about one fact is how a log stops being read (the review of pull request 4809).
+        if (string.IsNullOrWhiteSpace(staged)) return false;
 
         var reading = _witness.Read();
         if (!reading.ProcessAlive || string.IsNullOrWhiteSpace(reading.Version)) return false;
@@ -578,6 +583,18 @@ public sealed class LauncherUpdateOwner
     /// <summary>The two files, by name, with the reason in the log. Never throws.</summary>
     private static bool DeleteSpentStagedBuild(string stagedPath, string stagedVersion, string runningVersion)
     {
+        // ANOTHER DIRECTOR MAY HAVE SWEPT IT WHILE THIS ONE WAITED FOR THE LOCK, and that is an ordinary
+        // race on a machine running several Directors, not a failure. Read inside the lock, where the answer
+        // cannot change again: without this the length read below threw FileNotFoundException and the pass
+        // logged "discarding ... FAILED" for a file that had been correctly removed a moment earlier (the
+        // review of pull request 4809).
+        if (!File.Exists(stagedPath))
+        {
+            FileLog.Write($"[LauncherUpdateOwner] the spent staged launcher {stagedVersion} was already gone "
+                          + $"when the lock was taken ({stagedPath}); another Director swept it.");
+            return false;
+        }
+
         try
         {
             var bytes = new FileInfo(stagedPath).Length;
