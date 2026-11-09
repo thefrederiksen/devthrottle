@@ -173,6 +173,29 @@ public sealed class TeamShowcaseTests : IDisposable
     }
 
     [Fact]
+    public void WriteAndRemove_EachMadeUpMember_LeavesOneMembershipRecordPerChange_ByTheOwner_AtTheShowcasesClock()
+    {
+        var written = _rig.Now;
+        Assert.Null(Showcase().Write(_rig.Team.Value, Tag, Content()).Refusal);
+        _rig.Now = written.AddHours(1);
+
+        Assert.Null(Showcase().Remove(_rig.Team.Value, Tag).Refusal);
+
+        using var ctx = _rig.Db.CreateUnscopedContext();
+        var records = ctx.TeamMembershipEvents
+            .Where(e => e.TeamId == _rig.Team.Value && e.AccountSubject.StartsWith(TeamShowcase.SubjectPrefix))
+            .ToList();
+        Assert.Equal(6, records.Count);
+        Assert.All(records, r => Assert.Equal(MentorRig.Owner, r.BySubject));
+        var peter = records.Where(r => r.AccountSubject == TeamShowcase.SubjectFor(Tag, "peter")).OrderBy(r => r.AtUtc).ToList();
+        Assert.Equal((TeamMembershipEvents.Added, (TeamRole?)null, (TeamRole?)TeamRole.Manager, written),
+            (peter[0].Event, peter[0].FromRole, peter[0].ToRole, peter[0].AtUtc));
+        Assert.Equal((TeamMembershipEvents.Removed, (TeamRole?)TeamRole.Manager, (TeamRole?)null, written.AddHours(1)),
+            (peter[1].Event, peter[1].FromRole, peter[1].ToRole, peter[1].AtUtc));
+        Assert.Empty(ctx.TeamMembers.Where(m => m.TeamId == _rig.Team.Value && m.ShowcaseTag == Tag));
+    }
+
+    [Fact]
     public void Remove_WithNoTag_IsRefusedAndDeletesNothing()
     {
         Assert.Null(Showcase().Write(_rig.Team.Value, Tag, Content()).Refusal);

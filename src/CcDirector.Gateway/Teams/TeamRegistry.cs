@@ -468,17 +468,7 @@ public sealed partial class TeamRegistry
     private void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change,
         string accountSubject, TeamRole? role, string membershipEvent, TeamRole? fromRole, string? bySubject)
     {
-        ctx.TeamMembershipEvents.Add(new TeamMembershipEventEntity
-        {
-            Id = Guid.NewGuid().ToString(),
-            TeamId = teamId,
-            AccountSubject = accountSubject,
-            Event = membershipEvent,
-            FromRole = fromRole,
-            ToRole = role,
-            BySubject = bySubject,
-            AtUtc = _utcNow(),
-        });
+        AddMembershipRecord(ctx, teamId, accountSubject, membershipEvent, fromRole, role, bySubject, _utcNow());
         var cleared = change == TeamMembershipChange.MemberRemoved ? ClearWhatWasSentTo(ctx, teamId, accountSubject) : 0;
 
         // Read before the save: a query goes to the database, which does not yet hold the pending change.
@@ -498,6 +488,81 @@ public sealed partial class TeamRegistry
         // Raised for every change, whether or not the paid-seat count moved: what must follow a person's membership
         // is for the listener to decide, not the bill.
         MembershipCommitted?.Invoke(new TeamMembershipCommitted(teamId, accountSubject, change, role));
+    }
+
+    /// <summary>
+    /// THE ONE PLACE A MEMBERSHIP RECORD IS WRITTEN (security review Risk 12): adds one
+    /// <see cref="TeamMembershipEventEntity"/> to the caller's pending save, so it commits with the change it records or not
+    /// at all. Called by <see cref="CommitMembershipChange"/> and by the showcase's member writes, and nowhere else.
+    /// </summary>
+    private static void AddMembershipRecord(GatewayDbContext ctx, string teamId, string accountSubject, string membershipEvent,
+        TeamRole? fromRole, TeamRole? toRole, string? bySubject, DateTime atUtc)
+    {
+        ctx.TeamMembershipEvents.Add(new TeamMembershipEventEntity
+        {
+            Id = Guid.NewGuid().ToString(),
+            TeamId = teamId,
+            AccountSubject = accountSubject,
+            Event = membershipEvent,
+            FromRole = fromRole,
+            ToRole = toRole,
+            BySubject = bySubject,
+            AtUtc = atUtc,
+        });
+    }
+
+    /// <summary>
+    /// ADD A SHOWCASE'S MADE-UP MEMBERS (<see cref="TeamShowcase"/>), each with its membership record, in ONE save under the
+    /// write lock. Not <see cref="CommitMembershipChange"/>: a made-up member is not an account, so it holds no paid seat,
+    /// has no Director to cut off and raises no <see cref="MembershipCommitted"/>; but it is a row in <c>team_members</c>,
+    /// so it leaves the same record as any other member. Every row must carry a showcase tag.
+    /// </summary>
+    /// <param name="bySubject">Who wrote the showcase: the team's Owner.</param>
+    /// <param name="atUtc">The showcase's clock.</param>
+    internal void AddShowcaseMembers(string teamId, IReadOnlyList<TeamMemberEntity> rows, string bySubject, DateTime atUtc)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var by = RequireSubject(bySubject);
+        if (rows.Any(r => r.ShowcaseTag is null || !string.Equals(r.TeamId, teamId, StringComparison.Ordinal)))
+            throw new ArgumentException("A showcase member row carries its tag and this team's id.", nameof(rows));
+        FileLog.Write($"[TeamRegistry] AddShowcaseMembers: team {LogTeam(teamId)} count={rows.Count}");
+
+        lock (_writeLock)
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            foreach (var row in rows)
+            {
+                ctx.TeamMembers.Add(row);
+                AddMembershipRecord(ctx, teamId, row.AccountSubject, TeamMembershipEvents.Added, null, row.Role, by, atUtc);
+            }
+            ctx.SaveChanges();
+        }
+        FileLog.Write($"[TeamRegistry] AddShowcaseMembers: team {LogTeam(teamId)} added {rows.Count} made-up member(s), each recorded");
+    }
+
+    /// <summary>
+    /// REMOVE THE MADE-UP MEMBERS carrying <paramref name="tag"/> (<see cref="TeamShowcase.Remove"/>), each with its
+    /// membership record, in ONE save under the write lock. Only rows with that tag are touched. Returns how many went.
+    /// </summary>
+    /// <param name="bySubject">Who removed the showcase: the team's Owner.</param>
+    /// <param name="atUtc">The showcase's clock.</param>
+    internal int RemoveShowcaseMembers(string teamId, string tag, string bySubject, DateTime atUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        var by = RequireSubject(bySubject);
+        lock (_writeLock)
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            var rows = ctx.TeamMembers.Where(m => m.TeamId == teamId && m.ShowcaseTag == tag).ToList();
+            foreach (var row in rows)
+            {
+                ctx.TeamMembers.Remove(row);
+                AddMembershipRecord(ctx, teamId, row.AccountSubject, TeamMembershipEvents.Removed, row.Role, null, by, atUtc);
+            }
+            ctx.SaveChanges();
+            FileLog.Write($"[TeamRegistry] RemoveShowcaseMembers: team {LogTeam(teamId)} removed {rows.Count} made-up member(s), each recorded");
+            return rows.Count;
+        }
     }
 
     /// <summary>

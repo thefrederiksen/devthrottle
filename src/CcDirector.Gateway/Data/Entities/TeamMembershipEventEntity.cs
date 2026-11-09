@@ -6,9 +6,13 @@ namespace CcDirector.Gateway.Data.Entities;
 /// had exactly one account), a role changed from one to another, someone was removed, or someone left. Who did it and
 /// when are on the row.
 ///
-/// Written by <see cref="Teams.TeamRegistry"/> in the SAME database save as the change it records - the one place a
-/// membership change is committed - so a change and its record can never disagree, and a refused change writes none. Never
-/// changed and never deleted once written: it outlives the member row it describes, which is the point.
+/// Written only by <see cref="Teams.TeamRegistry"/>, through its one record writer, in the SAME database save as the change
+/// it records - a person's membership change, and the made-up members a showcase adds and removes alike - so a change and
+/// its record can never disagree, and a refused change writes none. Never changed once written, and it outlives the member
+/// row it describes, which is the point.
+///
+/// DELETING A TEAM DELETES ITS RECORD: the foreign key to <c>teams</c> cascades, so the team's membership record goes with
+/// the team, as the rest of a team's data does. Teams are not deleted in the first version.
 ///
 /// PERSONAL DATA: account subjects only. No email address and no name is copied here; a reader that needs a name reads it
 /// from the account's own row at the moment it shows one. Never shown to a contributor, and no route reads it yet.
