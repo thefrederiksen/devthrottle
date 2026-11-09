@@ -86,8 +86,12 @@ internal static class FactoryAgentsGate
     /// its 404 when the area is off, ending in what was not done. It names the plan when the plan is why; otherwise it
     /// is the sentence those routes have always said.
     /// </summary>
-    internal static string OffSentence(FactoryAgentsAnswer answer, string whatWasNotDone)
-        => answer.OffReason == FactoryAgentsOffReasons.PlanRequired
-            ? $"Factories come with the Pro plan, and this account's plan does not include them, so {whatWasNotDone}."
-            : $"Factory agents are switched off for this account, so {whatWasNotDone}. The administrator switches them on per account.";
+    internal static string OffSentence(FactoryAgentsAnswer answer, string whatWasNotDone) => answer.OffReason switch
+    {
+        FactoryAgentsOffReasons.PlanRequired
+            => $"Factories come with the Pro plan, and this account's plan does not include them, so {whatWasNotDone}.",
+        FactoryAgentsOffReasons.TeamOwnerPlanRequired
+            => $"Factories in a team come with the team Owner's Pro plan, and this team's Owner is not on Pro, so {whatWasNotDone}.",
+        _ => $"Factory agents are switched off for this account, so {whatWasNotDone}. The administrator switches them on per account.",
+    };
 }

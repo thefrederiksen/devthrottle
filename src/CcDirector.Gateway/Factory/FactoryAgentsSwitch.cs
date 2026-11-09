@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Settings;
+using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tenancy;
 
 namespace CcDirector.Gateway.Factory;
@@ -28,6 +29,17 @@ namespace CcDirector.Gateway.Factory;
 ///      (<see cref="TenantAiGate.SelfHost"/>) answers Allowed for everything, and taking that as a plan grant would
 ///      switch factories on for every self-hosted Gateway whose machine switch is off.
 ///
+///   4. In a TEAM's account only, the team's OWNER'S OWN PLAN grants <see cref="EntitlementScopes.Factories"/> (owner
+///      ruling, 9 November 2026: "Yes, Pro carries factories into my teams."). A team is its own account, so grant 3
+///      reads the TEAM's bill there - and a team with no bill could not run a factory even though its Owner is on Pro.
+///      The Owner's plan is read live on every question (<see cref="TeamOwnerFactories"/>), never copied onto the team,
+///      so an Owner who loses Pro turns the team's factories off on the next question. The two COMBINE BY OR: the area
+///      is on when the Owner's plan grants OR the team's bill grants, so a team bill keeps everything it already
+///      granted. Asked before the team's bill, because it is the grant the ruling names. Unknown only when neither
+///      grants and at least one of the two could not be read. Off for this reason is
+///      <see cref="FactoryAgentsOffReasons.TeamOwnerPlanRequired"/>, which every reader words for a team. A personal
+///      account is never asked about an Owner, so its answer is exactly as before.
+///
 /// An account switched OFF does not override a grant: an off decision is the absence of the owner's grant, not a
 /// refusal of the other two. Default: off for everyone - no config block, no recorded decision and no plan is off.
 ///
@@ -44,6 +56,7 @@ public sealed class FactoryAgentsSwitch
 
     private readonly TenantSettingsStore _settings;
     private readonly TenantAiGate? _plans;
+    private readonly TeamOwnerFactories? _teamOwners;
     private readonly Action<string> _log;
 
     /// <param name="machineWide">The machine switch, read once from config.json at Gateway construction.</param>
@@ -52,12 +65,15 @@ public sealed class FactoryAgentsSwitch
     /// and a gate that does not gate (<see cref="TenantAiGate.IsGating"/> false) is treated exactly as null - the plan
     /// grant exists only where plans are checked.</param>
     /// <param name="log">Where the decision lines go; the Gateway log when null. Injected so a test can read them.</param>
+    /// <param name="teamOwners">Grant 4, the team Owner's own plan: the hosted Gateway passes it where Teams is released.
+    /// Null elsewhere, and ignored wherever <paramref name="plans"/> is - the grant exists only where plans are checked.</param>
     public FactoryAgentsSwitch(bool machineWide, TenantSettingsStore settings, TenantAiGate? plans = null,
-        Action<string>? log = null)
+        Action<string>? log = null, TeamOwnerFactories? teamOwners = null)
     {
         MachineWide = machineWide;
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _plans = plans is { IsGating: true } ? plans : null;
+        _teamOwners = _plans is null ? null : teamOwners;
         _log = log ?? FileLog.Write;
     }
 
@@ -104,14 +120,25 @@ public sealed class FactoryAgentsSwitch
             return FactoryAgentsAnswer.Off(FactoryAgentsOffReasons.NotSwitchedOn, tier: null,
                 tenant is null ? "no account is bound to this request" : "not switched on on this Gateway or for this account");
 
+        // Grant 4: in a team's account, the Owner's own plan. Null for a personal account, which is never asked.
+        var owner = tenant is { } team ? _teamOwners?.Read(team) : null;
+        if (owner is { Answer: TeamOwnerPlanAnswer.Granted })
+            return FactoryAgentsAnswer.On(FactoryAgentsGrant.TeamOwnerPlan, owner.Tier, "the team's Owner's own plan includes factories");
+
         // The gate's timer variant, because THIS class writes the one line for the decision: the answer is identical to
         // ForTenant's, and a read that fails is still logged by the gate.
         var plan = _plans.ForTenantOnATimer(tenant, EntitlementScopes.Factories);
-        return plan.Verdict switch
+        if (plan.Verdict == TenantAiVerdict.Allowed)
+            return FactoryAgentsAnswer.On(FactoryAgentsGrant.Plan, plan.Tier, plan.Reason);
+        if (plan.Verdict == TenantAiVerdict.Unknown)
+            return FactoryAgentsAnswer.Unknown(plan.Reason);
+        return owner?.Answer switch
         {
-            TenantAiVerdict.Allowed => FactoryAgentsAnswer.On(FactoryAgentsGrant.Plan, plan.Tier, plan.Reason),
-            TenantAiVerdict.Refused => FactoryAgentsAnswer.Off(FactoryAgentsOffReasons.PlanRequired, plan.Tier, plan.Reason),
-            _ => FactoryAgentsAnswer.Unknown(plan.Reason),
+            null => FactoryAgentsAnswer.Off(FactoryAgentsOffReasons.PlanRequired, plan.Tier, plan.Reason),
+            TeamOwnerPlanAnswer.NotPro => FactoryAgentsAnswer.Off(FactoryAgentsOffReasons.TeamOwnerPlanRequired, owner.Tier,
+                $"the team's Owner's own plan does not include factories, and {plan.Reason}"),
+            TeamOwnerPlanAnswer.Unknown => FactoryAgentsAnswer.Unknown($"the team's Owner's plan could not be read, and {plan.Reason}"),
+            var other => throw new InvalidOperationException($"TeamOwnerFactories answered {other}, which this code does not know."),
         };
     }
 
@@ -177,6 +204,9 @@ public enum FactoryAgentsGrant
 
     /// <summary>The account's plan grants <see cref="EntitlementScopes.Factories"/>.</summary>
     Plan,
+
+    /// <summary>In a team's account: the team's Owner's own plan grants <see cref="EntitlementScopes.Factories"/>.</summary>
+    TeamOwnerPlan,
 }
 
 /// <summary>Why the area is not on, as the switch question carries it in <c>reason</c>.</summary>
@@ -190,6 +220,10 @@ public static class FactoryAgentsOffReasons
 
     /// <summary>Hosted: the owner switch is not on and the plan read FAILED.</summary>
     public const string PlanUnknown = "plan_unknown";
+
+    /// <summary>Hosted, in a team's account: the team's Owner's own plan does not include factories, and the team's bill
+    /// does not either. Factories in a team come with its Owner's Pro plan.</summary>
+    public const string TeamOwnerPlanRequired = "team_owner_plan_required";
 }
 
 /// <summary>
@@ -204,12 +238,13 @@ public sealed record FactoryAgentsAnswer(
     public bool IsOn => State == FactoryAgentsState.On;
 
     /// <summary>The grant in the log's and the administrator route's words: <c>machine</c>, <c>owner switch</c>,
-    /// <c>plan tier pro</c>, or <c>refused</c> / <c>unknown</c> when no grant holds.</summary>
+    /// <c>plan tier pro</c>, <c>team owner's plan tier pro</c>, or <c>refused</c> / <c>unknown</c> when no grant holds.</summary>
     public string GrantName => Grant switch
     {
         FactoryAgentsGrant.MachineSwitch => "machine",
         FactoryAgentsGrant.OwnerSwitch => "owner switch",
         FactoryAgentsGrant.Plan => $"plan tier {Tier ?? "legacy"}",
+        FactoryAgentsGrant.TeamOwnerPlan => $"team owner's plan tier {Tier ?? "legacy"}",
         _ => State == FactoryAgentsState.Unknown ? "unknown" : "refused",
     };
 

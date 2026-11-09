@@ -80,6 +80,15 @@ internal static class FactoryAgentsViewEndpoints
     internal const string PlanRequiredText =
         "A factory runs your agents for you on a schedule and reports what they did. Factories come with the Pro plan.";
 
+    /// <summary>The heading in a TEAM's account whose Owner is not on Pro (owner ruling, 9 November 2026: "Yes, Pro carries
+    /// factories into my teams."). No pricing link: a member buying a plan of their own would not switch the team on.</summary>
+    internal const string TeamOwnerPlanRequiredTitle = "Factories in a team come with the Owner's Pro plan";
+
+    /// <summary>The body under <see cref="TeamOwnerPlanRequiredTitle"/>: why it is off, and what switches it back on.</summary>
+    internal const string TeamOwnerPlanRequiredText =
+        "A factory runs your agents for you on a schedule and reports what they did. In a team, factories come with the "
+        + "team Owner's Pro plan, and this team's Owner is not on Pro right now. They come back on here as soon as the Owner is on Pro.";
+
     /// <summary>The sentence while the account's plan cannot be read.</summary>
     internal const string PlanUnknownText =
         "Your plan could not be checked just now, so Factories cannot be shown. Try again in a minute.";
@@ -98,6 +107,12 @@ internal static class FactoryAgentsViewEndpoints
                 HowToStart = PlanRequiredText,
                 Title = PlanRequiredTitle,
                 SubscribeUrl = Tenancy.EntitlementRegistry.SubscribeUrl,
+            },
+            Factory.FactoryAgentsOffReasons.TeamOwnerPlanRequired => new FactoryAgentsSwitchDto
+            {
+                Reason = answer.OffReason,
+                HowToStart = TeamOwnerPlanRequiredText,
+                Title = TeamOwnerPlanRequiredTitle,
             },
             Factory.FactoryAgentsOffReasons.PlanUnknown => new FactoryAgentsSwitchDto
             {

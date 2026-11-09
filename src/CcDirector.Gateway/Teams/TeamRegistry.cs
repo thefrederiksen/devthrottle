@@ -211,6 +211,19 @@ public sealed partial class TeamRegistry
         return false;
     }
 
+    /// <summary>
+    /// The account subject of the team's Owner, or null when the team records none (or there is no such team). Read from
+    /// the database on every call, never kept: an Owner who hands the team on is the new answer at once.
+    /// </summary>
+    public string? OwnerSubjectOf(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId))
+            return null;
+
+        using var ctx = _db.CreateUnscopedContext();
+        return OwnerSubject(ctx, teamId);
+    }
+
     /// <summary>The account's role in a team, or null when it is not a member (or there is no such team).</summary>
     public TeamRole? RoleOf(string teamId, string accountSubject)
     {
