@@ -330,14 +330,41 @@ public sealed class TeamLauncherTests : IAsyncLifetime
         Assert.NotNull(_connections.GetActiveConnection(_alicePersonal, "ANY-PC"));
     }
 
-    private FakeHubCtx StreamHello(string key, string machine)
+    // Shows: what Smart Restart asks before it closes anything now says yes for a team Director: once its own launcher
+    // has registered and holds a stream declaring the guarded restart, the restart check for its computer, in the
+    // team's tenant, answers that it can be restarted - the answer that was "no launcher is registered" before.
+    [Fact]
+    public async Task RestartCapability_ATeamDirectorWhoseLauncherRegisteredAndStreams_CanBeRestarted()
+    {
+        Assert.Equal(HttpStatusCode.Created, (await RegisterAsync(_aliceKey, AlicePc)).Status);
+        var ctx = StreamHello(_aliceKey, AlicePc, new LauncherCapabilityDeclaration
+        {
+            Commands = new List<string>
+            {
+                LauncherCapabilities.DirectorStart, LauncherCapabilities.DirectorStop,
+                LauncherCapabilities.DirectorRestart, LauncherCapabilities.DirectorRestartOnlyIfEmpty,
+            },
+            RestartSignalArmed = true,
+            ServingRootIsInstanceHome = false,
+            ServingRootKey = "b1706c7af60c",
+        });
+        Assert.False(ctx.Aborted);
+
+        var answer = MachineRestartCapability.Judge(AlicePc, _launchers.Get(_teamA, AlicePc),
+            _connections.GetActiveConnection(_teamA, AlicePc), _launchers.UtcNow);
+
+        Assert.Equal(RestartVerdict.CanRestart, answer.Verdict);
+        Assert.Null(DirectorRestartGate.Refusal(answer));
+    }
+
+    private FakeHubCtx StreamHello(string key, string machine, LauncherCapabilityDeclaration? capability = null)
     {
         var http = new DefaultHttpContext();
         http.Items[AuthMiddleware.DeviceKeyItemKey] = key;
         http.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = Identity(key);
         var ctx = new FakeHubCtx("conn-launcher-" + Interlocked.Increment(ref _connectionCount), http);
         var hub = new LauncherHub(_connections, _boundary, _check) { Context = ctx };
-        hub.Hello(new LauncherStreamHello { MachineName = machine, Version = "1.0" });
+        hub.Hello(new LauncherStreamHello { MachineName = machine, Version = "1.0", Capability = capability });
         return ctx;
     }
 
