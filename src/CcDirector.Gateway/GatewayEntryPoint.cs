@@ -32,8 +32,8 @@ public static class GatewayEntryPoint
         //  - Its own log file. The default discriminator is the process id, which is 1 in EVERY container,
         //    so both containers computed the same path on the Server Message Block mount and clobbered each
         //    other's records mid-line. Each container start now draws a random file token instead, so two
-        //    overlapping containers can never write one file (a container writes one file per day under it). Both settings must be applied before
-        //    FileLog.Start().
+        //    overlapping containers can never write one file (a container writes one file per day under it).
+        //    Both settings must be applied before FileLog.Start().
         //  - On the persistent shared drive, so it SURVIVES A DEPLOY (owner decision, 9 November 2026). From
         //    September to November 2026 it lived on the container's temporary disk to save share traffic, and
         //    every deploy erased it - the one moment the deploy outage investigation needed it. It lives in
