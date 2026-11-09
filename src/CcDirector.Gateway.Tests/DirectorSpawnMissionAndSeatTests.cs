@@ -125,7 +125,7 @@ public sealed class DirectorSpawnMissionAndSeatTests : IDisposable
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, sendCommand: send, missions: missions, workflowRuns: runs, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
-            missions: missions, workflowRuns: runs, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+            missions: missions, workflowRuns: runs, teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
         await app.StartAsync();
         _app = app;

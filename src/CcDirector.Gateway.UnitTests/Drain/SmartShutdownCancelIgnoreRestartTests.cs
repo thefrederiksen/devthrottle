@@ -3,6 +3,7 @@ using CcDirector.ControlApi;
 using CcDirector.ControlApi.Drain;
 using CcDirector.ControlApi.Restart;
 using CcDirector.ControlApi.SmartRestart;
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.UnitTests.Restart;
 using Xunit;
@@ -751,7 +752,8 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         Assert.Equal(SmartShutdownOutcome.RestartAccepted, watched.Result.Outcome);
         Assert.NotNull(liveWhenAsked);
         Assert.Empty(liveWhenAsked!);
-        Assert.Equal(1, launcher.CapabilityChecks);
+        // Twice: once before anything is touched, and again immediately before the ask.
+        Assert.Equal(2, launcher.CapabilityChecks);
         Assert.Equal(1, launcher.LauncherAsks);
         Assert.Equal("launcher-asked", sessions.Journal![^1]);
         Assert.True(sessions.Journal!.IndexOf("end:silent") < sessions.Journal!.IndexOf("launcher-asked"));
@@ -780,7 +782,8 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         sessions.Handover(dir.Path, "done", "Hands over at once", DrainTestRig.Block(restore: true, why: "Work is left."));
         var launcher = new DirectorRestartCycleTests.Gateway();
         if (refusedAtTheRecheck)
-            launcher.Capability = new MachineRestartCapabilityDto
+            // The machine could be restarted when the run began and can no longer be after the drain.
+            launcher.CapabilityAfterTheFirstCheck = new MachineRestartCapabilityDto
             {
                 Verdict = RestartVerdict.CannotRestart, Reason = "the launcher on this machine is not running",
                 GuardedRestart = CapabilityState.Available, GuardedRestartReason = "declares the guard",
@@ -814,7 +817,8 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         public Task<MachineRestartCapabilityDto> CheckCapabilityAsync(string machine, CancellationToken ct)
         {
             CapabilityChecks++;
-            if (!DiesOnlyAtTheAsk) throw new HttpRequestException("No connection could be made to gateway.example");
+            // The first check is the one made before anything is touched; the Gateway dies after it.
+            if (!DiesOnlyAtTheAsk && CapabilityChecks > 1) throw new HttpRequestException("No connection could be made to gateway.example");
             return Task.FromResult(new MachineRestartCapabilityDto
             {
                 Verdict = RestartVerdict.CanRestart, Reason = "can be restarted",
@@ -850,7 +854,7 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         var watched = await RunWatchedAsync(sessions, sink, dir.Path, launcher: launcher, purpose: SmartShutdownPurpose.Restart);
 
         Assert.Equal(SmartShutdownOutcome.RestartRefused, watched.Result.Outcome);
-        Assert.Equal(1, launcher.CapabilityChecks);
+        Assert.Equal(2, launcher.CapabilityChecks);
         Assert.Equal(diesOnlyAtTheAsk ? 1 : 0, launcher.LauncherAsks);
         Assert.Contains(
             diesOnlyAtTheAsk ? "The connection to gateway.example was closed" : "No connection could be made to gateway.example",
@@ -927,7 +931,7 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
             purpose: SmartShutdownPurpose.Restart, hasBeenAskedToStop: () => askedToStop);
 
         Assert.Equal(SmartShutdownOutcome.RestartAccepted, watched.Result.Outcome);
-        Assert.Equal(1, launcher.CapabilityChecks);
+        Assert.Equal(2, launcher.CapabilityChecks);
         Assert.Equal(1, launcher.LauncherAsks);
         Assert.True(askedToStop);
         Assert.Contains("The launcher accepted the restart", watched.Result.Detail);
@@ -996,6 +1000,96 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         Assert.Null(DirectorSmartShutdown.Active);
         Assert.Equal(0, launcher.CapabilityChecks);
         Assert.Equal(0, launcher.LauncherAsks);
+    }
+
+    // Shows: with the restart purpose, a machine with no launcher registered is refused BEFORE the drain asks
+    // any session anything (devthrottle_internal#2829). Before, every session was closed first and only then
+    // was the run told "no launcher is registered". The refusal is one plain sentence carrying the Gateway's
+    // own reason; no session is sent, captured or ended, nothing is saved, and the launcher is never asked.
+    [Fact]
+    public async Task Start_WithTheRestartPurpose_NoLauncherRegistered_IsRefusedBeforeAnySessionIsTouched()
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("solo", "Standalone"), Seat("other", "Another", order: 1));
+        sessions.MidTurn.Add("solo");
+        var launcher = new DirectorRestartCycleTests.Gateway
+        {
+            Capability = MachineRestartCapability.Judge("TEST_MACHINE", null, null, Start),
+        };
+
+        var watched = await RunWatchedAsync(sessions, sink, dir.Path, launcher: launcher, purpose: SmartShutdownPurpose.Restart);
+
+        Assert.Equal(SmartShutdownOutcome.Refused, watched.Result.Outcome);
+        Assert.Contains("no launcher is registered", watched.Result.Detail);
+        Assert.Contains("Nothing has been touched", watched.Result.Detail);
+        Assert.Null(watched.Result.WorkspaceId);
+        Assert.Empty(sessions.Journal!);
+        Assert.Empty(sessions.Sent);
+        Assert.Null(sink.CaptureRequest);
+        Assert.Empty(sink.Saves);
+        Assert.Contains("solo", sessions.Live);
+        Assert.Contains("other", sessions.Live);
+        Assert.Equal(1, launcher.CapabilityChecks);
+        Assert.Equal(0, launcher.LauncherAsks);
+        Assert.DoesNotContain(watched.Seen, s => s.Phase == SmartShutdownPhase.Restarting);
+    }
+
+    // Shows: the dialog's check asks the same question, so it says a restart cannot be done - in the Gateway's
+    // own words - before the button is pressed, while the smart shutdown to close is still offered.
+    [Fact]
+    public async Task CheckAsync_WithTheRestartPurpose_NoLauncherRegistered_SaysItCannotRestartAndWhy()
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("solo", "Standalone"));
+        var launcher = new DirectorRestartCycleTests.Gateway
+        {
+            Capability = MachineRestartCapability.Judge("TEST_MACHINE", null, null, Start),
+        };
+
+        var answer = await Engine(sessions, sink, dir.Path, launcher: launcher).CheckAsync(SmartShutdownPurpose.Restart, CancellationToken.None);
+
+        Assert.True(answer.CanSmartShutdown);
+        Assert.False(answer.CanRestart);
+        Assert.Contains("no launcher is registered", answer.RestartRefusal);
+        Assert.Empty(sessions.Journal!);
+        Assert.Equal(0, launcher.LauncherAsks);
+    }
+
+    // Shows: a Gateway that cannot answer the launcher question before the run refuses the restart before
+    // anything is touched, carrying the error's own words - never a drain on a guess.
+    [Fact]
+    public async Task Start_WithTheRestartPurpose_TheLauncherQuestionCannotBeAnswered_IsRefusedBeforeAnySessionIsTouched()
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("solo", "Standalone"));
+        var launcher = new GatewayThatFailsEveryCheck();
+
+        var watched = await RunWatchedAsync(sessions, sink, dir.Path, launcher: launcher, purpose: SmartShutdownPurpose.Restart);
+
+        Assert.Equal(SmartShutdownOutcome.Refused, watched.Result.Outcome);
+        Assert.Contains("No connection could be made to gateway.example", watched.Result.Detail);
+        Assert.Contains("Nothing has been touched", watched.Result.Detail);
+        Assert.Empty(sessions.Journal!);
+        Assert.Null(sink.CaptureRequest);
+        Assert.Contains("solo", sessions.Live);
+        Assert.Equal(0, launcher.LauncherAsks);
+    }
+
+    private sealed class GatewayThatFailsEveryCheck : IRestartCycleGateway
+    {
+        public int LauncherAsks;
+
+        public Task<MachineRestartCapabilityDto> CheckCapabilityAsync(string machine, CancellationToken ct)
+            => throw new HttpRequestException("No connection could be made to gateway.example");
+
+        public Task<LauncherRestartAnswer> AskOwnLauncherRestartOnlyIfEmptyAsync(string machine, string? exePath, CancellationToken ct)
+        {
+            LauncherAsks++;
+            return Task.FromResult(new LauncherRestartAnswer(200, "{}"));
+        }
+
+        public Task ReportAsync(string machine, string requestId, DirectorRestartProgressReport report, CancellationToken ct)
+            => Task.CompletedTask;
     }
 
     // Shows: with the close purpose the launcher is never asked and the machine is never re-checked, even

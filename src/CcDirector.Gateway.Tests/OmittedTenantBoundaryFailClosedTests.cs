@@ -187,7 +187,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         });
 
         await using (var unwired = await Host.StartAsync(_tenant,
-            app => MachineEndpoints.Map(app, true, unwiredLaunchers, Spawner(), boundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
+            app => MachineEndpoints.Map(app, true, unwiredLaunchers, Spawner(), boundary: null!, teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
         {
             var (status, body) = await Get(unwired.Http, "/launchers");
             AssertRefusal(status, body);
@@ -204,7 +204,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         });
 
         await using var wired = await Host.StartAsync(_tenant,
-            app => MachineEndpoints.Map(app, true, wiredLaunchers, Spawner(), boundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
+            app => MachineEndpoints.Map(app, true, wiredLaunchers, Spawner(), boundary: WiredBoundary(), teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/launchers");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Equal(JsonValueKind.Array, JsonDocument.Parse(wiredBody).RootElement.ValueKind);
@@ -630,7 +630,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         var http = new DefaultHttpContext();
         http.Items[AuthMiddleware.DeviceKeyItemKey] = deviceKey;
         var ctx = new FakeHubCtx(connId, http);
-        var hub = new LauncherHub(registry, tenantBoundary) { Context = ctx };
+        var hub = new LauncherHub(registry, tenantBoundary, CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly) { Context = ctx };
         return (hub, ctx);
     }
 

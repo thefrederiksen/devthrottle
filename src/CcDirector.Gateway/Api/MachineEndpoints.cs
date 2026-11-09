@@ -162,6 +162,11 @@ internal static class MachineEndpoints
         // child of a factory session was born outside its factory for life and no test went red. A harness that
         // genuinely cannot read membership says so with an explicit reader, `_ => SessionFactoryLookup.NotKnown`.
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
+        // Team implementation 3.1a (devthrottle_internal#2829): inside a team, a launcher registers, beats, says goodbye
+        // and streams only for the computer its own team Director was set up on. REQUIRED for the same reason as the
+        // boundary: a forgotten check would let any member's launcher take a colleague's computer. A host with no teams
+        // passes TeamLauncherCheck.PersonalAccountsOnly, by name.
+        Teams.TeamLauncherCheck teamLaunchers,
         LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand = null,
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store. When non-null, a
         // mission-scoped spawn (req.MissionId set) is validated against it here - the Gateway is the source
@@ -208,10 +213,11 @@ internal static class MachineEndpoints
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
+        ArgumentNullException.ThrowIfNull(teamLaunchers);
 
         FileLog.Write($"[MachineEndpoints] mapping {LauncherPrefix} + {MachinePrefix}; hosted={hosted} - every route authorizes against the CALLING tenant, resolved from the authenticated device key");
 
-        MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
+        MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary, teamLaunchers);
         MapMachineRoutes(outer.MapGroup(MachinePrefix), hosted, launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
             directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor, bossStartFor, recordBossStart, resourceSummaries);
     }
@@ -232,8 +238,17 @@ internal static class MachineEndpoints
     /// and every one of them takes the CALLING tenant, so there is no way to write a row into a partition the
     /// caller does not own.
     /// </summary>
-    private static void MapLauncherRoutes(IEndpointRouteBuilder app, LauncherRegistry launchers, HostedTenantBoundary? boundary)
+    private static void MapLauncherRoutes(IEndpointRouteBuilder app, LauncherRegistry launchers, HostedTenantBoundary? boundary,
+        Teams.TeamLauncherCheck teamLaunchers)
     {
+        // Inside a team, the machine must be the caller's own team Director's computer (devthrottle_internal#2829).
+        // The team gate let the request through for this endpoint to ask; a personal account is never refused here.
+        IResult? TeamRefusal(HttpContext ctx, TenantId tenant, string? machine, string what) =>
+            teamLaunchers.Refuse(tenant, Util.AuthMiddleware.AuthenticatedDevice(ctx), Util.AuthMiddleware.CallingSession(ctx), machine, what)
+                is { } refusal
+                ? Results.Json(new { error = refusal, code = Teams.TeamEndpointGate.RefusalCode }, statusCode: 403)
+                : null;
+
         // ===== Launcher self-registration surface =====
         // The launcher's own machine name is client-supplied; the OWNING TENANT is not - it is resolved from
         // the launcher's authenticated device key, so a launcher registers only into its own tenant partition.
@@ -247,6 +262,7 @@ internal static class MachineEndpoints
             if (req is null || string.IsNullOrWhiteSpace(req.MachineName))
                 return Results.BadRequest(new { error = "machineName is required" });
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (TeamRefusal(ctx, tenant, req.MachineName, "POST /launchers/register") is { } refused) return refused;
 
             FileLog.Write($"[MachineEndpoints] POST /launchers/register: tenant={tenant.Value}, machine={req.MachineName}, pid={req.Pid}, version={req.Version}");
             var dto = launchers.Upsert(tenant, req);
@@ -257,6 +273,7 @@ internal static class MachineEndpoints
         app.MapPost("/{machine}/heartbeat", (string machine, HttpContext ctx) =>
         {
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (TeamRefusal(ctx, tenant, machine, "POST /launchers/{machine}/heartbeat") is { } refused) return refused;
             var ok = launchers.Heartbeat(tenant, machine);
             if (!ok)
             {
@@ -271,6 +288,7 @@ internal static class MachineEndpoints
         app.MapDelete("/{machine}", (string machine, HttpContext ctx) =>
         {
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (TeamRefusal(ctx, tenant, machine, "DELETE /launchers/{machine}") is { } refused) return refused;
             launchers.Remove(tenant, machine);
             FileLog.Write($"[MachineEndpoints] DELETE /launchers/{machine}: removed");
             return Results.Json(new { ok = true });

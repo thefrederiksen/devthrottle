@@ -78,7 +78,7 @@ public sealed class MachineSpawnOriginStampTests : IDisposable
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner,
             boundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                 new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
-            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+            teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
         await app.StartAsync();
         return (app, new HttpClient { BaseAddress = new Uri(app.Urls.First()) }, () => seen);
     }

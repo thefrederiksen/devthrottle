@@ -176,6 +176,8 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         }
 
         var restartRefusal = RestartRefusal();
+        if (purpose == SmartShutdownPurpose.Restart && refusal is null && restartRefusal is null)
+            restartRefusal = await LauncherCannotRestartAsync(ct).ConfigureAwait(false);
         var answer = new SmartShutdownAvailability(
             CanSmartShutdown: refusal is null,
             SmartShutdownRefusal: refusal,
@@ -198,6 +200,33 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         return restart.Eligible == true
             ? null
             : restart.Reason ?? "this Director could not tell whether its launcher would restart it.";
+    }
+
+    /// <summary>
+    /// Why no launcher can restart this Director right now, or null when one can (devthrottle_internal#2829). Asked
+    /// of the Gateway - the same capability answer, read by the same rule (<see cref="DirectorRestartGate"/>), that the
+    /// launcher step asks again after the drain - so a restart that cannot bring the Director back is refused BEFORE a
+    /// single session is closed, not after every one of them has been. Before this, a Director with no registered
+    /// launcher was emptied first and only then told "no launcher is registered".
+    /// </summary>
+    private async Task<string?> LauncherCannotRestartAsync(CancellationToken ct)
+    {
+        var gateway = _launcherGateway?.Invoke();
+        if (gateway is null)
+            return "this Director has no way to ask its launcher for a restart.";
+
+        try
+        {
+            var capability = await gateway.CheckCapabilityAsync(_machine, ct).ConfigureAwait(false);
+            var refusal = DirectorRestartGate.Refusal(capability);
+            FileLog.Write($"[DirectorSmartShutdown] LauncherCannotRestartAsync: machine={_machine}, verdict={capability.Verdict}, guard={capability.GuardedRestart}, refused={refusal is not null}");
+            return refusal;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            FileLog.Write($"[DirectorSmartShutdown] LauncherCannotRestartAsync FAILED: {ex.Message}");
+            return $"the Gateway could not say whether a launcher can restart this Director ({ex.Message}).";
+        }
     }
 
     /// <inheritdoc />
@@ -579,6 +608,17 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
             {
                 Finish(SmartShutdownOutcome.Refused, null,
                     availability.SmartShutdownRefusal ?? "this Director is not connected to a Gateway.");
+                return;
+            }
+
+            // A RESTART THAT CANNOT BRING THE DIRECTOR BACK IS REFUSED HERE, before the drain asks any session
+            // anything (devthrottle_internal#2829). The launcher step checks the machine again after the drain;
+            // this is the check that makes sure there is a launcher to check before anything is closed.
+            if (_request.Purpose == SmartShutdownPurpose.Restart && !availability.CanRestart)
+            {
+                Finish(SmartShutdownOutcome.Refused, null,
+                    $"This Director cannot be restarted through its launcher: {availability.RestartRefusal} " +
+                    "Nothing has been touched. Choose to close it instead, or restart it by hand.");
                 return;
             }
 

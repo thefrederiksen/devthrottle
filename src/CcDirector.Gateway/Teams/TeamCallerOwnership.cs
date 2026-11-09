@@ -107,6 +107,8 @@ public sealed class TeamCallerOwnership
             return TeamOwnership.Callers;
         if (AboutTheCallingKey.Contains(pattern))
             return TeamOwnership.Callers;
+        if (IsLauncherOwnMachineRoute(pattern, method))
+            return TeamOwnership.Callers;
         if (string.Equals(pattern, NumberPattern, StringComparison.Ordinal))
             return OwnerOfNumber(tenant, routeValue("sessionId"), callerSubject);
 
@@ -177,6 +179,89 @@ public sealed class TeamCallerOwnership
         Api.SkillPlacementEndpoints.Path,
         "/activity-events/batch",
     };
+
+    /// <summary>
+    /// THE ROUTES A LAUNCHER USES FOR ITS OWN MACHINE (devthrottle_internal#2829): registering it, its heartbeat, its
+    /// goodbye, and its command stream. The machine is in the body, in the route or in the stream's Hello, and only the
+    /// endpoint holds the calling key, so the gate lets these through and each endpoint asks
+    /// <see cref="LauncherMachineRefusal"/> before it writes anything - and refuses when it cannot ask
+    /// (<see cref="TeamLauncherCheck"/>). <c>GET /launchers</c>, the list of the whole team's launchers, is not one of
+    /// them: it stays Unknown and refused.
+    /// </summary>
+    internal static bool IsLauncherOwnMachineRoute(string pattern, string? method)
+    {
+        if (IsUnder(pattern, LauncherStreamPath))
+            return true;
+        var post = string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase);
+        var delete = string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase);
+        return (post && string.Equals(pattern, "/launchers/register", StringComparison.Ordinal))
+            || (post && string.Equals(pattern, "/launchers/{machine}/heartbeat", StringComparison.Ordinal))
+            || (delete && string.Equals(pattern, "/launchers/{machine}", StringComparison.Ordinal));
+    }
+
+    /// <summary>The launcher's command stream.</summary>
+    internal const string LauncherStreamPath = "/launcher-stream";
+
+    /// <summary>
+    /// WHETHER A LAUNCHER MAY ACT FOR <paramref name="machine"/> INSIDE A TEAM'S TENANT (devthrottle_internal#2829), or
+    /// why not. A launcher is the person's own: it restarts their Director, so inside a team it may register, beat, say
+    /// goodbye and hold a command stream only for the computer its OWN team Director was set up on, as the person who
+    /// set it up. Allowed only when every one of these holds:
+    /// <list type="bullet">
+    /// <item>The request is made with a DEVICE key bound to this tenant that names a person and the Director it was
+    /// enrolled for. A session key is a session's, never a launcher's; a key bound to another team, or to the person's
+    /// own account, is not this team's.</item>
+    /// <item>The computer is the one that key's own device row was enrolled on - written when the person set the
+    /// Director up, signed in, and never by the launcher. Another member's computer, or a computer no key of the
+    /// caller's was set up on, is refused.</item>
+    /// <item>Every Director of the team known on that computer is the caller's own (<see cref="OwnerOf"/>). A launcher
+    /// row is one per computer in a tenant, so a launcher for a computer a colleague's Director also reports would be
+    /// the one asked to restart the colleague's Director.</item>
+    /// </list>
+    /// Personal tenants never reach this. Personally identifying: the person is never logged.
+    /// </summary>
+    /// <param name="what">What the request is, for the log line only.</param>
+    public string? LauncherMachineRefusal(TenantId tenant, DeviceCredentialIdentity? device, SessionCredentialIdentity? session,
+        string? machine, string what)
+    {
+        string? why = null;
+        if (string.IsNullOrWhiteSpace(machine))
+            why = "it names no computer";
+        else if (session is not null || device is null)
+            why = "it was not made with a Director's device key";
+        else if (!string.Equals(device.TenantId, tenant.Value, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(device.AccountSubject))
+            why = "its key is not bound to this team, or names nobody";
+        else if (string.IsNullOrWhiteSpace(device.EnrolledDirectorId))
+            why = "its key was not set up for a Director";
+        else if (_devices.DisplayOfDevice(device.DeviceId) is not { } row || !SameMachine(row.MachineName, machine))
+            why = "the computer is not the one its key's Director was set up on";
+        else
+        {
+            foreach (var director in _directors.ListDirectors(tenant))
+            {
+                if (!SameMachine(director.MachineName, machine))
+                    continue;
+                if (!string.Equals(OwnerOf(tenant, director.DirectorId), device.AccountSubject, StringComparison.Ordinal))
+                {
+                    why = $"director={director.DirectorId} on that computer is not the caller's own";
+                    break;
+                }
+            }
+        }
+
+        if (why is null)
+        {
+            FileLog.Write($"[TeamCallerOwnership] LauncherMachineRefusal: {what} for machine={machine} in tenant {tenant.ToLogString()} - the caller's own computer");
+            return null;
+        }
+        FileLog.Write($"[TeamCallerOwnership] LauncherMachineRefusal: {what} for machine={machine} in tenant {tenant.ToLogString()} - REFUSED, {why}");
+        return TeamLauncherCheck.Refusal;
+    }
+
+    /// <summary>Two computer names are one computer when they match trimmed, ignoring letter case.</summary>
+    private static bool SameMachine(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+        && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The route that frees a session's short number.</summary>
     internal const string NumberPattern = "/session-numbers/{sessionId}";

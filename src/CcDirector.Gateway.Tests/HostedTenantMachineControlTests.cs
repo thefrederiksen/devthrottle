@@ -639,7 +639,7 @@ internal sealed class MachineGroupProbeHost : IAsyncDisposable
         MachineEndpoints.Map(app, false, launchers, spawner,
             boundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                 new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
-            sendLauncherCommand: sendLauncherCommand, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+            sendLauncherCommand: sendLauncherCommand, teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
         await app.StartAsync();
         return new MachineGroupProbeHost

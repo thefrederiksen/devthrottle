@@ -1247,6 +1247,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Gateway step 2). Asked only where Teams is released.</summary>
     public Teams.TeamMemberEntitlement TeamMemberEntitlement { get; }
 
+    /// <summary>The launcher's own-machine check inside a team (devthrottle_internal#2829).</summary>
+    public Teams.TeamLauncherCheck TeamLaunchers { get; }
+
     /// <summary>
     /// Whether a tenant's plan includes an AI feature (Pricing Change mission, B1): asked before every model call this
     /// Gateway makes on a tenant's behalf. On the hosted Gateway it reads the entitlement registry; on a self-hosted
@@ -2477,6 +2480,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // lookup of the session store - the prompt route and its held deliveries, dev-report delivery, the Fleet
         // Manager's close - answers through the same ownership rule, never the roster's first row. Personal tenants
         // and a dark Gateway are not governed and keep the first row.
+        // ONE answer to "may this launcher act for this computer" in a team (devthrottle_internal#2829): asked by the
+        // launcher routes and the launcher stream, through the same ownership rule. A personal account is never asked.
+        TeamLaunchers = new Teams.TeamLauncherCheck(tenant => TeamsReleased && TeamMemberEntitlement.IsTeam(tenant), TeamCallerOwnership);
         PushedSessions.UseHolderRule(new Teams.TeamSessionHolderRule(
             tenant => TeamsReleased && TeamMemberEntitlement.IsTeam(tenant), TeamCallerOwnership));
         // THE AI GATE (Pricing Change mission, B1). The hosted Gateway checks each tenant's plan before every model call
@@ -4965,6 +4971,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // The stored conversation (turn-push mission): DirectorHub.PushTurns writes it, Hello reads its watermarks.
         builder.Services.AddSingleton(_sessionTurns);
         builder.Services.AddSingleton(TeamCallerOwnership);
+        // The SignalR-constructed LauncherHub asks it before a team launcher's stream is bound (devthrottle_internal#2829).
+        builder.Services.AddSingleton(TeamLaunchers);
         // API mode (mission #4070, phase 2): DirectorHub.PushApiModeEvents hands each batch to the ingest; Gateway code
         // reads the events through IApiModeEventFeed, the one buffer.
         builder.Services.AddSingleton(_apiModeEventIngest);
@@ -6977,6 +6985,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // read from the calling session's history row like the other door. REQUIRED: forgetting it is a
             // compile error.
             _sessionHistory.FactoryOf,
+            // Team implementation 3.1a (devthrottle_internal#2829): a team launcher acts only for its own team
+            // Director's computer. REQUIRED, like the boundary.
+            TeamLaunchers,
             SendLauncherCommandAsync,
             // Gateway Cleanup mission (Wave 4b): validate a mission-scoped spawn against the Gateway store and
             // stamp the resolved mission name onto the create request forwarded to the Director.
