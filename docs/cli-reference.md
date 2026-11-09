@@ -3128,8 +3128,8 @@ for `login`, its login sites. A store written before then still loads; the old f
 use which entries is planned as a later feature.
 
 **An agent that needs a credential the store does not hold runs `cc-secrets ask`** - never asks the owner to run
-`add`. A small window opens on the owner's screen; the agent pre-fills the name, username and notes, and the owner
-types only the secret. To put the whole list on the owner's screen (to review, edit or delete entries), an agent
+`add`. A small window opens on the owner's screen; the agent pre-fills the name, username and notes, says why it
+is asking (a request that does not is refused), and the owner types only the secret. To put the whole list on the owner's screen (to review, edit or delete entries), an agent
 runs `cc-secrets ui`.
 
 ### cc-secrets ui
@@ -3183,30 +3183,66 @@ USAGE: cc-secrets ask [OPTIONS] [NAME]
 OPTIONS:
   --username TEXT         The user name to pre-fill
   --notes TEXT            A note to pre-fill; agents see it in list
-  --reason TEXT           Why it is needed - shown in the window, and written to the audit log
+  --reason TEXT           REQUIRED. What it is for: the job it unblocks, in words the owner recognises
+  --account TEXT          REQUIRED for a password. existing (the owner already has the account) or new (they must
+                          create it first)
+  --account-detail TEXT   Which account this is, for example "The mailbox info@example.com in Microsoft 365"
+  --where-to-find TEXT    REQUIRED with --account existing. Where the owner finds the password
+  --create-step TEXT      REQUIRED with --account new. One step the owner follows to create the account; repeat
+                          it, in order
+  --will-do TEXT          REQUIRED for a password. Exactly what the session will do with it, and what it will not
+  --if-not-now TEXT       REQUIRED for a password. What happens if the owner says not now
   --domains TEXT          Comma-separated site addresses login may fill (as for add)
   --uses TEXT             Comma-separated: login, run [default: both]
-  --setting               Ask for a setting that is not secret (a host, an email address)
+  --setting               Ask for a setting that is not secret (a host, an email address); only --reason is required
   --env-name TEXT         The variable run supplies it in [default: CC_SECRET]
 ```
 
-The pop-up is the same form as the window's Add, pre-filled with everything except the secret, with the asking
-session's number and name and the reason at the top. It opens under the mouse (on Windows, centred on that
-monitor). If the entry already exists an amber line says Save REPLACES
-it; a name the owner types over an existing one is warned about on the first Save. A secret
-that cannot be stored (too short, for example) is reported in the window, which stays open.
+**A request that does not say why is refused before the window opens** (owner ruling, 9 November 2026), with
+exit 2 and one line for each missing part saying what to put in it. For a password every part is required:
+`--reason`, `--account` with `--where-to-find` (existing) or at least one `--create-step` (new), `--will-do` and
+`--if-not-now`. For a setting only `--reason` is. The refusal is written to the audit log.
 
-Prints only `saved NAME` (exit 0) or `cancelled` (exit 3). With no NAME the form opens empty.
+The pop-up is the same form as the window's Add, pre-filled with everything except the secret, with a
+**"Why you are being asked"** panel beside it: who is asking (the session's number and name, its machine and
+mission, and an Open session link to the Gateway's own page for it - never an internal id), the account (a green
+"you already have this account" badge with where to find it, or an amber "new account - create it first" badge with
+the numbered steps), what it is for, what the session will do with it, and what happens if the owner says not now.
+Long text wraps and scrolls inside the panel; the form never moves. It opens under the mouse (on Windows, centred
+on that monitor). If the entry already exists an amber line says Save REPLACES it; a name the owner types over an
+existing one is warned about on the first Save. A secret that cannot be stored (too short, for example) is
+reported in the window, which stays open.
+
+**Not now** (in place of Cancel) opens a short reply box. The owner's words go back to the asking session as
+the answer of its own command - "I don't have that account" is the most useful one. A reply that contains what is
+typed in the password box, or any stored password, is refused in the window and never leaves it. Line breaks in a
+reply become spaces, and it is at most 500 characters.
+
+Prints `saved NAME` (exit 0), or two lines (exit 3):
+
+```
+cancelled
+reply: I don't have that account
+```
+
+The second line reads `reply: none - the owner closed the window without saying why` when the window was closed
+instead. With no NAME the form opens empty.
 
 There is no way to pass the secret to `ask` - no argument, no environment variable, no standard input - so it
 needs no `--owner-approved`, inside a session or out. Save stores the entry by the same code as `add`, and the
-audit line records that the owner typed it in the window, the session that asked and the reason. Checked before
-the window opens: the name, addresses, uses and variable the agent pre-filled, so the owner is never shown a
-form that cannot be saved. With no screen (an SSH shell, a Windows process not on the visible desktop, or Linux
-with no `DISPLAY`/`WAYLAND_DISPLAY`) it fails
-and says so. Example:
-`cc-secrets ask devlinux --username soren --uses run --reason "sudo over SSH on devlinux"`, then
-`cc-secrets run devlinux -- ssh devlinux sudo -S apt-get update`.
+audit line records that the owner typed it in the window, the session that asked and the reason; a Not now line
+records the owner's reply. Checked before the window opens: the explanation, then the name, addresses, uses and
+variable the agent pre-filled, so the owner is never shown a form that cannot be saved. With no screen (an SSH
+shell, a Windows process not on the visible desktop, or Linux with no `DISPLAY`/`WAYLAND_DISPLAY`) it fails and
+says so. Example:
+
+```
+cc-secrets ask devlinux --username soren --uses run --reason "sudo over SSH on devlinux, to install the updates" \
+  --account existing --where-to-find "Your devlinux login, the one you type at its screen" \
+  --will-do "Run sudo apt-get upgrade once; it will not change any other setting" \
+  --if-not-now "The updates wait, and I say so in my next report"
+cc-secrets run devlinux -- ssh devlinux sudo -S apt-get update
+```
 
 ### cc-secrets add
 

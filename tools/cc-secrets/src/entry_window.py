@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import paths, window_layout, window_style
+from . import ask_explanation, paths, window_layout, window_style
+from .ask_explanation import AskOutcome, PanelSection
 from .errors import CcSecretsError, describe
 from .store import USES
 from .window_actions import (MODE_ADD, MODE_ASK, MODE_EDIT, SHOW_ALL, SHOW_PASSWORDS, SHOW_SETTINGS, FormInput,
@@ -34,6 +35,8 @@ NO_DISPLAY_MESSAGE = ("cc-secrets needs a screen to show its window on, and this
 
 MASK = "**********"
 WRAP = 470
+PANEL_WIDTH = 440
+PANEL_WRAP = PANEL_WIDTH - 52
 PREFS_FILE = "window.json"
 LIST_MIN_WIDTH = 760
 LIST_MIN_HEIGHT = 420
@@ -144,6 +147,7 @@ class EntryForm:
         win.configure(background=window_style.BACKGROUND)
         frame = ttk.Frame(win, padding=(24, 20, 24, 18))
         frame.grid(row=0, column=0, sticky="nsew")
+        self._frame = frame
         frame.columnconfigure(1, weight=1)
         row = 0
 
@@ -152,11 +156,12 @@ class EntryForm:
             card.grid(row=row, column=0, columnspan=3, sticky="we", pady=(0, 16))
             ttk.Label(card, text=f"{request.asked_by} asks you for {'a setting' if request.kind_setting else 'a password'}",
                       style="AskTitle.TLabel", wraplength=WRAP).grid(row=0, column=0, sticky="w")
-            if request.reason:
+            if request.why is None and request.reason:
                 ttk.Label(card, text=request.reason, style="Ask.TLabel", wraplength=WRAP, justify="left").grid(
                     row=1, column=0, sticky="w", pady=(6, 0))
-            ttk.Label(card, text="Everything is filled in except the secret. Type it and press Save; the session "
-                                 "only learns whether you saved.", style="Ask.TLabel", foreground=window_style.MUTED,
+            ttk.Label(card, text=("Read the panel on the right first. " if request.why is not None else "")
+                      + "Everything is filled in except the secret. Type it and press Save; the session only learns "
+                        "whether you saved.", style="Ask.TLabel", foreground=window_style.MUTED,
                       wraplength=WRAP, justify="left").grid(row=2, column=0, sticky="w", pady=(6, 0))
             if request.exists:
                 ttk.Label(card, text=replace_warning(request.name), style="AskWarning.TLabel", wraplength=WRAP).grid(
@@ -243,23 +248,89 @@ class EntryForm:
         self._message_label.grid_remove()
         row += 1
 
-        buttons = ttk.Frame(frame)
+        asking = request.mode == MODE_ASK
+        self._buttons = buttons = ttk.Frame(frame)
         buttons.grid(row=row, column=0, columnspan=3, sticky="e", pady=(18, 0))
-        self._cancel_button = ttk.Button(buttons, text="Cancel", command=self.cancel)
+        self._cancel_button = ttk.Button(buttons, text="Not now..." if asking else "Cancel",
+                                         command=self.not_now if asking else self.cancel)
         self._cancel_button.grid(row=0, column=0, padx=(0, 8))
         self._save_button = ttk.Button(buttons, text="Save", style="Accent.TButton", command=self.save)
         self._save_button.grid(row=0, column=1)
+        row += 1
+        self._reply_area = None
+        if asking:
+            self._build_reply_area(frame, row)
 
         # Return saves from a text box, and presses whichever button has the focus - never Save from Cancel.
         for box in (self._name_box, self._user_box, self._secret_box, self._notes_box, self._domains_box):
             box.bind("<Return>", self.save)
         self._save_button.bind("<Return>", self.save)
-        self._cancel_button.bind("<Return>", self.cancel)
+        self._cancel_button.bind("<Return>", self.not_now if asking else self.cancel)
         win.bind("<Escape>", self.cancel)
         win.protocol("WM_DELETE_WINDOW", self.cancel)
         self._kind_changed()
         self._access_changed()
         self._opened_with = self._snapshot()
+
+    def _build_reply_area(self, frame, row: int) -> None:
+        """The box "Not now" opens: the owner's words go back to the asking session as its command's answer."""
+        import tkinter as tk
+        from tkinter import ttk
+
+        area = ttk.Frame(frame, style="Ask.TFrame", padding=(14, 12))
+        area.grid(row=row, column=0, columnspan=3, sticky="we", pady=(18, 0))
+        area.columnconfigure(0, weight=1)
+        ttk.Label(area, text="Tell the session why (optional)", style="AskTitle.TLabel").grid(row=0, column=0,
+                                                                                          sticky="w")
+        ttk.Label(area, text="Your words go back to the session as its answer - \"I don't have that account\" is the "
+                             "most useful one. Never type a password here.", style="Ask.TLabel",
+                  foreground=window_style.MUTED, wraplength=WRAP, justify="left").grid(row=1, column=0, sticky="w",
+                                                                                     pady=(4, 6))
+        self._reply_box = tk.Text(area, height=3, width=50, wrap="word", relief="solid", borderwidth=1,
+                                  font="TkDefaultFont", background=window_style.SURFACE,
+                                  foreground=window_style.TEXT, insertbackground=window_style.TEXT,
+                                  highlightthickness=0)
+        self._reply_box.grid(row=2, column=0, sticky="we")
+        self._reply_message = tk.StringVar(value="")
+        self._reply_error = ttk.Label(area, textvariable=self._reply_message, style="AskError.TLabel",
+                                      wraplength=WRAP, justify="left")
+        self._reply_error.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self._reply_error.grid_remove()
+        reply_buttons = ttk.Frame(area, style="Ask.TFrame")
+        reply_buttons.grid(row=4, column=0, sticky="e", pady=(10, 0))
+        back = ttk.Button(reply_buttons, text="Back", command=self._reply_back)
+        back.grid(row=0, column=0, padx=(0, 8))
+        send = ttk.Button(reply_buttons, text="Send and close", style="Accent.TButton", command=self._send_reply)
+        send.grid(row=0, column=1)
+        send.bind("<Return>", self._send_reply)
+        back.bind("<Return>", self._reply_back)
+        self._reply_area = area
+        area.grid_remove()
+
+    def not_now(self, _event=None) -> str:
+        """Show the reply box in place of the buttons. Nothing closes until the owner sends or goes back."""
+        self._buttons.grid_remove()
+        self._reply_area.grid()
+        self._reply_box.focus_set()
+        return "break"
+
+    def _reply_back(self, _event=None) -> str:
+        self._reply_area.grid_remove()
+        self._buttons.grid()
+        self._cancel_button.focus_set()
+        return "break"
+
+    def _send_reply(self, _event=None) -> str:
+        reply = ask_explanation.one_line(self._reply_box.get("1.0", "end"))
+        problem = ask_explanation.reply_problem(reply, self._secret.get())
+        if problem is not None:
+            self._reply_message.set(problem)
+            self._reply_error.grid()
+            return "break"
+        self._secret.set("")
+        self._reply_box.delete("1.0", "end")
+        self._on_close(False, reply)
+        return "break"
 
     def focus_first(self) -> None:
         """The box the owner types into first: the secret when everything else is filled in, else the name."""
@@ -268,6 +339,10 @@ class EntryForm:
             self._secret_box.icursor("end")
         else:
             self._name_box.focus_set()
+
+    def height(self) -> int:
+        """The form's height on screen, for the panel beside it to match."""
+        return self._frame.winfo_reqheight()
 
     def _snapshot(self) -> Tuple:
         return (self._name.get(), bool(self._setting.get()), self._username.get(), self._secret.get(),
@@ -352,18 +427,110 @@ class EntryForm:
         return "break"
 
 
-def show_ask(request: FormRequest, actions: WindowActions) -> bool:
-    """The agent's pop-up, in its own window on the monitor under the mouse, until the owner saves or cancels.
-    True when saved."""
+class WhyPanel:
+    """The ask window's "Why you are being asked" panel, beside the form. Long text wraps, and the panel scrolls
+    inside its own frame, so the form never moves. It only draws ask_explanation.panel_sections."""
+
+    def __init__(self, win, sections: List[PanelSection]) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        outer = ttk.Frame(win, style="Why.TFrame")
+        outer.grid(row=0, column=1, sticky="nsew")
+        outer.rowconfigure(1, weight=1)
+        self._title = ttk.Label(outer, text="Why you are being asked", style="WhyTitle.TLabel",
+                                padding=(20, 18, 20, 6))
+        self._title.grid(row=0, column=0, columnspan=2, sticky="w")
+        self._canvas = canvas = tk.Canvas(outer, width=PANEL_WIDTH, highlightthickness=0, borderwidth=0,
+                                          background=window_style.ASK_BACKGROUND)
+        canvas.grid(row=1, column=0, sticky="nsew")
+        self._bar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        self._bar.grid(row=1, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=self._bar.set)
+        self._inner = inner = ttk.Frame(canvas, style="Why.TFrame", padding=(20, 4, 20, 18))
+        canvas.create_window((0, 0), window=inner, anchor="nw", width=PANEL_WIDTH)
+        for index, section in enumerate(sections):
+            self._section(inner, index, section)
+        inner.bind("<Configure>", lambda _e: self._fit())
+        for widget in (canvas, inner):
+            widget.bind("<MouseWheel>", self._wheel)
+        win.bind_all("<MouseWheel>", self._wheel, add="+")
+        self.outer = outer
+
+    def _section(self, inner, index: int, section: PanelSection) -> None:
+        from tkinter import ttk
+
+        box = ttk.Frame(inner, style="Why.TFrame")
+        box.grid(row=index, column=0, sticky="we", pady=(0, 16))
+        line = 0
+        ttk.Label(box, text=section.heading.upper(), style="WhyHeading.TLabel").grid(row=line, column=0, sticky="w")
+        line += 1
+        if section.badge:
+            style = "BadgeExisting.TLabel" if section.badge_kind == ask_explanation.ACCOUNT_EXISTING else "BadgeNew.TLabel"
+            ttk.Label(box, text=section.badge, style=style).grid(row=line, column=0, sticky="w", pady=(4, 0))
+            line += 1
+        if section.text:
+            ttk.Label(box, text=section.text, style="WhyBold.TLabel" if section.link or index == 0 else "Why.TLabel",
+                      wraplength=PANEL_WRAP, justify="left").grid(row=line, column=0, sticky="w", pady=(4, 0))
+            line += 1
+        for number, step in enumerate(section.steps, start=1):
+            ttk.Label(box, text=f"{number}. {step}", style="Why.TLabel", wraplength=PANEL_WRAP - 12,
+                      justify="left").grid(row=line, column=0, sticky="w", padx=(12, 0), pady=(4, 0))
+            line += 1
+        if section.muted:
+            ttk.Label(box, text=section.muted, style="WhyMuted.TLabel", wraplength=PANEL_WRAP, justify="left").grid(
+                row=line, column=0, sticky="w", pady=(4, 0))
+            line += 1
+        if section.link:
+            link = ttk.Label(box, text="Open session", style="Link.TLabel", cursor="hand2")
+            link.grid(row=line, column=0, sticky="w", pady=(4, 0))
+            link.bind("<Button-1>", lambda _e, url=section.link: self._open(url))
+
+    @staticmethod
+    def _open(url: str) -> None:
+        import webbrowser
+
+        try:
+            webbrowser.open(url)
+        except Exception as exc:  # the link's click handler: the form stays open either way
+            log_failure("open session", exc)
+
+    def fit_height(self, height: int) -> None:
+        """Make the panel exactly as tall as the form beside it; text beyond that scrolls."""
+        self._canvas.configure(height=max(120, height - self._title.winfo_reqheight()))
+        self._fit()
+
+    def _fit(self) -> None:
+        canvas = self._canvas
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        needs_bar = self._inner.winfo_reqheight() > int(canvas.cget("height"))
+        if needs_bar:
+            self._bar.grid()
+        else:
+            self._bar.grid_remove()
+
+    def _wheel(self, event) -> None:
+        if self._inner.winfo_reqheight() > int(self._canvas.cget("height")):
+            self._canvas.yview_scroll(int(-event.delta / 120), "units")
+
+
+def show_ask(request: FormRequest, actions: WindowActions) -> AskOutcome:
+    """The agent's pop-up, in its own window on the monitor under the mouse, until the owner saves, says not now
+    or closes it. Not now carries the owner's reply; closing it carries none."""
     root = open_root("cc-secrets - a session is asking for a password")
     root.resizable(False, False)
-    outcome = {"saved": False}
+    outcome = {"saved": False, "reply": ""}
 
-    def close(saved: bool) -> None:
+    def close(saved: bool, reply: str = "") -> None:
         outcome["saved"] = saved
+        outcome["reply"] = reply
         root.destroy()
 
     form = EntryForm(root, request, lambda typed: actions.submit(typed, MODE_ASK), close)
+    if request.why is not None:
+        panel = WhyPanel(root, ask_explanation.panel_sections(request.why, request.kind_setting))
+        root.update_idletasks()
+        panel.fit_height(form.height())
     root.update_idletasks()
     x, y = window_layout.centre_on_monitor(root.winfo_pointerxy(), root.winfo_reqwidth(), root.winfo_reqheight(),
                                            monitors(root))
@@ -371,7 +538,7 @@ def show_ask(request: FormRequest, actions: WindowActions) -> bool:
     bring_to_front(root)
     form.focus_first()
     root.mainloop()
-    return outcome["saved"]
+    return AskOutcome(saved=outcome["saved"], reply=outcome["reply"])
 
 
 class ListWindow:

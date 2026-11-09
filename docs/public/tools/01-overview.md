@@ -99,7 +99,9 @@ Lets a session use a password without the model ever seeing it. It protects agai
 
 ```bash
 cc-secrets ui                                # the window: list, add, edit, delete, and an eye to show a secret
-cc-secrets ask devlinux --username soren --reason "sudo over SSH"   # a session asks; you type it in a pop-up
+cc-secrets ask devlinux --username soren --reason "sudo over SSH" --account existing \
+  --where-to-find "your devlinux login" --will-do "run apt-get upgrade" \
+  --if-not-now "the updates wait"   # a session asks and says why; you type it in a pop-up
 cc-secrets add devlinux                      # or you, in PowerShell or cmd
 cc-secrets list
 cc-secrets run devlinux -- sudo -S apt-get update

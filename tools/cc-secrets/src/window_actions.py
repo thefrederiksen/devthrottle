@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from . import filelog
+from .ask_explanation import AskExplanation
 from .audit import AuditLog, OwnerApproval
 from .errors import CcSecretsError, describe
 from .saving import save_entry
@@ -52,6 +53,7 @@ class FormRequest:
     asked_by: str = ""
     reason: str = ""
     exists: bool = False
+    why: Optional[AskExplanation] = None  # the ask window's "Why you are being asked" panel
 
     def __post_init__(self) -> None:
         if self.setting_value and not self.kind_setting:
