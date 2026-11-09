@@ -104,6 +104,8 @@ CONTENT = {
             "readBy": [],
             "question": {
                 "id": "cancelled-orders",
+                # Sent to Lisa, a Collaborator: only a question marked for contributors may reach her.
+                "forContributors": True,
                 "text": "Should the invoice export include cancelled orders?",
                 "options": [
                     {"value": "paid-only", "label": "No - only orders that were paid (matches what the accountants "
@@ -121,6 +123,8 @@ CONTENT = {
             "readBy": [],
             "question": {
                 "id": "pricing-first",
+                # Sent to Lisa, a Collaborator: only a question marked for contributors may reach her.
+                "forContributors": True,
                 "text": "Which customers get the new pricing page first?",
                 "options": [
                     {"value": "new-signups", "label": "Everyone signing up after Monday", "recommended": True},

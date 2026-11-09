@@ -276,7 +276,9 @@ public sealed class TeamShowcase
     }
 
     /// <summary>The report's page: a header, the summary, and the question with its options when it has one - in the
-    /// markup the Gateway reads a question from (<see cref="DevReports.DevReportQuestions"/>).</summary>
+    /// markup the Gateway reads a question from (<see cref="DevReports.DevReportQuestions"/>). The question is marked for
+    /// contributors when the content says so (<see cref="TeamShowcaseQuestion.ForContributors"/>; security review M3) -
+    /// the only kind a Collaborator is sent, offered and allowed to answer.</summary>
     internal static string ReportHtml(TeamShowcaseReport r)
     {
         static string E(string s) => System.Net.WebUtility.HtmlEncode(s);
@@ -291,7 +293,10 @@ public sealed class TeamShowcase
         html.Append("<section data-dev-report=\"questions\">");
         if (r.Question is { } q)
         {
-            html.Append($"<div data-dev-report-question=\"{E(q.Id)}\" data-dev-report-question-text=\"{E(q.Text)}\">");
+            var forContributors = q.ForContributors
+                ? $" {DevReports.DevReportQuestions.ForAttribute}=\"{DevReports.DevReportQuestions.ForContributorsValue}\""
+                : "";
+            html.Append($"<div data-dev-report-question=\"{E(q.Id)}\" data-dev-report-question-text=\"{E(q.Text)}\"{forContributors}>");
             foreach (var o in q.Options)
                 html.Append($"<label><input type=\"radio\" name=\"{E(q.Id)}\" value=\"{E(o.Value)}\"{(o.Recommended ? " data-recommended" : "")}> {E(o.Label)}</label>");
             html.Append("</div>");
@@ -424,6 +429,10 @@ public sealed class TeamShowcase
             if (r.Question is { } q && (string.IsNullOrWhiteSpace(q.Id) || string.IsNullOrWhiteSpace(q.Text) || q.Options.Count < 2
                                         || q.Options.Count(o => o.Recommended) != 1))
                 return $"The question in \"{r.Title}\" needs an id, its words, two or more options and exactly one recommended.";
+            // THE SEND RULE, HELD HERE TOO (security review M3). The showcase writes its recipient rows straight into the
+            // database, past TeamReports.Send, so the same rule is asked of the same reader before anything is written: a
+            // report sent to a Collaborator holds only questions marked for contributors.
+            if (ContributorRefusal(c, r) is { } badQuestion) return badQuestion;
         }
         foreach (var r in c.Requests)
         {
@@ -443,6 +452,22 @@ public sealed class TeamShowcase
     }
 
     /// <summary>The role a name says - Manager, Developer or Collaborator as the screens write them - or null.</summary>
+    /// <summary>Why <paramref name="r"/> may not go to the contributors it is sent to - a question in its page that is not
+    /// marked for contributors - or null when it may. Read from the page the showcase writes, by the Gateway's own
+    /// question reader, exactly as <c>TeamReports.Send</c> reads it.</summary>
+    internal static string? ContributorRefusal(TeamShowcaseContent c, TeamShowcaseReport r)
+    {
+        ArgumentNullException.ThrowIfNull(c);
+        ArgumentNullException.ThrowIfNull(r);
+        var contributor = c.Members.FirstOrDefault(m => r.SentTo.Contains(m.Key, StringComparer.Ordinal) && RoleNamed(m.Role) == TeamRole.Collaborator);
+        if (contributor is null) return null;
+        var unmarked = DevReports.DevReportQuestions.NotForContributors(DevReports.DevReportQuestions.Read(ReportHtml(r)));
+        return unmarked.Count == 0
+            ? null
+            : $"The report \"{r.Title}\" is sent to {contributor.Name.Trim()}, a Collaborator, and its question " +
+              $"\"{unmarked[0].Text}\" is not marked for contributors.";
+    }
+
     private static TeamRole? RoleNamed(string? name) =>
         Enum.GetValues<TeamRole>().Cast<TeamRole?>()
             .FirstOrDefault(r => string.Equals(TeamRoles.Label(r!.Value), name?.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -507,10 +532,13 @@ public sealed record TeamShowcaseReport(
     [property: JsonPropertyName("readBy")] IReadOnlyList<string> ReadBy,
     [property: JsonPropertyName("question")] TeamShowcaseQuestion? Question);
 
+/// <summary>A showcase report's question. <paramref name="ForContributors"/> marks it as one a contributor may answer
+/// (security review M3); a report holding an unmarked question cannot be sent to a Collaborator.</summary>
 public sealed record TeamShowcaseQuestion(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("text")] string Text,
-    [property: JsonPropertyName("options")] IReadOnlyList<TeamShowcaseOption> Options);
+    [property: JsonPropertyName("options")] IReadOnlyList<TeamShowcaseOption> Options,
+    [property: JsonPropertyName("forContributors")] bool ForContributors = false);
 
 public sealed record TeamShowcaseOption(
     [property: JsonPropertyName("value")] string Value,

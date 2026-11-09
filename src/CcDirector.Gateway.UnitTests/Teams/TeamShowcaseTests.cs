@@ -3,12 +3,14 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.DevReports;
 using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Teams.Mentor;
 using CcDirector.Gateway.Tests.Api;
 using CcDirector.Gateway.Tests.Teams.Mentor;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Teams;
@@ -258,6 +260,74 @@ public sealed class TeamShowcaseTests : IDisposable
             var questions = CcDirector.Gateway.DevReports.DevReportQuestions.Read(TeamShowcase.ReportHtml(report));
             Assert.Equal(report.Question is null ? 0 : 1, questions.Count);
         }
+    }
+
+    // ---- a contributor is sent only questions marked for contributors (security review M3) ----------------------------
+
+    /// <summary>The showcase's one report, sent to Lisa (a Collaborator) as well, its question marked or not.</summary>
+    private static TeamShowcaseContent ContentSentToLisa(bool forContributors)
+    {
+        var content = Content();
+        var report = content.Reports[0];
+        var sent = report with
+        {
+            SentTo = new[] { "owner", "peter", "lisa" },
+            Question = report.Question! with { ForContributors = forContributors },
+        };
+        return content with { Reports = new[] { sent } };
+    }
+
+    [Fact]
+    public void Write_AReportSentToACollaboratorWithAQuestionNotForContributors_IsRefused_AndWritesNothing()
+    {
+        var before = Snapshot();
+
+        var result = Showcase().Write(_rig.Team.Value, Tag, ContentSentToLisa(forContributors: false));
+
+        Assert.Equal("The report \"Invoice export is ready to try\" is sent to Lisa Jensen, a Collaborator, and its question " +
+                     "\"Include cancelled orders?\" is not marked for contributors.", result.Refusal);
+        var after = Snapshot();
+        Assert.All(after, t => Assert.Equal(before[t.Key].Count, t.Value.Count));
+    }
+
+    [Fact]
+    public async Task Write_AQuestionForContributorsSentToTheCollaborator_IsOfferedToHer_AndHerAnswerIsTaken()
+    {
+        Assert.Null(Showcase().Write(_rig.Team.Value, Tag, ContentSentToLisa(forContributors: true)).Refusal);
+        var lisa = TeamShowcase.SubjectFor(Tag, "lisa");
+        var store = new DevReportStore(_rig.Db);
+        var delivery = new DevReportDelivery(store,
+            (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, "director-none", "test roster"),
+            (_, directorId) => throw new InvalidOperationException("a held answer is never sent"),
+            CancellationToken.None, () => _rig.Now);
+        var questions = new TeamQuestions(store, new DevReportRecipients(_rig.Db), new DevReportPersonComments(_rig.Db),
+            _rig.Teams, new TeamAccess(_rig.Teams), delivery, () => _rig.Now);
+
+        var list = await Json(questions.List(_rig.Team.Value, lisa));
+        var card = Assert.Single(list.GetProperty("waiting").EnumerateArray());
+        Assert.Equal("cancelled-orders", card.GetProperty("questionId").GetString());
+
+        var answered = await questions.AnswerAsync(_rig.Team.Value, lisa, card.GetProperty("reportId").GetString()!, "cancelled-orders",
+            1, "paid-only", "", "device", CancellationToken.None);
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(answered));
+        var item = Assert.Single(store.Items(_rig.Team, Guid.Parse(card.GetProperty("reportId").GetString()!)));
+        Assert.Equal(("paid-only", "collaborator"), (item.OptionValue, item.AnswererRole));
+    }
+
+    [Fact]
+    public void ReportHtml_MarksTheQuestionForContributors_OnlyWhenTheContentSaysSo()
+    {
+        Assert.True(Assert.Single(DevReportQuestions.Read(TeamShowcase.ReportHtml(ContentSentToLisa(true).Reports[0]))).ForContributors);
+        Assert.False(Assert.Single(DevReportQuestions.Read(TeamShowcase.ReportHtml(Content().Reports[0]))).ForContributors);
+    }
+
+    private static async Task<JsonElement> Json(IResult result)
+    {
+        var ctx = new DefaultHttpContext { RequestServices = new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddLogging().BuildServiceProvider() };
+        ctx.Response.Body = new MemoryStream();
+        await result.ExecuteAsync(ctx);
+        ctx.Response.Body.Position = 0;
+        return JsonDocument.Parse(await new StreamReader(ctx.Response.Body).ReadToEndAsync()).RootElement.Clone();
     }
 
     // ---- helpers -------------------------------------------------------------------------------------------------
