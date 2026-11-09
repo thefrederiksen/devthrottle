@@ -85,9 +85,16 @@ public sealed class DirectorSupervisorTests
         }
         else
         {
-            // macOS: the bundle lives under the user's home (~/Applications), not local application data.
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            Assert.StartsWith(home, supervisor.DirectorExePath, StringComparison.Ordinal);
+            // macOS: the bundle lives in the Applications folder a Mac user opens, and WHICH one that is
+            // belongs to the layout - /Applications when this user can write it, ~/Applications when not
+            // (MacAppsFolder.Choose). This test asserted the user's home outright, which was the older
+            // install's place: on a Mac that can write /Applications the product answers
+            // /Applications/Director.app and the assertion failed on correct code (issue #4735). So the
+            // question asked here is the one that has a stable answer - the default constructor resolves
+            // the same path the default layout does - rather than a guess at which folder won.
+            Assert.Equal(
+                InstallLayout.Default().PathFor(ComponentRegistry.Director),
+                supervisor.DirectorExePath);
         }
     }
 
