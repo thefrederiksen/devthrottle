@@ -3,6 +3,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Util;
+using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Teams.Mentor;
 using CcDirector.Gateway.Tenancy;
 using Microsoft.AspNetCore.Builder;
@@ -80,31 +81,10 @@ internal static class PersonalMentorEndpoints
         FileLog.Write($"[PersonalMentorEndpoints] mapped GET {Route}");
     }
 
-    /// <summary>Null when the request was made with a person's own phone or browser key; otherwise the 403 answer - the
-    /// same rule the Requests routes keep (<see cref="TeamRequestEndpoints.RequirePerson"/>). Internal so every
-    /// credential shape is tested.</summary>
-    internal static IResult? RequirePerson(HttpContext ctx)
-    {
-        ArgumentNullException.ThrowIfNull(ctx);
-        if (AuthMiddleware.CallingSession(ctx) is { } session)
-        {
-            FileLog.Write($"[PersonalMentorEndpoints] REFUSED: session {session.SessionId} asked for a Mentor page - people only");
-            return PersonOnly();
-        }
-
-        var device = ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var d) ? d as DeviceCredentialIdentity : null;
-        if (device is null || SessionOriginSurfaces.FromDeviceType(device.DeviceType) == SessionOriginSurfaces.Unknown)
-        {
-            var kind = AuthMiddleware.IdentityKind(ctx);
-            FileLog.Write($"[PersonalMentorEndpoints] REFUSED: a {(device is null ? kind : $"{kind} ({device.DeviceType})")} credential asked for a Mentor page - people only");
-            return PersonOnly();
-        }
-
-        return null;
-    }
-
-    private static IResult PersonOnly() =>
-        Results.Json(new { error = PersonOnlyRefusal, code = TeamRequestEndpoints.PersonOnlyCode }, statusCode: StatusCodes.Status403Forbidden);
+    /// <summary>Null when the request was made with a person's own phone or browser key; otherwise the 403 answer. The
+    /// rule is the one person-only rule (<see cref="PersonOnlyCaller.Require"/>); only the sentence is this page's.</summary>
+    internal static IResult? RequirePerson(HttpContext ctx) =>
+        PersonOnlyCaller.Require(ctx, "GET " + Route, PersonOnlyRefusal);
 
     /// <summary>The page for one person and week, from their own tenant. Internal so every branch is tested without a
     /// host.</summary>

@@ -210,6 +210,18 @@ public sealed class TeamEndpointGate
         var device = Util.AuthMiddleware.AuthenticatedDevice(ctx);
         var session = Util.AuthMiddleware.CallingSession(ctx);
         var pattern = endpoint?.RoutePattern.RawText is { } raw ? TeamEndpointRules.Normalize(raw) : null;
+
+        // PEOPLE ONLY, FIRST (security review M1, devthrottle_internal#2786). A route under /teams or /team-invitations
+        // is used by a person from their own phone or browser; a Director's key, a session key and the machine token are
+        // refused here, before the role table is asked and before the endpoint reads a body.
+        if (TeamPersonOnlyRoutes.IsPersonOnly(ctx.Request.Method, pattern) && PersonOnlyCaller.NotAPerson(ctx) is { } kind)
+        {
+            PersonOnlyCaller.LogRefusal($"{ctx.Request.Method} {pattern}", kind);
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await ctx.Response.WriteAsJsonAsync(new { error = TeamPersonOnlyRoutes.Refusal, code = PersonOnlyCaller.Code }).ConfigureAwait(false);
+            return;
+        }
+
         Func<string, string?> routeValue = name => ctx.Request.RouteValues.TryGetValue(name, out var value) ? value?.ToString() : null;
         var verdict = Check(
             ctx.Request.Method,

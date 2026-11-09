@@ -381,8 +381,10 @@ public sealed class TeamEndpointGateTests : IDisposable
     // ---- The middleware, with exactly what production supplies ----------------------------------------------------
 
     /// <summary>A request as the auth middleware leaves it: the endpoint routing chose, and the authenticated device
-    /// identity stashed with the tenant its key is bound to.</summary>
-    private static DefaultHttpContext Request(string method, string pattern, string? boundTenant, string? teamIdRouteValue = null)
+    /// identity stashed with the tenant its key is bound to. A route under <c>/teams</c> is a person's, so it is called
+    /// with a browser key unless a test says otherwise (security review M1).</summary>
+    private static DefaultHttpContext Request(string method, string pattern, string? boundTenant, string? teamIdRouteValue = null,
+        string? deviceType = null)
     {
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = method;
@@ -391,7 +393,8 @@ public sealed class TeamEndpointGateTests : IDisposable
         if (teamIdRouteValue is not null)
             ctx.Request.RouteValues["teamId"] = teamIdRouteValue;
         if (boundTenant is not null)
-            ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = new DeviceCredentialIdentity("device-1", boundTenant, "director", "active");
+            ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = new DeviceCredentialIdentity("device-1", boundTenant,
+                deviceType ?? (TeamPersonOnlyRoutes.InAFamily(pattern) ? "browser" : "director"), "active");
         return ctx;
     }
 
@@ -450,6 +453,25 @@ public sealed class TeamEndpointGateTests : IDisposable
         await _gate.RunAsync(stranger, () => throw new InvalidOperationException("the endpoint ran"));
         Assert.Equal(StatusCodes.Status404NotFound, stranger.Response.StatusCode);
         Assert.Equal(TeamEndpoints.NoSuchTeamRefusal, Body(stranger).GetProperty("error").GetString());
+    }
+
+    [Theory]
+    [InlineData("GET", "/teams/{teamId}/members")]
+    [InlineData("POST", "/teams/{teamId}/invitations")]
+    [InlineData("POST", "/teams/{teamId}/reports/mine/{reportId}/recipients")]
+    [InlineData("POST", "/team-invitations/accept")]
+    public async Task RunAsync_ADirectorKeyOfTheOwnersPersonalAccount_OnATeamRoute_IsRefusedPersonOnly(string method, string pattern)
+    {
+        // The owner is a member with every right, so only the person-only rule can refuse this (security review M1).
+        var ctx = Request(method, pattern, _tenants.MintOrLookupBySubject(Owner, null).Value, _team, deviceType: "director");
+
+        await _gate.RunAsync(ctx, () => throw new InvalidOperationException("the endpoint ran"));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        var body = Body(ctx);
+        Assert.Equal(PersonOnlyCaller.Code, body.GetProperty("code").GetString());
+        Assert.Equal(TeamPersonOnlyRoutes.Refusal, body.GetProperty("error").GetString());
+        Assert.Null(TeamEndpointGate.AllowedTeam(ctx));
     }
 
     [Fact]
