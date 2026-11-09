@@ -5,6 +5,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Teams;
 
 namespace CcDirector.Gateway.DevReports;
 
@@ -424,7 +425,8 @@ internal sealed class DevReportDelivery
         var foldItems = rows
             .Select(row => new DevReportPromptFold.FoldItem(ToItem(row),
                 row.Kind == DevReportItem.Answer && _store.HasDeliveredAnswer(tenant, report.Id, row.QuestionId, row.AnswererSubject),
-                row.AnswererSubject is not null))
+                row.AnswererSubject is not null,
+                row.AnswererRole is null ? null : TeamRoles.FromStored(row.AnswererRole)))
             .ToList();
         return new DevReportPromptFold.FoldReport(report.Id, report.Key, title, version, foldItems);
     }

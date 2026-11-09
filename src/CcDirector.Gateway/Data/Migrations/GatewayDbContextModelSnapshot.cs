@@ -764,6 +764,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("AnchorJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AnswererRole")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("AnswererSubject")
                         .HasColumnType("TEXT");
 

@@ -400,6 +400,67 @@ public sealed class TeamReportsTests : IDisposable
         Assert.Empty(_recipients.RecipientsOf(_tenant, report.Guid));
     }
 
+    // ---- a contributor is sent only questions marked for contributors (security review M3) ----------------------------
+
+    /// <summary>A report Alice wrote with two questions: "deploy" for the owner's own people, and "colour", marked for
+    /// contributors unless <paramref name="markAll"/> marks both.</summary>
+    private DevReportEntityRef PublishWithQuestions(bool markAll)
+    {
+        static string Question(string id, string text, bool marked) =>
+            $"<div data-dev-report-question=\"{id}\" data-dev-report-question-text=\"{text}\"" +
+            (marked ? " data-dev-report-for=\"contributors\">" : ">") +
+            $"<label><input type=\"radio\" name=\"{id}\" value=\"yes\" data-recommended> Yes</label>" +
+            $"<label><input type=\"radio\" name=\"{id}\" value=\"no\"> No</label></div>";
+        var html =
+            "<header data-dev-report=\"header\" data-dev-report-status=\"waiting-on-you\"><h1>T</h1></header>" +
+            "<section data-dev-report=\"summary\"><p>S</p></section>" +
+            "<section data-dev-report=\"questions\">" +
+            Question("deploy", "Deploy to production?", markAll) + Question("colour", "Is blue the right colour?", true) +
+            "</section><section data-dev-report=\"detail\"><p>D</p></section>";
+        Assert.True(DevReportShapeCheck.Check(html).Passed);
+        var report = _store.Publish(_tenant, Guid.NewGuid().ToString("D"), @"C:\work\" + Guid.NewGuid().ToString("N") + ".html",
+            html, "waiting-on-you", "Factory run", _now, Alice).Report;
+        return new DevReportEntityRef(report.Id.ToString("D"), report.Id);
+    }
+
+    [Fact]
+    public async Task Send_AReportWithAQuestionNotForContributors_ToAContributor_IsRefused_NamingTheQuestion_AndNothingIsSent()
+    {
+        var report = PublishWithQuestions(markAll: false);
+
+        var (status, body) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Bob), MemberId(Mike) }, 1));
+
+        Assert.Equal(403, status);
+        Assert.Equal("questions_not_for_contributors", body.GetProperty("code").GetString());
+        var error = body.GetProperty("error").GetString()!;
+        Assert.Contains("is a contributor, and this report has a question that is not for contributors: \"Deploy to production?\".", error);
+        Assert.Contains("The report was not sent to anyone.", error);
+        Assert.DoesNotContain("colour", error);
+        Assert.Empty(_recipients.RecipientsOf(_tenant, report.Guid));
+    }
+
+    [Fact]
+    public async Task Send_AReportWhoseEveryQuestionIsForContributors_ToAContributor_IsSent()
+    {
+        var report = PublishWithQuestions(markAll: true);
+
+        var (status, _) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
+
+        Assert.Equal(200, status);
+        Assert.Equal(Mike, Assert.Single(_recipients.RecipientsOf(_tenant, report.Guid)).RecipientSubject);
+    }
+
+    [Fact]
+    public async Task Send_AReportWithAQuestionNotForContributors_ToTheTeamsOwnPeople_IsSentAsBefore()
+    {
+        var report = PublishWithQuestions(markAll: false);
+
+        var (status, _) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Owner), MemberId(Bob) }, 1));
+
+        Assert.Equal(200, status);
+        Assert.Equal(new[] { Bob, Owner }, _recipients.RecipientsOf(_tenant, report.Guid).Select(r => r.RecipientSubject).Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public async Task Send_ToYourself_OrToNobody_IsRefused()
     {

@@ -499,6 +499,8 @@ internal sealed class TeamReports
     /// reading, nothing is sent and the answer is 409 with the Gateway's sentence, so a person is never sent a version
     /// its author did not see (delta review D2). All or nothing: every id must be a member of THIS team whose role may
     /// read reports sent to them, and not the caller; otherwise nothing is recorded and the answer says which and why.
+    /// When any of them is a contributor (a Collaborator), every question in the version must be marked for contributors
+    /// (security review M3); otherwise nothing is sent and the answer names the questions that are not.
     /// </summary>
     public IResult Send(string teamId, string caller, string reportId, IReadOnlyList<string> memberIds, int version)
     {
@@ -517,6 +519,7 @@ internal sealed class TeamReports
 
         var members = Members(teamId, caller);
         var subjects = new List<string>();
+        var contributors = new List<TeamMember>();
         foreach (var memberId in memberIds.Select(m => m.Trim()).Distinct(StringComparer.Ordinal))
         {
             var member = members.FirstOrDefault(m => string.Equals(TeamMemberIds.For(teamId, m.AccountSubject), memberId, StringComparison.Ordinal));
@@ -539,6 +542,27 @@ internal sealed class TeamReports
                     code = "recipient_may_not_read",
                 }, statusCode: StatusCodes.Status403Forbidden);
             subjects.Add(member.AccountSubject);
+            if (member.Role == TeamRole.Collaborator)
+                contributors.Add(member);
+        }
+
+        // A CONTRIBUTOR IS SENT ONLY QUESTIONS MARKED FOR CONTRIBUTORS (security review M3). A report is sent whole, so a
+        // question meant for the owner's own people - "deploy to production?" - would otherwise reach a customer, and the
+        // Gateway would take their answer to it. Checked against the version being sent; answering checks again.
+        if (contributors.Count > 0)
+        {
+            var sending = _store.GetVersion(Team(teamId), report.Id, version)
+                          ?? throw new InvalidOperationException($"Report {report.Id} is at version {version}, which is not stored.");
+            var unmarked = DevReportQuestions.NotForContributors(DevReportQuestions.Read(sending.Html));
+            if (unmarked.Count > 0)
+            {
+                FileLog.Write($"[TeamReports] Send: team {Team(teamId).ToLogString()} report={report.Id} - {unmarked.Count} question(s) not for contributors, {contributors.Count} contributor recipient(s), REFUSED");
+                return Results.Json(new
+                {
+                    error = TeamQuestions.NotForContributorsRefusal(TeamRegistry.DisplayName(contributors[0]), unmarked),
+                    code = "questions_not_for_contributors",
+                }, statusCode: StatusCodes.Status403Forbidden);
+            }
         }
 
         if (!_recipients.Send(Team(teamId), report.Id, caller, subjects, version, _utcNow()).Sent)

@@ -35,7 +35,9 @@ namespace CcDirector.Gateway.Api;
 ///
 /// WHO MAY DO WHAT is decided by <see cref="TeamEndpointGate"/> from <see cref="TeamEndpointRules"/> before a route runs:
 /// answering questions is every role's row. What the routes narrow themselves: a question is answered only by a person
-/// the report was sent to - anyone else gets the same not-found, whether or not the report exists.
+/// the report was sent to - anyone else gets the same not-found, whether or not the report exists - and a contributor (a
+/// Collaborator) answers only a question marked for contributors (<see cref="DevReportQuestions.ForAttribute"/>; security
+/// review M3), checked here on every answer, not only when the report was sent.
 ///
 /// Mapped only while Teams is released (<see cref="TeamsReleaseSwitch"/>). The address is under <c>/teams/{teamId}/</c>,
 /// the only place a Collaborator may call (devthrottle_internal#2306).
@@ -146,6 +148,30 @@ internal sealed class TeamQuestions
     /// <summary>An own answer when the person who asked can no longer read words in this team.</summary>
     internal const string OwnAnswerClosed =
         "The person who asked can no longer read comments in this team, so your own answer cannot reach them. Pick one of the options.";
+
+    /// <summary>
+    /// What a contributor (a Collaborator) is told when they answer a question not marked for contributors (security
+    /// review M3). Said the same way for an option and for "Something else": neither is taken.
+    /// </summary>
+    internal const string NotForContributors =
+        "This question is for the team's own people, not for contributors, so your answer was not sent.";
+
+    /// <summary>
+    /// What the author is told when a report is sent to a contributor and holds questions not marked for contributors
+    /// (security review M3): who the contributor is, and which questions, by their words.
+    /// </summary>
+    internal static string NotForContributorsRefusal(string contributorName, IReadOnlyList<DevReportQuestion> unmarked)
+    {
+        ArgumentNullException.ThrowIfNull(contributorName);
+        ArgumentNullException.ThrowIfNull(unmarked);
+        if (unmarked.Count == 0)
+            throw new ArgumentException("A refusal needs at least one question that is not for contributors.", nameof(unmarked));
+        var named = string.Join(", ", unmarked.Select(q => $"\"{q.Text}\""));
+        var which = unmarked.Count == 1 ? "a question that is" : $"{unmarked.Count} questions that are";
+        return $"{contributorName} is a contributor, and this report has {which} not for contributors: {named}. " +
+               "The report was not sent to anyone. Ask the session that wrote it to mark each question a contributor may " +
+               "answer as one for contributors, and publish it again.";
+    }
 
     /// <summary>The comment box's placeholder - the words of the mockup.</summary>
     internal const string CommentPlaceholder = "Anything to add (optional)";
@@ -278,6 +304,16 @@ internal sealed class TeamQuestions
         var question = DevReportQuestions.Read(held.Html).FirstOrDefault(q => string.Equals(q.Id, questionId, StringComparison.Ordinal));
         if (question is null)
             return TeamReportEndpoints.NotFound(NoSuchQuestion);
+        // A CONTRIBUTOR ANSWERS ONLY A QUESTION MARKED FOR CONTRIBUTORS (security review M3) - asked again here, never
+        // trusting that the send refused such a report: the role may have changed since, or the version reached them
+        // before the check existed. An option and "Something else" alike: nothing is stored.
+        var role = _teams.RoleOf(teamId, caller)
+                   ?? throw new InvalidOperationException("A team question route ran for a caller who is not a member - the team gate was not run.");
+        if (role == TeamRole.Collaborator && !question.ForContributors)
+        {
+            FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} question={question.Id} is not for contributors and the caller is one - REFUSED, nothing stored");
+            return Results.Json(new { error = NotForContributors, code = "question_not_for_contributors" }, statusCode: StatusCodes.Status403Forbidden);
+        }
         DevReportItem choice;
         if (isOwn)
         {
@@ -310,7 +346,7 @@ internal sealed class TeamQuestions
         // THE CHOICE AND THE WORDS, STORED TOGETHER IN ONE TRANSACTION that also decides, in the database, that the caller
         // still holds this version and has not answered this question (review F2, F3, F4). The words go to the person who
         // asked, by the person-only table; the choice is stored held, with no words in it.
-        var stored = _store.AddMemberAnswer(team, report, row.SentVersion, choice, caller, words,
+        var stored = _store.AddMemberAnswer(team, report, row.SentVersion, choice, caller, role, words,
             report.AuthorSubject ?? "", senderKind, _utcNow());
         switch (stored)
         {
@@ -403,6 +439,9 @@ internal sealed class TeamQuestions
     {
         var team = new TenantId(teamId);
         var answers = _store.AnswersBy(team, caller, received.Select(r => r.Row.ReportId).ToList());
+        // A contributor is never offered a question they may not answer (security review M3): one not marked for
+        // contributors is left off their page, unless they already answered it - what they gave stays visible.
+        var contributor = _teams.RoleOf(teamId, caller) == TeamRole.Collaborator;
         var cards = new List<Card>();
         foreach (var r in received.OrderByDescending(r => r.Row.SentAtUtc))
         {
@@ -431,6 +470,10 @@ internal sealed class TeamQuestions
                 else if (ended)
                 {
                     // Nobody waits on an answer a session can no longer take.
+                    continue;
+                }
+                else if (contributor && !q.ForContributors)
+                {
                     continue;
                 }
                 cards.Add(new Card(report.Id, r.Row.SentVersion, held.Title, q.Id, q.Text, q.Options, author, r.Row.SentAtUtc,

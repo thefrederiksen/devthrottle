@@ -104,6 +104,11 @@ the wrong shape. What stops a report acting for the owner is the host's policy i
 - **The question text** is `data-dev-report-question-text` if present, otherwise the text of the first
   heading (`h1`-`h6`) inside the question, otherwise the id.
 - **A comment box** is optional: a `<textarea data-dev-report-comment>` inside the question.
+- **Who the question is for** is `data-dev-report-for="contributors"` on the question, for a question a
+  contributor (a team member whose role is Collaborator) may answer. Without it the question is for the
+  owner's own people - the default. The script ignores it; the Gateway reads it: in a team, a report is sent to
+  a contributor only when every question in it is marked, and a contributor's answer to an unmarked question is
+  refused (security review M3). `contributors` is the only value.
 - **The Queue button** is added by the script, one per question. An author never writes it.
 - **"Something else"** is added by the script as the LAST option of every question, after the author's last
   option and sharing the question's `name`, with the reserved value `own-answer`. An author never writes it,
@@ -117,8 +122,8 @@ the wrong shape. What stops a report acting for the owner is the host's policy i
 
 The shape check enforces: at least two options, exactly one `data-recommended`, a non-empty `value` on
 every option and no value used twice in one question, no option with the reserved value `own-answer`, one
-shared `name` per question used by no other radio, unique ids, no nesting, no option outside a question, and exactly one
-no-questions element whose own text has words in it (a character reference such as `&nbsp;` alone is not
+shared `name` per question used by no other radio, unique ids, no nesting, no option outside a question, no
+`data-dev-report-for` with a value other than `contributors`, and exactly one no-questions element whose own text has words in it (a character reference such as `&nbsp;` alone is not
 words, and text after a block element that would close a `<p>` is not the paragraph's).
 
 Every text the script sends is at most 20000 characters. The script sets `maxlength` on the comment box,

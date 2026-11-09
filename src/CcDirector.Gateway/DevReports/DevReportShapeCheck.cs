@@ -414,6 +414,16 @@ internal static class DevReportShapeCheck
                            $"reserved: every question already gets a last option \"{DevReportOwnAnswer.Label}\" with that value, " +
                            "added for you. Give your option a different value.");
             }
+            // WHO THE QUESTION IS FOR (security review M3). The attribute has one value; a misspelled one would leave the
+            // question for the owner's people only while its author meant it for contributors, so it is refused here
+            // rather than found out when the report cannot be sent.
+            var forValue = q.GetAttribute(DevReportQuestions.ForAttribute);
+            if (forValue is not null && !DevReportQuestions.IsForContributors(q))
+            {
+                errors.Add($"The question \"{Label(q)}\" has {DevReportQuestions.ForAttribute}=\"{forValue}\". The only " +
+                           $"value is \"{DevReportQuestions.ForContributorsValue}\", for a question a contributor may answer. " +
+                           "Leave the attribute off for a question only the owner's own people answer.");
+            }
             CheckRadioGroup(q, own, ownersByName, errors);
         }
     }
