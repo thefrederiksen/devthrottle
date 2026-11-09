@@ -705,6 +705,11 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The record of every change to a team's governance rules (<c>team_governance_changes</c>): who, what and when.</summary>
     public DbSet<TeamGovernanceChangeEntity> TeamGovernanceChanges => Set<TeamGovernanceChangeEntity>();
 
+    /// <summary>The durable record of every change to a team's membership (<c>team_membership_events</c>, security review
+    /// Risk 12): created, joined, role changed, removed, left - whose, by whom and when. Written only by
+    /// <see cref="Teams.TeamRegistry"/>, in the same save as the change.</summary>
+    public DbSet<TeamMembershipEventEntity> TeamMembershipEvents => Set<TeamMembershipEventEntity>();
+
     /// <summary>
     /// The free-trial ledger (<c>account_trials</c>, issue #2117) - the Gateway's OWN record of which accounts
     /// were granted the 14-day Pro trial the public pricing page promises, and when each trial ends. GLOBAL
@@ -2612,6 +2617,28 @@ public sealed class GatewayDbContext : DbContext
                 .HasDatabaseName("IX_team_members_one_owner_per_team")
                 .HasFilter("\"role\" = 'owner'");
             // A membership cannot outlive its team.
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeamMembershipEventEntity>(b =>
+        {
+            b.ToTable("team_membership_events");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
+            b.Property(e => e.AccountSubject).HasColumnName("account_subject").IsRequired();
+            b.Property(e => e.Event).HasColumnName("event").IsRequired().HasMaxLength(30);
+            // The roles' lower-case NAMES, exactly as team_members stores them; null where there is no role on that side.
+            var role = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<CcDirector.Gateway.Teams.TeamRole, string>(
+                r => CcDirector.Gateway.Teams.TeamRoles.ToStored(r), s => CcDirector.Gateway.Teams.TeamRoles.FromStored(s));
+            b.Property(e => e.FromRole).HasColumnName("from_role").HasConversion(role).HasMaxLength(20);
+            b.Property(e => e.ToRole).HasColumnName("to_role").HasConversion(role).HasMaxLength(20);
+            b.Property(e => e.BySubject).HasColumnName("by_subject");
+            b.Property(e => e.AtUtc).HasColumnName("at_utc").IsRequired();
+            // A team's record in order, and one person's record in a team.
+            b.HasIndex(e => new { e.TeamId, e.AtUtc });
+            b.HasIndex(e => new { e.TeamId, e.AccountSubject });
+            // The record outlives the member row it describes, never the team: teams are not deleted in the first version.
             b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
         });
 

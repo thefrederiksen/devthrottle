@@ -527,16 +527,18 @@ public sealed class TeamReportsTests : IDisposable
     }
 
     [Fact]
-    public async Task AMemberWhoLeft_IsNamedAsAFormerMember()
+    public async Task AMemberWhoLeft_IsNamedAsAFormerMemberOnTheirComment_AndNoLongerHoldsTheReport()
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), MemberId(Nina) }, 1));
         await Answer(_reports.Comment(_team, Mike, report.Id, "bye"));
         Assert.True(_teams.RemoveMember(_team, Mike).IsDone);
 
         var (_, detail) = await Answer(_reports.MineDetail(_team, Alice, report.Id));
 
-        Assert.Equal("A former member of the team", detail.GetProperty("recipients")[0].GetProperty("name").GetString());
+        // Removal clears what was sent to them (security review M4) and keeps what they wrote.
+        Assert.Equal(new[] { MemberId(Nina) },
+            detail.GetProperty("recipients").EnumerateArray().Select(r => r.GetProperty("memberId").GetString()));
         Assert.Equal("A former member of the team", detail.GetProperty("comments")[0].GetProperty("from").GetString());
     }
 

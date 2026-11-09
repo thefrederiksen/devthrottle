@@ -138,7 +138,8 @@ public sealed partial class TeamRegistry
                 Role = TeamRole.Owner,
                 JoinedAtUtc = now,
             });
-            CommitMembershipChange(ctx, teamId, TeamMembershipChange.TeamCreated, subject, TeamRole.Owner);
+            CommitMembershipChange(ctx, teamId, TeamMembershipChange.TeamCreated, subject, TeamRole.Owner,
+                TeamMembershipEvents.Created, fromRole: null, bySubject: subject);
         }
 
         _settled[teamId] = true;
@@ -322,7 +323,9 @@ public sealed partial class TeamRegistry
     /// member (a role is changed with <see cref="ChangeRole"/>), or when the role is Owner (a team has exactly
     /// one). Who may add whom is not checked here (devthrottle_internal#2302).
     /// </summary>
-    public TeamWriteResult AddMember(string teamId, string accountSubject, TeamRole role)
+    /// <param name="bySubject">Who added them, for the membership record; null when no person's request is behind the
+    /// write.</param>
+    public TeamWriteResult AddMember(string teamId, string accountSubject, TeamRole role, string? bySubject = null)
     {
         var subject = RequireSubject(accountSubject);
         RequireRole(role);
@@ -346,7 +349,8 @@ public sealed partial class TeamRegistry
                 Role = role,
                 JoinedAtUtc = _utcNow(),
             });
-            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberAdded, subject, role);
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberAdded, subject, role,
+                TeamMembershipEvents.Added, fromRole: null, bySubject: OptionalSubject(bySubject));
         }
 
         FileLog.Write("[TeamRegistry] AddMember: added");
@@ -358,7 +362,9 @@ public sealed partial class TeamRegistry
     /// the Owner would leave the team with none), or when the new role is Owner (the team already has one).
     /// Who may change roles is not checked here (devthrottle_internal#2302).
     /// </summary>
-    public TeamWriteResult ChangeRole(string teamId, string accountSubject, TeamRole newRole)
+    /// <param name="bySubject">Who changed it, for the membership record; null when no person's request is behind the
+    /// write.</param>
+    public TeamWriteResult ChangeRole(string teamId, string accountSubject, TeamRole newRole, string? bySubject = null)
     {
         var subject = RequireSubject(accountSubject);
         RequireRole(newRole);
@@ -380,8 +386,10 @@ public sealed partial class TeamRegistry
                 return TeamWriteResult.Done;
             }
 
+            var oldRole = row.Role;
             row.Role = newRole;
-            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.RoleChanged, subject, newRole);
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.RoleChanged, subject, newRole,
+                TeamMembershipEvents.RoleChanged, oldRole, OptionalSubject(bySubject));
         }
 
         FileLog.Write("[TeamRegistry] ChangeRole: changed");
@@ -391,8 +399,15 @@ public sealed partial class TeamRegistry
     /// <summary>
     /// Remove a member from a team. Refused when the account is not a member, or when it is the Owner - a team
     /// always has exactly one Owner. Who may remove whom is not checked here (devthrottle_internal#2302).
+    ///
+    /// REMOVAL CLEANS UP (security review M4): what was SENT to the person in this team - their rows in
+    /// <c>dev_report_recipients</c>, which are their Reports page and their Questions page - is deleted in the same save
+    /// as the member row, so a person added back later starts with nothing from before. What they WROTE - comments,
+    /// answers, requests - stays as the team's record. See <see cref="CommitMembershipChange"/>.
     /// </summary>
-    public TeamWriteResult RemoveMember(string teamId, string accountSubject)
+    /// <param name="bySubject">Who removed them, for the membership record - the person themselves when they left; null
+    /// when no person's request is behind the write.</param>
+    public TeamWriteResult RemoveMember(string teamId, string accountSubject, string? bySubject = null)
     {
         var subject = RequireSubject(accountSubject);
         FileLog.Write($"[TeamRegistry] RemoveMember: team {LogTeam(teamId)}");
@@ -406,8 +421,11 @@ public sealed partial class TeamRegistry
             if (row.Role == TeamRole.Owner)
                 return Refuse("RemoveMember", TeamRefusals.RemoveOwner);
 
+            var by = OptionalSubject(bySubject);
             ctx.TeamMembers.Remove(row);
-            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberRemoved, subject, null);
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberRemoved, subject, null,
+                string.Equals(by, subject, StringComparison.Ordinal) ? TeamMembershipEvents.Left : TeamMembershipEvents.Removed,
+                row.Role, by);
         }
 
         FileLog.Write("[TeamRegistry] RemoveMember: removed");
@@ -434,17 +452,41 @@ public sealed partial class TeamRegistry
     /// they left or can no longer run sessions in - hangs off this one place too. A listener that throws fails the
     /// write's caller AFTER the change has committed; that is deliberate, because a removed person whose keys could not
     /// be revoked must be seen, not hidden.
+    ///
+    /// THE MEMBERSHIP RECORD (security review Risk 12): one <see cref="TeamMembershipEventEntity"/> row is added to the
+    /// SAME save as the change, so the change and its record commit or fail together, and a refused change - which never
+    /// reaches here - writes none.
+    ///
+    /// A REMOVAL CLEANS UP (security review M4): the person's recipient rows in this team are deleted in that same save.
+    /// Nothing they wrote is touched.
     /// </summary>
     /// <param name="accountSubject">The person whose membership changed.</param>
     /// <param name="role">Their role after the change, or null when they are no longer a member.</param>
+    /// <param name="membershipEvent">The record's word for the change (<see cref="TeamMembershipEvents"/>).</param>
+    /// <param name="fromRole">Their role before the change, or null when they were not a member.</param>
+    /// <param name="bySubject">Who made the change, or null when no person's request is behind it.</param>
     private void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change,
-        string accountSubject, TeamRole? role)
+        string accountSubject, TeamRole? role, string membershipEvent, TeamRole? fromRole, string? bySubject)
     {
+        ctx.TeamMembershipEvents.Add(new TeamMembershipEventEntity
+        {
+            Id = Guid.NewGuid().ToString(),
+            TeamId = teamId,
+            AccountSubject = accountSubject,
+            Event = membershipEvent,
+            FromRole = fromRole,
+            ToRole = role,
+            BySubject = bySubject,
+            AtUtc = _utcNow(),
+        });
+        var cleared = change == TeamMembershipChange.MemberRemoved ? ClearWhatWasSentTo(ctx, teamId, accountSubject) : 0;
+
         // Read before the save: a query goes to the database, which does not yet hold the pending change.
         var paidBefore = TeamBillStore.PaidSeats(ctx, teamId);
         ctx.SaveChanges();
         var paidAfter = TeamBillStore.PaidSeats(ctx, teamId);
-        FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} committed, paid seats {paidBefore} -> {paidAfter}");
+        FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} event={membershipEvent} committed, paid seats {paidBefore} -> {paidAfter}" +
+                      (change == TeamMembershipChange.MemberRemoved ? $", {cleared} report(s) sent to them cleared" : ""));
 
         if (change == TeamMembershipChange.TeamCreated)
             FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - a new team has no bill yet, so no seat count was recorded");
@@ -457,6 +499,25 @@ public sealed partial class TeamRegistry
         // is for the listener to decide, not the bill.
         MembershipCommitted?.Invoke(new TeamMembershipCommitted(teamId, accountSubject, change, role));
     }
+
+    /// <summary>
+    /// Marks for deletion, in the caller's pending save, every report a person was sent in a team: their rows in
+    /// <c>dev_report_recipients</c>, which both their Reports page and their Questions page read (security review M4).
+    /// Read through the unscoped context, so the tenant filter is lifted and the team's id is named explicitly. Returns
+    /// how many rows were marked.
+    /// </summary>
+    private static int ClearWhatWasSentTo(GatewayDbContext ctx, string teamId, string accountSubject)
+    {
+        var rows = ctx.DevReportRecipients.IgnoreQueryFilters()
+            .Where(r => r.TenantId == teamId && r.RecipientSubject == accountSubject)
+            .ToList();
+        ctx.DevReportRecipients.RemoveRange(rows);
+        return rows.Count;
+    }
+
+    /// <summary>The subject of whoever made a change, trimmed, or null when no person is behind it.</summary>
+    private static string? OptionalSubject(string? bySubject) =>
+        string.IsNullOrWhiteSpace(bySubject) ? null : bySubject.Trim();
 
     /// <summary>
     /// Raised once for every committed membership change, under the write lock, after the save. The Gateway attaches
@@ -514,6 +575,34 @@ public enum TeamMembershipChange
 
     /// <summary>A member left or was removed.</summary>
     MemberRemoved,
+}
+
+/// <summary>
+/// The fixed words <c>team_membership_events.event</c> holds (security review Risk 12). Stored as written, so they are a
+/// contract with any later reader: never rename one.
+/// </summary>
+public static class TeamMembershipEvents
+{
+    /// <summary>The team was created; its creator became the Owner.</summary>
+    public const string Created = "created";
+
+    /// <summary>The person accepted an invitation and joined.</summary>
+    public const string JoinedByInvitation = "joined-by-invitation";
+
+    /// <summary>An invitation's address had exactly one account, so that account was added at once by the inviter.</summary>
+    public const string AddedAtOnce = "added-at-once";
+
+    /// <summary>The person was added directly, without an invitation.</summary>
+    public const string Added = "added";
+
+    /// <summary>The person's role changed; the record holds the role before and after.</summary>
+    public const string RoleChanged = "role-changed";
+
+    /// <summary>Someone else removed the person from the team.</summary>
+    public const string Removed = "removed";
+
+    /// <summary>The person removed themselves.</summary>
+    public const string Left = "left";
 }
 
 /// <summary>
