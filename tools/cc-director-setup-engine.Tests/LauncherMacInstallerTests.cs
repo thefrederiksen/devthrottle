@@ -1,4 +1,5 @@
 #pragma warning disable CA1416 // The class under test is macOS-only in production; here every external effect is injected, so these run on every operating system.
+using CcDirector.Core.Configuration;
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -227,4 +228,44 @@ public class LauncherMacInstallerTests : IDisposable
     // LaunchdPidParseTests covers reading the process id back from launchd. Proving that a first install
     // on a real Mac yields a launchd-managed launcher needs a real Mac, and is recorded as such in
     // docs/MISSION-installer-both-platforms-2026-07-29.md.
+}
+
+
+/// <summary>
+/// WHICH registration file the macOS launcher step waits for (issue #4519). Kept apart from the tests
+/// above because it moves the process-wide CC_DIRECTOR_ROOT setting.
+/// </summary>
+[Collection(MachineRootCollection.Name)]
+public sealed class LauncherMacInstallerRegistrationPathTests : IDisposable
+{
+    private const string RootVariable = "CC_DIRECTOR_ROOT";
+    private readonly string? _previousRoot = Environment.GetEnvironmentVariable(RootVariable);
+
+    public void Dispose() => Environment.SetEnvironmentVariable(RootVariable, _previousRoot);
+
+    [Fact]
+    public void TheRegistrationItWaitsFor_BelongsToTheInstallItIsPerforming_NotToTheAmbientRoot()
+    {
+        // A fresh macOS install on 26 October 2026 placed every component correctly and reported
+        // "Launcher tray app FAILED ... launcher registration: never appeared". The launcher had written
+        // its registration 0.25 seconds after starting, at the root the install was performed at; the
+        // health probe was watching instances/<slug>/config/launcher/launcher.json, because its default
+        // came from LauncherDiscovery.DefaultPath and an agent runs the installer from inside a Director
+        // session, where CC_DIRECTOR_ROOT names that instance. The two halves of one installer disagreed
+        // about what the root was.
+        //
+        // WHY THE VARIABLE IS SET HERE AND STILL PROVES SOMETHING. DefaultPath is a static resolved ONCE
+        // per process, so setting the variable now cannot move it - which is the whole reason an
+        // installer may not read it: it answers for the process, and an installer was told where to
+        // install. What this asserts is the only thing that holds on every machine and in every process:
+        // the path watched is the one the layout names.
+        var rig = Path.Combine(Path.GetTempPath(), "cc-rig-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable(RootVariable, Path.Combine(rig, "instances", "default"));
+        var layout = new InstallLayout(Path.Combine(rig, "local"));
+
+        var installer = new LauncherMacInstaller(layout);
+
+        Assert.Equal(layout.LauncherRegistrationPath, installer.RegistrationPath);
+        Assert.NotEqual(LauncherDiscovery.DefaultPath, installer.RegistrationPath);
+    }
 }

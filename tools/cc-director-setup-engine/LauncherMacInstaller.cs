@@ -62,10 +62,25 @@ public sealed class LauncherMacInstaller
         _runCommand = runCommand ?? ((exe, args) => ProcessRunner.Run(exe, args, onStdoutLine: null, CommandTimeout));
         _startProcess = startProcess ?? StartDetachedProcess;
         _launchAgentPlistPath = launchAgentPlistPath ?? DefaultLaunchAgentPlistPath();
-        _registrationPath = registrationPath ?? LauncherDiscovery.DefaultPath;
+        // THE INSTALL IT IS PERFORMING, NOT THE ONE THIS PROCESS LIVES IN (issue #4519). This defaulted to
+        // LauncherDiscovery.DefaultPath, which is a static resolved once from the ambient environment -
+        // and CC_DIRECTOR_ROOT redirects it to instances/<slug>/config/launcher/launcher.json, a file no
+        // launcher has ever written. An agent installing from inside a Director session is exactly that
+        // case, and it is the documented headless path: on 26 October 2026 a macOS install that placed
+        // every component correctly ended on "Launcher tray app FAILED ... registration: never appeared",
+        // 0.25 seconds after the launcher had written it at the real root, and reported that failure to
+        // DevThrottle. The layout knows where this install is; nothing ambient can answer for it.
+        // LauncherWitness states the same rule for the same reason.
+        _registrationPath = registrationPath ?? layout.LauncherRegistrationPath;
         _healthTimeout = healthTimeout ?? TimeSpan.FromSeconds(20);
         _launchdPidWait = launchdPidWait ?? DefaultLaunchdPidWait;
     }
+
+    /// <summary>
+    /// The registration file this step waits for. Exposed so a test can prove WHICH file that is: the
+    /// install's own, never the one the ambient environment resolves to (issue #4519).
+    /// </summary>
+    internal string RegistrationPath => _registrationPath;
 
     /// <summary>The folder the launcher's launchd output goes to (its stdout and stderr files).</summary>
     private string LauncherLogDir => Path.Combine(_layout.LogsDir, "launcher");
@@ -158,8 +173,12 @@ public sealed class LauncherMacInstaller
         var health = await LauncherHealthProbe.WaitForHealthyAsync(_registrationPath, expectedVersion, _healthTimeout, ct, startedPid);
         if (health is null)
         {
-            steps.Add("launcher registration: never appeared");
-            return Fail(steps, $"Launcher started but never wrote its registration. {HowToOpenTheLogs}");
+            // NAME THE FILE. This failure used to say only that the registration never appeared, and the
+            // launcher had in fact written one 0.25 seconds after starting - at a different root (issue
+            // #4519). Diagnosing that took the launcher's own log beside the installer's; the path the
+            // probe watched belongs in the report that claims it was empty.
+            steps.Add($"launcher registration: never appeared at {_registrationPath}");
+            return Fail(steps, $"Launcher started but never wrote its registration at {_registrationPath}. {HowToOpenTheLogs}");
         }
         if (!LauncherHealthProbe.Certifies(health, expectedVersion, startedPid))
         {

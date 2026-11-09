@@ -53,8 +53,23 @@ public sealed class LauncherTrayInstaller
     public LauncherTrayInstaller(InstallLayout layout, string? registrationPath = null)
     {
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
-        _registrationPath = registrationPath ?? LauncherDiscovery.DefaultPath;
+        // THE INSTALL IT IS PERFORMING, NOT THE ONE THIS PROCESS LIVES IN (issue #4519). This defaulted to
+        // LauncherDiscovery.DefaultPath, which is a static resolved once from the ambient environment -
+        // and CC_DIRECTOR_ROOT redirects it to instances/<slug>/config/launcher/launcher.json, a file no
+        // launcher has ever written. An agent installing from inside a Director session is exactly that
+        // case, and it is the documented headless path: on 26 October 2026 a macOS install that placed
+        // every component correctly ended on "Launcher tray app FAILED ... registration: never appeared",
+        // 0.25 seconds after the launcher had written it at the real root, and reported that failure to
+        // DevThrottle. The layout knows where this install is; nothing ambient can answer for it.
+        // LauncherWitness states the same rule for the same reason.
+        _registrationPath = registrationPath ?? layout.LauncherRegistrationPath;
     }
+
+    /// <summary>
+    /// The registration file this step waits for. Exposed so a test can prove WHICH file that is: the
+    /// install's own, never the one the ambient environment resolves to (issue #4519).
+    /// </summary>
+    internal string RegistrationPath => _registrationPath;
 
     /// <summary>
     /// Start the already-placed Launcher tray app in managed mode and verify it is healthy and
