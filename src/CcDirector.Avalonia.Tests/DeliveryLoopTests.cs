@@ -65,25 +65,17 @@ public sealed class DeliveryLoopOrderTests
             Assert.NotNull(SessionCommandExecutor.AreaFor(verb));
     }
 
-    [Fact]
-    public void TheOrderedVerbs_AreExactlyWhatTheAREASDeclare_AndNothingTheConnectionLayerRemembers()
-    {
-        // THE DIRECTION THAT WAS MISSING, and it is the one that rots (the reviewer of pull request 4813).
-        // The old test only checked that every listed verb exists; it could not notice a verb that TYPES and
-        // is not listed - which happened twice in one day, with clear-context, compact-context and
-        // history-picker, then "enter" and execute-action. The list now has one source, the areas
-        // themselves, and this holds the connection layer to it.
-        // NOT EMPTY FIRST, because two empty sets are equal and that is the failure this join can have: the
-        // union is a static field initialised from Areas, and if it were ever declared ABOVE Areas in that
-        // file it would read null-then-empty and every verb would silently run on the loop again. The
-        // theories above would catch it too; this says so where the join is asserted.
-        Assert.NotEmpty(DeliveryLoopOrder.OrderedVerbs);
-        Assert.Contains("prompt", DeliveryLoopOrder.OrderedVerbs);
-
-        Assert.Equal(
-            SessionCommandExecutor.VerbsThatMustArriveInOrder.OrderBy(v => v, StringComparer.Ordinal),
-            DeliveryLoopOrder.OrderedVerbs.OrderBy(v => v, StringComparer.Ordinal));
-    }
+    // RETIRED, deliberately: a test here asserted that DeliveryLoopOrder.OrderedVerbs equals
+    // SessionCommandExecutor.VerbsThatMustArriveInOrder. It is CONSTRUCTED from it, so the assertion could
+    // not fail, and a test that cannot fail is worse than none - it reads as a guard and is a decoration.
+    // (Its comment was wrong twice over as well: a union declared above Areas would throw inside the type
+    // initialiser, loudly, not produce a silent empty set - and an empty set would push every verb OFF the
+    // loop, not keep it on. The reviewer of the fix round caught both.)
+    //
+    // What really holds the list is that there is no second copy of it: each area declares its own ordered
+    // verbs beside the code that types, and the theories here pin the verbs that matter. The remaining risk -
+    // somebody adds a typing verb and forgets to declare it in the same file - is held by proximity, and
+    // honestly by nothing else.
 
     [Theory]
     [InlineData("enter")]            // the phone's Enter key: a raw carriage return, written synchronously
