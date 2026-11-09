@@ -152,6 +152,23 @@ public sealed class ReportRecipientsEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task Handle_AccountMovedItsSignInAddress_IsMailedAtTheNewAddressAndNotTheOld()
+    {
+        // The address follows the sign-in provider (devthrottle_internal#2816): an account that signed in with a
+        // changed address is mailed there, and the mailbox it left - which may now be someone else's - is not.
+        var registry = Registry();
+        registry.MintOrLookupBySubject("subject-moved", "old@example.com");
+        registry.MintOrLookupBySubject("subject-moved", "new@example.com");
+
+        var ctx = Ctx();
+        var (_, body) = await ExecuteAsync(ReportRecipientsEndpoint.Handle(ctx, registry, Settings()), ctx);
+        var emails = body.GetProperty("recipients").EnumerateArray()
+            .Select(r => r.GetProperty("email").GetString()).ToList();
+
+        Assert.Equal(new[] { "new@example.com" }, emails);
+    }
+
+    [Fact]
     public async Task WithNoAccountsAtAll_ItReturnsAnEmptyListRatherThanFailing()
     {
         var ctx = Ctx();

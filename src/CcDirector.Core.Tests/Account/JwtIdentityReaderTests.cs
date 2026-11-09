@@ -42,6 +42,32 @@ public sealed class JwtIdentityReaderTests
         Assert.Null(JwtIdentityReader.Read(token));
     }
 
+    // devthrottle_internal#2816: the address recorded for an account comes from the top-level email claim the provider
+    // signs, never from user_metadata, which the person can edit to say anything.
+    [Fact]
+    public void Read_UserMetadataCarriesADifferentEmail_ReturnsTheTopLevelClaim()
+    {
+        var token = UnsignedToken("{\"sub\":\"u\",\"email\":\"signed@example.com\",\"user_metadata\":{\"email\":\"edited@example.com\",\"email_verified\":true}}");
+
+        Assert.Equal("signed@example.com", JwtIdentityReader.Read(token)!.Email);
+    }
+
+    // With only user_metadata carrying an address there is no email claim, so there is no identity.
+    [Fact]
+    public void Read_OnlyUserMetadataCarriesAnEmail_ReturnsNull()
+    {
+        var token = UnsignedToken("{\"sub\":\"u\",\"user_metadata\":{\"email\":\"edited@example.com\",\"email_verified\":true}}");
+
+        Assert.Null(JwtIdentityReader.Read(token));
+    }
+
+    private static string UnsignedToken(string payloadJson)
+    {
+        static string Segment(string json) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        return Segment("{\"alg\":\"none\"}") + "." + Segment(payloadJson) + ".sig";
+    }
+
     // A non-JSON-Web-Token string yields no identity.
     [Fact]
     public void Read_MalformedToken_ReturnsNull()
