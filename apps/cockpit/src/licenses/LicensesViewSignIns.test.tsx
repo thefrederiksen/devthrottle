@@ -2,8 +2,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor, within, fireEvent } from "@testing-library/react";
 
-// THE SIGN-INS OF THE LICENSES PAGE, AT THE WIRE: who approves an account (read, set, remove), Add a spare and Renew
-// now.
+// THE SIGN-INS OF THE LICENSES PAGE, AT THE WIRE: who approves an account (read, set, remove; the Approvers & spares
+// tab), Add a spare and Renew now (a machine's drawer).
 //
 // Nothing of the page or of its client is replaced here - only the browser's fetch. So what these tests see is what
 // leaves the browser (the route, the method, the content type, the body) and what a person then reads, worded by the
@@ -152,24 +152,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function card(accountEmail: string): Promise<HTMLElement> {
-  return await screen.findByRole("region", { name: accountEmail });
+/** One machine's drawer, opened from its line in the Machines table; a drawer open on another machine is closed first. */
+async function drawerOf(label: string): Promise<HTMLElement> {
+  const open = screen.queryByTestId("lic-drawer");
+  if (open !== null && within(open).queryByRole("heading", { name: label }) !== null) return open;
+  if (open !== null) fireEvent.click(within(open).getByRole("button", { name: "Close" }));
+  fireEvent.click(await screen.findByRole("button", { name: `More about ${label}` }));
+  return screen.getByTestId("lic-drawer");
 }
 
-/** The line of one machine's sign-in on the card of an account. */
+/** The line of one sign-in in a machine's drawer. */
 async function holding(accountEmail: string, machineLabel: string): Promise<HTMLElement> {
-  const lines = within(await card(accountEmail)).getAllByTestId("lic-holding");
-  const line = lines.find((l) => l.querySelector(".lic-holding-machine")?.textContent === machineLabel);
+  const lines = within(await drawerOf(machineLabel)).getAllByTestId("lic-drawer-signin");
+  const line = lines.find((l) => l.querySelector(".lic-strong")?.textContent === accountEmail);
   if (line === undefined) throw new Error(`no sign-in for ${accountEmail} on ${machineLabel}`);
   return line;
 }
 
-/** The row of one machine in the Sign-ins table. */
+/** One machine's drawer, where Add a spare and the sign-ins under way are. */
 async function machineRow(label: string): Promise<HTMLElement> {
-  const rows = await screen.findAllByTestId("lic-sign-in-machine");
-  const row = rows.find((r) => r.querySelector(".lic-strong")?.textContent === label);
-  if (row === undefined) throw new Error(`no row for ${label}`);
-  return row;
+  return await drawerOf(label);
 }
 
 function refusalIn(dialog: HTMLElement): string | null {
@@ -177,18 +179,6 @@ function refusalIn(dialog: HTMLElement): string | null {
 }
 
 describe("LicensesView: what the overview says of sign-ins", () => {
-  it("shows on each card who approves the account, in the Gateway's sentence and tone, and adds no word", async () => {
-    render(<LicensesView />);
-
-    const a = within(await card(ACCOUNT_A)).getByTestId("lic-account-approver");
-    expect(a.textContent).toBe(OVERVIEW_SIGN_IN_FIELDS.accounts[0].approverText);
-    expect(a.className).toContain("lic-tone-warning");
-    const c = within(await card(ACCOUNT_C)).getByTestId("lic-account-approver");
-    expect(c.textContent).toBe("No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.");
-    expect(c.className).toContain("lic-tone-neutral");
-    expect(c.className).not.toContain("lic-tone-warning");
-  });
-
   it("offers Renew now only on the sign-in the Gateway offers it for, and shows its sentence on every sign-in", async () => {
     render(<LicensesView />);
 
@@ -213,7 +203,7 @@ describe("LicensesView: what the overview says of sign-ins", () => {
     expect(screen.getAllByRole("button", { name: "Renew now" }).length).toBe(1);
   });
 
-  it("lists every machine with the Gateway's Add a spare sentence, the button only where it is offered, and the sign-ins that have not ended", async () => {
+  it("shows in each machine's drawer the Gateway's Add a spare sentence, a button that works only where it is offered, and the sign-ins that have not ended", async () => {
     render(<LicensesView />);
 
     const windows = await machineRow(WINDOWS);
@@ -225,16 +215,15 @@ describe("LicensesView: what the overview says of sign-ins", () => {
       "the-windows-machine is renewing its sign-in for account-a@example.com.",
     ]);
     const mac = await machineRow(MAC);
-    expect(within(mac).queryByRole("button", { name: "Add a spare" })).toBeNull();
+    expect((within(mac).getByRole("button", { name: "Add a spare" }) as HTMLButtonElement).disabled).toBe(true);
     expect(within(mac).getByTestId("lic-add-spare-text").textContent).toBe(
       "The Director on the-mac is not connected, so a sign-in cannot be started there.",
     );
     expect(within(mac).queryByTestId("lic-sign-in-progress")).toBeNull();
-    expect(screen.getAllByTestId("lic-sign-in-machine").length).toBe(2);
     expect(writes()).toEqual([]);
   });
 
-  it("calls a machine by the Gateway's label in the Sign-ins table and in the confirmation", async () => {
+  it("calls a machine by the Gateway's label in its drawer and in the confirmation", async () => {
     // Two users of one computer are two machines; the Gateway tells them apart in the label.
     const windows = overview.machines.find((m) => m.machineName === WINDOWS);
     if (windows === undefined) throw new Error("no the-windows-machine");
@@ -525,7 +514,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("shows the Gateway's sentence in place of the list when no approver is set", async () => {
     answers[READ_APPROVERS] = () => json(200, APPROVERS_EMPTY);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     expect((await screen.findByTestId("lic-approvers-empty")).textContent).toBe(APPROVERS_EMPTY.emptyText);
     expect(screen.queryByTestId("lic-approvers")).toBeNull();
@@ -537,14 +526,14 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     // two the page goes by can be seen.
     const saidEmpty = { ...copyOf(APPROVERS), isEmpty: true, emptyText: APPROVERS_EMPTY.emptyText };
     answers[READ_APPROVERS] = () => json(200, saidEmpty);
-    const first = render(<LicensesView />);
+    const first = render(<LicensesView initialTab="approvers" />);
     expect((await screen.findByTestId("lic-approvers-empty")).textContent).toBe(APPROVERS_EMPTY.emptyText);
     expect(screen.queryByTestId("lic-approver")).toBeNull();
     first.unmount();
 
     const saidNotEmpty = { ...copyOf(APPROVERS_EMPTY), isEmpty: false, emptyText: null };
     answers[READ_APPROVERS] = () => json(200, saidNotEmpty);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     expect(await screen.findByTestId("lic-approvers")).not.toBeNull();
     expect(screen.queryByTestId("lic-approvers-empty")).toBeNull();
     expect(screen.queryByTestId("lic-approver")).toBeNull();
@@ -585,7 +574,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   };
 
   it("lists each approver with the Gateway's label, the profile, and the status in its tone", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const rows = await screen.findAllByTestId("lic-approver");
     expect(rows.length).toBe(2);
@@ -599,7 +588,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("shows a healthy registered row in the Gateway's words: Ready, who registered it, its health, and nothing to do", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const row = (await screen.findAllByTestId("lic-approver"))[0];
 
@@ -610,7 +599,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("shows a row that needs a fresh sign-in with the Gateway's health sentence and the one thing to do", async () => {
     answers[READ_APPROVERS] = () => json(200, withRowA(NEEDS_FRESH_SIGN_IN));
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const row = (await screen.findAllByTestId("lic-approver"))[0];
 
@@ -625,7 +614,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("shows a row that has not been checked, on a machine that never reported, with why and the one thing to do", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const row = (await screen.findAllByTestId("lic-approver"))[1];
 
@@ -641,7 +630,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("says each sentence once: the row's sentences together are the Gateway's whole text, with nothing of the page's own", async () => {
     answers[READ_APPROVERS] = () => json(200, withRowA(NEEDS_FRESH_SIGN_IN));
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const rows = await screen.findAllByTestId("lic-approver");
 
@@ -660,7 +649,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   it("never turns canApproveNow into words: the status shown is the Gateway's statusText, whatever canApproveNow says", async () => {
     // The relay asks a connected approver whatever its health, so the page promises nothing from canApproveNow.
     answers[READ_APPROVERS] = () => json(200, withRowA({ ...NEEDS_FRESH_SIGN_IN, canApproveNow: true }));
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const row = (await screen.findAllByTestId("lic-approver"))[0];
 
@@ -670,7 +659,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("shows the profile's display name once a check has seen it, and always the identifier the record holds", async () => {
     answers[READ_APPROVERS] = () => json(200, withRowA({ browserProfile: "work-chrome", browserProfileName: "Work Chrome" }));
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const rows = await screen.findAllByTestId("lic-approver");
 
@@ -683,7 +672,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("offers Remove on a registered row: one DELETE naming its account, after the confirmation", async () => {
     answers[REMOVE_APPROVER] = () => json(200, APPROVER_REMOVED);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     const row = (await screen.findAllByTestId("lic-approver"))[0];
     expect(sentences(row).source).toBe("Registered by the-mac's Director.");
 
@@ -702,14 +691,14 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     const labelled = copyOf(APPROVERS);
     labelled.approvers[0].label = "the-mac (owner)";
     answers[READ_APPROVERS] = () => json(200, labelled);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     const rows = await screen.findAllByTestId("lic-approver");
     expect(rows[0].querySelectorAll("td")[1].textContent).toBe("the-mac (owner)");
   });
 
   it("offers four pick lists and nothing to type: the page's accounts, the machines that reported, and their users", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
 
     expect(editor().querySelectorAll("input, textarea").length).toBe(0);
@@ -720,7 +709,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("opens from Set an approver with nothing chosen at all, and Save is not shut", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
 
     expect([field(ACCOUNT).value, field(MACHINE).value, field(USER).value, field(PROFILE).value]).toEqual(["", "", "", ""]);
@@ -730,30 +719,8 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     expect(reads(MAC_PROFILES) + reads(WINDOWS_PROFILES)).toBe(0);
   });
 
-  it("opens from an account's own card with that account chosen and nothing else, and brings the form to the eye", async () => {
-    render(<LicensesView />);
-
-    fireEvent.click(within(await card(ACCOUNT_C)).getByRole("button", { name: "Set the approver" }));
-
-    expect(field(ACCOUNT).value).toBe(ACCOUNT_C);
-    expect(field(ACCOUNT).disabled).toBe(false);
-    expect([field(MACHINE).value, field(USER).value, field(PROFILE).value]).toEqual(["", "", ""]);
-    expect(document.activeElement).toBe(field(ACCOUNT));
-  });
-
-  it("opens fresh from another card: the account chosen for one card is not carried to the next", async () => {
-    render(<LicensesView />);
-    fireEvent.click(within(await card(ACCOUNT_C)).getByRole("button", { name: "Set the approver" }));
-    choose(MACHINE, MAC);
-
-    fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Set the approver" }));
-
-    expect(field(ACCOUNT).value).toBe(ACCOUNT_A);
-    expect(field(MACHINE).value).toBe("");
-  });
-
   it("chooses the user for you when the machine has only one, and lists that machine's browser profiles from its own Director", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
 
     choose(MACHINE, MAC);
@@ -767,7 +734,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("clears the user and the browser profile when the machine is changed", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     choose(MACHINE, MAC);
     await waitFor(() => expect(offered(PROFILE)).toContain("work"));
@@ -783,7 +750,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("clears the browser profile when the user is changed, and lists the other user's profiles from that user's Director", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     choose(MACHINE, WINDOWS);
     choose(USER, "owner");
@@ -799,7 +766,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("says it is loading the browser profiles, naming the machine, while the Director has not answered", async () => {
     answers[MAC_PROFILES] = () => new Promise<Response>(() => undefined);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
 
     choose(MACHINE, MAC);
@@ -817,7 +784,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     if (offline === undefined) throw new Error(`no ${MAC}`);
     mac.canListBrowserProfiles = offline.canListBrowserProfiles;
     mac.browserProfilesText = offline.browserProfilesText;
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
 
     choose(MACHINE, MAC);
@@ -829,7 +796,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("says so when the machine's Director has no browser profiles", async () => {
     answers[MAC_PROFILES] = () => json(200, { browsers: [] });
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
 
     choose(MACHINE, MAC);
@@ -841,7 +808,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   it("shows the Gateway's sentence when the Director cannot be asked for its browser profiles", async () => {
     const sentence = "The Director on the-mac is not connected right now, so the command was not delivered.";
     answers[MAC_PROFILES] = () => json(502, { error: sentence });
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
 
     choose(MACHINE, MAC);
@@ -897,7 +864,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
       ["Choose the browser profile on the-mac."],
     ],
   ])("with %s, Save sends nothing and says exactly what is missing, one line each", async (_name, fill, lines) => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     await fill();
     // Nothing is said before Save is pressed.
@@ -912,7 +879,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("takes each missing line away as its choice is made", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     fireEvent.click(saveButton());
     expect(missingLines().length).toBe(4);
@@ -926,7 +893,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   it("sets an approver with exactly one application/json PUT of the four choices, shows the Gateway's sentence, and reads the approvers again", async () => {
     answers[READ_APPROVERS] = () => json(200, APPROVERS_EMPTY);
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     await chooseAll(ACCOUNT_A, MAC, "owner", "work");
     expect(writes()).toEqual([]);
@@ -951,7 +918,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("sends the profile's identifier, not its name, so renaming the profile does not break the approver", async () => {
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     await chooseAll(ACCOUNT_C, MAC, "owner", "personal");
 
@@ -964,7 +931,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   it("keeps the list as the Gateway last gave it when the read after a set has not answered: it adds no row of its own", async () => {
     answers[READ_APPROVERS] = () => json(200, APPROVERS_EMPTY);
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     await chooseAll(ACCOUNT_A, MAC, "owner", "work");
     answers[READ_APPROVERS] = () => new Promise<Response>(() => undefined);
@@ -981,7 +948,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     ["403 owner_only", 403, SET_OWNER_ONLY],
   ])("shows a %s in the Gateway's sentence, word for word, and keeps the form open with what was chosen", async (_name, status, refusal) => {
     answers[SET_APPROVER] = () => json(status, refusal);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     await chooseAll(ACCOUNT_C, MAC, "owner", "work");
 
@@ -997,7 +964,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("takes the sentence of the answer before off the screen when the next write is refused: it is not that write's outcome", async () => {
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     await chooseAll(ACCOUNT_A, MAC, "owner", "work");
     fireEvent.click(saveButton());
@@ -1013,7 +980,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("changes an approver from its own row: the form opens on what is stored and keeps its account", async () => {
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     const rows = await screen.findAllByTestId("lic-approver");
 
     fireEvent.click(within(rows[0]).getByRole("button", { name: "Change" }));
@@ -1031,7 +998,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("changes an approver on a machine that never reported with no machine chosen: that machine is not in the list", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     const rows = await screen.findAllByTestId("lic-approver");
 
     fireEvent.click(within(rows[1]).getByRole("button", { name: "Change" }));
@@ -1042,7 +1009,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   });
 
   it("sends nothing when the form is cancelled", async () => {
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     await openNew();
     await chooseAll(ACCOUNT_C, MAC, "owner", "work");
 
@@ -1061,7 +1028,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("removes an approver only when confirmed: one DELETE naming the account in the query, no body, then the Gateway's sentence and a new read", async () => {
     answers[REMOVE_APPROVER] = () => json(200, APPROVER_REMOVED);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     const dialog = await openRemove();
     // The confirmation says what is being removed in the Gateway's sentence for that approver.
     expect(dialog.querySelector(".ui-confirm-message")?.textContent).toBe(APPROVERS.approvers[1].text);
@@ -1087,7 +1054,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("shows a refused removal in the Gateway's sentence, word for word, and removes nothing from the screen", async () => {
     answers[REMOVE_APPROVER] = () => json(403, REMOVE_OWNER_ONLY);
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
     const dialog = await openRemove();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
@@ -1100,10 +1067,10 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
   it("says so when the approvers cannot be read, and still draws the machines", async () => {
     answers[READ_APPROVERS] = () => json(403, { code: "no_account", error: "no account is bound to this request" });
-    render(<LicensesView />);
+    render(<LicensesView initialTab="approvers" />);
 
     expect(await screen.findByText("no account is bound to this request")).toBeTruthy();
-    expect(screen.getAllByTestId("lic-sign-in-machine").length).toBe(overview.machines.length);
+    expect(screen.getAllByTestId("lic-spares-machine").length).toBe(overview.machines.length);
     expect(screen.queryByTestId("lic-approvers")).toBeNull();
     expect(screen.queryByTestId("lic-approvers-empty")).toBeNull();
   });

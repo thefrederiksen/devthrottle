@@ -9,7 +9,6 @@ import {
   removeLicenseApprover,
   renewLicenseSignIn,
   setLicenseApprover,
-  setLicenseRenewalDate,
   switchLicenseNow,
   type LicenseAccount,
   type LicenseApprover,
@@ -23,24 +22,23 @@ import {
   type LicenseSetApprover,
   type LicenseSignInStarted,
   type LicenseSwitchNowResult,
+  type LicenseVerdict,
 } from "@devthrottle/client-core/licenses/licensesClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
-import { useLicenseAlarmsAnswer } from "@devthrottle/client-core/licenses/LicenseAlarmIndicator";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
-import { LicenseAccountCard } from "./LicenseAccountCard";
-import { LicenseCoverageGrid } from "./LicenseCoverage";
 import { LicenseUsageTab } from "./LicenseUsageTab";
-import { LicenseOutlookChart, LicenseOutlookHeadline, LicenseOutlookTiles } from "./LicenseOutlook";
-import { AddSpareChoice, LicenseSignIns, SignInAnswer, type ApproverEditorOpen } from "./LicenseSignIns";
-import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill, toneClass } from "./licenseParts";
+import { LicenseOutlookChart, LicenseOutlookHeadline } from "./LicenseOutlook";
+import { AddSpareChoice, LicenseApproversPanel, SignInAnswer, type ApproverEditorOpen } from "./LicenseSignIns";
+import { LicenseOverviewTab } from "./LicenseOverviewTab";
+import { LicenseMachineDrawer } from "./LicenseMachineDrawer";
+import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill } from "./licenseParts";
 
-// THE LICENSES PAGE (the License Switching mission, phase 3): the next seven days above everything (an alert when no
-// account will have room, three tiles and a timeline of every account, LicenseOutlook.tsx), every Claude account as a
-// card with its two usage windows and its Forecast and Subscription boxes, the schedule (which account each machine is on, which is next and when), the sign-ins, the switch log,
-// and the things a person does here: Switch now, setting the day a subscription is billed again, saying which
-// machine approves the sign-ins of an account, adding a spare to a machine, renewing a sign-in, and forgetting a machine
-// that is gone.
+// THE LICENSES PAGE ON ONE SCREEN (the owner's redesign, approved 8 November 2026). The Overview is one status card
+// (is every machine covered?), a tile per license, the Machines table and a short grey to-do list (LicenseOverviewTab).
+// A machine's sign-ins, spares, Renew, Add a spare and Remove this machine are in its drawer (LicenseMachineDrawer).
+// The forecast, the history (the switch log) and the approvers each have a tab; "What is using it" is unchanged. Before
+// this it was ten screens tall and said the same thing per machine over and over.
 //
 // THE PAGE DECIDES NOTHING (CLAUDE.md rule 7). Every status, tone, sentence and offer on it is folded on the
 // Gateway (LicenseDisplayFold) and shown as sent. The page never compares a percentage with the switching
@@ -50,6 +48,7 @@ import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill, toneClass } from "./l
 // The four reads are polled separately, so a failure of one leaves the others on screen. The sentences are
 // true at each answer's asOfUtc; reading again every 30 seconds keeps them true.
 const POLL_MS = 30000;
+const FIRST_READ_WHEN_HIDDEN = { firstReadWhenHidden: true } as const;
 
 const readOverview = (signal?: AbortSignal) => getLicenseOverview(signal);
 const readForecast = (signal?: AbortSignal) => getLicenseForecast(signal);
@@ -95,7 +94,9 @@ function usePolled<T, S>(
     },
     [read, action, fold],
   );
-  useVisiblePolling(refresh, POLL_MS);
+  // The first read is made even in a background tab, so a Licenses page opened from a link behind another tab is never
+  // left on "Loading..." until it is shown.
+  useVisiblePolling(refresh, POLL_MS, true, FIRST_READ_WHEN_HIDDEN);
   return { data, error, refresh, update: setData };
 }
 
@@ -133,14 +134,19 @@ export function foldNewestLogPage(current: LogView | null, page: LicenseLogPage)
   };
 }
 
-/** The page's two tabs: the accounts (the default), and what is using them. */
-export type LicensesTab = "accounts" | "usage";
+/** The page's tabs, in the order they are shown. */
+export type LicensesTab = "overview" | "usage" | "forecast" | "history" | "approvers";
 
-export function LicensesView({ initialTab = "accounts" }: { initialTab?: LicensesTab } = {}) {
+const TABS: ReadonlyArray<{ tab: LicensesTab; label: string }> = [
+  { tab: "overview", label: "Overview" },
+  { tab: "usage", label: "What is using it" },
+  { tab: "forecast", label: "Forecast" },
+  { tab: "history", label: "History" },
+  { tab: "approvers", label: "Approvers & spares" },
+];
+
+export function LicensesView({ initialTab = "overview" }: { initialTab?: LicensesTab } = {}) {
   const [tab, setTab] = useState<LicensesTab>(initialTab);
-  // The same answer the rail's triangle draws, read once by the shell (LicenseAlarmsProvider in AppShell), so the
-  // page's number and the triangle's agree and the page makes no second read.
-  const alarms = useLicenseAlarmsAnswer();
   const overview = usePolled<LicenseOverview, LicenseOverview>(readOverview, "read the licenses", newest);
   const forecast = usePolled<LicenseForecast, LicenseForecast>(readForecast, "read the license forecast", newest);
   const log = usePolled<LicenseLogPage, LogView>(readNewestLog, "read the switch log", foldNewestLogPage);
@@ -202,25 +208,6 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
     const result = await switchLicenseNow(confirming.accountEmail, target === confirming.switchNowTargetAccountEmail ? null : target);
     setLastSwitch(result);
     refreshAll();
-  };
-
-  // The renewal date of a subscription: the answer is what the Gateway stored with its sentence, and it is shown at
-  // once. A refusal throws with the Gateway's own sentence, which the card shows beside the date.
-  const saveRenewalDate = async (accountEmail: string, renewsOn: string | null) => {
-    const stored = await setLicenseRenewalDate(accountEmail, renewsOn);
-    overview.update((current) =>
-      current === null
-        ? current
-        : {
-            ...current,
-            accounts: current.accounts.map((account) =>
-              account.accountEmail === accountEmail
-                ? { ...account, renewsOn: stored.renewsOn, renewsText: stored.renewsText }
-                : account,
-            ),
-          },
-    );
-    void overview.refresh();
   };
 
   // SIGN-INS. Add a spare and Renew now each start a sign-in on one machine. The Gateway answers at once with the
@@ -297,6 +284,29 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
     void overview.refresh();
   };
 
+  // THE MACHINE DRAWER. Held by id, so the drawer shows the newest answer while it is open; it closes when its machine
+  // leaves the page (after Remove this machine). An action in it closes it first and opens its confirmation.
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const drawerMachine = overview.data?.machines.find((m) => m.machineId === drawerId) ?? null;
+  const fromDrawer = (open: () => void) => {
+    setDrawerId(null);
+    open();
+  };
+
+  // THE STATUS CARD'S FIX: the sign-in the Gateway names, through the same confirmation as Add a spare or Renew.
+  const askFix = (verdict: LicenseVerdict) => {
+    const fix = verdict.fix;
+    const machine = overview.data?.machines.find((m) => m.machineId === fix?.machineId);
+    if (fix === null || machine === undefined) return;
+    const holding = [machine.active, ...machine.spares].find((h) => h !== null && h.accountEmail === fix.accountEmail);
+    if (fix.action === "renew" && holding !== undefined && holding !== null) {
+      setRenewing({ machine, holding });
+      return;
+    }
+    setSpareAccount(fix.accountEmail);
+    setAddingSpare(machine);
+  };
+
   const data = overview.data;
 
   return (
@@ -305,8 +315,8 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
         title="Licenses"
         subtitle={
           data === null || data.isEmpty
-            ? "Your Claude accounts, which machine is on which, and when they switch."
-            : `${data.accounts.length} Claude account${data.accounts.length === 1 ? "" : "s"} on ${data.machines.length} machine${data.machines.length === 1 ? "" : "s"}.`
+            ? "Your Claude licenses, which machine is on which, and when they switch."
+            : `${data.accounts.length} Claude license${data.accounts.length === 1 ? "" : "s"} - ${data.machines.length} machine${data.machines.length === 1 ? "" : "s"}`
         }
         actions={
           data !== null && (
@@ -317,17 +327,8 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
         }
       />
 
-      {alarms !== null && alarms.count > 0 && (
-        <section aria-label="License problems" className="lic-alarm-details" data-testid="license-alarm-details">
-          <h2 className="lic-h2">{alarms.summary}</h2>
-          <ul>
-            {alarms.alarms.map((alarm) => <li key={alarm.alarmId}>{alarm.text}</li>)}
-          </ul>
-        </section>
-      )}
-
-      <div className="thr-tabs" role="tablist" aria-label="Licenses view">
-        {(["accounts", "usage"] as const).map((t) => (
+      <div className="thr-tabs lic-tabs" role="tablist" aria-label="Licenses view">
+        {TABS.map(({ tab: t, label }) => (
           <button
             key={t}
             type="button"
@@ -336,89 +337,68 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
             className={`thr-tab${tab === t ? " active" : ""}`}
             onClick={() => setTab(t)}
           >
-            {t === "accounts" ? "Accounts" : "What is using it"}
+            {label}
           </button>
         ))}
       </div>
 
+      {lastSwitch !== null && (
+        <SwitchNowAnswer result={lastSwitch} log={log.data?.entries ?? []} onDismiss={() => setLastSwitch(null)} />
+      )}
+      {lastSignIn !== null && (
+        <SignInAnswer started={lastSignIn} log={log.data?.entries ?? []} onDismiss={() => setLastSignIn(null)} />
+      )}
+      {forgetAnswer !== null && (
+        <p className="lic-choice-text" role="status" data-testid="lic-forget-answer">
+          {forgetAnswer}
+        </p>
+      )}
+
       {tab === "usage" && <LicenseUsageTab />}
 
-      {/* error-reported-by: usePolled */}
-      {tab === "accounts" && overview.error !== null && <ErrorBanner message={overview.error} onRetry={() => void overview.refresh()} />}
-
-      {tab !== "accounts" ? null : data === null ? (
-        overview.error === null && <LoadingState />
-      ) : data.isEmpty ? (
-        // No machine has reported yet: the Gateway's own sentence, in place of every list.
-        <EmptyState message={data.emptyText ?? ""} />
-      ) : (
+      {tab === "overview" && (
         <>
-          {/* The next seven days, above the cards: the alert (only when the Gateway says no account will have room),
-              the three tiles and the timeline. The forecast's own error banner is under Schedule below. */}
-          {forecast.data !== null && !forecast.data.isEmpty && (
-            <>
-              <LicenseOutlookHeadline outlook={forecast.data.outlook} />
-              <LicenseOutlookTiles outlook={forecast.data.outlook} />
-              <LicenseOutlookChart outlook={forecast.data.outlook} />
-            </>
+          {/* error-reported-by: usePolled */}
+          {overview.error !== null && <ErrorBanner message={overview.error} onRetry={() => void overview.refresh()} />}
+          {data === null ? (
+            overview.error === null && <LoadingState />
+          ) : data.isEmpty ? (
+            // No machine has reported yet: the Gateway's own sentence, in place of every list.
+            <EmptyState message={data.emptyText ?? ""} />
+          ) : (
+            <LicenseOverviewTab
+              overview={data}
+              onSwitchNow={askSwitchNow}
+              onFix={askFix}
+              onOpenMachine={(machine) => setDrawerId(machine.machineId)}
+              onOpenTab={setTab}
+            />
           )}
-          <div className="lic-cards">
-            {data.accounts.map((account) => (
-              <LicenseAccountCard
-                key={account.accountEmail}
-                account={account}
-                machines={data.machines}
-                forecast={forecast.data?.accounts.find((a) => a.accountEmail === account.accountEmail)}
-                onSwitchNow={askSwitchNow}
-                onSetRenewalDate={saveRenewalDate}
-                onRenewNow={(machine, holding) => setRenewing({ machine, holding })}
-                onSetApprover={(accountEmail) => openApproverEditor(null, accountEmail)}
-              />
-            ))}
-          </div>
+        </>
+      )}
 
-          <h2 className="lic-h2">Coverage</h2>
-          <LicenseCoverageGrid coverage={data.coverage} />
-
-          {lastSwitch !== null && (
-            <SwitchNowAnswer result={lastSwitch} log={log.data?.entries ?? []} onDismiss={() => setLastSwitch(null)} />
-          )}
-          {lastSignIn !== null && (
-            <SignInAnswer started={lastSignIn} log={log.data?.entries ?? []} onDismiss={() => setLastSignIn(null)} />
-          )}
-
-          <h2 className="lic-h2">Schedule</h2>
+      {tab === "forecast" && (
+        <>
           {/* error-reported-by: usePolled */}
           {forecast.error !== null && <ErrorBanner message={forecast.error} onRetry={() => void forecast.refresh()} />}
-          {forecast.data !== null && (
-            <p className="lic-next-switch" data-testid="lic-next-switch">
-              {forecast.data.nextSwitchText}
-            </p>
+          {forecast.data === null ? (
+            forecast.error === null && <LoadingState />
+          ) : forecast.data.isEmpty ? (
+            <EmptyState message={forecast.data.emptyText ?? ""} />
+          ) : (
+            <>
+              <LicenseOutlookHeadline outlook={forecast.data.outlook} />
+              <LicenseOutlookChart outlook={forecast.data.outlook} />
+              <p className="lic-next-switch" data-testid="lic-next-switch">
+                {forecast.data.nextSwitchText}
+              </p>
+            </>
           )}
-          {forgetAnswer !== null && (
-            <p className="lic-choice-text" data-testid="lic-forget-answer">
-              {forgetAnswer}
-            </p>
-          )}
-          <ScheduleTable machines={data.machines} forecast={forecast.data} onForget={setForgetting} />
+        </>
+      )}
 
-          <h2 className="lic-h2">Sign-ins</h2>
-          {/* error-reported-by: usePolled */}
-          <LicenseSignIns
-            overview={data}
-            approvers={approvers.data}
-            approversError={approvers.error}
-            onRetryApprovers={() => void approvers.refresh()}
-            approverAnswer={approverAnswer}
-            onAddSpare={askAddSpare}
-            onSetApprover={saveApprover}
-            onRemoveApprover={setRemovingApprover}
-            editor={approverEditor}
-            onOpenEditor={(editing) => openApproverEditor(editing, null)}
-            onCloseEditor={() => setApproverEditor(null)}
-          />
-
-          <h2 className="lic-h2">Switch log</h2>
+      {tab === "history" && (
+        <>
           {/* error-reported-by: usePolled */}
           {log.error !== null && <ErrorBanner message={log.error} onRetry={() => void log.refresh()} />}
           {log.data === null ? (
@@ -439,6 +419,41 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
             </>
           )}
         </>
+      )}
+
+      {tab === "approvers" && (
+        <>
+          {/* error-reported-by: usePolled */}
+          {overview.error !== null && <ErrorBanner message={overview.error} onRetry={() => void overview.refresh()} />}
+          {data === null ? (
+            overview.error === null && <LoadingState />
+          ) : (
+            // error-reported-by: usePolled
+            <LicenseApproversPanel
+              overview={data}
+              approvers={approvers.data}
+              approversError={approvers.error}
+              onRetryApprovers={() => void approvers.refresh()}
+              approverAnswer={approverAnswer}
+              onSetApprover={saveApprover}
+              onRemoveApprover={setRemovingApprover}
+              editor={approverEditor}
+              onOpenEditor={(editing) => openApproverEditor(editing, null)}
+              onCloseEditor={() => setApproverEditor(null)}
+              onOpenMachine={(machine) => setDrawerId(machine.machineId)}
+            />
+          )}
+        </>
+      )}
+
+      {drawerMachine !== null && (
+        <LicenseMachineDrawer
+          machine={drawerMachine}
+          onClose={() => setDrawerId(null)}
+          onRenew={(machine, holding) => fromDrawer(() => setRenewing({ machine, holding }))}
+          onAddSpare={(machine) => fromDrawer(() => askAddSpare(machine))}
+          onRemove={(machine) => fromDrawer(() => setForgetting(machine))}
+        />
       )}
 
       <ConfirmDialog
@@ -484,11 +499,11 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
 
       <ConfirmDialog
         open={forgetting !== null}
-        title={forgetting === null ? "" : `Forget ${forgetting.label}?`}
+        title={forgetting === null ? "" : `Remove ${forgetting.label}?`}
         // The Gateway's sentence for this machine, as it stood when the person asked.
         message={forgetting === null ? null : <p className="lic-choice-text">{forgetting.forgetText}</p>}
-        confirmLabel="Forget"
-        busyLabel="Forgetting..."
+        confirmLabel="Remove this machine"
+        busyLabel="Removing..."
         action="forget the machine"
         onConfirm={confirmForget}
         onClose={() => setForgetting(null)}
@@ -587,67 +602,6 @@ function SwitchNowAnswer({
       <Button variant="ghost" onClick={onDismiss}>
         Dismiss
       </Button>
-    </div>
-  );
-}
-
-/** The schedule: one row per machine - the account it is on, the one it moves to next, and the Gateway's sentence. */
-function ScheduleTable({
-  machines,
-  forecast,
-  onForget,
-}: {
-  machines: ReadonlyArray<LicenseMachine>;
-  forecast: LicenseForecast | null;
-  onForget: (machine: LicenseMachine) => void;
-}) {
-  return (
-    <div className="lic-table-wrap">
-    <table className="lic-table" data-testid="lic-schedule">
-      <thead>
-        <tr>
-          <th>Machine</th>
-          <th>Status</th>
-          <th>On now</th>
-          <th>Next account</th>
-          <th>Expected switch</th>
-        </tr>
-      </thead>
-      <tbody>
-        {machines.map((machine) => {
-          const next = forecast?.machines.find((m) => m.machineId === machine.machineId);
-          return (
-            <tr key={machine.machineId} data-testid="lic-schedule-row">
-              <td className="lic-nowrap">
-                <span className="lic-strong">{machine.label}</span>
-              </td>
-              <td>
-                <TonePill text={machine.statusText} tone={machine.statusTone} />
-                {machine.statusDetail !== null && <div data-testid="lic-machine-status-detail">{machine.statusDetail}</div>}
-                <div className="lic-dim">{machine.lastReportText}</div>
-                {machine.heldText !== null && <div data-testid="lic-machine-held">{machine.heldText}</div>}
-                {machine.readinessText !== null && machine.readinessTone !== null && (
-                  <div className={toneClass(machine.readinessTone)} data-testid="lic-machine-readiness" data-readiness={machine.readiness ?? undefined}>
-                    {machine.readinessText}
-                  </div>
-                )}
-                {machine.canForget && (
-                  <Button variant="ghost" onClick={() => onForget(machine)} data-testid="lic-machine-forget">
-                    Forget this machine
-                  </Button>
-                )}
-              </td>
-              <td className="lic-nowrap">{machine.activeAccountEmail}</td>
-              <td className="lic-nowrap">{next?.nextAccountEmail}</td>
-              <td>
-                {machine.switchInProgress !== null && <div>{machine.switchInProgress.text}</div>}
-                {next !== undefined && <div>{next.text}</div>}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
     </div>
   );
 }

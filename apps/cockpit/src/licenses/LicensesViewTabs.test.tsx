@@ -46,10 +46,22 @@ afterEach(() => {
 });
 
 describe("LicensesView tabs", () => {
-  it("opens on Accounts, and What is using it shows the usage tab in its place", async () => {
+  it("has the five tabs of the redesign, in order", async () => {
     render(<LicensesView />);
     expect(await screen.findByText("The accounts could not be read.")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Accounts" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "What is using it",
+      "Forecast",
+      "History",
+      "Approvers & spares",
+    ]);
+  });
+
+  it("opens on Overview, and What is using it shows the usage tab in its place", async () => {
+    render(<LicensesView />);
+    expect(await screen.findByText("The accounts could not be read.")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(screen.getByRole("tab", { name: "What is using it" }));
 
