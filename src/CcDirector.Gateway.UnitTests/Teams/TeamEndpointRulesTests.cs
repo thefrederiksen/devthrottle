@@ -64,11 +64,15 @@ public sealed class TeamEndpointRulesTests
     [InlineData("GET", "/sessions/{sid}/inbox/{id}")]
     [InlineData("POST", "/sessions/{sid}/inbox/{id}/state")]
     [InlineData("POST", "/sessions/{sid}/inbox/{id}/reply")]
-    public void Find_YourInboxAsASessionReachesIt_StatesNothing_ThoughTheSessionsRuleCoversItsPrefix(string method, string pattern)
+    public void Find_YourInboxAsASessionReachesIt_IsTheFactoryRow_NotTheSessionsRule(string method, string pattern)
     {
         // Team implementation 3.2: these read and write the ACCOUNT's one inbox, not the session, so the "/sessions" rule's
-        // reason does not hold for them (TeamEndpointRules.NotOpenedToTeams).
-        Assert.Null(TeamEndpointRules.Find(method, pattern));
+        // reason does not hold for them. The Owner's own sessions only; another member's session is watching it.
+        var rule = TeamEndpointRules.Find(method, pattern);
+
+        Assert.NotNull(rule);
+        Assert.Equal((TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn, TeamAction.JoinOrWatchSomeoneElsesSession),
+            (rule!.Action, rule.Target, rule.OthersAction));
     }
 
     [Theory]

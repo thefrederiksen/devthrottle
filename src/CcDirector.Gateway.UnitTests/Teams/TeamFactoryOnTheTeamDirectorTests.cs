@@ -12,6 +12,7 @@ using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.History;
+using CcDirector.Gateway.Inbox;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Settings;
@@ -26,6 +27,7 @@ using CcDirector.Gateway.Workflows;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -42,6 +44,11 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// every team route (<see cref="TeamRoutes.Map"/>). What a Director pulls while it runs a factory (its triggers and
 /// checks) and the Boss's factory inbox are mapped as routes that only say they were reached, because for those the
 /// question this piece asks is only whether the key, the guard and the gate let the team's own Director through.
+///
+/// HAND-BUILT, AND SAID SO: which factory seat a session is. The real host reads it from the session history row a seat
+/// start writes; here <c>factorySeatOf</c> names the Boss session as the factory's Boss seat directly. That link is what
+/// puts the report on a contributor's customer page, so that step is proven GIVEN the history row; the devlinux run proves
+/// the row itself (step 6). The session's number and name are hand-built too, as nothing.
 ///
 /// The people: Acme's Owner (on their own team Director, OWNERPC, with a Boss session on it); Alice, a Developer of Acme
 /// with her own Director on Acme; Mike and Nina, contributors of Acme; Beta, another team of another Owner.
@@ -87,6 +94,7 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
     private string _beta = null!;
     private readonly Dictionary<string, string> _keys = new(StringComparer.Ordinal);
     private readonly List<string> _reached = new();
+    private YourInboxStore _inbox = null!;
 
     public async Task InitializeAsync()
     {
@@ -183,6 +191,21 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
             factorySeatOf: (_, sid) => sid == BossSession ? new DevReportFactorySeatIdentity(Factory, "boss") : null,
             author: new DevReportAuthor(_teams, ownership),
             missionDocuments: new MissionDocumentLinker(new MissionStore(_missionsDir, adoptUnattributedAs: null), (_, _) => null));
+        _inbox = new YourInboxStore(_db);
+        YourInboxEndpoints.Map(_app, factoryGate, new YourInboxEndpoints.Parts(
+            Store: _inbox,
+            ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _boundary),
+            Factories: tenant => _factories.List(tenant),
+            Naming: (_, _) => new DevReportSessionNaming(null, null),
+            FactorySeatOf: (_, sid) => sid == BossSession ? new DevReportFactorySeatIdentity(Factory, "boss") : null,
+            ReportTitle: (tenant, id) => _reports.Get(tenant, id)?.Title,
+            Liveness: (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session is live in these tests"),
+            PlaceOf: (_, _) => null,
+            DeliverToSession: (_, _, _) => throw new InvalidOperationException("no notice is delivered in these tests"),
+            SendAsAgent: (_, _, _, _) => throw new InvalidOperationException("no agent reply is sent in these tests"),
+            SendToFactory: (_, _, _) => throw new InvalidOperationException("nothing is left in a factory inbox in these tests"),
+            MessageSent: (_, _, _) => { },
+            NowUtc: () => Now));
         TeamRoutes.Map(_app, new TeamRouteServices(
             Teams: _teams, Access: access, Boundary: _boundary, Tenants: _tenants, Devices: _devices,
             FleetMap: new TeamFleetMap(_teams, access, _directors, ownership, pushed),
@@ -224,11 +247,6 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
         ("GET", "/directors/{directorId}/factory-check-inputs/{factory}/{version:int}"),
         ("GET", "/sessions/{sid}/factory-inbox"),
         ("POST", "/sessions/{sid}/factory-inbox/{messageId}/decide"),
-        // Your inbox, as a session sends to it and reads it: the ACCOUNT's one inbox, not the session's.
-        ("POST", "/sessions/{sid}/inbox"),
-        ("GET", "/sessions/{sid}/inbox"),
-        ("GET", "/sessions/{sid}/inbox/{id}"),
-        ("POST", "/sessions/{sid}/inbox/{id}/reply"),
     };
 
     /// <summary>A member's Director enrolled into Acme, registered on its own key the way the tunnel's Hello does.</summary>
@@ -499,6 +517,9 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
         { "POST", "/activity-events/batch", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
         { "POST", "/gateway/director-errors", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
         { "GET", "/gateway/skills", TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team },
+        // The seat kit a Boss cannot start without, and the factory's notes, pulled with the Director's own key.
+        { "GET", "/factory-definitions/{factory}/versions/{version}/kit", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "GET", "/factory-memory/notes", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
     };
 
     [Theory]
@@ -511,23 +532,72 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
         Assert.Equal((action, target), (rule!.Action, rule.Target));
     }
 
-    // ---------------------------------------------------------------- Your inbox is not a team's yet
+    // ---------------------------------------------------------------- Your inbox in a team: the Owner's own sessions only
+
+    [Fact]
+    public async Task YourInbox_TheOwnersBossSession_SendsAndReadsTheTeamsInbox()
+    {
+        var sent = await Call("boss", "POST", $"/sessions/{BossSession}/inbox", new { subject = "Menu page", body = "It is live." });
+        var listed = await Call("boss", "GET", $"/sessions/{BossSession}/inbox?view=inbox");
+
+        Assert.True(sent.Status == HttpStatusCode.Created, Describe(sent));
+        Assert.True(listed.Status == HttpStatusCode.OK, Describe(listed));
+        Assert.Contains("Menu page", listed.Body.ToString());
+        // In the team's inbox, and not in the Owner's personal one.
+        Assert.Equal(1, _inbox.List(new TenantId(_acme), "inbox", 50).Total);
+        Assert.Equal(0, _inbox.List(_tenants.MintOrLookupBySubject(Owner, null), "inbox", 50).Total);
+    }
 
     [Theory]
-    [InlineData("boss", "POST", "/sessions/" + "b0550000-0000-4000-8000-000000000001" + "/inbox")]
-    [InlineData("alice-session", "GET", "/sessions/" + "a11ce000-0000-4000-8000-000000000001" + "/inbox")]
-    [InlineData("alice-session", "GET", "/sessions/" + "a11ce000-0000-4000-8000-000000000001" + "/inbox/m-1")]
-    [InlineData("alice-session", "POST", "/sessions/" + "a11ce000-0000-4000-8000-000000000001" + "/inbox/m-1/reply")]
-    public async Task YourInbox_FromASessionInTheTeam_IsRefusedAsNotOpenedToTeams(string who, string method, string path)
+    [InlineData("POST", "")]
+    [InlineData("GET", "")]
+    [InlineData("GET", "/ID")]
+    [InlineData("POST", "/ID/state")]
+    [InlineData("POST", "/ID/reply")]
+    public async Task YourInbox_ADevelopersOwnSession_IsRefused_AndReadsNothingTheOwnersFactoryLeft(string method, string tail)
     {
-        // Before this piece the "/sessions" rule let these through for the caller's own session, and they read and wrote
-        // the TEAM's one inbox: the Owner's Boss left messages there the Owner can never read, and a Developer's own
-        // session read them.
-        var answer = await Call(who, method, path, method == "POST" ? new { subject = "s", body = "b", text = "t" } : null);
+        // Before this piece the "/sessions" rule let a Developer's own session through to the TEAM's one inbox.
+        var sent = await Call("boss", "POST", $"/sessions/{BossSession}/inbox", new { subject = "For the Owner", body = "Private." });
+        Assert.True(sent.Status == HttpStatusCode.Created, Describe(sent));
+        var id = sent.Body.GetProperty("message").GetProperty("id").GetString()!;
+
+        var answer = await Call("alice-session", method, $"/sessions/{AliceSession}/inbox" + tail.Replace("ID", id),
+            method == "POST" ? new { subject = "s", body = "b", state = "read", text = "t" } : null);
 
         Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
-        Assert.Equal(TeamEndpointGate.UndeclaredRefusal, answer.Body.GetProperty("error").GetString());
-        Assert.Empty(_reached);
+        Assert.Equal(TeamEndpointGate.RefusalCode, answer.Body.GetProperty("code").GetString());
+        Assert.DoesNotContain("Private.", answer.Body.ToString());
+        Assert.Equal(1, _inbox.List(new TenantId(_acme), "inbox", 50).Total);
+    }
+
+    [Fact]
+    public async Task YourInbox_TheBossNamingAnotherMembersSession_IsRefusedAsWatchingIt()
+    {
+        var answer = await Call("boss", "GET", $"/sessions/{AliceSession}/inbox");
+
+        Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
+        Assert.Equal(TeamEndpointGate.RefusalCode, answer.Body.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public void EveryYourInboxSessionRoute_StatesTheFactoryRow()
+    {
+        // Walks the routes YourInboxEndpoints really maps, so a parameter renamed there cannot fall back to the
+        // "/sessions" rule - which would reopen the team's inbox to every member's own session - while the tests stay green.
+        var routes = ((IEndpointRouteBuilder)_app).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
+            .Select(e => (Pattern: TeamEndpointRules.Normalize(e.RoutePattern.RawText),
+                Methods: e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? new[] { "GET" }))
+            .Where(r => System.Text.RegularExpressions.Regex.IsMatch(r.Pattern, @"^/sessions/\{[^}]+\}/inbox(/|$)"))
+            .SelectMany(r => r.Methods.Select(m => (Method: m, r.Pattern)))
+            .ToList();
+
+        Assert.Equal(5, routes.Count);
+        foreach (var (method, pattern) in routes)
+        {
+            var rule = TeamEndpointRules.Find(method, pattern);
+            Assert.True(rule is { Action: TeamAction.OpenRunAndTalkToTeamFactories, Target: TeamTarget.CallersOwn },
+                $"{method} {pattern} states {rule?.Prefix ?? "nothing"}");
+        }
     }
 
     private sealed class NoMailer : ITeamInvitationMailer
