@@ -588,6 +588,9 @@ public sealed class SkillStoreTests : IDisposable
     /// <summary>A tenant row under a shipped id, as promotion finds it: published from a session, with the
     /// owner's on/off on its head. <paramref name="matchShipped"/> gives it exactly the shipped content
     /// (so the seeder has nothing to republish) or some other content.</summary>
+    /// <summary>When a tenant row was stored: data, so a fixed value rather than the clock.</summary>
+    private static readonly DateTime TenantRowStoredUtc = new(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
+
     private void AddTenantRowForShippedId(string id, bool enabled, bool matchShipped)
     {
         var definition = BuiltInSkills.All().Single(d => d.Id == id);
@@ -602,8 +605,8 @@ public sealed class SkillStoreTests : IDisposable
             LatestVersion = 1,
             PublishedVersion = 1,
             ShippedContentHash = null,
-            CreatedUtc = DateTime.UtcNow,
-            UpdatedUtc = DateTime.UtcNow,
+            CreatedUtc = TenantRowStoredUtc,
+            UpdatedUtc = TenantRowStoredUtc,
         });
         ctx.SkillVersions.Add(new SkillVersionEntity
         {
@@ -617,8 +620,8 @@ public sealed class SkillStoreTests : IDisposable
             BodyMarkdown = matchShipped ? BuiltInSkills.BodyFor(id) : "# Not the shipped body",
             ContentHash = matchShipped ? BuiltInSkillSeeder.ShippedHash(definition) : "not-the-shipped-hash",
             AuthoredBy = "session:whoever",
-            CreatedUtc = DateTime.UtcNow,
-            PublishedUtc = DateTime.UtcNow,
+            CreatedUtc = TenantRowStoredUtc,
+            PublishedUtc = TenantRowStoredUtc,
         });
         ctx.SaveChanges();
     }
