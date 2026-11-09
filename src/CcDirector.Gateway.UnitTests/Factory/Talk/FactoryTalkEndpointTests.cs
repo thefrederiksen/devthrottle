@@ -204,7 +204,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
         _kit.Record(TenantId.Local, NorthDirector, buildsFactoryKit: true);
         var door = new DirectorSpawnDoor(boundary, _directors, _ => SessionFactoryLookup.InNoFactory, send,
-            Missions: null, WorkflowRuns: null, Workspaces: null, KitCapabilities: _kit);
+            Missions: null, WorkflowRuns: null, Workspaces: null, RefuseMachine: (ctx, machine, what) => _refuseMachine(ctx, machine, what), KitCapabilities: _kit);
 
         var factorySwitch = new FactoryAgentsSwitch(switchOn, new TenantSettingsStore(Db));
         var directors = _directors;
@@ -237,7 +237,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
             // As the host wires it: from the definition for a defined factory, else from the brief store.
             publishedBrief: (tenant, factory, seat) => new FactoryDefinitionBriefs(new FactoryDefinitionStore(Db), Briefs).GivenTo(tenant, factory, seat),
             // As the host wires it: a defined factory's talk is built from its published definition.
-            definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(new FactoryDefinitionStore(Db), tenant, factory), refuseMachine: _refuseMachine);
+            definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(new FactoryDefinitionStore(Db), tenant, factory));
 
         await app.StartAsync();
         _app = app;
@@ -909,6 +909,60 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Contains($"cc-devthrottle run resolve {problem.RunId} \"<one line: what fixed it>\"", sent.PrePrompt);
         // The new session is now the account's Factory Manager.
         Assert.Equal("7d2c0e4e-0000-4000-8000-00000000c0de", _factoryManager);
+    }
+
+    // ---- inside a team, the Factory Manager's starts go through the same door (Team implementation 2.1, F1) ----------
+
+    /// <summary>Registers a Director on the Developer's computer in this rig, so a start there would otherwise go.</summary>
+    private void ADirectorOnTheDevelopersComputer()
+    {
+        _directors!.RegisterFromStream("dir-south", "SOREN_SOUTH", "test", "2.16.0", pid: 3, startedAt: BriefAt, tenant: TenantId.Local);
+        _kit.Record(TenantId.Local, "dir-south", buildsFactoryKit: true);
+    }
+
+    [Fact]
+    public async Task TalkToFactoryManager_InATeam_OnTheOwnersComputer_IsStarted()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+
+        var response = await TalkToFactoryManager(new { computer = "SOREN_NORTH", folder = Folder });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(NorthDirector, Assert.Single(_sent).DirectorId);
+    }
+
+    [Fact]
+    public async Task TalkToFactoryManager_InATeam_NamingADevelopersComputer_IsRefused_NothingStarted_NothingSaved()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+        ADirectorOnTheDevelopersComputer();
+
+        var response = await TalkToFactoryManager(new { computer = "SOREN_SOUTH", folder = Folder });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, await ErrorOf(response));
+        Assert.Empty(_sent);
+        Assert.Null(_placement);
+        Assert.Null(_factoryManager);
+    }
+
+    [Fact]
+    public async Task Handle_InATeam_AFactoryManagerPlacedOnADevelopersComputer_IsRefused_AndNothingIsStarted()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync(bossless: true);
+        ADirectorOnTheDevelopersComputer();
+        _placement = ("SOREN_SOUTH", Folder);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, await ErrorOf(response));
+        Assert.Empty(_sent);
     }
 
     [Fact]

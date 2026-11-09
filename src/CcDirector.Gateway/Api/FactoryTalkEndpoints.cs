@@ -82,14 +82,9 @@ internal static class FactoryTalkEndpoints
         Func<HttpContext, string, NewSessionRequest, Task<DirectorSpawnOutcome>> startOnDirector,
         Func<TenantId, string, CronRunProblemsDto> problems, Func<TenantId, TimeZoneInfo> timeZone,
         FactoryManagerSources factoryManager, Func<TenantId, string, string, FactoryGivenBrief?> publishedBrief,
-        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf,
-        // Team implementation 2.1 (review note N1): why this caller may not start a talk on the computer it would run
-        // on, or null when they may - inside a team only the caller's own computers (Teams.TeamMachineGuard), whether the
-        // computer came from the seat or from a talk's override; a personal account is never refused.
-        Func<HttpContext, string?, string, string?> refuseMachine)
+        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf)
     {
         ArgumentNullException.ThrowIfNull(definitionOf);
-        ArgumentNullException.ThrowIfNull(refuseMachine);
         ArgumentNullException.ThrowIfNull(publishedBrief);
         ArgumentNullException.ThrowIfNull(factoryManager);
         ArgumentNullException.ThrowIfNull(factorySwitch);
@@ -100,20 +95,6 @@ internal static class FactoryTalkEndpoints
         ArgumentNullException.ThrowIfNull(startOnDirector);
         ArgumentNullException.ThrowIfNull(problems);
         ArgumentNullException.ThrowIfNull(timeZone);
-
-        // Every talk - the seat's own computer or a talk's override, a talk or "handle the issue" - starts its session
-        // through this one call, on the Director the talk picked. Inside a team that Director's computer must be the
-        // caller's own (Team implementation 2.1, review note N1), so the check sits here, once, before the create.
-        var startUnguarded = startOnDirector;
-        startOnDirector = (ctx, directorId, request) =>
-        {
-            var machine = resolveTenant(ctx) is { } tenant
-                ? listDirectors(tenant).FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))?.MachineName
-                : null;
-            return refuseMachine(ctx, machine, "factory talk") is { } machineRefusal
-                ? Task.FromResult(DirectorSpawnOutcome.Refused(Teams.TeamCallerChecks.Refused(machineRefusal)))
-                : startUnguarded(ctx, directorId, request);
-        };
 
         app.MapPost(Route, async (HttpContext ctx, string factory, string seat) =>
         {

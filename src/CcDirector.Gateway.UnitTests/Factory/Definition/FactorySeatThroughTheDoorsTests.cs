@@ -62,7 +62,7 @@ public sealed class FactorySeatThroughTheDoorsTests : IDisposable
             return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(
                 JsonSerializer.Serialize(new SessionDto { SessionId = Guid.NewGuid().ToString() }, Web)));
         },
-        Missions: null, WorkflowRuns: null, Workspaces: null,
+        Missions: null, WorkflowRuns: null, Workspaces: null, RefuseMachine: (_, _, _) => null,
         KitCapabilities: _kit,
         SeatRulesFor: _ => (_, _, _) => _rules);
 

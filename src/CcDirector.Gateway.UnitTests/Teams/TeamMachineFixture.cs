@@ -33,8 +33,11 @@ public sealed class TeamMachineFixture : IDisposable
     private readonly DirectorRegistry _directors;
     private readonly TeamCallerOwnership _ownership;
     private readonly DeviceCredentialIdentity _ownerKey;
+    private readonly TeamRegistry _teams;
 
-    public TeamMachineFixture()
+    /// <param name="ownerPc">The computer the Owner's Director is on.</param>
+    /// <param name="developerPc">The computer the Developer's Director is on.</param>
+    public TeamMachineFixture(string ownerPc = OwnerPc, string developerPc = DeveloperPc)
     {
         var db = _harness.Open();
         var tenants = new TenantRegistry(db);
@@ -49,8 +52,9 @@ public sealed class TeamMachineFixture : IDisposable
         Tenant = new TenantId(team);
         Assert.True(teams.AddMember(team, Developer, TeamRole.Developer).IsDone);
 
-        _ownerKey = EnrolledDirector(Owner, "director-owner", OwnerPc);
-        EnrolledDirector(Developer, "director-developer", DeveloperPc);
+        _teams = teams;
+        _ownerKey = EnrolledDirector(Owner, "director-owner", ownerPc);
+        EnrolledDirector(Developer, "director-developer", developerPc);
     }
 
     /// <summary>The team's tenant.</summary>
@@ -66,6 +70,10 @@ public sealed class TeamMachineFixture : IDisposable
     /// <summary>The check as the host asks it, for a request the gate allowed for the Owner in the team.</summary>
     public string? AsOwner(HttpContext ctx, string? machine, string what) =>
         TeamMachineGuard.Refuse(OwnerCaller, machine, Directors, what);
+
+    /// <summary>The check a Gateway-started run asks (<c>GatewayHost.TeamRunRefusal</c>): no caller, the role table.</summary>
+    public string? ForARun(string? machine, string what) =>
+        TeamMachineGuard.RefuseRun(machine, Directors, d => _ownership.OwnerOf(Tenant, d), p => _teams.RoleOf(Tenant.Value, p), what);
 
     /// <summary>Enrols one more Director of <paramref name="subject"/> on <paramref name="machine"/>.</summary>
     public DeviceCredentialIdentity EnrolledDirector(string subject, string directorId, string machine)

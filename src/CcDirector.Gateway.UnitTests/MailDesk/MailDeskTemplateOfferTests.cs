@@ -36,7 +36,7 @@ public sealed class MailDeskTemplateOfferTests : IDisposable
     {
         _store = new FactoryDefinitionStore(_h.Open());
         _account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => new[] { "devlinux" },
-            DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived);
+            DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived, (_, _, _) => null);
     }
 
     public void Dispose() => _h.Dispose();
@@ -323,7 +323,7 @@ public sealed class MailDeskTemplateOfferTests : IDisposable
     {
         // Arrange: the template names devlinux; this account's Directors are elsewhere.
         var account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => new[] { "SOREN_NORTH" },
-            DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived);
+            DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived, (_, _, _) => null);
         var offer = new MailDeskTemplateOffer(_store, account, _ => true, () => Now, Template());
 
         // Act

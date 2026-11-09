@@ -155,7 +155,7 @@ public sealed class FactorySeatStartByTheBossTests : IAsyncDisposable
         _kit.Record(TenantId.Local, Elsewhere, buildsFactoryKit: true);
         var who = caller ?? AsTheBoss;
         var door = new DirectorSpawnDoor(boundary, _directors, _ => who, send,
-            Missions: null, WorkflowRuns: null, Workspaces: null, KitCapabilities: _kit);
+            Missions: null, WorkflowRuns: null, Workspaces: null, RefuseMachine: (_, _, _) => null, KitCapabilities: _kit);
 
         Func<Microsoft.AspNetCore.Http.HttpContext, TenantId?> resolveTenant = ctx => GatewayEndpoints.ResolveReadTenant(ctx, boundary);
         var gate = FactoryAgentsGate.Group(app, new FactoryAgentsSwitch(switchOn, new TenantSettingsStore(Db)), resolveTenant);

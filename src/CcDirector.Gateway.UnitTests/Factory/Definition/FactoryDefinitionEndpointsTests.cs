@@ -67,7 +67,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         // A publish drives the factory from phase 4, and until phase 5 it must be registered (it runs in its folder).
         new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Register(A, DefinitionFixture.Registration(), "test", Now);
         _account = new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody,
-            (_, factory) => _archived.Contains(factory));
+            (_, factory) => _archived.Contains(factory), (_, _, _) => null);
     }
 
     public void Dispose() => _h.Dispose();
@@ -1266,5 +1266,86 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         var notANumber = OneVersion(Person(), "two");
         Assert.Equal(400, Status(notANumber));
         Assert.Equal("a version is a whole number from 1, not 'two'", ErrorOf(notANumber));
+    }
+
+    // ---------- inside a team, every computer the definition names is the caller's own (Team implementation 2.1, F2) ----------
+
+    /// <summary>An account whose machine check is the team guard for the Owner over <paramref name="team"/>, and whose
+    /// machine question records every computer it is asked about.</summary>
+    private FactoryDefinitionEndpoints.Account TeamAccount(Teams.TeamMachineFixture team, List<string> asked) =>
+        new(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines,
+            (tenant, questions, ct) =>
+            {
+                asked.AddRange(questions.Select(q => q.Machine));
+                return DefinitionFixture.AskNobody(tenant, questions, ct);
+            },
+            DefinitionFixture.NoneArchived, team.AsOwner);
+
+    private IResult PublishAs(FactoryDefinitionEndpoints.Account account, int version) =>
+        FactoryDefinitionEndpoints.Publish(Person(), TheFactory, new PublishFactoryDefinitionRequest { Version = version },
+            _store, _apply, InA, FactoryOf, account, () => Now.AddMinutes(5)).GetAwaiter().GetResult();
+
+    private IResult RestoreAs(FactoryDefinitionEndpoints.Account account, int version, int expect) =>
+        FactoryDefinitionEndpoints.Restore(Person(), TheFactory,
+            new RestoreFactoryDefinitionRequest { Version = version, ExpectedVersion = expect },
+            _store, _apply, InA, FactoryOf, account, () => Now.AddMinutes(10)).GetAwaiter().GetResult();
+
+    [Fact]
+    public void Publish_InATeam_ADefinitionOnTheOwnersComputer_IsPublished()
+    {
+        using var team = new Teams.TeamMachineFixture(ownerPc: "SOREN_NORTH");
+        team.EnrolledDirector(Teams.TeamMachineFixture.Owner, "director-owner-south", "SOREN_SOUTH");
+        var asked = new List<string>();
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+
+        var published = PublishAs(TeamAccount(team, asked), 1);
+
+        Assert.Equal(1, Version(published).PublishedVersion);
+        Assert.Contains("SOREN_SOUTH", asked);
+    }
+
+    [Fact]
+    public void Publish_InATeam_ADefinitionNamingADevelopersComputer_IsRefused_NoComputerIsAsked_NothingIsPublished()
+    {
+        using var team = new Teams.TeamMachineFixture(developerPc: "SOREN_NORTH");
+        var asked = new List<string>();
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+
+        var refused = PublishAs(TeamAccount(team, asked), 1);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(refused));
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, ErrorOf(refused));
+        Assert.Empty(asked);
+        Assert.Equal(404, Status(Published(Person())));
+    }
+
+    [Fact]
+    public void Restore_InATeam_AVersionNamingADevelopersComputer_IsRefused_NoComputerIsAsked_ThePublishedVersionStays()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+        Publish(Person(), 2);
+        using var team = new Teams.TeamMachineFixture(developerPc: "SOREN_NORTH");
+        var asked = new List<string>();
+
+        var refused = RestoreAs(TeamAccount(team, asked), 1, expect: 2);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(refused));
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, ErrorOf(refused));
+        Assert.Empty(asked);
+        Assert.Equal(2, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void MachinesNamedBy_ADefinition_NamesTheDefaultEachSeatsAndEveryBackupComputer_EachOnce()
+    {
+        const string prompt = "    prompt: \"New mail: {count}. {context}\"\n";
+        var content = DefinitionFixture.Edit("seats/outreach.yaml", prompt, prompt + "    backupMachines: [machine-b, soren_north]\n");
+        var definition = FactoryDefinitionCheck.Read(content).Definition!;
+
+        var machines = FactoryDefinitionEndpoints.MachinesNamedBy(definition);
+
+        Assert.Equal(new[] { "SOREN_NORTH", "SOREN_SOUTH", "machine-b" }, machines);
     }
 }

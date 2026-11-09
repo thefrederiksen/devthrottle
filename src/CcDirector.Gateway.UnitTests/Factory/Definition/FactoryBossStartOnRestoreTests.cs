@@ -31,7 +31,7 @@ public sealed class FactoryBossStartOnRestoreTests : IDisposable
     {
         _history = new SessionHistoryStore(_h.Open());
         _workspaces = new WorkspaceStore(_h.Open());
-        _door = new DirectorSpawnDoor(null!, null!, _history.FactoryOf, null, null, null, _workspaces,
+        _door = new DirectorSpawnDoor(null!, null!, _history.FactoryOf, null, null, null, _workspaces, (_, _, _) => null,
             RecordBossStart: (sid, factory, seat, by, kind) => _history.RecordBossStart(sid, factory, seat, by, kind, Now),
             BossStartOf: _history.BossStartOf);
     }
