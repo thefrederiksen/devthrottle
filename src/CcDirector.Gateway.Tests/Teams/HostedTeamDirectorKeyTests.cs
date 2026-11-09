@@ -47,6 +47,8 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
             streamMode: true, teamsReleased: true,
             options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
+        // Teams come with the pro account (piece 1.6): the Owner creating the teams below is on Pro.
+        _gateway.SeedEntitlementForTest(_owner, tier: CcDirector.Gateway.Tenancy.EntitlementRegistry.TierPro);
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
 
@@ -197,6 +199,8 @@ public sealed class HostedTeamDirectorKeyDarkTests : IAsyncLifetime
             streamMode: true, teamsReleased: false,
             options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
+        // Teams come with the pro account (piece 1.6): the Owner creating the teams below is on Pro.
+        _gateway.SeedEntitlementForTest(_owner, tier: CcDirector.Gateway.Tenancy.EntitlementRegistry.TierPro);
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
 

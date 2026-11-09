@@ -66,6 +66,14 @@ public static class EntitlementScopes
     /// </summary>
     public const string Factories = "factories";
 
+    /// <summary>
+    /// Teams (Team implementation piece 1.6; owner decisions of 7 and 8 November 2026): creating a team and adding
+    /// contributors to it. "Teams are not a separate version or cost: they come with the pro account." Carried by every
+    /// line that carries the Pro scopes, and by nothing else. Asked of the team OWNER's own plan by
+    /// <see cref="Teams.TeamOwnerPlan"/>, never of the person being added: a contributor is a free seat.
+    /// </summary>
+    public const string Teams = "teams";
+
     // The three artificial-intelligence scopes every paid plan includes. Named once so a plan's entry states
     // what is DIFFERENT about it rather than repeating the common part four times.
     private static readonly string[] AiScopes = { Dictation, Tts, Wingman };
@@ -77,10 +85,10 @@ public static class EntitlementScopes
         {
             // The hosted plan: everything, including the hosted capacity it is named for. Retired from sale and
             // still honoured, so it keeps the Cockpit and the phone app it was sold with.
-            [EntitlementRegistry.TierHosted] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories),
+            [EntitlementRegistry.TierHosted] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories, Teams),
 
-            // The pro plan: everything, factories included.
-            [EntitlementRegistry.TierPro] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories),
+            // The pro plan: everything, factories and teams included.
+            [EntitlementRegistry.TierPro] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories, Teams),
 
             // The pro SELF-HOST plan: the artificial-intelligence features and NOTHING ELSE. The absence of
             // HostedGateway on this line is the whole point of the plan and of this file, and it holds no
@@ -104,7 +112,7 @@ public static class EntitlementScopes
 
             // A TEAM seat (#2299): exactly what Pro grants. Stated as its own line rather than aliased to Pro so
             // the day a team seat and a personal Pro are priced or scoped differently, it is one edit here.
-            [EntitlementRegistry.TierTeam] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories),
+            [EntitlementRegistry.TierTeam] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories, Teams),
 
             // The REMOTE plan (Pricing Change mission, decision D3): a Director on the hosted Gateway, the Cockpit
             // and the phone app, and NONE of the artificial-intelligence scopes. RemoteAccess is the one scope that
@@ -116,7 +124,7 @@ public static class EntitlementScopes
     // The pre-column row. Carried separately from the table because its key is null and because its reason is
     // historical rather than commercial - see the class remarks. An old hosted row had the Cockpit and the phone
     // app, so it keeps them.
-    private static readonly IReadOnlySet<string> LegacyRowScopes = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories);
+    private static readonly IReadOnlySet<string> LegacyRowScopes = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess, Factories, Teams);
 
     // Nothing. The answer for a tier string this code has never been taught.
     private static readonly IReadOnlySet<string> NoScopes = Set();

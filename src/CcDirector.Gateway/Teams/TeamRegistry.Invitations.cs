@@ -18,8 +18,11 @@ namespace CcDirector.Gateway.Teams;
 /// is a membership change: the member row and the invitation's new state are written in one save through
 /// <see cref="CommitMembershipChange"/>, which is where the seat count follows (seam-team-billing.md section 4).
 ///
-/// NO INVITATION BEFORE THE BILL (seam section 3, step 5): until the team's bill has started - a team_entitlements row
-/// that is active or past_due - an invitation is refused, so a team's first seat is always the Owner's.
+/// TEAMS COME WITH THE PRO ACCOUNT (Team implementation piece 1.6, devthrottle_internal#2790; owner decisions of 7 and 8
+/// November 2026). Adding anyone - inviting, resending, accepting, adding at once - needs the team's Owner to be on Pro
+/// (<see cref="TeamOwnerPlan"/>). A Collaborator is a free seat: adding one needs no team bill and is never counted on
+/// one. The team bill gate (seam section 3, step 5 - a team_entitlements row that is active or past_due) stays for the
+/// two PAID seats only, Manager and Developer, which step one does not use (<see cref="JoinRefusal"/>).
 ///
 /// The address, the subjects and the accept token are never logged.
 /// </summary>
@@ -50,16 +53,22 @@ public sealed partial class TeamRegistry
                 TeamInvitationRules.InviteRefusal(callerRole.Value, r) ?? RoleHint(r, payer)))
             .ToList();
         var canInvite = roles.Any(r => r.Allowed);
-        var bill = canInvite ? BillRefusal(team.Id) : null;
+        // The Owner's Pro plan blocks the whole form: without it nobody can be added. The team bill blocks only the paid
+        // seats, so a Collaborator - a free seat - can be invited whatever the bill says.
+        var plan = canInvite ? OwnerPlanRefusal(ctx, team.Id, onAccept: false) : null;
+        var bill = canInvite && plan is null ? BillRefusal(team.Id) : null;
+        if (bill is not null)
+            roles = roles.Select(r => r.Allowed && IsPaidSeat(r.Role) ? r with { Allowed = false, Hint = bill } : r).ToList();
 
-        FileLog.Write($"[TeamRegistry] InviteOptions: team {LogTeam(team.Id)} callerRole={callerRole} canInvite={canInvite} billReady={bill is null}");
+        FileLog.Write($"[TeamRegistry] InviteOptions: team {LogTeam(team.Id)} callerRole={callerRole} canInvite={canInvite} ownerPlanReady={plan is null} billReady={bill is null}");
         return new TeamInviteOptions(team.Id, team.Name, callerRole.Value, roles,
-            canInvite ? bill : TeamInvitationRefusals.NotAllowedToInvite);
+            canInvite ? plan?.Text : TeamInvitationRefusals.NotAllowedToInvite);
     }
 
     /// <summary>
     /// ADD someone by email. Refused, with the reason in plain words, when the caller is not a member (not found),
-    /// may not invite that role, the address is not an address, the team's bill has not started, the address already
+    /// may not invite that role, the address is not an address, the team's Owner is not on Pro, the role is a paid seat
+    /// and the team's bill is not running, the address already
     /// has a waiting invitation, or it belongs to someone already in the team.
     ///
     /// TIED TO THE ADDRESS (security review Risk 1, owner answer of 8 Nov 2026 "bound-to-address"). When EXACTLY ONE
@@ -93,11 +102,8 @@ public sealed partial class TeamRegistry
             if (address is null)
                 return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, RefusalKinds.BadEmail, TeamInvitationRefusals.BadEmail);
 
-            if (BillGate(team.Id) is { Refusal: { } bill } gate)
-            {
-                TellOwnerWhenBillEnded(ctx, team.Id, inviter, gate.Bill);
-                return InvitationRefused("CreateInvitation", BillOutcome(bill), BillKind(bill), bill);
-            }
+            if (JoinRefusal(ctx, team.Id, role, inviter, onAccept: false) is { } joinRefused)
+                return InvitationRefused("CreateInvitation", joinRefused.Outcome, joinRefused.Kind, joinRefused.Text);
 
             var now = _utcNow();
             if (AddressRefusal(ctx, team.Id, address, now, exceptInvitationId: null) is { } taken)
@@ -198,11 +204,8 @@ public sealed partial class TeamRegistry
 
             if (row!.State != TeamInvitationStates.Sent)
                 return InvitationRefused("ResendInvitation", TeamInvitationOutcome.Refused, RefusalKinds.NoLongerWaiting, TeamInvitationRefusals.NoLongerWaiting);
-            if (BillGate(team!.Id) is { Refusal: { } bill } gate)
-            {
-                TellOwnerWhenBillEnded(ctx, team.Id, caller, gate.Bill);
-                return InvitationRefused("ResendInvitation", BillOutcome(bill), BillKind(bill), bill);
-            }
+            if (JoinRefusal(ctx, team!.Id, row.Role, caller, onAccept: false) is { } joinRefused)
+                return InvitationRefused("ResendInvitation", joinRefused.Outcome, joinRefused.Kind, joinRefused.Text);
 
             var now = _utcNow();
             // Resend makes the same two checks as create (review F4): an expired invitation that was since replaced by a
@@ -375,6 +378,8 @@ public sealed partial class TeamRegistry
         public const string BillCancelled = "bill-cancelled";
         public const string BillUnreadable = "bill-unreadable";
         public const string BillStopped = "bill-stopped";
+        public const string OwnerNotPro = "owner-not-pro";
+        public const string OwnerPlanUnreadable = "owner-plan-unreadable";
         public const string NotTheirAddress = "not-their-address";
         public const string NoAddressRecorded = "no-address-recorded";
     }
@@ -382,10 +387,10 @@ public sealed partial class TeamRegistry
     /// <summary>
     /// Why this invitation cannot be accepted by this caller now, or null when it can: the caller is not signed in with
     /// the address it was sent to (checked FIRST, so a refusal about its state - which names who sent it - never reaches
-    /// someone else), its state, the caller already being a member, or the team's bill (Tech Lead ruling on review F5) -
-    /// an invitation sent while the bill ran cannot add a member once the bill has stopped. The same gate as inviting:
-    /// active or past_due passes. Asked by both the accept page and the accept itself, so the Owner is told whichever the
-    /// invitee reaches - the page hides the Accept button once it says no.
+    /// someone else), its state, the caller already being a member, or <see cref="JoinRefusal"/> - the Owner's Pro plan,
+    /// and for a paid seat the team's bill (Tech Lead ruling on review F5): an invitation sent while they held cannot add
+    /// a member once they have stopped. Asked by both the accept page and the accept itself, so the Owner is told
+    /// whichever the invitee reaches - the page hides the Accept button once it says no.
     /// </summary>
     private InvitationRefusal? AcceptRefusal(GatewayDbContext ctx, TeamInvitationEntity row, TeamInvitation view, string caller)
     {
@@ -395,15 +400,59 @@ public sealed partial class TeamRegistry
             return new InvitationRefusal(TeamInvitationOutcome.Refused, view.State, refusal);
         if (ctx.TeamMembers.AsNoTracking().Any(m => m.TeamId == row.TeamId && m.AccountSubject == caller))
             return new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.CallerAlreadyMember, TeamInvitationRefusals.CallerAlreadyMember);
-        if (BillGate(row.TeamId) is { Refusal: { } bill } gate)
-        {
-            TellOwnerWhenBillEnded(ctx, row.TeamId, caller, gate.Bill);
-            return bill == TeamInvitationRefusals.BillUnreadable
-                ? new InvitationRefusal(TeamInvitationOutcome.Unavailable, RefusalKinds.BillUnreadable, TeamInvitationRefusals.BillUnreadableOnAccept)
-                : new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.BillStopped, TeamInvitationRefusals.BillStopped);
-        }
-        return null;
+        return JoinRefusal(ctx, row.TeamId, row.Role, caller, onAccept: true);
     }
+
+    /// <summary>
+    /// Why nobody can be added to this team in <paramref name="role"/> now, or null when they can (piece 1.6). In order:
+    /// the team's Owner must be on Pro (<see cref="OwnerPlanRefusal"/>) - teams come with the pro account; then, for a
+    /// PAID seat only (Manager, Developer - <see cref="TeamSeatRoles"/>), the team's bill must be running, as before. A
+    /// Collaborator is a free seat, so the bill is never read for one. <paramref name="onAccept"/> chooses the words for
+    /// the invited person rather than for whoever is inviting.
+    /// </summary>
+    private InvitationRefusal? JoinRefusal(GatewayDbContext ctx, string teamId, TeamRole role, string refusedSubject, bool onAccept)
+    {
+        if (OwnerPlanRefusal(ctx, teamId, onAccept) is { } plan)
+            return plan;
+        if (!IsPaidSeat(role))
+            return null;
+        if (BillGate(teamId) is not { Refusal: { } bill } gate)
+            return null;
+
+        TellOwnerWhenBillEnded(ctx, teamId, refusedSubject, gate.Bill);
+        if (!onAccept)
+            return new InvitationRefusal(BillOutcome(bill), BillKind(bill), bill);
+        return bill == TeamInvitationRefusals.BillUnreadable
+            ? new InvitationRefusal(TeamInvitationOutcome.Unavailable, RefusalKinds.BillUnreadable, TeamInvitationRefusals.BillUnreadableOnAccept)
+            : new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.BillStopped, TeamInvitationRefusals.BillStopped);
+    }
+
+    /// <summary>
+    /// Why the team's Owner's own plan stops anyone being added, or null when it does not: the plan does not carry teams
+    /// (<see cref="TeamOwnerPlanAnswer.NotPro"/>), or it could not be read - which is not a no, so it says to try again.
+    /// A team with no Owner recorded has no Pro account behind it, so it is refused as not on Pro and logged loudly - a
+    /// refusal, never a throw, as the bill gate treats the same broken team.
+    /// </summary>
+    private InvitationRefusal? OwnerPlanRefusal(GatewayDbContext ctx, string teamId, bool onAccept)
+    {
+        if (!_ownerPlan.IsGating)
+            return null;
+        var owner = OwnerSubject(ctx, teamId);
+        if (owner is null)
+            FileLog.Write($"[TeamRegistry] OwnerPlanRefusal: team {LogTeam(teamId)} has NO Owner recorded, so no Pro account stands behind it - refused");
+        var answer = owner is null ? TeamOwnerPlanAnswer.NotPro : _ownerPlan.Read(owner, _utcNow());
+        return answer switch
+        {
+            TeamOwnerPlanAnswer.Granted => null,
+            TeamOwnerPlanAnswer.NotPro => new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.OwnerNotPro,
+                onAccept ? TeamInvitationRefusals.OwnerNotProOnAccept : TeamInvitationRefusals.OwnerNotPro),
+            TeamOwnerPlanAnswer.Unknown => new InvitationRefusal(TeamInvitationOutcome.Unavailable, RefusalKinds.OwnerPlanUnreadable,
+                onAccept ? TeamInvitationRefusals.OwnerPlanUnreadableOnAccept : TeamInvitationRefusals.OwnerPlanUnreadable),
+            var other => throw new InvalidOperationException($"TeamOwnerPlan answered {other}, which this code does not know."),
+        };
+    }
+
+    private static bool IsPaidSeat(TeamRole role) => TeamSeatRoles.IsPaidSeat(TeamRoles.ToStored(role));
 
     /// <summary>
     /// Why this caller may not use this invitation at all, or null when they may: the email recorded on the caller's own

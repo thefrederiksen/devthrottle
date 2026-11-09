@@ -362,7 +362,8 @@ internal static class TeamEndpoints
     internal static IResult RemoveMember(TeamRegistry teams, string callerSubject, string? teamId, string? memberId) =>
         AnswerChange(teams.RemoveTeamMember(teamId ?? "", callerSubject, memberId ?? ""), "remove member");
 
-    /// <summary>One change as HTTP: 200, 404, 403 (the caller's role) or 409 (the team's own rules).</summary>
+    /// <summary>One change as HTTP: 200, 404, 403 (the caller's role), 409 (the team's own rules) or 503 (the plan or
+    /// bill could not be read).</summary>
     internal static IResult AnswerChange(TeamMemberChangeResult result, string action)
     {
         FileLog.Write($"[TeamEndpoints] {action}: outcome={result.Outcome}");
@@ -372,6 +373,7 @@ internal static class TeamEndpoints
             TeamMemberChangeOutcome.NotFound => Results.NotFound(new { error = result.Refusal }),
             TeamMemberChangeOutcome.Forbidden => Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status403Forbidden),
             TeamMemberChangeOutcome.Refused => Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status409Conflict),
+            TeamMemberChangeOutcome.Unavailable => Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status503ServiceUnavailable),
             _ => throw new InvalidOperationException($"Unknown member change outcome {result.Outcome}."),
         };
     }
@@ -450,6 +452,11 @@ internal static class TeamEndpoints
         var result = teams.CreateTeam(callerSubject, body?.Name);
         if (result.Team is not { } team)
         {
+            if (result.IsUnavailable)
+            {
+                FileLog.Write("[TeamEndpoints] POST /teams: not created for now - something it needs could not be read");
+                return Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
             FileLog.Write("[TeamEndpoints] POST /teams: refused");
             return Results.BadRequest(new { error = result.Refusal });
         }

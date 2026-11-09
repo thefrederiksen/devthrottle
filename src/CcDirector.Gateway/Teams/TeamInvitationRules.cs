@@ -130,14 +130,32 @@ public static class TeamInvitationRefusals
 
     public const string BadEmail = "That is not an email address. Type the full address, for example anna@example.com.";
 
-    public const string BillNotStarted = "The team plan has not started - the Owner starts the team plan first.";
+    // ---- the Owner's Pro plan (piece 1.6): teams come with the pro account, so without it nobody can be added ----
 
-    public const string BillCancelled = "The team plan has ended, so nobody can be invited. The Owner renews the team plan first.";
+    public const string OwnerNotPro =
+        "Teams come with a Pro account, and the team's Owner is not on Pro right now, so nobody can be added. The Owner renews Pro first.";
+
+    public const string OwnerPlanUnreadable = "DevThrottle could not check the Owner's plan just now, so the invitation was not sent. Try again shortly.";
+
+    /// <summary>Accepting, when the team's Owner is no longer on Pro.</summary>
+    public const string OwnerNotProOnAccept =
+        "Teams come with a Pro account, and the team's Owner is not on Pro right now, so nobody can join the team. Ask the team's Owner.";
+
+    public const string OwnerPlanUnreadableOnAccept = "DevThrottle could not check the team's plan just now, so you have not joined yet. Try again shortly.";
+
+    // ---- the team bill: for the PAID seats only (Manager, Developer). A Collaborator is free and never meets these ----
+
+    public const string BillNotStarted =
+        "Managers and Developers are paid seats, and the team plan has not started - the Owner starts the team plan first. A Collaborator can be invited now at no charge.";
+
+    public const string BillCancelled =
+        "Managers and Developers are paid seats, and the team plan has ended, so they cannot be invited. The Owner renews the team plan first. A Collaborator can still be invited at no charge.";
 
     public const string BillUnreadable = "DevThrottle could not check the team plan just now, so the invitation was not sent. Try again shortly.";
 
-    /// <summary>Accepting, when the team's bill is no longer running (Tech Lead ruling on review F5).</summary>
-    public const string BillStopped = "The team plan has ended, so nobody can join the team right now. Ask the team's Owner.";
+    /// <summary>Accepting a paid seat, when the team's bill is no longer running (Tech Lead ruling on review F5).</summary>
+    public const string BillStopped =
+        "The team plan has ended, so nobody can join the team as a Manager or Developer right now. Ask the team's Owner.";
 
     public const string BillUnreadableOnAccept = "DevThrottle could not check the team plan just now, so you have not joined yet. Try again shortly.";
 

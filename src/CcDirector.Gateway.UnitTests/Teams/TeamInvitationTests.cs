@@ -319,7 +319,7 @@ public sealed class TeamInvitationTests : IDisposable
         var result = _teams.CreateInvitation(unbilled, Owner, "a@x.example", TeamRole.Developer);
 
         Assert.Equal(TeamInvitationOutcome.Refused, result.Outcome);
-        Assert.Equal("The team plan has not started - the Owner starts the team plan first.", result.Refusal);
+        Assert.Equal(TeamInvitationRefusals.BillNotStarted, result.Refusal);
         Assert.Equal(0, CountInvitations(unbilled));
     }
 
@@ -758,11 +758,21 @@ public sealed class TeamInvitationTests : IDisposable
     }
 
     [Fact]
-    public void InviteOptions_NoBill_IsBlockedWithTheBillReason()
+    public void InviteOptions_NoBill_BlocksOnlyThePaidSeatsWithTheBillReason()
     {
+        // Piece 1.6: a Collaborator is a free seat, so the bill blocks only Manager and Developer, never the whole form.
         var unbilled = _teams.CreateTeam(Owner, "No bill").Team!.TeamId;
 
-        Assert.Equal(TeamInvitationRefusals.BillNotStarted, _teams.InviteOptions(unbilled, Owner)!.Blocked);
+        var options = _teams.InviteOptions(unbilled, Owner)!;
+
+        Assert.Null(options.Blocked);
+        var collaborator = options.Roles.Single(r => r.Role == TeamRole.Collaborator);
+        Assert.True(collaborator.Allowed);
+        Assert.All(options.Roles.Where(r => r.Role != TeamRole.Collaborator), r =>
+        {
+            Assert.False(r.Allowed);
+            Assert.Equal(TeamInvitationRefusals.BillNotStarted, r.Hint);
+        });
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------------
