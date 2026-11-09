@@ -21,6 +21,8 @@ namespace CcDirector.Gateway.Api;
 /// again. A write, and the owner's own: it is not in the session key guard's list.</item>
 /// <item><c>POST /gateway/licenses/machines/forget</c> - forget a machine that has stopped reporting, or whose reports
 /// are refused. A write, and the owner's own, like the renewal date.</item>
+/// <item><c>POST /gateway/licenses/machines/switch-now</c> - move one machine off the license it is on, now. A write, and
+/// the owner's own, like Switch now.</item>
 /// </list>
 ///
 /// Every route answers for the CALLER'S OWN account and no other: the tenant comes from the request's credential,
@@ -115,7 +117,18 @@ public static partial class LicenseEndpoints
             await ForgetMachine(ctx, c => OwnerOnly(c, what), resolveTenant, snapshots, nowUtc, approvers, signIns, isConnected,
                 readiness, store, ParseBody<LicenseForgetMachineRequest>(await ReadBodyTextAsync(ctx))).ExecuteAsync(ctx);
         });
-        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}, POST {LicenseRoutes.SwitchNow}, POST {LicenseRoutes.ForgetMachine}");
+        app.MapPost(LicenseRoutes.MachineSwitchNow, async (HttpContext ctx) =>
+        {
+            const string what = "switch one machine to another subscription";
+            if ((OwnerOnly(ctx, what) ?? NotJson(ctx)) is { } refusedBeforeTheBody)
+            {
+                await refusedBeforeTheBody.ExecuteAsync(ctx);
+                return;
+            }
+            await (await SwitchMachineNowAsync(ctx, c => OwnerOnly(c, what), resolveTenant, tenantInScope, switches, store,
+                ParseBody<LicenseMachineSwitchNowRequest>(await ReadBodyTextAsync(ctx)))).ExecuteAsync(ctx);
+        });
+        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}, POST {LicenseRoutes.SwitchNow}, POST {LicenseRoutes.ForgetMachine}, POST {LicenseRoutes.MachineSwitchNow}");
     }
 
     internal static IResult Overview(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
@@ -158,7 +171,7 @@ public static partial class LicenseEndpoints
         // Whether each machine may be forgotten; after the sign-ins, because one under way is a reason it may not.
         LicenseDisplayFold.ApplyForget(response);
         // The status card, the tiles, the Machines table's last column and the to-dos: last, because they read all of the above.
-        LicenseStatusFold.Apply(response, judgement.CannotSwitch, judgement.RunsOut, now);
+        LicenseStatusFold.Apply(response, judgement.CannotSwitch, judgement.RunsOut, judgement.WeeklyPace, now);
         return response;
     }
 
@@ -422,6 +435,56 @@ public static partial class LicenseEndpoints
         catch (Exception ex)
         {
             FileLog.Write($"[LicenseEndpoints] POST /gateway/licenses/switch-now FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// POST /gateway/licenses/machines/switch-now: move ONE machine of the caller's own account off the license it is on,
+    /// now - "Switch this machine to..." in the Licenses page's machine drawer. The machine is named by its machineId in
+    /// the overview; the license it leaves is read by the Gateway, never taken from the body. Answered like Switch now:
+    /// 200 with the machine's switch as its log row stands, or 409 with the refusal word and a finished sentence, and
+    /// nothing was written or sent.
+    /// </summary>
+    internal static async Task<IResult> SwitchMachineNowAsync(HttpContext ctx, Func<HttpContext, IResult?> ownerOnly,
+        Func<HttpContext, TenantId?> resolveTenant, Func<TenantId?> tenantInScope, LicenseSwitchService switches,
+        LicenseStore store, LicenseMachineSwitchNowRequest? body)
+    {
+        FileLog.Write("[LicenseEndpoints] POST machine switch-now");
+        try
+        {
+            if (ownerOnly(ctx) is { } notTheOwner)
+                return notTheOwner;
+            if (resolveTenant(ctx) is not { } tenant)
+                return NoAccount();
+            if (body is null)
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "The body is a JSON object with machineId and, to name a target, targetAccountEmail.");
+            if (!Guid.TryParseExact(body.MachineId ?? "", "N", out var machineId))
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_machine", "machineId is the machine's machineId in the overview: 32 hexadecimal digits.");
+            if (body.TargetAccountEmail is { } named && !string.IsNullOrWhiteSpace(named) && NotAnAccountEmail(named))
+                return InvalidAccount("targetAccountEmail");
+            // As Switch now: the switch is written for the caller's account and SENT in the scope in effect.
+            if (tenantInScope() is not { } scope || scope != tenant)
+                throw new InvalidOperationException("Switch this machine now was called outside the scope of the caller's own account; nothing was written or sent.");
+
+            var result = await switches.SwitchMachineNowAsync(tenant, machineId, body.TargetAccountEmail, ctx.RequestAborted);
+            var machines = store.ListMachineNames(tenant);
+            if (!result.Accepted)
+            {
+                FileLog.Write($"[LicenseEndpoints] POST machine switch-now: tenant={tenant.ToLogString()}, machine={machineId:N}, refused={result.RefusalCode}");
+                return Refuse(StatusCodes.Status409Conflict, result.RefusalCode!, LicenseDisplayFold.SwitchNowRefused(result, machines));
+            }
+
+            var rows = result.Switches
+                .Select(s => store.FindSwitch(tenant, s.SwitchId)
+                    ?? throw new InvalidOperationException($"Switch {s.SwitchId} was sent, and its row is gone."))
+                .ToList();
+            FileLog.Write($"[LicenseEndpoints] POST machine switch-now: tenant={tenant.ToLogString()}, machine={machineId:N}, switches={rows.Count}");
+            return Results.Json(LicenseDisplayFold.SwitchNowAccepted(result, rows, machines));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseEndpoints] POST /gateway/licenses/machines/switch-now FAILED: {ex.Message}");
             throw;
         }
     }

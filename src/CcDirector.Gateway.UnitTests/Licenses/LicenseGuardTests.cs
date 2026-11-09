@@ -38,6 +38,8 @@ public sealed class LicenseGuardTests
     [InlineData("GET", "/gateway/licenses/switch-now", false)]
     [InlineData("POST", "/gateway/licenses/machines/forget", false)]
     [InlineData("GET", "/gateway/licenses/machines/forget", false)]
+    [InlineData("POST", "/gateway/licenses/machines/switch-now", false)]
+    [InlineData("GET", "/gateway/licenses/machines/switch-now", false)]
     [InlineData("GET", "/gateway/licenses/approvers", true)]
     [InlineData("GET", "/Gateway/Licenses/Approvers/", true)]
     [InlineData("HEAD", "/gateway/licenses/approvers", true)]
@@ -120,5 +122,6 @@ public sealed class LicenseGuardTests
     public void TheGuard_RefusesSwitchNow_EvenToARaisedSession()
     {
         Assert.False(SessionKeyGuard.Check("POST", "/gateway/licenses/switch-now", raised: true).Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/gateway/licenses/machines/switch-now", raised: true).Allowed);
     }
 }

@@ -196,7 +196,15 @@ function LicenseTile({ account, onSwitchNow }: { account: LicenseAccount; onSwit
         <span className="lic-tile-line" aria-hidden="true" />
       </div>
       <div className="lic-tile-figures">
-        <span>{week.utilizationText} of week</span>
+        <span>
+          {week.utilizationText} of week
+          {account.paceText !== null && (
+            <span className="lic-tile-pace" data-testid="lic-tile-pace">
+              {" "}
+              {account.paceText}
+            </span>
+          )}
+        </span>
         <span>{week.resetsText}</span>
       </div>
       <p className="lic-tile-text" data-testid="lic-tile-text">

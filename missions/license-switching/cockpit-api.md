@@ -243,6 +243,18 @@ Each machine adds `readyForNext` (true, false, or null when there is nothing to 
 and `readyForNextTone` - `bad` or `warning` ONLY for a machine the alarm names; a machine that is not ready but not
 running out is `neutral`.
 
+Each account also has `paceText`: how fast its weekly use is rising, from the forecast's own weekly pace ("+3.4% an
+hour"), or null when it is not rising or the forecast cannot say. Each machine also has `canSwitchNow`, `switchNowText`
+and `switchTargets` for the drawer's "Switch this machine to...": the same target list an account's Switch now has
+(below), asked of the engine for that machine alone, so the drawer offers exactly what
+`POST /gateway/licenses/machines/switch-now` accepts. `switchNowText` says why none is offered ("the-mac cannot be
+switched now: ...", "No other license can take the-mac now. ..."), and is null when one is.
+
+`POST /gateway/licenses/machines/switch-now` takes `{"machineId": "...", "targetAccountEmail": "..."}` (a null target
+lets the Gateway choose) and moves that one machine off the license it is on now, which the Gateway reads itself. It is
+answered exactly as Switch now is - 200 with the machine's switch, or 409 with the refusal word and its sentence - and,
+like Switch now, it is the owner's own action: refused to every session key, device key and the shared machine token.
+
 ### Example
 
 ```json
@@ -340,7 +352,8 @@ running out is `neutral`.
       "roleText": "In use - 2 machines",
       "roleTone": "neutral",
       "tileText": "Switches at 97% in about 7 hours 49 minutes.",
-      "tileAtUtc": "2026-10-11T11:01:00Z"
+      "tileAtUtc": "2026-10-11T11:01:00Z",
+      "paceText": "+2.5% an hour"
     },
     {
       "accountEmail": "account-b@example.com",
@@ -418,7 +431,8 @@ running out is `neutral`.
       "roleText": "Next - ready on all 2",
       "roleTone": "good",
       "tileText": "Takes over in about 7 hours 49 minutes.",
-      "tileAtUtc": "2026-10-11T11:01:00Z"
+      "tileAtUtc": "2026-10-11T11:01:00Z",
+      "paceText": null
     },
     {
       "accountEmail": "account-c@example.com",
@@ -490,7 +504,8 @@ running out is `neutral`.
       "roleText": "Resting",
       "roleTone": "neutral",
       "tileText": "Not needed now.",
-      "tileAtUtc": null
+      "tileAtUtc": null,
+      "paceText": null
     }
   ],
   "machines": [
@@ -564,7 +579,23 @@ running out is `neutral`.
       "readinessTone": "good",
       "readyForNext": true,
       "readyForNextText": "Ready",
-      "readyForNextTone": "good"
+      "readyForNextTone": "good",
+      "canSwitchNow": true,
+      "switchNowText": null,
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": true,
+          "unavailableText": null,
+          "isAutomaticChoice": true
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
+          "isAutomaticChoice": false
+        }
+      ]
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -655,7 +686,23 @@ running out is `neutral`.
       "readinessTone": "good",
       "readyForNext": true,
       "readyForNextText": "Ready",
-      "readyForNextTone": "good"
+      "readyForNextTone": "good",
+      "canSwitchNow": true,
+      "switchNowText": null,
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": true,
+          "unavailableText": null,
+          "isAutomaticChoice": true
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
+          "isAutomaticChoice": false
+        }
+      ]
     }
   ],
   "coverage": {

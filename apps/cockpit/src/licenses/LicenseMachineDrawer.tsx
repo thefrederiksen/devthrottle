@@ -4,7 +4,7 @@ import { Button, useDismissOnBackdrop } from "../components";
 import { TonePill, toneClass } from "./licenseParts";
 
 // ONE MACHINE'S DRAWER (the owner's redesign, 8 November 2026): everything about one machine that the Overview keeps off
-// the main screen - what it is on, its spares, every sign-in with its Renew button, the sign-ins under way, Add a spare,
+// the main screen - what it is on, its spares, every sign-in with its Renew button, the sign-ins under way, Switch this machine to..., Add a spare,
 // and Remove this machine. Remove is a real red button (the owner could not find the borderless "Forget this machine"
 // link it replaces) and it calls the existing forget route through the page's confirmation. Every sentence is the
 // Gateway's; the drawer only lays them out.
@@ -15,9 +15,10 @@ export interface LicenseMachineDrawerProps {
   onRenew: (machine: LicenseMachine, holding: LicenseHolding) => void;
   onAddSpare: (machine: LicenseMachine) => void;
   onRemove: (machine: LicenseMachine) => void;
+  onSwitch: (machine: LicenseMachine) => void;
 }
 
-export function LicenseMachineDrawer({ machine, onClose, onRenew, onAddSpare, onRemove }: LicenseMachineDrawerProps) {
+export function LicenseMachineDrawer({ machine, onClose, onRenew, onAddSpare, onRemove, onSwitch }: LicenseMachineDrawerProps) {
   const backdrop = useDismissOnBackdrop(onClose);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -107,6 +108,14 @@ export function LicenseMachineDrawer({ machine, onClose, onRenew, onAddSpare, on
 
         <h3 className="lic-drawer-section">Actions</h3>
         <div className="lic-drawer-actions">
+          <Button variant="secondary" disabled={!machine.canSwitchNow} onClick={() => onSwitch(machine)} data-testid="lic-drawer-switch">
+            Switch this machine to...
+          </Button>
+          {machine.switchNowText !== null && (
+            <p className="lic-dim" data-testid="lic-drawer-switch-text">
+              {machine.switchNowText}
+            </p>
+          )}
           <Button variant="secondary" disabled={!machine.canAddSpare} onClick={() => onAddSpare(machine)} data-testid="lic-drawer-add-spare">
             Add a spare
           </Button>

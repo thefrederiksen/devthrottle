@@ -806,6 +806,18 @@
 /* ---- The Overview on one screen (the owner's redesign, 8 November 2026) ---- */
 .lic-tabs {
   margin-bottom: 16px;
+  /* One line at any width (9 November 2026): at phone width "What is using it" wrapped onto four lines. The row scrolls
+     sideways instead, and each tab keeps its name on one line. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lic-tabs::-webkit-scrollbar {
+  display: none;
+}
+.lic-tabs > * {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* The one status card. Its tone is the Gateway's: good when covered, the alarm's own tone when a machine is not ready. */
@@ -1218,4 +1230,9 @@
   .lic-section-head {
     flex-wrap: wrap;
   }
+}
+
+/* The tile's pace beside its week: "+3.4% an hour". */
+.lic-tile-pace {
+  color: var(--text-dim);
 }

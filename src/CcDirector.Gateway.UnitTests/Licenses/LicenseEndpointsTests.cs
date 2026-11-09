@@ -134,7 +134,7 @@ public sealed class LicenseEndpointsTests : IDisposable
             "renewsOn", "renewsText", "signInExpiry", "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
             "barredUntilUtc", "barredText",
             "approver", "approverText", "approverTone",
-            "role", "roleText", "roleTone", "tileText", "tileAtUtc",
+            "role", "roleText", "roleTone", "tileText", "tileAtUtc", "paceText",
         }, Names(account));
         Assert.Equal(("in-use", "In use - 1 machine"), (account.GetProperty("role").GetString(), account.GetProperty("roleText").GetString()));
         // Not barred from the automatic choice, so there is nothing to show beside it.
@@ -170,7 +170,7 @@ public sealed class LicenseEndpointsTests : IDisposable
             "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
             "readiness", "readinessTargetAccountEmail", "readinessText", "readinessTone",
             "nextLicenseState", "nextLicenseText", "nextLicenseTone", "recommendedAccountEmail", "recommendedSignInAction",
-            "readyForNext", "readyForNextText", "readyForNextTone",
+            "readyForNext", "readyForNextText", "readyForNextTone", "canSwitchNow", "switchNowText", "switchTargets",
         }, Names(machine));
         Assert.Equal((true, "Ready", "good"),
             (machine.GetProperty("readyForNext").GetBoolean(), machine.GetProperty("readyForNextText").GetString(), machine.GetProperty("readyForNextTone").GetString()));

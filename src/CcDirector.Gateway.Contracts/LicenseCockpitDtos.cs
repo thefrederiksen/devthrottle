@@ -39,6 +39,11 @@ public static class LicenseRoutes
     /// off the page (<see cref="LicenseForgetMachineRequest"/>, <see cref="LicenseForgetMachineResponse"/>). Offered
     /// where <see cref="LicenseMachineDto.CanForget"/> is true. Refused to every session key.</summary>
     public const string ForgetMachine = "/gateway/licenses/machines/forget";
+
+    /// <summary>POST: Switch this machine now - move ONE machine off the account it is on (<see cref="LicenseMachineSwitchNowRequest"/>,
+    /// answered with <see cref="LicenseSwitchNowResponse"/>). Offered where <see cref="LicenseMachineDto.CanSwitchNow"/> is
+    /// true. Refused to every session key.</summary>
+    public const string MachineSwitchNow = "/gateway/licenses/machines/switch-now";
 }
 
 /// <summary>The one status an account is shown with. <see cref="LicenseAccountDto.StatusText"/> is the label.</summary>
@@ -439,6 +444,10 @@ public sealed class LicenseAccountDto
 
     /// <summary>The moment <see cref="TileText"/> speaks of, for the page to show as a local clock time; null when none.</summary>
     public DateTime? TileAtUtc { get; set; }
+
+    /// <summary>How fast its weekly use is rising, for the tile: "+3.4% an hour". Null when the forecast shows no rise or
+    /// cannot say.</summary>
+    public string? PaceText { get; set; }
 }
 
 /// <summary>One usage window of one account.</summary>
@@ -623,6 +632,16 @@ public sealed class LicenseMachineDto
 
     /// <summary>One of <see cref="LicenseTones"/>: bad or warning ONLY for a machine the one license alarm names.</summary>
     public string ReadyForNextTone { get; set; } = "";
+
+    /// <summary>The drawer offers "Switch this machine to...": at least one entry of <see cref="SwitchTargets"/> can be
+    /// chosen. The route (<see cref="LicenseRoutes.MachineSwitchNow"/>) accepts exactly these.</summary>
+    public bool CanSwitchNow { get; set; }
+
+    /// <summary>Why the drawer offers no switch; null when it offers one.</summary>
+    public string? SwitchNowText { get; set; }
+
+    /// <summary>Every other license as a target for this machine alone; empty when the machine is on none.</summary>
+    public List<LicenseSwitchTargetDto> SwitchTargets { get; set; } = new();
 }
 
 /// <summary>Whether a machine is ready to move to the account it would switch to next.</summary>
@@ -1162,6 +1181,17 @@ public sealed class LicenseSwitchNowRequest
     public string? AccountEmail { get; set; }
 
     /// <summary>The account to move them to; null or blank lets the Gateway choose, as an automatic switch would.</summary>
+    public string? TargetAccountEmail { get; set; }
+}
+
+/// <summary>The body of POST <see cref="LicenseRoutes.MachineSwitchNow"/>.</summary>
+public sealed class LicenseMachineSwitchNowRequest
+{
+    /// <summary>The machine to switch: its <see cref="LicenseMachineDto.MachineId"/> in the overview. It moves off the
+    /// account it is on now, which the Gateway reads itself.</summary>
+    public string? MachineId { get; set; }
+
+    /// <summary>The account to move it to; null or blank lets the Gateway choose, as an automatic switch would.</summary>
     public string? TargetAccountEmail { get; set; }
 }
 
