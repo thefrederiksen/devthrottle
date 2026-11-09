@@ -23,6 +23,10 @@ public class SkillPlacementLogTests : IDisposable
 
     private string RecordPath => Path.Combine(_root, "skills", "placement-state.json");
 
+    /// <summary>What a torn cross-process write leaves behind: one file holding two JSON documents.</summary>
+    private const string TwoDocumentsInOneFile =
+        "[{\"AgentKind\":\"ClaudeCode\",\"Held\":9}][{\"AgentKind\":\"Pi\",\"Held\":1}]";
+
     private static SkillPlacement APlacement(AgentKind kind, int held, int reachable) =>
         new(kind, held, reachable, [], StoreMissing: false, AgentHasNoSkillsDirectory: false);
 
@@ -67,7 +71,7 @@ public class SkillPlacementLogTests : IDisposable
         // This is the file real machines are left holding. Before the fix the read threw inside the write
         // path, the write never happened, and the next placement found the same damage - for ever.
         Directory.CreateDirectory(Path.GetDirectoryName(RecordPath)!);
-        File.WriteAllText(RecordPath, """[{"AgentKind":"ClaudeCode","Held":9}][{"AgentKind":"Pi","Held":1}]""");
+        File.WriteAllText(RecordPath, TwoDocumentsInOneFile);
 
         Assert.Empty(SkillPlacementLog.ReadAll(_root));          // unreadable, and tolerated
 
@@ -89,6 +93,49 @@ public class SkillPlacementLogTests : IDisposable
 
         var only = Assert.Single(SkillPlacementLog.ReadAll(_root));
         Assert.Equal(nameof(AgentKind.Gemini), only.AgentKind);
+    }
+
+    [Fact]
+    public void ARecordThatCannotBeParsed_IsREMOVEDByAReadSoItStopsBeingReportedEveryMinute()
+    {
+        // THE READER IS WHAT WAS STORMING, which the review of #4552 traced and I had not.
+        // ControlApiHost.PushSkillPlacementAsync calls ReadAll every sixty seconds; a strict read of a
+        // damaged file reported a fresh failure on every tick, which is the cadence of the 2,000 reports in
+        // three days. Healing only on the WRITE path left a quiet machine - one not launching sessions -
+        // reporting for ever and never repairing.
+        Directory.CreateDirectory(Path.GetDirectoryName(RecordPath)!);
+        File.WriteAllText(RecordPath, TwoDocumentsInOneFile);
+
+        Assert.Empty(SkillPlacementLog.ReadAll(_root));
+
+        Assert.False(File.Exists(RecordPath), "the unreadable record should be gone, not read again next minute");
+        Assert.Empty(SkillPlacementLog.ReadAll(_root));          // and the second read finds nothing to report
+    }
+
+    [Fact]
+    public void AReadThatFailsForAReasonOtherThanDamage_LeavesEveryOtherAgentsRowAlone()
+    {
+        // The review of #4552 found the heal catching EVERY exception, so a transient failure - a sharing
+        // violation, a slow network home, a full disk - made the very next placement wipe the whole record.
+        // Unparseable content is damage and cannot get better; a bad moment must change nothing on disk.
+        if (OperatingSystem.IsWindows()) return;   // the file mode denying its own owner is a POSIX fact
+
+        SkillPlacementLog.Record(APlacement(AgentKind.ClaudeCode, held: 7, reachable: 7), _root);
+        var before = File.ReadAllText(RecordPath);
+
+        File.SetUnixFileMode(RecordPath, UnixFileMode.None);
+        try
+        {
+            SkillPlacementLog.Record(APlacement(AgentKind.Pi, held: 1, reachable: 0), _root);
+        }
+        finally
+        {
+            File.SetUnixFileMode(RecordPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        Assert.Equal(before, File.ReadAllText(RecordPath));
+        var only = Assert.Single(SkillPlacementLog.ReadAll(_root));
+        Assert.Equal(nameof(AgentKind.ClaudeCode), only.AgentKind);   // not wiped by the other agent
     }
 
     [Fact]

@@ -165,12 +165,23 @@ public sealed class DirectorSupervisorTests
     }
 
     [Fact]
-    public void SupervisedInstanceSlug_IsTheDefaultInstance_WhichIsTheOnlyOneTheLauncherManages()
+    public void SupervisedInstanceSlug_IsTheDefaultInstance_BecauseThatIsTheHomeTheLauncherResolves()
     {
-        // The launcher's own constructor builds its locator against instances/default, and a named
-        // instance is deliberately outside what it supervises. If that ever changes, this is the
-        // assertion that has to change with it - the compiler will not say so.
-        Assert.Equal(InstanceContext.DefaultSlug, DirectorSupervisor.SupervisedInstanceSlug);
+        // Production: the default constructor builds its locator against instances/default.
+        Assert.Equal(InstanceContext.DefaultSlug, new DirectorSupervisor().SupervisedInstanceSlug);
+    }
+
+    [Fact]
+    public void SupervisedInstanceSlug_FollowsTheLocator_SoNobodyHasToRememberToChangeIt()
+    {
+        // Asked of the locator rather than asserted in the supervisor (the review of #4552). A launcher
+        // pointed at a named instance's home names THAT instance on the command line, with no second
+        // place to update.
+        var home = InstanceContext.InstanceHomeOf(Path.Combine(Path.GetTempPath(), "a-root"), "linuxtest");
+        var supervisor = new DirectorSupervisor(
+            InstallLayout.Default(), new DirectorInstanceLocator(home));
+
+        Assert.Equal("linuxtest", supervisor.SupervisedInstanceSlug);
     }
 
     [Fact]

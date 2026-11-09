@@ -260,6 +260,20 @@ public sealed class DirectorInstanceLocator
     public string InstanceHome => _instanceHome;
 
     /// <summary>
+    /// The slug of the instance this locator resolves, read off <see cref="InstanceHome"/>'s own last
+    /// segment - every instance home is <c>{sharedRoot}/instances/{slug}</c> by construction
+    /// (<see cref="InstanceContext.InstanceHomeOf"/>).
+    ///
+    /// It exists so the launcher can NAME the instance it is starting on the Director's command line
+    /// (issue #4552). The first version of that change hard-coded the default slug with a comment saying
+    /// that if the launcher ever supervised a named instance this would have to change and the compiler
+    /// would not say so. The review's answer was the right one: ask the locator, which already knows, and
+    /// then there is nothing to remember.
+    /// </summary>
+    public string Slug => InstanceContext.Normalize(
+        Path.GetFileName(_instanceHome.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+
+    /// <summary>
     /// How the image of a live process is read. Production always uses <see cref="ExecutablePathOf"/>.
     ///
     /// It is a seam ONLY so the refusal below can be tested. "A claimant that will not say what it is

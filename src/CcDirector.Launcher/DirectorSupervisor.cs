@@ -349,13 +349,14 @@ public sealed class DirectorSupervisor
     /// devlinux, 1 November 2026, that cost a whole night of scheduled runs, each failing with "no Director
     /// on devlinux" while the process sat alive behind the window.
     ///
-    /// The launcher supervises the DEFAULT instance, and only that one: its own constructor builds the
-    /// locator against <c>instances/default</c>, and a named instance is deliberately outside what it
-    /// manages. So this is the default slug rather than a reading of the locator's home - if the launcher
-    /// ever supervises a named instance, this has to become that instance's slug, and the compiler will not
-    /// say so.
+    /// IT IS ASKED OF THE LOCATOR, NOT ASSERTED HERE. The first version of this returned the default slug
+    /// with a comment saying that if the launcher ever supervised a named instance this would have to change
+    /// and the compiler would not say so. The review of #4552 gave the better answer: this class already
+    /// takes any locator, and the locator already knows which instance home it resolves, so the slug is read
+    /// off that. In production it is still <c>default</c>, because the default constructor builds the
+    /// locator against <c>instances/default</c>; nothing has to be remembered if that ever changes.
     /// </summary>
-    public static string SupervisedInstanceSlug => InstanceContext.DefaultSlug;
+    public string SupervisedInstanceSlug => _locator.Slug;
 
     /// <summary>
     /// Stop the running Director: raise its shutdown signal, then wait for the process to go.

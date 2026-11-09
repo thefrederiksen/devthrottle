@@ -107,7 +107,31 @@ public static class SkillPlacementLog
         try
         {
             lock (Gate)
-                return ReadUnlocked(PathFor(rootOverride));
+            {
+                var path = PathFor(rootOverride);
+                try
+                {
+                    return ReadUnlocked(path);
+                }
+                catch (JsonException ex)
+                {
+                    // THE READER HEALS, BECAUSE THE READER IS WHAT WAS STORMING (the review of #4552). This
+                    // is called every sixty seconds by ControlApiHost.PushSkillPlacementAsync, and a strict
+                    // read of a damaged file reported a fresh failure on every one of those ticks - which is
+                    // the cadence of the 2,000 reports in three days. Healing only on the write path left a
+                    // quiet machine, one that is not launching sessions, reporting for ever and never
+                    // repairing.
+                    //
+                    // DELETING IT IS SAFE AND IS THE WHOLE POINT. The file holds one row per agent family,
+                    // each rewritten by that agent's next placement; unparseable content is not recoverable
+                    // by anybody, and keeping it buys nothing but another report a minute from now.
+                    // not-an-error: a diagnostic nobody can read is removed so it stops lying; the damage it held was reported already
+                    FileLog.Write($"[SkillPlacementLog] {path} is not readable JSON ({ex.Message}); it is "
+                                  + "being removed so it stops being reported once a minute (issue #4552).");
+                    TryDelete(path);
+                    return Array.Empty<SkillPlacementRecord>();
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -127,17 +151,31 @@ public static class SkillPlacementLog
     /// each is one agent's last placement, each is rewritten by that agent's next one, and a diagnostic
     /// nobody can read is worth less than an empty one that starts working again.
     /// </summary>
+    /// <summary>Remove the damaged record. A failure here is left to the caller's own catch: if it cannot be
+    /// deleted it will be read again, and one more line is better than a throw out of a reader.</summary>
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); }
+        // not-an-error: the record stays and is read again next tick; nothing is lost that was not already unreadable
+        catch (Exception ex) { FileLog.Write($"[SkillPlacementLog] {path} could not be removed ({ex.Message})"); }
+    }
+
     private static List<SkillPlacementRecord> ReadForWriting(string path)
     {
         try
         {
             return ReadUnlocked(path);
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
+            // ONLY A JsonException, and the review of #4552 is why. This caught every Exception at first,
+            // which meant a TRANSIENT failure - a sharing violation, a slow network home, a full disk - made
+            // the very next placement wipe every other agent's row. Unparseable content is damage and cannot
+            // get better; an IOException is a bad moment and must reach Record's own catch, which changes
+            // nothing on disk.
             // The damage this repairs was already reported about 2,000 times from one machine in three days.
             // not-an-error: replacing a damaged diagnostic IS the repair; reporting it files the same fault again
-            FileLog.Write($"[SkillPlacementLog] {path} could not be read ({ex.Message}); this placement "
+            FileLog.Write($"[SkillPlacementLog] {path} is not readable JSON ({ex.Message}); this placement "
                           + "replaces the whole record rather than reporting it again (issue #4552).");
             return new List<SkillPlacementRecord>();
         }
