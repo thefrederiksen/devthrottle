@@ -106,12 +106,12 @@ import { resetFactorySwitchCache } from "../../factory/useFactorySwitch";
 import { COCKPIT_ROUTES } from "../../routes";
 import { refreshTeamPageCounts } from "../useTeamPageCounts";
 
-const NOT_AVAILABLE = "This page is not available to Collaborators.";
+const NOT_AVAILABLE = "This page is not available to contributors.";
 
 const COLLABORATOR_TEAM: TeamSummary = {
   id: "team-dt",
   name: "DevThrottle",
-  role: "Collaborator",
+  role: "Contributor",
   memberCount: 5,
   people: "5 people",
   app: {
@@ -506,7 +506,7 @@ describe("The Collaborator's app", () => {
 
     const chooser = await screen.findByTestId("team-chooser");
     expect(chooser.textContent).toContain("You are signed in as mike@example.com");
-    expect(chooser.textContent).toContain("Collaborator - 5 people");
+    expect(chooser.textContent).toContain("Contributor - 5 people");
     expect(chooser.textContent).toContain("Developer - 2 people");
     expect(screen.queryByText("sessions page")).toBeNull();
     expect(railLabels()).toEqual([]);
@@ -568,7 +568,7 @@ describe("The Collaborator's app", () => {
     await whenRailIs(["Questions", "Requests", "Reports"]);
     const card = screen.getByTestId("you-card");
     expect(card.textContent).toContain("mike@example.com");
-    expect(card.textContent).toContain("Collaborator");
+    expect(card.textContent).toContain("Contributor");
     fireEvent.click(within(openYourMenu()).getByRole("menuitem", { name: "Sign out of mike@example.com" }));
     // The confirmation's own button, which appears once the dialog opens.
     const dialog = await screen.findByRole("alertdialog");

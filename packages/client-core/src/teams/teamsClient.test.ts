@@ -18,7 +18,7 @@ const COLLABORATOR_APP = {
     { id: "reports", label: "Reports", path: "/reports", countPath: null },
   ],
   landing: "/questions",
-  elsewhere: "This page is not available to Collaborators.",
+  elsewhere: "This page is not available to contributors.",
 };
 const FULL_JSON = JSON.stringify(FULL);
 
@@ -38,7 +38,7 @@ describe("getMyTeams", () => {
           count: 2,
           teams: [
             { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people", app: FULL },
-            { id: "t2", name: "Paul's project", role: "Collaborator", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
+            { id: "t2", name: "Paul's project", role: "Contributor", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
           ],
           start: { where: "team", teamId: "t2" },
         }),
@@ -53,7 +53,7 @@ describe("getMyTeams", () => {
       kind: "teams",
       teams: [
         { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people", app: FULL },
-        { id: "t2", name: "Paul's project", role: "Collaborator", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
+        { id: "t2", name: "Paul's project", role: "Contributor", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
       ],
       start: { where: "team", teamId: "t2" },
     });
@@ -126,7 +126,7 @@ describe("getMyTeams", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond('{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person"}]}', "application/json"),
+        respond('{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person"}]}', "application/json"),
       ),
     );
     await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
@@ -137,7 +137,7 @@ describe("getMyTeams", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond(`{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${app}}]}`, "application/json"),
+        respond(`{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${app}}]}`, "application/json"),
       ),
     );
     await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
@@ -148,7 +148,7 @@ describe("getMyTeams", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond(`{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${app}}]}`, "application/json"),
+        respond(`{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${app}}]}`, "application/json"),
       ),
     );
     await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
@@ -156,13 +156,13 @@ describe("getMyTeams", () => {
 
   // devthrottle_internal#2306, review finding F1: where a fresh browser starts is the Gateway's verdict, carried verbatim;
   // an answer without one, or naming a team the list does not hold, cannot be opened and fails loudly.
-  const ONE_TEAM = `[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${JSON.stringify(COLLABORATOR_APP)}}]`;
+  const ONE_TEAM = `[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${JSON.stringify(COLLABORATOR_APP)}}]`;
 
   it("GetMyTeams_APageCountPath_IsCarriedAsTheGatewaySentIt_AndAPageWithoutOneThrows", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond(`{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${JSON.stringify(COLLABORATOR_APP)}}],"start":{"where":"own-account"}}`, "application/json"),
+        respond(`{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${JSON.stringify(COLLABORATOR_APP)}}],"start":{"where":"own-account"}}`, "application/json"),
       ),
     );
     const answer = await getMyTeams();
@@ -173,7 +173,7 @@ describe("getMyTeams", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond(`{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${noCountPath}}]}`, "application/json"),
+        respond(`{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${noCountPath}}]}`, "application/json"),
       ),
     );
     await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);

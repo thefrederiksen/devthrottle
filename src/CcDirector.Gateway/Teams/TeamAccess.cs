@@ -73,11 +73,11 @@ public sealed record TeamAccessDecision(bool Allowed, TeamAction Action, TeamRol
     public static string RoleRefusal(TeamRole role, TeamPermissionRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
-        var label = TeamRoles.Label(role);
+        var label = TeamRoles.InText(role);
         if (row.Owner == TeamGrant.No && row.Manager == TeamGrant.No && row.Developer == TeamGrant.No && row.Collaborator == TeamGrant.No)
             return $"Nobody in a team may {row.Words} - not the Owner, not a Manager. Your sessions, transcripts and prompts are private to you, and so are everyone else's.";
         return $"In this team you are {Article(label)} {label}, and {Article(label)} {label} may not {row.Words}.";
     }
 
-    internal static string Article(string label) => label.Length > 0 && "AEIOU".Contains(label[0]) ? "an" : "a";
+    internal static string Article(string label) => label.Length > 0 && "AEIOU".Contains(char.ToUpperInvariant(label[0])) ? "an" : "a";
 }

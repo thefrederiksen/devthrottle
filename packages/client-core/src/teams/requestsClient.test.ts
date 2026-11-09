@@ -67,6 +67,6 @@ describe("the requests client", () => {
 
     const err = await listMyRequests("t").catch((e: unknown) => e);
 
-    expect(gatewayErrorMessage(err, "load your requests")).toBe("Teams are not available on this DevThrottle Gateway yet.");
+    expect(gatewayErrorMessage(err, "load your requests")).toBe("This DevThrottle Gateway does not offer teams yet.");
   });
 });

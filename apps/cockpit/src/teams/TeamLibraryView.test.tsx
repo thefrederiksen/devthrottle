@@ -96,9 +96,9 @@ describe("TeamLibraryView", () => {
   });
 
   it("TeamLibraryView_Collaborator_IsShownTheGatewaysRefusal_AndNoList", async () => {
-    const sentence = "In this team you are a Collaborator, and a Collaborator may not use the team's shared skills and workflows.";
+    const sentence = "In this team you are a contributor, and a contributor may not use the team's shared skills and workflows.";
     client.getTeamLibrary.mockRejectedValue(new GatewayError(403, sentence, { reason: sentence, code: "team_action_refused" }));
-    render(<TeamLibraryView team={{ ...ACME, role: "Collaborator" }} />);
+    render(<TeamLibraryView team={{ ...ACME, role: "Contributor" }} />);
 
     // An answer, not a failure: the Gateway's sentence as a note, no red banner and no "Try again".
     expect((await screen.findByRole("note")).textContent).toBe(sentence);

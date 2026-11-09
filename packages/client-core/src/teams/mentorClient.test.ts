@@ -122,7 +122,7 @@ describe("getMentorPage", () => {
   it("GetMentorPage_Collaborator403_IsRefused", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(json({ error: "A Collaborator has no Mentor page.", code: "team_action_refused" }, 403)),
+      vi.fn().mockResolvedValue(json({ error: "A contributor has no Mentor page.", code: "team_action_refused" }, 403)),
     );
 
     expect(await getMentorPage("6f0c")).toEqual({ kind: "refused" });

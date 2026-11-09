@@ -49,12 +49,12 @@ public static class TeamApp
 
         if (pages.Count == 0)
             throw new InvalidOperationException(
-                $"The role table gives a {TeamRoles.Label(role)} neither the whole app nor any page, so there is nothing to show them.");
+                $"The role table gives a {TeamRoles.InText(role)} neither the whole app nor any page, so there is nothing to show them.");
         return new TeamAppVerdict(false, pages, pages[0].Path, NotAvailableTo(role));
     }
 
     /// <summary>The sentence a person reads at an address their role does not open.</summary>
-    public static string NotAvailableTo(TeamRole role) => $"This page is not available to {TeamRoles.Label(role)}s.";
+    public static string NotAvailableTo(TeamRole role) => $"This page is not available to {TeamRoles.InTextPlural(role)}.";
 }
 
 /// <summary>Where a browser that has never chosen starts.</summary>

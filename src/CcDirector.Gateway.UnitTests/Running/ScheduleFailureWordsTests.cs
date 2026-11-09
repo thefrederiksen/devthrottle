@@ -87,6 +87,9 @@ public sealed class ScheduleFailureWordsTests
         // A factory seat's run on an account without factories (CronEngine.FactoryOffReason).
         new object[] { "factory agents are switched off for this account, so the scheduled run was not started",
             ScheduleFailureCauses.FactoryAgentsOff, "Switch them on" },
+        new object[] { "factories come with the Pro plan and this account's plan does not include them, so the scheduled run was not started",
+            ScheduleFailureCauses.FactoriesNeedAPlan, "Change the plan" },
+        // The wording stored on run rows written before devthrottle_internal#2791 still reads as the same cause.
         new object[] { "factories come with the Pro and Teams plans and this account's plan does not include them, so the scheduled run was not started",
             ScheduleFailureCauses.FactoriesNeedAPlan, "Change the plan" },
         // A seat refused by the registry: an archived factory (FactoryScheduleLink.Check), and a seat not registered.

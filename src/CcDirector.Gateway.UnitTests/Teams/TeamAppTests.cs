@@ -51,7 +51,7 @@ public sealed class TeamAppTests
         Assert.Equal(new[] { ("Questions", "/questions"), ("Requests", "/requests"), ("Reports", "/reports") },
             app.Pages.Select(p => (p.Label, p.Path)));
         Assert.Equal("/questions", app.Landing);
-        Assert.Equal("This page is not available to Collaborators.", app.Elsewhere);
+        Assert.Equal("This page is not available to contributors.", app.Elsewhere);
     }
 
     [Theory]
@@ -77,7 +77,7 @@ public sealed class TeamAppTests
     }
 
     [Theory]
-    [InlineData(TeamRole.Collaborator, "This page is not available to Collaborators.")]
+    [InlineData(TeamRole.Collaborator, "This page is not available to contributors.")]
     [InlineData(TeamRole.Developer, "This page is not available to Developers.")]
     public void NotAvailableTo_NamesTheRoleInThePlural(TeamRole role, string expected)
     {

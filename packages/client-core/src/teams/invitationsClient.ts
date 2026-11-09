@@ -12,7 +12,7 @@ import { authHeaders, GatewayError } from "../api/client";
 
 /** One role the invite form offers. `allowed` false means it is shown greyed with `hint` saying why. */
 export interface InviteRoleOption {
-  role: "Manager" | "Developer" | "Collaborator";
+  role: "Manager" | "Developer" | "Contributor";
   allowed: boolean;
   hint: string;
 }
@@ -40,7 +40,7 @@ export interface TeamInvitation {
   invitedBy: string;
   /** Who accepted it, as named on screen - which need not be the address it was sent to - or null. */
   acceptedBy: string | null;
-  /** Who pays for the seat, or null for a free Collaborator seat. */
+  /** Who pays for the seat, or null for a free contributor seat. */
   paidBy: string | null;
   sentAtUtc: string;
   expiresAtUtc: string;
@@ -101,8 +101,8 @@ export async function call<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: s
   // The Gateway falls unknown page paths back to the app's own HTML shell with a 200 - which is exactly what a
   // Gateway with Teams not released answers. Never read that as data.
   if (type !== "application/json") {
-    throw new GatewayError(404, "Teams are not available on this DevThrottle Gateway yet.", {
-      reason: "Teams are not available on this DevThrottle Gateway yet.",
+    throw new GatewayError(404, "This DevThrottle Gateway does not offer teams yet.", {
+      reason: "This DevThrottle Gateway does not offer teams yet.",
     });
   }
   return (await res.json()) as T;

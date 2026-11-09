@@ -156,7 +156,7 @@ internal static class TeamInvitationEndpoints
         string callerSubject, string teamId, CreateInvitationRequest? body, CancellationToken ct)
     {
         if (!TryParseRole(body?.Role, out var role))
-            return Results.BadRequest(new { error = "Choose the role to invite them as: Manager, Developer or Collaborator." });
+            return Results.BadRequest(new { error = "Choose the role to invite them as: Manager, Developer or Contributor." });
 
         var result = teams.CreateInvitation(teamId, callerSubject, body?.Email, role);
         if (result.Outcome != TeamInvitationOutcome.Done)
@@ -184,7 +184,7 @@ internal static class TeamInvitationEndpoints
             {
                 sent = mail.Sent,
                 message = mail.Sent
-                    ? $"An email is on its way to {invitation.Email} about joining {invitation.TeamName} as {role}."
+                    ? $"An email is on its way to {invitation.Email} about joining {invitation.TeamName} as {TeamRoles.InText(invitation.Role)}."
                     : $"This is saved, but the email to {invitation.Email} was not sent: {mail.Error} The team's page shows where they stand; a waiting invitation can be resent from there.",
             },
         };
@@ -268,7 +268,7 @@ internal static class TeamInvitationEndpoints
             return new InvitationLink(null, "The invitation is saved, but this Gateway has no public address right now, so its link cannot be shown. Resend it once the address is back.");
         var url = root.Trim().TrimEnd('/') + CockpitAcceptPagePrefix + Uri.EscapeDataString(acceptToken);
         return new InvitationLink(url,
-            $"Send this link to {invitation.Email} yourself. It works only for someone signed in with {invitation.Email}, who can then join the team as {TeamRoles.Label(invitation.Role)}. " +
+            $"Send this link to {invitation.Email} yourself. It works only for someone signed in with {invitation.Email}, who can then join the team as {TeamRoles.InText(invitation.Role)}. " +
             "It is shown only now - if it is lost, Resend the invitation for a new link; the old one then stops working.");
     }
 
@@ -286,18 +286,9 @@ internal static class TeamInvitationEndpoints
 
     private static bool TryParseRole(string? value, out TeamRole role)
     {
-        role = default;
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-        foreach (var candidate in Enum.GetValues<TeamRole>())
-        {
-            if (string.Equals(TeamRoles.Label(candidate), value.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                role = candidate;
-                return true;
-            }
-        }
-        return false;
+        var parsed = TeamRoles.Parse(value);
+        role = parsed ?? default;
+        return parsed is not null;
     }
 
     private static async Task<IResult> WithToken(HttpContext ctx, HostedTenantBoundary boundary, TenantRegistry tenants,

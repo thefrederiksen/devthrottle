@@ -42,7 +42,7 @@ vi.mock("@devthrottle/client-core/teams/invitationsClient", () => ({
 
 import { TeamPageView } from "./TeamPageView";
 
-const ROLES = ["Manager", "Developer", "Collaborator"];
+const ROLES = ["Manager", "Developer", "Contributor"];
 
 function member(name: string, role: string, overrides: Partial<TeamPageMember> = {}): TeamPageMember {
   return {
@@ -50,7 +50,7 @@ function member(name: string, role: string, overrides: Partial<TeamPageMember> =
     name: `${name}@devthrottle.com`,
     email: `${name}@devthrottle.com`,
     role,
-    seat: role === "Collaborator" ? "No charge" : "Paid",
+    seat: role === "Contributor" ? "No charge" : "Paid",
     isYou: false,
     joinedAtUtc: "2026-09-01T10:00:00Z",
     canChangeRole: false,
@@ -70,15 +70,15 @@ function ownerPage(): TeamPage {
     teamId: TEAM,
     teamName: "DevThrottle",
     yourRole: "Owner",
-    summary: "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting",
+    summary: "3 paid seats, 2 contributors (no charge), 1 invitation waiting",
     canInvite: true,
     billNotice: null,
     members: [
       member("soren", "Owner", { isYou: true }),
       member("priya", "Manager", { ...dropdown, ...removable("priya") }),
       member("rob", "Developer", { ...dropdown, ...removable("rob") }),
-      member("mike", "Collaborator", { ...dropdown, ...removable("mike") }),
-      member("james", "Collaborator", { ...dropdown, ...removable("james") }),
+      member("mike", "Contributor", { ...dropdown, ...removable("mike") }),
+      member("james", "Contributor", { ...dropdown, ...removable("james") }),
     ],
     invitations: [{
       id: "inv-1", email: "anna@devthrottle.com", role: "Developer", state: "sent", seat: "Paid when accepted",
@@ -100,7 +100,7 @@ function managerPage(): TeamPage {
       member("priya", "Manager", { isYou: true }),
       member("pat", "Manager"),
       member("rob", "Developer", removable("rob")),
-      member("mike", "Collaborator", removable("mike")),
+      member("mike", "Contributor", removable("mike")),
     ],
   };
 }
@@ -110,13 +110,13 @@ function developerPage(): TeamPage {
   return {
     ...ownerPage(),
     yourRole: "Developer",
-    summary: "3 paid seats, 2 Collaborators (no charge)",
+    summary: "3 paid seats, 2 contributors (no charge)",
     canInvite: false,
     members: [
       member("soren", "Owner"),
       member("priya", "Manager"),
       member("rob", "Developer", { isYou: true }),
-      member("mike", "Collaborator"),
+      member("mike", "Contributor"),
     ],
     invitations: [],
   };
@@ -150,7 +150,7 @@ describe("the Team page, per role", () => {
 
     // The page draws its heading while it is still loading, so the heading says nothing about the members having
     // arrived: the first thing waited for is a piece of what the Gateway answered.
-    expect(await screen.findByText("3 paid seats, 2 Collaborators (no charge), 1 invitation waiting")).toBeTruthy();
+    expect(await screen.findByText("3 paid seats, 2 contributors (no charge), 1 invitation waiting")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Members" })).toBeTruthy();
     expect(client.getTeamPage).toHaveBeenCalledWith(TEAM);
     expect(screen.getByRole("link", { name: "Invite someone" }).getAttribute("href")).toBe("/settings?tab=members&view=invite");
@@ -237,14 +237,14 @@ describe("the Team page, per role", () => {
 
     // Waited for: a member the Gateway answered with. The heading is on screen before the answer is.
     expect(await screen.findByText("rob@devthrottle.com")).toBeTruthy();
-    expect(screen.getByText("3 paid seats, 2 Collaborators (no charge)")).toBeTruthy();
+    expect(screen.getByText("3 paid seats, 2 contributors (no charge)")).toBeTruthy();
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(screen.queryByRole("link", { name: "Invite someone" })).toBeNull();
   });
 
   it("Collaborator: no Team page - the Gateway's sentence, and no member list", async () => {
-    const sentence = "In this team you are a Collaborator, and a Collaborator may not open the Team page.";
+    const sentence = "In this team you are a contributor, and a contributor may not open the Team page.";
     client.getTeamPage.mockRejectedValue(new GatewayError(403, sentence, { reason: sentence }));
     renderAt(PATH);
 
@@ -257,20 +257,20 @@ describe("the Team page, per role", () => {
 describe("changing the team on the page", () => {
   it("changing a role sends it to the server and shows what the server now holds", async () => {
     const after = ownerPage();
-    after.members[2] = member("rob", "Collaborator", { ...dropdown, ...removable("rob"), seat: "Free" });
-    after.summary = "2 paid seats, 3 Collaborators (no charge), 1 invitation waiting";
+    after.members[2] = member("rob", "Contributor", { ...dropdown, ...removable("rob"), seat: "Free" });
+    after.summary = "2 paid seats, 3 contributors (no charge), 1 invitation waiting";
     client.getTeamPage.mockResolvedValueOnce(ownerPage()).mockResolvedValueOnce(after);
     client.changeMemberRole.mockResolvedValue();
     renderAt(PATH);
 
     const select = within(await waitFor(() => rowOf("rob"))).getByRole("combobox");
-    fireEvent.change(select, { target: { value: "Collaborator" } });
+    fireEvent.change(select, { target: { value: "Contributor" } });
 
-    await screen.findByText("rob@devthrottle.com is now a Collaborator.");
-    expect(client.changeMemberRole).toHaveBeenCalledWith(TEAM, "id-rob", "Collaborator");
+    await screen.findByText("rob@devthrottle.com is now a Contributor.");
+    expect(client.changeMemberRole).toHaveBeenCalledWith(TEAM, "id-rob", "Contributor");
     // The page re-reads the server: the role, the seat and the count are the server's, not the page's guess.
     expect(client.getTeamPage).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("2 paid seats, 3 Collaborators (no charge), 1 invitation waiting")).toBeTruthy();
+    expect(screen.getByText("2 paid seats, 3 contributors (no charge), 1 invitation waiting")).toBeTruthy();
     expect(within(rowOf("rob")).getByText("Free")).toBeTruthy();
   });
 

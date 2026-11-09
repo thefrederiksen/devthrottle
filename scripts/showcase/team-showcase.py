@@ -2,7 +2,7 @@
 
 The content is the approved team showcase mockups (devthrottle_internal docs/teams/2026-10-08-team-showcase-mockups.html,
 Screens 1, 2, 4, 5, 6 and 7): the team named "DevThrottle"; Peter Hansen (Manager), Mary Olsen and Mark Berg
-(Developers) and Lisa Jensen (Collaborator), who are made-up members, not accounts - they cannot sign in, hold no paid
+(Developers) and Lisa Jensen (a contributor), who are made-up members, not accounts - they cannot sign in, hold no paid
 seat, have no Directors and are sent no email; the Mentor's blocks about them for the last closed week, and the Owner's
 own Mentor page; two questions; four requests with their history; and the reports.
 
@@ -40,7 +40,7 @@ CONTENT = {
         {"key": PETER, "name": "Peter Hansen", "email": "peter@devthrottle.com", "role": "Manager", "joinedDaysAgo": 62},
         {"key": MARY, "name": "Mary Olsen", "email": "mary@devthrottle.com", "role": "Developer", "joinedDaysAgo": 48},
         {"key": MARK, "name": "Mark Berg", "email": "mark@devthrottle.com", "role": "Developer", "joinedDaysAgo": 41},
-        {"key": LISA, "name": "Lisa Jensen", "email": "lisa@devthrottle.com", "role": "Collaborator", "joinedDaysAgo": 30},
+        {"key": LISA, "name": "Lisa Jensen", "email": "lisa@devthrottle.com", "role": "Contributor", "joinedDaysAgo": 30},
     ],
     # Screen 1: the Owner's own Mentor page.
     "ownerPersonal": {

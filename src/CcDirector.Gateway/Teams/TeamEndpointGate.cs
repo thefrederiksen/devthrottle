@@ -317,7 +317,7 @@ public sealed class TeamEndpointGate
     /// <summary>What a role whose cell is "only their own" is told on an endpoint that answers for the whole team.</summary>
     internal static string OwnOnlyRefusal(TeamRole role, TeamAction action)
     {
-        var label = TeamRoles.Label(role);
+        var label = TeamRoles.InText(role);
         var row = TeamPermissions.Row(action);
         var article = TeamAccessDecision.Article(label);
         return $"In this team you are {article} {label}, and {article} {label} may {row.Words} only for their own. " +

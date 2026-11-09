@@ -25,7 +25,7 @@ describe("the Team page client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await getTeamPage("team 1");
-    await changeMemberRole("team 1", "m/1", "Collaborator");
+    await changeMemberRole("team 1", "m/1", "Contributor");
     await removeMember("team 1", "m/1");
 
     const calls = fetchMock.mock.calls as [string, RequestInit][];
@@ -34,7 +34,7 @@ describe("the Team page client", () => {
       "PUT /teams/team%201/members/m%2F1/role",
       "DELETE /teams/team%201/members/m%2F1",
     ]);
-    expect(JSON.parse(calls[1][1].body as string)).toEqual({ role: "Collaborator" });
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({ role: "Contributor" });
     expect(calls[2][1].body).toBeUndefined();
   });
 
@@ -73,6 +73,6 @@ describe("the Team page client", () => {
 
     const err = await getTeamPage("t").catch((e: unknown) => e);
 
-    expect(gatewayErrorMessage(err, "load the Team page")).toBe("Teams are not available on this DevThrottle Gateway yet.");
+    expect(gatewayErrorMessage(err, "load the Team page")).toBe("This DevThrottle Gateway does not offer teams yet.");
   });
 });

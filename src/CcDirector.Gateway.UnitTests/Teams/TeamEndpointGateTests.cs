@@ -314,7 +314,7 @@ public sealed class TeamEndpointGateTests : IDisposable
     {
         var verdict = ByRoute("GET", TeamFleetMap.RoutePattern, Collaborator, _team);
         Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
-        Assert.Equal("In this team you are a Collaborator, and a Collaborator may not see the team's Fleet Map.", verdict.Message);
+        Assert.Equal("In this team you are a contributor, and a contributor may not see the team's Fleet Map.", verdict.Message);
     }
 
     [Fact]

@@ -105,7 +105,7 @@ export interface TeamPage {
   teamId: string;
   teamName: string;
   yourRole: string;
-  /** "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting". */
+  /** "3 paid seats, 2 contributors (no charge), 1 invitation waiting". */
   summary: string;
   /** Whether the page offers "Invite someone". */
   canInvite: boolean;

@@ -254,7 +254,7 @@ public sealed partial class TeamRegistry
         var parts = new List<string>
         {
             paid == 1 ? "1 paid seat" : $"{paid} paid seats",
-            free == 1 ? "1 Collaborator (no charge)" : $"{free} Collaborators (no charge)",
+            free == 1 ? "1 contributor (no charge)" : $"{free} contributors (no charge)",
         };
         if (waiting is { } w)
             parts.Add(w == 1 ? "1 invitation waiting" : $"{w} invitations waiting");
@@ -265,7 +265,7 @@ public sealed partial class TeamRegistry
     private static string RemoveWarning(string name, TeamRole role) =>
         IsPaid(role)
             ? $"{name} will leave the team at once, and their paid seat comes off the team's bill. To bring them back, invite them again."
-            : $"{name} will leave the team at once. A Collaborator seat has no charge, so the bill does not change. To bring them back, invite them again.";
+            : $"{name} will leave the team at once. A contributor seat has no charge, so the bill does not change. To bring them back, invite them again.";
 
     private static TeamMemberChangeResult MemberChangeNotFound(string method)
     {

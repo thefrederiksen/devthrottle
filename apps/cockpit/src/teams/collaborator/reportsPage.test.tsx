@@ -11,7 +11,7 @@ import type { OwnReportDetail, ReceivedReportDetail, ReceivedReports } from "@de
 // team's routes - the controller is scripted here, so the test reads what the page gave the viewer and what it drew.
 
 vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({
-  useCurrentTeam: () => ({ current: { id: "team-dt", name: "DevThrottle", role: "Collaborator" } }),
+  useCurrentTeam: () => ({ current: { id: "team-dt", name: "DevThrottle", role: "Contributor" } }),
 }));
 
 const client = vi.hoisted(() => ({
@@ -108,9 +108,9 @@ const OWN_DETAIL: OwnReportDetail = {
     versionLabel: "Odd holds 2 of 3", read: true, readLabel: "Opened~odd" }],
   recipientsEmptyText: "Odd nobody yet 4",
   choices: [
-    { memberId: "m-nina", name: "nina@odd.example", role: "Collaborator", heldLabel: null },
+    { memberId: "m-nina", name: "nina@odd.example", role: "Contributor", heldLabel: null },
     { memberId: "m-bob", name: "bob@odd.example", role: "Developer", heldLabel: null },
-    { memberId: "m-mike", name: "mike@odd.example", role: "Collaborator", heldLabel: "Odd gets version 3" },
+    { memberId: "m-mike", name: "mike@odd.example", role: "Contributor", heldLabel: "Odd gets version 3" },
   ],
   sendNote: "Odd send note 3",
   comments: [{ id: "c9", from: "mike@odd.example", text: "A comment from Mike, for you", atUtc: "2026-10-02T11:00:00",

@@ -410,7 +410,7 @@ public sealed class CronEngine
 
     /// <summary>Why a due check cannot run on an account whose PLAN does not include factories (Factories need Pro).</summary>
     public const string FactoriesNeedAPlanCheckSentence =
-        "factories come with the Pro and Teams plans and this account's plan does not include them, so no Director is handed the check";
+        "factories come with the Pro plan and this account's plan does not include them, so no Director is handed the check";
 
     /// <summary>Why a due check cannot run, in the decision's own terms: the plan when the plan is why, otherwise the
     /// switch - the same split <see cref="FactoryOffReason"/> makes for a seat's schedule, so one account never reads
@@ -481,7 +481,7 @@ public sealed class CronEngine
     /// <summary>Why a factory seat's scheduled run was not started, in the decision's own terms.</summary>
     internal static string FactoryOffReason(Factory.FactoryAgentsAnswer answer)
         => answer.OffReason == Factory.FactoryAgentsOffReasons.PlanRequired
-            ? "factories come with the Pro and Teams plans and this account's plan does not include them, so the scheduled run was not started"
+            ? "factories come with the Pro plan and this account's plan does not include them, so the scheduled run was not started"
             : "factory agents are switched off for this account, so the scheduled run was not started";
 
     /// <summary>

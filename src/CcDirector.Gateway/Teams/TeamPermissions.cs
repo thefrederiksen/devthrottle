@@ -141,7 +141,7 @@ public static class TeamPermissions
         // Collaborator: the table says "(no sessions)" - a Collaborator runs no sessions, so the Mentor has no page about them.
         new TeamPermissionRow(TeamAction.ReadOwnMentorPage, "read the Mentor's page about themselves", Yes, Yes, Yes, No),
         new TeamPermissionRow(TeamAction.AnswerQuestionsSendRequestsReadReports, "answer questions, send requests and read reports sent to them", Yes, Yes, Yes, Yes),
-        new TeamPermissionRow(TeamAction.InviteOrRemoveDevelopersAndCollaborators, "invite or remove Developers and Collaborators", Yes, Yes, No, No),
+        new TeamPermissionRow(TeamAction.InviteOrRemoveDevelopersAndCollaborators, "invite or remove Developers and contributors", Yes, Yes, No, No),
         new TeamPermissionRow(TeamAction.ReadMentorPageAboutEachPerson, "read the Mentor's page about each person", Yes, Yes, No, No),
         // Developer: "no, to start".
         new TeamPermissionRow(TeamAction.ChangeSharedSkillsAndWorkflows, "change the team's shared skills and workflows", Yes, Yes, No, No),

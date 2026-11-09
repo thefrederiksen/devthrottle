@@ -151,7 +151,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         Assert.Equal(403, result.Status);
         Assert.Null(result.Response);
         Assert.StartsWith(HostedEnrollmentEndpoint.CannotRunSessionsInTeamLead, result.Error);
-        Assert.Contains("Collaborator may not run sessions on their own computers", result.Error);
+        Assert.Contains("contributor may not run sessions on their own computers", result.Error);
         Assert.Equal(before, _devices.Count);
     }
 
@@ -606,7 +606,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         collaborator.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token(Collaborator));
         var refused = await http.SendAsync(collaborator);
         Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
-        Assert.Contains("Collaborator may not run sessions", await refused.Content.ReadAsStringAsync());
+        Assert.Contains("contributor may not run sessions", await refused.Content.ReadAsStringAsync());
     }
 
     [Fact]

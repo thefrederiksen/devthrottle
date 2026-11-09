@@ -58,7 +58,7 @@ export function TeamAddressRedirect({ invite = false }: { invite?: boolean }) {
     <section className="pane" data-testid="team-address-not-yours">
       <h1 className="pane-title">This team is not one of yours</h1>
       <p className="pane-note">
-        The address names a team you are not a member of, or Teams is not available on this Gateway.
+        The address names a team you are not a member of, or this Gateway does not offer teams.
       </p>
     </section>
   );

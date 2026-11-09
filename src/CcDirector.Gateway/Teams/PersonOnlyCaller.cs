@@ -100,7 +100,7 @@ public static class TeamPersonOnlyRoutes
 
     /// <summary>What a computer is told on a person-only team route.</summary>
     public const string Refusal =
-        "Teams are used by people, from their own signed-in phone or browser. A Director, an agent's session or the " +
+        "A team is used by people, from their own signed-in phone or browser. A Director, an agent's session or the " +
         "machine key cannot send a team report, read what a member wrote, invite anyone or see the team, so this " +
         "request was refused. Nothing was done.";
 

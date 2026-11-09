@@ -67,7 +67,7 @@ export type MyTeamsAnswer =
 
 /** Why a dark Gateway offers no teams, in the words the store keeps. */
 export const TEAMS_NOT_RELEASED_REASON =
-  "This Gateway has not turned Teams on, so there are no teams to choose from.";
+  "This Gateway has not turned teams on, so there are no teams to choose from.";
 
 /** How long the list of teams may take before it is treated as failed, in milliseconds - the poll reads' limit. */
 export const TEAMS_READ_TIMEOUT_MS = POLL_TIMEOUT_MS;

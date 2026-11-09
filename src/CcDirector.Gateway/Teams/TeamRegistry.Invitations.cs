@@ -691,10 +691,10 @@ public sealed partial class TeamRegistry
 
     private static string RoleHint(TeamRole role, string payer) => role switch
     {
-        TeamRole.Manager => $"Invites and removes Developers and Collaborators. A paid seat on {payer}'s bill.",
+        TeamRole.Manager => $"Invites and removes Developers and contributors. A paid seat on {payer}'s bill.",
         TeamRole.Developer => $"Runs sessions on their own computer. A paid seat on {payer}'s bill.",
         TeamRole.Collaborator => "Answers questions, sends requests, reads reports. No charge.",
-        _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Only Manager, Developer and Collaborator can be invited."),
+        _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Only Manager, Developer and Contributor can be invited."),
     };
 
     private static TeamInvitation Describe(GatewayDbContext ctx, TeamEntity team, TeamInvitationEntity row, DateTime now)
