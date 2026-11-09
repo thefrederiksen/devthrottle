@@ -4,6 +4,8 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Util;
+using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Skills;
 
@@ -31,12 +33,21 @@ public sealed class SkillPlacementValidationException : Exception
 /// EVERY WRITE IS SCOPED BY THE PUSHER'S OWN TENANT, taken from the authenticated device key and never from
 /// the payload, so a body cannot claim to be another account's machine. The read is scoped the same way.
 ///
+/// WRITES ARE SERIALISED PER (TENANT, DIRECTOR), AND AWAITED. Two pushes from one Director must not both insert
+/// the same row, so they still take turns; pushes from different Directors never touched the same rows and no
+/// longer queue behind each other. The wait is awaited, not blocked on: until the deploy outage of 9 November 2026
+/// this was one process-wide lock around synchronous database work, and when every Director pushed at once on
+/// reconnect while single database commands took 24 to 30 seconds, the waiting pushes held every thread-pool worker.
+///
 /// THE VERDICT IS FOLDED HERE. <see cref="ReadAll"/> returns finished status strings and finished
 /// sentences, because deciding what a row MEANS is the Gateway's job and rendering it is the client's.
 /// </summary>
 public sealed class SkillPlacementStore
 {
-    private readonly object _gate = new();
+    private readonly KeyedAsyncGate _gate = new();
+
+    /// <summary>TEST seam: hold one (tenant, director) gate, to prove what waits on it and what does not.</summary>
+    internal IDisposable EnterGateForTest(TenantId tenant, string directorId) => _gate.Enter(GateKey(tenant, directorId));
     private readonly GatewayDatabase _db;
 
     /// <summary>The ceiling on one push. There are eight agent families; anything beyond this is a
@@ -62,8 +73,8 @@ public sealed class SkillPlacementStore
     /// batch would show one agent's new answer beside another's old one and call it a single moment.
     /// </summary>
     /// <exception cref="SkillPlacementValidationException">The push or a report in it is malformed.</exception>
-    public int StoreBatch(TenantId tenant, string directorId, string machineName,
-        IReadOnlyList<SkillPlacementReportDto> reports, DateTime receivedAtUtc)
+    public async Task<int> StoreBatchAsync(TenantId tenant, string directorId, string machineName,
+        IReadOnlyList<SkillPlacementReportDto> reports, DateTime receivedAtUtc, CancellationToken cancellationToken = default)
     {
         if (!tenant.IsValid)
             throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
@@ -98,15 +109,15 @@ public sealed class SkillPlacementStore
             throw new SkillPlacementValidationException(
                 $"The push names the same agent kind more than once ('{duplicate.Key}').");
 
-        lock (_gate)
+        using (await _gate.EnterAsync(GateKey(tenant, director), cancellationToken).ConfigureAwait(false))
         {
-            using var ctx = _db.CreateContext(tenant);
+            await using var ctx = _db.CreateContext(tenant);
 
             var kinds = rows.Select(r => r.AgentKind).ToList();
             // Reads THROUGH the global tenant query filter, so this only ever finds this tenant's own rows.
-            var existing = ctx.SkillPlacementState
+            var existing = await ctx.SkillPlacementState
                 .Where(e => e.DirectorId == director && kinds.Contains(e.AgentKind))
-                .ToDictionary(e => e.AgentKind, StringComparer.Ordinal);
+                .ToDictionaryAsync(e => e.AgentKind, StringComparer.Ordinal, cancellationToken).ConfigureAwait(false);
 
             foreach (var row in rows)
             {
@@ -126,7 +137,7 @@ public sealed class SkillPlacementStore
                 }
             }
 
-            ctx.SaveChanges();
+            await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
         FileLog.Write($"[SkillPlacementStore] StoreBatch: tenant={tenant.ToLogString()} director={director} " +
@@ -146,12 +157,10 @@ public sealed class SkillPlacementStore
         if (!tenant.IsValid)
             throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
 
+        // One query, so it reads a consistent set; a write in flight is either in it or not, as before.
         List<SkillPlacementStateEntity> stored;
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext(tenant);
+        using (var ctx = _db.CreateContext(tenant))
             stored = ctx.SkillPlacementState.ToList();
-        }
 
         var rows = stored.Where(e => keepDirector is null || keepDirector(e.DirectorId)).Select(ToRow).ToList();
         var ordered = rows
@@ -235,6 +244,9 @@ public sealed class SkillPlacementStore
         row.Message = $"Only {e.Reachable} of {e.Held} skill(s) reached {e.AgentKind} on {e.MachineName} - {detail}.";
         return row;
     }
+
+    /// <summary>The gate key: one per (tenant, director), the rows one push can touch.</summary>
+    private static string GateKey(TenantId tenant, string director) => tenant.Value + "|" + director;
 
     private static string Where(SkillPlacementStateEntity e) => $"{e.AgentKind} on {e.MachineName}";
 

@@ -35,7 +35,7 @@ public static class ActivityEventEndpoints
     {
         ArgumentNullException.ThrowIfNull(store);
 
-        app.MapPost("/activity-events/batch", (HttpContext ctx, ActivityEventIngestRequest? request) =>
+        app.MapPost("/activity-events/batch", async (HttpContext ctx, ActivityEventIngestRequest? request) =>
         {
             var tenant = ResolveTenant(ctx, tenantBoundary);
             if (tenant is null)
@@ -54,7 +54,8 @@ public static class ActivityEventEndpoints
             {
                 using (EnterScope(tenant.Value, tenantBoundary))
                 {
-                    var (written, duplicates) = store.AppendBatch(request.Events);
+                    // Every Director pushes on reconnect: awaited, never blocked on (deploy outage, 9 Nov 2026).
+                    var (written, duplicates) = await store.AppendBatchAsync(request.Events, ctx.RequestAborted);
                     FileLog.Write($"[ActivityEventEndpoints] POST /activity-events/batch: tenant={tenant.Value.ToLogString()}, " +
                                   $"received {request.Events.Count}, wrote {written}, duplicates {duplicates}");
                     return Results.Ok(new ActivityEventIngestResponse { Written = written, Duplicates = duplicates });

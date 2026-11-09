@@ -151,11 +151,11 @@ public sealed class BackupMachinesDefinitionTests : IDisposable
     }
 
     [Fact]
-    public void Publish_ARepublishRemovingTheHoldersMachine_ReleasesTheClaim()
+    public async Task Publish_ARepublishRemovingTheHoldersMachine_ReleasesTheClaim()
     {
         var s = new FactoryPublishScenario(_h.Open(), TenantId.Local);
         s.SaveAndPublish(WithBackups("backupMachines: [machine-b, machine-c]"));
-        var id = Claim(s, "dir-b", "machine-b");
+        var id = await ClaimAsync(s, "dir-b", "machine-b");
 
         var result = s.SaveAndPublish(WithBackups("backupMachines: [machine-c]"));
 
@@ -166,11 +166,11 @@ public sealed class BackupMachinesDefinitionTests : IDisposable
     }
 
     [Fact]
-    public void Publish_ARepublishKeepingTheHoldersMachine_KeepsTheClaim()
+    public async Task Publish_ARepublishKeepingTheHoldersMachine_KeepsTheClaim()
     {
         var s = new FactoryPublishScenario(_h.Open(), TenantId.Local);
         s.SaveAndPublish(WithBackups("backupMachines: [machine-b, machine-c]"));
-        Claim(s, "dir-c", "machine-c");
+        await ClaimAsync(s, "dir-c", "machine-c");
 
         s.SaveAndPublish(WithBackups("backupMachines: [machine-c]"));
 
@@ -180,11 +180,11 @@ public sealed class BackupMachinesDefinitionTests : IDisposable
     }
 
     [Fact]
-    public void Publish_ARepublishDroppingEveryBackup_ReleasesABackupsClaim_ButNotTheSeatMachines()
+    public async Task Publish_ARepublishDroppingEveryBackup_ReleasesABackupsClaim_ButNotTheSeatMachines()
     {
         var s = new FactoryPublishScenario(_h.Open(), TenantId.Local);
         s.SaveAndPublish(WithBackups("backupMachines: [machine-b]"));
-        Claim(s, "dir-south", "SOREN_SOUTH");
+        await ClaimAsync(s, "dir-south", "SOREN_SOUTH");
 
         s.SaveAndPublish(DefinitionFixture.Valid());
 
@@ -195,11 +195,11 @@ public sealed class BackupMachinesDefinitionTests : IDisposable
 
     /// <summary>A Director on <paramref name="machine"/> claims the factory's one trigger, as its assignment poll does,
     /// after any claim before it has lapsed.</summary>
-    private static Guid Claim(FactoryPublishScenario s, string director, string machine)
+    private static async Task<Guid> ClaimAsync(FactoryPublishScenario s, string director, string machine)
     {
         var store = new TriggerStore(s.Db);
-        var claimed = Assert.Single(store.ClaimForDirector(s.Tenant, director, machine, FactoryPublishScenario.Now.AddDays(1),
-            runsDefinitionChecks: true));
+        var claimed = Assert.Single((await store.ClaimForDirectorAsync(s.Tenant, director, machine, FactoryPublishScenario.Now.AddDays(1),
+            runsDefinitionChecks: true)));
         return claimed.Id;
     }
 

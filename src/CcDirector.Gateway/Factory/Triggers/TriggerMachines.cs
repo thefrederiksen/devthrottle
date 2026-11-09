@@ -6,7 +6,7 @@ namespace CcDirector.Gateway.Factory.Triggers;
 /// <summary>
 /// THE MACHINES A TRIGGER'S CHECK RUNS ON, in order (Mail Desk, phase 5): its own machine first, then its backup
 /// machines in the order the start names them. Position 0 is the trigger's own machine; a Director on an earlier
-/// position takes the claim from one on a later position (<see cref="TriggerStore.ClaimForDirector"/>). Machine names
+/// position takes the claim from one on a later position (<see cref="TriggerStore.ClaimForDirectorAsync"/>). Machine names
 /// are compared ignoring case, as everywhere a trigger's machine is.
 ///
 /// The words for the list are composed here, once, so every surface that shows where a trigger runs - the trigger

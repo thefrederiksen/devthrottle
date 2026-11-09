@@ -675,7 +675,7 @@ public sealed class TriggerServiceTests : IDisposable
     {
         var service = Service();
         var t = Add(service);
-        Assert.Single(service.AssignmentsFor(Tenant, Director, "soren_north"));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, Director, "soren_north")));
 
         var result = await service.ReportCheckAsync(Tenant, OtherDirector, t.Id, Counted(2), CancellationToken.None);
 
@@ -685,19 +685,19 @@ public sealed class TriggerServiceTests : IDisposable
     }
 
     [Fact]
-    public void Assignments_GoToOneDirectorPerMachine_UntilItsClaimLapses()
+    public async Task Assignments_GoToOneDirectorPerMachine_UntilItsClaimLapses()
     {
         var service = Service();
         Add(service);
 
-        Assert.Single(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH"));
-        Assert.Empty(service.AssignmentsFor(Tenant, OtherDirector, "SOREN_NORTH"));
-        Assert.Empty(service.AssignmentsFor(Tenant, "dir-elsewhere", "OTHER_MACHINE"));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, Director, "SOREN_NORTH")));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, OtherDirector, "SOREN_NORTH")));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, "dir-elsewhere", "OTHER_MACHINE")));
 
         // The holder stops asking. Two intervals and a minute later the other Director on the machine takes it.
         _now = _now.Add(TriggerStore.ClaimLapse(300)).AddSeconds(1);
-        Assert.Single(service.AssignmentsFor(Tenant, OtherDirector, "SOREN_NORTH"));
-        Assert.Empty(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH"));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, OtherDirector, "SOREN_NORTH")));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, Director, "SOREN_NORTH")));
     }
 
     [Fact]

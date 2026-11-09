@@ -3,6 +3,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Util;
 using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Factory.Triggers;
@@ -16,7 +17,12 @@ public sealed record TriggerCheckRecorded(TriggerRunEntity Run, TriggerEntity Tr
 /// account and opens a context scoped to it.
 ///
 /// Rows handed out belong to a context that is already disposed, so changing one changes nothing stored. Writes
-/// are serialised by one lock, the Gateway being a single writer.
+/// are serialised PER ACCOUNT by a gate that can be awaited (<see cref="KeyedAsyncGate"/>): every query is scoped to
+/// one account, so two accounts never touched the same rows, and an account's writes stay in the order they always
+/// had. Until the deploy outage of 9 November 2026 this was one lock for every account, waited for by blocking: when
+/// every Director reconnected and single database commands took 24 to 30 seconds, the waiting requests held every
+/// thread-pool worker and the Gateway stopped answering for 70 seconds. The claim every Director makes on reconnect
+/// (<see cref="ClaimForDirectorAsync"/>) now waits by awaiting and does its database work asynchronously.
 ///
 /// THE HISTORY IS KEPT: every check adds a row, and only rows older than the newest <see cref="RunsKept"/> of a
 /// trigger are ever dropped. Deleting a trigger keeps its history.
@@ -30,7 +36,10 @@ public sealed class TriggerStore
     // oldest rows go, which keeps "never below 500" true while not deleting one row per check.
     private const int PruneSlack = 50;
 
-    private readonly object _gate = new();
+    private readonly KeyedAsyncGate _gate = new();
+
+    /// <summary>TEST seam: hold one account's gate, to prove what waits on it and what does not.</summary>
+    internal IDisposable EnterGateForTest(TenantId tenant) => _gate.Enter(GateKey(tenant));
     private readonly GatewayDatabase _db;
 
     public TriggerStore(GatewayDatabase db)
@@ -66,7 +75,7 @@ public sealed class TriggerStore
     {
         ArgumentNullException.ThrowIfNull(req);
         FileLog.Write($"[TriggerStore] Create: tenant={tenant.ToLogString()}, name={req.Name}, machine={req.Machine}");
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var name = req.Name!.Trim();
@@ -101,7 +110,7 @@ public sealed class TriggerStore
     {
         ArgumentNullException.ThrowIfNull(req);
         FileLog.Write($"[TriggerStore] Update: tenant={tenant.ToLogString()}, trigger={idOrName}");
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = FindIn(ctx.Triggers, idOrName);
@@ -139,7 +148,7 @@ public sealed class TriggerStore
     public TriggerEntity? SetPaused(TenantId tenant, string idOrName, bool paused)
     {
         FileLog.Write($"[TriggerStore] SetPaused: tenant={tenant.ToLogString()}, trigger={idOrName}, paused={paused}");
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = FindIn(ctx.Triggers, idOrName);
@@ -160,7 +169,7 @@ public sealed class TriggerStore
     public (TriggerEntity? Trigger, string? ReleasedSessionId) Resume(TenantId tenant, string idOrName)
     {
         FileLog.Write($"[TriggerStore] Resume: tenant={tenant.ToLogString()}, trigger={idOrName}");
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = FindIn(ctx.Triggers, idOrName);
@@ -185,7 +194,7 @@ public sealed class TriggerStore
     public bool Delete(TenantId tenant, string idOrName)
     {
         FileLog.Write($"[TriggerStore] Delete: tenant={tenant.ToLogString()}, trigger={idOrName}");
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = FindIn(ctx.Triggers, idOrName);
@@ -238,7 +247,7 @@ public sealed class TriggerStore
     {
         if (string.IsNullOrWhiteSpace(resolvedBy)) throw new ArgumentException("who resolved it is required", nameof(resolvedBy));
         if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("a reason is required", nameof(reason));
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.TriggerRuns.FirstOrDefault(r => r.Id == runId);
@@ -304,16 +313,17 @@ public sealed class TriggerStore
     /// A trigger from a factory's definition is claimed only when <paramref name="runsDefinitionChecks"/>: a Director
     /// that never said it runs them neither takes one nor holds one from a Director that does (phase 5b, design 2.6).
     /// </summary>
-    public IReadOnlyList<TriggerEntity> ClaimForDirector(TenantId tenant, string directorId, string machine, DateTime nowUtc,
-        bool runsDefinitionChecks)
+    public async Task<IReadOnlyList<TriggerEntity>> ClaimForDirectorAsync(TenantId tenant, string directorId, string machine,
+        DateTime nowUtc, bool runsDefinitionChecks, CancellationToken cancellationToken = default)
     {
-        lock (_gate)
+        // Awaited, not blocked on: a reconnect burst queues here without holding a thread each (deploy outage, 9 Nov 2026).
+        using (await _gate.EnterAsync(GateKey(tenant), cancellationToken).ConfigureAwait(false))
         {
-            using var ctx = _db.CreateContext(tenant);
+            await using var ctx = _db.CreateContext(tenant);
             var now = Utc(nowUtc);
             var mine = new List<TriggerEntity>();
             var takenBack = 0;
-            foreach (var row in ctx.Triggers.ToList())
+            foreach (var row in await ctx.Triggers.ToListAsync(cancellationToken).ConfigureAwait(false))
             {
                 var position = TriggerMachines.PositionOf(row, machine);
                 if (position < 0) continue;
@@ -329,7 +339,7 @@ public sealed class TriggerStore
                 row.ClaimedUtc = now;
                 mine.Add(row);
             }
-            ctx.SaveChanges();
+            await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             FileLog.Write($"[TriggerStore] ClaimForDirector: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}, definitionChecks={runsDefinitionChecks}, triggers={mine.Count}, takenFromLaterMachines={takenBack}");
             return mine;
         }
@@ -374,7 +384,7 @@ public sealed class TriggerStore
         string? machine = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(startName);
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var trigger = ctx.Triggers.FirstOrDefault(t => t.Id == triggerId);
@@ -443,7 +453,7 @@ public sealed class TriggerStore
         if (Array.IndexOf(TriggerRunOutcome.All, outcome) < 0)
             throw new ArgumentException($"'{outcome}' is not a trigger run outcome", nameof(outcome));
 
-        lock (_gate)
+        using (_gate.Enter(GateKey(tenant)))
         {
             using var ctx = _db.CreateContext(tenant);
             var trigger = ctx.Triggers.FirstOrDefault(t => t.Id == triggerId);
@@ -535,6 +545,9 @@ public sealed class TriggerStore
     private static bool NameTaken(GatewayDbContext ctx, string name, Guid? exceptId)
         => ctx.Triggers.AsNoTracking().ToList()
             .Any(t => t.Id != exceptId && string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The gate key: one per account, because every query here is scoped to one account.</summary>
+    private static string GateKey(TenantId tenant) => tenant.Value;
 
     private static string Cap(string value, int max) => value.Length <= max ? value : value[..max];
 

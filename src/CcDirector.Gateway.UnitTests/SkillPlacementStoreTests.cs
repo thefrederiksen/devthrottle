@@ -53,13 +53,13 @@ public sealed class SkillPlacementStoreTests : IDisposable
         new() { SkillId = id, Target = target, Fault = "Shadowed" };
 
     [Fact]
-    public void A_machine_where_nothing_landed_is_reported_as_broken_with_a_usable_sentence()
+    public async Task A_machine_where_nothing_landed_is_reported_as_broken_with_a_usable_sentence()
     {
         // THE FAILURE THIS FEED EXISTS FOR, measured on a real machine: a retired installer's leftovers
         // occupied every built-in name, so NOTHING was placed for Claude Code and the agent went on reading
         // a two-month-old copy. The Gateway served everything correctly and had no idea.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[]
         {
             Report(held: 3, reachable: 0, problems: new[]
             {
@@ -82,13 +82,13 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_skill_kept_by_another_Directors_library_says_so_and_not_could_not_be_linked()
+    public async Task A_skill_kept_by_another_Directors_library_says_so_and_not_could_not_be_linked()
     {
         // Two Directors on one computer share its skill folders (devthrottle_internal#2311). When a team
         // Director yields a name to the person's own library, the sentence must say THAT - "could not be
         // linked" would send somebody hunting for a broken link that does not exist.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[]
         {
             Report(held: 2, reachable: 1, problems: new[]
             {
@@ -108,12 +108,12 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked()
+    public async Task A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked()
     {
         // The skills folder is a junction whose target is gone (devthrottle_internal#2311, review finding SK-F9):
         // the Director changed nothing, and the sentence must name the link, not a skill link that failed.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[]
         {
             Report(held: 1, reachable: 0, problems: new[]
             {
@@ -132,12 +132,12 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_staging_folder_inside_a_skills_folder_says_so_and_not_could_not_be_linked()
+    public async Task A_staging_folder_inside_a_skills_folder_says_so_and_not_could_not_be_linked()
     {
         // The folder where copies are built would be inside a folder agents read (review finding SK-F11): the
         // Director changed nothing, and the sentence must say where and why.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[]
         {
             Report(held: 1, reachable: 0, problems: new[]
             {
@@ -159,13 +159,13 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_skills_folder_linked_to_nowhere_from_a_current_Director_names_the_skills_folder_as_unresolved()
+    public async Task A_skills_folder_linked_to_nowhere_from_a_current_Director_names_the_skills_folder_as_unresolved()
     {
         // Since review round 6 (SK-F20) a current Director reports a skills folder that is a link to nothing as
         // StagingFolderUnsafe, with the skills folder itself as the target (review finding SK-F22). The sentence
         // must not call that path the folder where copies are built.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[]
         {
             Report(held: 1, reachable: 0, problems: new[]
             {
@@ -187,10 +187,10 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_healthy_machine_is_ok_and_does_not_raise_the_badge()
+    public async Task A_healthy_machine_is_ok_and_does_not_raise_the_badge()
     {
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[] { Report() }, T0);
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[] { Report() }, T0);
 
         var view = store.ReadAll(Alice);
 
@@ -199,13 +199,13 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_Director_that_never_reached_the_Gateway_is_stale_not_broken()
+    public async Task A_Director_that_never_reached_the_Gateway_is_stale_not_broken()
     {
         // These want completely different responses: "your machine cannot read the skills" is a problem to
         // fix, "this Director has not connected yet" is a problem that fixes itself. Collapsing them into
         // one red state would train people to ignore red.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH",
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH",
             new[] { Report(held: 0, reachable: 0, storeMissing: true) }, T0);
 
         var view = store.ReadAll(Alice);
@@ -215,16 +215,16 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_fixed_machine_stops_being_reported_as_broken()
+    public async Task A_fixed_machine_stops_being_reported_as_broken()
     {
         // OVERWRITE, NOT APPEND. A feed that keeps showing a problem after it is fixed gets ignored, and
         // then the next real problem is ignored with it.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH",
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH",
             new[] { Report(held: 3, reachable: 0, problems: new[] { Shadowed("move-session") }) }, T0);
         Assert.True(store.ReadAll(Alice).AnyBroken);
 
-        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[] { Report(held: 3, reachable: 3) },
+        await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[] { Report(held: 3, reachable: 3) },
             T0.AddMinutes(1));
 
         var view = store.ReadAll(Alice);
@@ -233,12 +233,12 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void Broken_rows_sort_above_healthy_ones()
+    public async Task Broken_rows_sort_above_healthy_ones()
     {
         // Part of the ruling, not decoration: the one row that needs attention must not be the twentieth
         // thing on the page.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "MACHINE-A", new[]
+        await store.StoreBatchAsync(Alice, "director-1", "MACHINE-A", new[]
         {
             Report("Codex", held: 3, reachable: 3),
             Report("ClaudeCode", held: 3, reachable: 0, problems: new[] { Shadowed("move-session") }),
@@ -251,14 +251,14 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void One_account_cannot_read_or_overwrite_another_accounts_machine()
+    public async Task One_account_cannot_read_or_overwrite_another_accounts_machine()
     {
         // Both non-tenant key parts are CALLER-supplied, so two accounts can genuinely run identically
         // named Directors. Without the tenant in the key one would overwrite the other.
         var store = NewStore();
-        store.StoreBatch(Alice, "director-1", "SHARED-NAME",
+        await store.StoreBatchAsync(Alice, "director-1", "SHARED-NAME",
             new[] { Report(held: 3, reachable: 0, problems: new[] { Shadowed("move-session") }) }, T0);
-        store.StoreBatch(Bob, "director-1", "SHARED-NAME", new[] { Report(held: 3, reachable: 3) }, T0);
+        await store.StoreBatchAsync(Bob, "director-1", "SHARED-NAME", new[] { Report(held: 3, reachable: 3) }, T0);
 
         Assert.True(store.ReadAll(Alice).AnyBroken);
         Assert.False(store.ReadAll(Bob).AnyBroken);
@@ -267,13 +267,13 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_malformed_report_rejects_the_WHOLE_push()
+    public async Task A_malformed_report_rejects_the_WHOLE_push()
     {
         // A half-landed batch would show one agent's new answer beside another's old one and call it a
         // single moment in time.
         var store = NewStore();
-        var ex = Assert.Throws<SkillPlacementValidationException>(() =>
-            store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        var ex = await Assert.ThrowsAsync<SkillPlacementValidationException>(async () =>
+            await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH", new[]
             {
                 Report("Codex"),
                 Report("ClaudeCode", held: 1, reachable: 5),
@@ -284,20 +284,20 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
-    public void The_same_agent_named_twice_in_one_push_is_a_producer_bug_and_is_refused()
+    public async Task The_same_agent_named_twice_in_one_push_is_a_producer_bug_and_is_refused()
     {
         // Two rows with the same key would make the stored answer depend on iteration order.
         var store = NewStore();
-        Assert.Throws<SkillPlacementValidationException>(() =>
-            store.StoreBatch(Alice, "director-1", "SOREN_NORTH",
+        await Assert.ThrowsAsync<SkillPlacementValidationException>(async () =>
+            await store.StoreBatchAsync(Alice, "director-1", "SOREN_NORTH",
                 new[] { Report("ClaudeCode"), Report("ClaudeCode") }, T0));
     }
 
     [Fact]
-    public void A_push_without_a_director_is_refused()
+    public async Task A_push_without_a_director_is_refused()
     {
         var store = NewStore();
-        Assert.Throws<SkillPlacementValidationException>(() =>
-            store.StoreBatch(Alice, "  ", "SOREN_NORTH", new[] { Report() }, T0));
+        await Assert.ThrowsAsync<SkillPlacementValidationException>(async () =>
+            await store.StoreBatchAsync(Alice, "  ", "SOREN_NORTH", new[] { Report() }, T0));
     }
 }

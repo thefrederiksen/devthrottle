@@ -56,7 +56,7 @@ public sealed class AddTriggerBackupMachinesPostgresTests
         """)!;
 
     [RequiresPostgresFact]
-    public void AddTriggerBackupMachines_AppliesOnPostgres_TheStoreHandsACheckToABackupAndBack_AndItsDownRemovesIt()
+    public async Task AddTriggerBackupMachines_AppliesOnPostgres_TheStoreHandsACheckToABackupAndBack_AndItsDownRemovesIt()
     {
         PostgresProofDatabase.GuardThrowawayDatabase();
         using (var ctx = NewContext())
@@ -106,15 +106,15 @@ public sealed class AddTriggerBackupMachinesPostgresTests
             var store = new TriggerStore(db);
             var afterLapse = new DateTime(2026, 10, 18, 9, 5, 0, DateTimeKind.Utc).Add(TriggerStore.ClaimLapse(600)).AddSeconds(1);
 
-            var taken = store.ClaimForDirector(TenantId.Local, "dir-b", "machine-b", afterLapse, runsDefinitionChecks: true);
+            var taken = (await store.ClaimForDirectorAsync(TenantId.Local, "dir-b", "machine-b", afterLapse, runsDefinitionChecks: true));
             Assert.Equal(new[] { "free", "held" }, taken.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal));
             Assert.Equal("dir-b|machine-b", Scalar($"""SELECT "ClaimedByDirectorId" || '|' || "ClaimedByMachine" FROM gateway.triggers WHERE "Id" = '{Held}'"""));
 
-            var back = store.ClaimForDirector(TenantId.Local, "dir-a", "machine-a", afterLapse.AddSeconds(30), runsDefinitionChecks: true);
+            var back = (await store.ClaimForDirectorAsync(TenantId.Local, "dir-a", "machine-a", afterLapse.AddSeconds(30), runsDefinitionChecks: true));
             Assert.Equal("held", Assert.Single(back).Name);
             Assert.Equal("dir-a|machine-a", Scalar($"""SELECT "ClaimedByDirectorId" || '|' || "ClaimedByMachine" FROM gateway.triggers WHERE "Id" = '{Held}'"""));
-            Assert.Equal("free", Assert.Single(store.ClaimForDirector(TenantId.Local, "dir-b", "machine-b", afterLapse.AddSeconds(60),
-                runsDefinitionChecks: true)).Name);
+            Assert.Equal("free", Assert.Single((await store.ClaimForDirectorAsync(TenantId.Local, "dir-b", "machine-b", afterLapse.AddSeconds(60),
+                runsDefinitionChecks: true))).Name);
         }
         finally
         {

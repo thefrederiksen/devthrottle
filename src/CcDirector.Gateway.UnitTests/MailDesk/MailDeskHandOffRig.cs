@@ -241,8 +241,8 @@ internal sealed class MailDeskHandOffRig : IAsyncDisposable
     }
 
     /// <summary>The memory a Director on <paramref name="director"/>'s machine is handed with the Mail Desk start.</summary>
-    public string? Handed(string director = DirectorA)
-        => Triggers.AssignmentsFor(Account, director, Directors[director]).SingleOrDefault(a => a.Id == TriggerId.ToString("D"))?.State;
+    public async Task<string?> HandedAsync(string director = DirectorA)
+        => (await Triggers.AssignmentsForAsync(Account, director, Directors[director])).SingleOrDefault(a => a.Id == TriggerId.ToString("D"))?.State;
 
     // ---------- the routes ----------
 

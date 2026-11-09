@@ -244,18 +244,21 @@ public sealed class TriggerService
     /// <summary>
     /// The checks this Director must run: the triggers whose machines include its machine that it holds, or takes over
     /// (a backup machine takes a lapsed claim; a trigger's own machine takes its check back - see
-    /// <see cref="TriggerStore.ClaimForDirector"/>). A COMMAND trigger is
+    /// <see cref="TriggerStore.ClaimForDirectorAsync"/>). A COMMAND trigger is
     /// handed exactly as it always was. A DEFINITION trigger (Factory Definition, phase 5b, design 2.1) is handed with
     /// its kind, factory, version, check path and declared secrets, and the newest state its check left - and with no
     /// command and no folder, because its check is downloaded from the published version and never runs in a checkout.
     /// A definition trigger is handed ONLY to a Director that said on Hello that it runs them (design 2.6): an older
     /// Director is handed none and claims none, so it never runs one and never writes a run row for one.
     /// </summary>
-    public IReadOnlyList<TriggerAssignmentDto> AssignmentsFor(TenantId tenant, string directorId, string machine)
+    public async Task<IReadOnlyList<TriggerAssignmentDto>> AssignmentsForAsync(TenantId tenant, string directorId, string machine,
+        CancellationToken cancellationToken = default)
     {
         FileLog.Write($"[TriggerService] AssignmentsFor: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}");
         var runsDefinitionChecks = _directorRunsDefinitionChecks(tenant, directorId);
-        return _store.ClaimForDirector(tenant, directorId, machine, _nowUtc(), runsDefinitionChecks)
+        var claimed = await _store.ClaimForDirectorAsync(tenant, directorId, machine, _nowUtc(), runsDefinitionChecks, cancellationToken)
+            .ConfigureAwait(false);
+        return claimed
             .Select(t => t.IsDefinitionCheck ? DefinitionAssignment(tenant, t, machine) : new TriggerAssignmentDto
             {
                 Id = t.Id.ToString("D"),
