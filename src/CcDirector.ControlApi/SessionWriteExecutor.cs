@@ -92,9 +92,16 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
     ///   compact-context    types /compact
     ///   history-picker     types the history key
     ///   execute-action     the Wingman's type / send_keys / submit
-    ///   queue-*            NOT typing, and here for the other reason: the queue behind them is a plain
-    ///                      List that no lock protects, so two at once can tear it (#4815). The delivery
-    ///                      loop serialised them before this change and keeps doing so until it is locked.
+    ///   queue-send         TYPING, and the review of #4815 caught this list calling it something else: it
+    ///                      calls Session.SendTextAsync, which types the queued prompt into the terminal.
+    ///                      Session.BeginInputAsync waits only for a guarded SECTION, so two plain sends
+    ///                      are not serialised against each other - queued text would interleave with a
+    ///                      prompt. It is ordered for the keystroke reason, like every line above it.
+    ///   the other queue-*  not typing, and ordered because a person's reordering is a SEQUENCE: move-down
+    ///                      A then move-up C on [A,B,C] gives [B,C,A] and the other way round gives
+    ///                      [C,A,B]; add-then-clear and clear-then-add leave different queues. The queue
+    ///                      itself is thread-safe since #4815, so tearing is no longer the reason - that
+    ///                      is written where they are declared, in QueueGitExecutor.
     ///
     /// Everything else this area owns - create, kill, patch, resize, relink, the mode switches - is not
     /// ordered and does not hold the delivery loop.

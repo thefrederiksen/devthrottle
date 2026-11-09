@@ -41,10 +41,21 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
     /// the queue itself was safe. The queue now takes a lock on every read and every write and hands out a
     /// snapshot (#4815), so tearing is no longer the reason and the loop is no longer standing in for a lock.
     ///
-    /// They stay ordered on their own merits. Two move-ups are the person asking for two steps; applied at
-    /// once against the same index they are one. A read that overtakes the write before it shows the person
-    /// the queue they just changed, unchanged. The lock makes each verb safe; it cannot make a pair of them
+    /// They stay ordered on their own merits, and the merits are not the ones the first version of this
+    /// comment gave. It claimed two move-ups applied at once collapse into one step; they do not - each
+    /// finds its item by ID under the lock, so two of them are two steps. The review of #4815 caught that.
+    ///
+    /// WHAT IS ACTUALLY TRUE OF THEM. A person's reordering is a SEQUENCE: move-down A then move-up C on
+    /// [A,B,C] gives [B,C,A], and the same two the other way round give [C,A,B]. Add-then-clear and
+    /// clear-then-add leave different queues. A read that overtakes the write before it shows the person
+    /// the queue they just changed, unchanged. The lock makes each verb safe; it cannot make a PAIR of them
     /// mean what the person meant, and only arrival order can.
+    ///
+    /// AND queue-send IS A TYPING VERB, which is the one in this list that must not be read as a list edit.
+    /// It calls <c>Session.SendTextAsync</c>, which types the queued prompt into the terminal, and
+    /// <c>Session.BeginInputAsync</c> waits only for a guarded SECTION - so two plain sends are not
+    /// serialised against each other, and queued text would interleave with a prompt. It is ordered for
+    /// exactly the reason the keystroke verbs are, and moving it off would corrupt somebody's terminal.
     /// </summary>
     public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
     {
