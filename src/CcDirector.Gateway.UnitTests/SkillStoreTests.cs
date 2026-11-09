@@ -585,12 +585,12 @@ public sealed class SkillStoreTests : IDisposable
         Assert.False(store.GetPublished("dev-reports")!.Enabled);
     }
 
-    /// <summary>A tenant row under a shipped id, as promotion finds it: published from a session, with the
-    /// owner's on/off on its head. <paramref name="matchShipped"/> gives it exactly the shipped content
-    /// (so the seeder has nothing to republish) or some other content.</summary>
     /// <summary>When a tenant row was stored: data, so a fixed value rather than the clock.</summary>
     private static readonly DateTime TenantRowStoredUtc = new(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>A tenant row under a shipped id, as promotion finds it: published from a session, with the
+    /// owner's on/off on its head. <paramref name="matchShipped"/> gives it exactly the shipped content
+    /// (so the seeder has nothing to republish) or some other content.</summary>
     private void AddTenantRowForShippedId(string id, bool enabled, bool matchShipped)
     {
         var definition = BuiltInSkills.All().Single(d => d.Id == id);
