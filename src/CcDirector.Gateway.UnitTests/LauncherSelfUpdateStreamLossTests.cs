@@ -63,6 +63,7 @@ public sealed class LauncherSelfUpdateStreamLossTests : IAsyncLifetime
         builder.Services.AddSignalR();
         builder.Services.AddSingleton(_connections);
         builder.Services.AddSingleton(new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false));
+        builder.Services.AddSingleton(CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly);
         _app = builder.Build();
         _app.MapHub<LauncherHub>("/launcher-stream");
         await _app.StartAsync();
