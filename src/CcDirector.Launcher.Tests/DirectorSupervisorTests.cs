@@ -85,9 +85,26 @@ public sealed class DirectorSupervisorTests
         }
         else
         {
-            // macOS: the bundle lives under the user's home (~/Applications), not local application data.
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            Assert.StartsWith(home, supervisor.DirectorExePath, StringComparison.Ordinal);
+            // macOS: the bundle lives in the Applications folder a Mac user opens, and WHICH one that is
+            // belongs to the layout - /Applications when this user can write it, ~/Applications when not
+            // (MacAppsFolder.Choose). This test asserted the user's home outright, which was the older
+            // install's place: on a Mac that can write /Applications the product answers
+            // /Applications/Director.app and the assertion failed on correct code (issue #4735). So the
+            // question asked here is the one that has a stable answer - the default constructor resolves
+            // the same path the default layout does - rather than a guess at which folder won.
+            // Said as a FACT ABOUT THE PLATFORM, not as the formula restated. Comparing the supervisor's
+            // answer with InstallLayout.Default().PathFor(...) passes whatever that formula returns, so it
+            // would still pass if the bundle moved somewhere no Mac user can open - which is the defect this
+            // test exists to catch. The two things that must hold on macOS: it is inside one of the two
+            // Applications folders a Mac user opens, and it names the binary inside the bundle.
+            var layout = InstallLayout.Default();
+            Assert.True(
+                supervisor.DirectorExePath.StartsWith(layout.MacAppsDir, StringComparison.Ordinal)
+                || supervisor.DirectorExePath.StartsWith(layout.MacUserAppsDir, StringComparison.Ordinal),
+                $"the Director path is in neither Applications folder: {supervisor.DirectorExePath}");
+            // The bundle itself, which is what the layout names on macOS - the Director is launched through
+            // the .app, not by reaching inside it.
+            Assert.EndsWith("Director.app", supervisor.DirectorExePath, StringComparison.Ordinal);
         }
     }
 

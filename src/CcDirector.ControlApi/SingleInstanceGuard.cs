@@ -76,9 +76,26 @@ public sealed class SingleInstanceGuard : IDisposable
     /// <paramref name="fullPath"/> with every symbolic link in it resolved, one segment at a time, so a link
     /// anywhere in the path - not only the last part - leads to the same lock as the real folder (on macOS
     /// <c>/tmp</c> is a link to <c>/private/tmp</c>). Segments that do not exist yet are kept as written.
+    ///
+    /// A LINK'S TARGET IS ITSELF A PATH THAT MAY RUN THROUGH LINKS, and until 8 November 2026 this stopped at
+    /// the first answer it got. On macOS that was enough to split one folder into two locks: a temporary
+    /// folder is <c>/var/folders/...</c> and <c>/var</c> is a link to <c>/private/var</c>, so walking there
+    /// gives <c>/private/var/folders/...</c> while a link WRITTEN as <c>/var/folders/...</c> resolved to
+    /// exactly that text - <see cref="Path.GetFullPath"/> tidies a path, it does not follow links. Two
+    /// Directors given the two spellings of one data folder each took the lock and both ran on it, which is
+    /// the failure this guard exists to make impossible (devlinux, 17 October 2026, where the second one
+    /// cleared the first's sessions.json). So a target is resolved the same way the path was.
     /// </summary>
-    internal static string WithLinksResolved(string fullPath)
+    internal static string WithLinksResolved(string fullPath) => WithLinksResolved(fullPath, depth: 0);
+
+    /// <param name="depth">
+    /// How many link targets deep this already is. A link that leads back into its own path would otherwise
+    /// recurse until the stack ran out; past the ceiling the target is taken as written, which can only cost
+    /// one lock being split, never two folders sharing one.
+    /// </param>
+    private static string WithLinksResolved(string fullPath, int depth)
     {
+        const int maxDepth = 40;
         var root = Path.GetPathRoot(fullPath) ?? "";
         var resolved = root;
         var segments = fullPath[root.Length..].Split(
@@ -87,7 +104,14 @@ public sealed class SingleInstanceGuard : IDisposable
         {
             var next = Path.Combine(resolved, segment);
             var target = Directory.Exists(next) ? new DirectoryInfo(next).ResolveLinkTarget(returnFinalTarget: true) : null;
-            resolved = target is null ? next : Path.GetFullPath(target.FullName);
+            if (target is null)
+            {
+                resolved = next;
+                continue;
+            }
+
+            var targetPath = Path.GetFullPath(target.FullName);
+            resolved = depth >= maxDepth ? targetPath : WithLinksResolved(targetPath, depth + 1);
         }
         return resolved;
     }

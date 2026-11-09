@@ -163,6 +163,30 @@ public sealed class SingleInstanceGuardHomeTests : IDisposable
     }
 
     [Fact]
+    public void HomeMutexNameFor_ThroughALinkWhoseTargetRunsThroughAnotherLink_IsStillTheSameFolder()
+    {
+        // The trap that split one folder into two locks on macOS (issue #4735). A link is written with an
+        // absolute target, and that target's own path runs through a link - exactly /var -> /private/var
+        // under a temporary folder. Resolving the link once answers with the unresolved spelling, and the
+        // two spellings of one folder hash to two different locks, so two Directors can both take it.
+        if (OperatingSystem.IsWindows()) return; // creating a link there needs a privilege the test cannot assume
+
+        var realParent = Path.Combine(_root, "real-parent");
+        Directory.CreateDirectory(realParent);
+        var parentLink = Path.Combine(_root, "parent-link");
+        Directory.CreateSymbolicLink(parentLink, realParent);
+
+        // The home lives under the REAL parent; the link below names it through the PARENT LINK, so the
+        // target this link resolves to is itself a path with a link in it.
+        var home = Path.Combine(realParent, "instances", "default");
+        Directory.CreateDirectory(home);
+        var homeLink = Path.Combine(_root, "home-link");
+        Directory.CreateSymbolicLink(homeLink, Path.Combine(parentLink, "instances", "default"));
+
+        Assert.Equal(SingleInstanceGuard.HomeMutexNameFor(home), SingleInstanceGuard.HomeMutexNameFor(homeLink));
+    }
+
+    [Fact]
     public void HomeMutexNameFor_IsDistinctFromTheProgramLock()
     {
         Assert.DoesNotContain("cc-director-instance-", SingleInstanceGuard.HomeMutexNameFor(_defaultHome));

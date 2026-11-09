@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using AvaloniaEdit;
 using CcDirector.Avalonia;
@@ -58,25 +59,82 @@ public sealed class EditCommandRouterTests
         window.Close();
     }
 
+    /// <summary>
+    /// A text editor is proved in TWO parts, and the reason is the test harness rather than the product
+    /// (issue #4735). Avalonia's headless platform reports a WINDOWS hotkey table even when the test runs on
+    /// a Mac - measured on devthrottle-mac-mini, 8 November 2026, where window.PlatformSettings answered
+    /// "Ctrl+C, Ctrl+Insert". Avalonia's own controls read that same table, so the text box and the
+    /// selectable text block above are consistent with it and copy on Ctrl+C in the harness. AvaloniaEdit
+    /// does not: its editor copies on the modifier of the operating system the test is really running on, so
+    /// in the harness on a Mac it answers Cmd+C and ignores Ctrl+C. One test that goes all the way through
+    /// therefore cannot pass on a Mac, and it was red on main for exactly that reason - not because copying
+    /// in the file viewer is broken. On a real Mac the two agree: PlatformSettings reports Cmd+C and the
+    /// editor copies with it.
+    ///
+    /// So the chain is proved at its two links instead, and together they are the production path: the router
+    /// hands the focused editor EXACTLY the platform's own gesture, and an editor given its platform's
+    /// gesture selects all and copies.
+    /// </summary>
     [AvaloniaFact]
-    public void FileViewerEditor_SelectAllThenCopy_CopiesItsText()
+    public void FileViewerEditor_IsHandedExactlyThePlatformsOwnGestures()
     {
-        // The reviewer's other case: the file viewer is an AvaloniaEdit editor, and its focused element is its text area.
-        var editor = new TextEditor { Text = "copied from the file viewer" };
-        // The editor's template comes from AvaloniaEdit's own theme; without it the text area is never in the window.
-        editor.Styles.Add(new global::Avalonia.Markup.Xaml.Styling.StyleInclude(new System.Uri("avares://CcDirector.Avalonia.Tests"))
-            { Source = new System.Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml") });
+        var editor = NewFileViewerEditor();
         var (window, hotkeys) = Show(editor);
         editor.TextArea.Focus();
         Dispatcher.UIThread.RunJobs();
 
-        EditCommandRouter.Run(TerminalClipboardCommand.SelectAll, editor.TextArea, new TerminalControl(), hotkeys);
-        Assert.Equal("copied from the file viewer", editor.SelectedText);
-        EditCommandRouter.Run(TerminalClipboardCommand.Copy, editor.TextArea, new TerminalControl(), hotkeys);
+        var handed = new List<(Key Key, KeyModifiers Modifiers)>();
+        editor.TextArea.AddHandler(InputElement.KeyDownEvent, (_, e) => handed.Add((e.Key, e.KeyModifiers)),
+            RoutingStrategies.Bubble, handledEventsToo: true);
+
+        Assert.Equal(EditCommandRouter.Route.FocusedControl,
+            EditCommandRouter.Run(TerminalClipboardCommand.SelectAll, editor.TextArea, new TerminalControl(), hotkeys));
+        Assert.Equal(EditCommandRouter.Route.FocusedControl,
+            EditCommandRouter.Run(TerminalClipboardCommand.Copy, editor.TextArea, new TerminalControl(), hotkeys));
         Dispatcher.UIThread.RunJobs();
 
+        Assert.Equal(
+            [(hotkeys.SelectAll[0].Key, hotkeys.SelectAll[0].KeyModifiers), (hotkeys.Copy[0].Key, hotkeys.Copy[0].KeyModifiers)],
+            handed);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void FileViewerEditor_GivenItsPlatformsGestures_SelectsAllAndCopies()
+    {
+        // The modifier the operating system this test is running on uses for an edit command - which is what
+        // PlatformSettings reports in production, and what this editor honours in the harness.
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+        var editor = NewFileViewerEditor();
+        var (window, _) = Show(editor);
+        editor.TextArea.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        Press(editor.TextArea, Key.A, command);
+        Assert.Equal("copied from the file viewer", editor.SelectedText);
+
+        Press(editor.TextArea, Key.C, command);
         Assert.Equal("copied from the file viewer", Clipboard(window));
         window.Close();
+    }
+
+    /// <summary>The file viewer's editor, with the AvaloniaEdit theme its text area needs to exist at all.</summary>
+    private static TextEditor NewFileViewerEditor()
+    {
+        var editor = new TextEditor { Text = "copied from the file viewer" };
+        editor.Styles.Add(new global::Avalonia.Markup.Xaml.Styling.StyleInclude(new System.Uri("avares://CcDirector.Avalonia.Tests"))
+            { Source = new System.Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml") });
+        return editor;
+    }
+
+    /// <summary>One key down on <paramref name="target"/>, exactly as the router raises it.</summary>
+    private static void Press(Interactive target, Key key, KeyModifiers modifiers)
+    {
+        target.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent, Key = key, KeyModifiers = modifiers, Source = target,
+        });
+        Dispatcher.UIThread.RunJobs();
     }
 
     [AvaloniaFact]
