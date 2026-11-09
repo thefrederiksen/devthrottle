@@ -48,7 +48,8 @@ server in UTC. An all-day event's `end` is its last day, the same way `--end` ta
 - A PUT answer carries no ETag; every write is read back.
 - Zoho drops attendees outside its organisation over CalDAV without an error, and sends its invitations
   from noreply@zohocalendar.ca with Reply-To the organizer. dt-calendar reads every write back and fails,
-  naming who was dropped. For outside invitations on Zoho use dt-zoho.
+  naming who was dropped. dt-zoho does not help: Zoho's own API drops them too. To include someone outside
+  the organisation, send them the details by email.
 - Zoho also keeps an attendee the organizer removes over CalDAV. `change --uninvite` reads the event back
   and fails, naming who is still invited.
 
