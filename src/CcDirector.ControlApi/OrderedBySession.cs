@@ -232,6 +232,21 @@ internal sealed class OrderedBySession
     private int _timesAsked;
     private int _timesSaid;
 
+    /// <summary>
+    /// The task that completes once everything queued for <paramref name="sessionId"/> SO FAR has finished
+    /// and the chain has been tidied - its current tail, in other words. Completed when nothing is queued.
+    ///
+    /// It exists for one reason: a test can await it instead of polling <see cref="ChainsHeld"/> until the
+    /// entry disappears. The tidy-up runs in a continuation after the work's own task completes, so awaiting
+    /// the work is not enough, and a poll with a timeout would let the machine decide the pass - which the
+    /// gate suite's own architecture test refuses outright, and rightly.
+    /// </summary>
+    internal Task Settled(string? sessionId)
+    {
+        var key = KeyFor(sessionId);
+        lock (_gate) return _chains.TryGetValue(key, out var chain) ? chain.Tail : Task.CompletedTask;
+    }
+
     /// <summary>What is running on <paramref name="sessionId"/>'s queue and for how long, or null when it is
     /// free. The question the loop watch answers for the loop, asked of one session.</summary>
     internal (string Verb, string CommandId, TimeSpan Held, int Waiting)? Inside(string? sessionId)

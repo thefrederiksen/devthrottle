@@ -36,10 +36,19 @@ public class PasteHoldsTheInputGateTests
 
             Assert.Equal(1, session.InputsInFlight);
 
+            // AND THE GATE THAT ACTUALLY STOPS A SEND. SendInProgress reads _submitGate - "held for the
+            // whole of one terminal send, from the first keystroke to the end of its proof" - and an
+            // ordinary send waits on it. The first version of this change took only the in-flight mark,
+            // which nothing but the guarded prompt and the doorbell even read, and a review measured a
+            // SendTextAsync completing in 47ms inside a 2.2-second paste. This reads false on that version.
+            Assert.True(session.SendInProgress,
+                "an ordinary send waits on _submitGate, so a paste that does not hold it is typed into");
+
             var answer = await pasting;
 
             Assert.Equal(InputAnswerKind.Written, answer.Kind);
-            Assert.Equal(0, session.InputsInFlight);        // and let go again at the end
+            Assert.Equal(0, session.InputsInFlight);        // and both let go again at the end
+            Assert.False(session.SendInProgress);
         }
         finally { manager.Dispose(); }
     }

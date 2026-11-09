@@ -21,16 +21,21 @@ internal sealed class FleetDoorbellExecutor : ISessionCommandArea
     };
 
     /// <summary>
-    /// The doorbell types a line into the session when it is safe to, so it is ordered against whatever else
-    /// is being typed there. It is not a person's keystroke - the Gateway asks for it - and it costs the loop
-    /// nothing either way, because it awaits the facts it gathers before it types anything.
-    /// </summary>
-    /// <summary>
-    /// NOTHING. <c>ring</c> was here until the review of #4816, for the keystroke reason - it writes a
-    /// doorbell line into the session. It does that through the session's GUARDED SEND, which already holds
-    /// and orders any keystroke arriving during it, and it refuses a second ring to the same session itself
-    /// (<c>FleetDoorbellRinger.Ringing</c> answers <c>working</c> rather than queueing). A chain would have
-    /// added nothing but a wait for an agent round-trip in front of somebody's Escape.
+    /// NOTHING IS ORDERED HERE, and <c>ring</c> was until the review of #4816 - for the keystroke reason,
+    /// since it writes a doorbell line into the session.
+    ///
+    /// It comes off for the reason that review established: ring WAITS, and a chained wait sits in front of
+    /// everything else that session is sent, including the Escape somebody pressed to stop what is running.
+    /// It protects itself where it can: <c>FleetDoorbellRinger.Ringing</c> refuses a second ring to the same
+    /// session (answering <c>working</c> rather than queueing), and <c>SubmitDoorbellLineAsync</c> stands
+    /// down with <c>NotTyped</c> while input is already in flight.
+    ///
+    /// WHAT IT DOES NOT PROTECT, said plainly, because an earlier version of this comment claimed a guarded
+    /// send that only the API-mode ring actually uses: the doorbell neither marks input in flight nor holds
+    /// the one-send-at-a-time gate while IT types, so an ordinary send starting inside its line-echo-Enter
+    /// window welds onto it. That window is tens to hundreds of milliseconds, it is pre-existing - on the
+    /// delivery loop the ring released it at the first wait between screen frames - and a chain here would
+    /// not have closed it either, because the sends that collide with it are not chained.
     /// </summary>
     public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = Array.Empty<string>();
 

@@ -5039,7 +5039,29 @@ public sealed class Session : IDisposable
     ///     the person's text would arrive split around somebody else's. Holding the gate makes the send wait
     ///     for the paste instead, which is what <see cref="BeginInputAsync"/> is for.
     ///
-    /// Raw keystrokes are deliberately NOT held by the gate, here as everywhere: a person typing at the
+    /// IT TAKES BOTH GATES, AND THE SECOND ONE IS THE ONE THAT MATTERS. The first version of this took only
+    /// <see cref="BeginInputAsync"/> and a comment claimed that stopped a prompt starting mid-paste. It does
+    /// not, and the review of #4816 proved it with a measurement: a <see cref="SendTextAsync"/> completed in
+    /// 47 milliseconds while a 2.2-second paste was still running. <c>SendTextAsync</c> is NOT a guarded
+    /// send - only <see cref="SendTextOnlyWhenWaitingForInputAsync"/> opens a
+    /// <see cref="GuardedInputSection"/> - so nothing in it waits on <c>_inputInFlight</c>, and the paste
+    /// did not take the gate that an ordinary send DOES wait on.
+    ///
+    /// So it holds <c>_submitGate</c> too, the one-send-at-a-time gate whose own comment says it is "held
+    /// for the whole of one terminal send, from the first keystroke to the end of its proof". A paste is one
+    /// of those sends. With it held, an ordinary prompt, a queued prompt, <c>/clear</c> and <c>/compact</c>
+    /// all wait for the paste instead of typing into the middle of it - and the phone's Enter is held and
+    /// pressed afterwards rather than submitting half of somebody's pasted text.
+    ///
+    /// <see cref="BeginInputAsync"/> stays because it is read by the two callers that REFUSE rather than
+    /// wait: the guarded prompt and the doorbell line both stand down while input is in flight.
+    ///
+    /// AND THAT COSTS A WAIT, SAID PLAINLY. A prompt arriving during a long paste now waits for it, and can
+    /// expire against the Gateway's own 30-second wait while it does. Interleaving somebody's words into the
+    /// middle of their paste is worse, and before #4490 this could not arise at all because the paste was
+    /// blocking the whole delivery loop.
+    ///
+    /// Raw keystrokes are deliberately NOT held by either gate, here as everywhere: a person typing at the
     /// terminal owns it, and the command surface's ordering against them is the delivery chain's job.
     /// </summary>
     internal async Task<InputAnswer> PasteIntoTerminalAsync(
@@ -5050,10 +5072,20 @@ public sealed class Session : IDisposable
 
         using (await BeginInputAsync().ConfigureAwait(false))
         {
-            var answer = InputAnswer.Written;
-            await TerminalPasteExecutor.PasteAsync(text, BracketedPasteEnabled, Backend,
-                bytes => answer = SendInput(bytes, origin, provenance), cancellationToken).ConfigureAwait(false);
-            return answer;
+            // Taken AFTER the in-flight mark, which is the order SendTextAsync takes them in too, so the two
+            // cannot deadlock against each other. The guarded send and the doorbell REFUSE while input is in
+            // flight rather than waiting for this gate, so neither can hold it against us.
+            await Drivers.SendWaitNotice.WatchAsync(_submitGate.WaitAsync(cancellationToken), "Session",
+                $"the send in front of this paste to session {Id} to finish (one send at a time)",
+                "none - it waits for that send's own limits", Clock).ConfigureAwait(false);
+            try
+            {
+                var answer = InputAnswer.Written;
+                await TerminalPasteExecutor.PasteAsync(text, BracketedPasteEnabled, Backend,
+                    bytes => answer = SendInput(bytes, origin, provenance), cancellationToken).ConfigureAwait(false);
+                return answer;
+            }
+            finally { _submitGate.Release(); }
         }
     }
 

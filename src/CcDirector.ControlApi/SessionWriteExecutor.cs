@@ -84,11 +84,17 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
     /// else can give it to them (issues #4490, #4816).
     ///
     /// THE RULE, AND IT IS NARROWER THAN IT WAS. A verb belongs here if it puts characters into the
-    /// terminal AND COMES BACK - no waiting for the agent to answer. A verb that opens a GUARDED SEND, or
-    /// waits for the agent, stays out, because the session layer already orders what matters about it and
-    /// does it better: while a guarded section is open, <c>Session.SendInput</c> HOLDS an arriving keystroke
-    /// and answers it <c>Held</c> at once, then writes it after the send in the order it was pressed. A
-    /// queue cannot answer anything; it can only be silent until its turn.
+    /// terminal AND COMES BACK - no waiting for the agent to answer. A verb that WAITS stays out, because
+    /// chaining a wait puts it in front of everything else that session is sent, and the sends serialise
+    /// against each other on their own: <c>SubmitTextAsync</c> holds <c>_submitGate</c> for the whole of
+    /// one send, first keystroke to proof.
+    ///
+    /// AN EARLIER VERSION OF THIS PARAGRAPH SAID SOMETHING ELSE AND IT WAS FALSE: that the session layer
+    /// holds an arriving keystroke against those verbs and answers it <c>Held</c> at once. That is true
+    /// only of a GUARDED send (<c>Session.SendTextOnlyWhenWaitingForInputAsync</c>), which is the
+    /// only-when-waiting prompt path. An ordinary <c>SendTextAsync</c> is not guarded, so a keystroke
+    /// arriving during one is written into it. That is pre-existing, unchanged here, and not something a
+    /// chain was going to fix without reintroducing the wait.
     ///
     ///   interrupt, escape  the control keys, which must not overtake the line they interrupt
     ///   terminal-*         the Cockpit's terminal, every chunk of it

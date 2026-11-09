@@ -47,9 +47,10 @@ public sealed class DeliveryLoopOrderTests
         // every keystroke behind it: compact-context on a session, the person presses Escape ten seconds
         // later to cancel it, and the Escape waits out the compaction - the Gateway's 30-second wait expires
         // showing "the Director did not answer" and the Escape lands up to 110 seconds later in whatever
-        // state the session reached. The session layer orders these properly and the chain cannot: while a
-        // guarded section is open, Session.SendInput HOLDS an arriving keystroke, answers it Held at once,
-        // and writes it after the send in the order it was pressed. A queue can only be silent until its turn.
+        // state the session reached. They stay off because of the WAIT, not because the session layer orders
+        // keystrokes against them - an earlier version of this comment claimed that and it is false for an
+        // ordinary SendTextAsync, which is not a guarded send. What the session layer does give them is
+        // serialisation against EACH OTHER: SubmitTextAsync holds _submitGate for the whole of one send.
         Assert.False(DeliveryLoopOrder.MustArriveInOrder(verb),
             $"{verb} waits for the agent; chaining it puts that wait in front of somebody's Escape");
         Assert.False(DeliveryLoopOrder.MustStayOnTheLoop(verb));
@@ -456,9 +457,6 @@ public sealed class DeliveryLoopIsWatchedByTheTickTests
 /// </summary>
 public sealed class OrderedBySessionTests
 {
-    private static async Task<bool> Finished(Task task, int seconds = 30) =>
-        await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(seconds))) == task;
-
     [Fact]
     public async Task WorkForOneSession_RunsInTheOrderItWasQueued()
     {
@@ -480,7 +478,7 @@ public sealed class OrderedBySessionTests
         var three = chain.Run("s1", "terminal-keys", "c3", () => Step("third", waitFirst: false));
 
         gate.SetResult();
-        Assert.True(await Finished(Task.WhenAll(one, two, three)));
+        await Task.WhenAll(one, two, three).WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.Equal(["first", "second", "third"], order);
     }
@@ -499,12 +497,12 @@ public sealed class OrderedBySessionTests
             return Task.FromResult("done");
         });
 
-        Assert.True(await Finished(otherRan.Task));      // it ran while "slow" is still going
+        await otherRan.Task.WaitAsync(TimeSpan.FromSeconds(30));   // it ran while "slow" is still going
         Assert.Equal("done", await other);
         Assert.False(stuck.IsCompleted);
 
         held.SetResult("let go");
-        Assert.True(await Finished(stuck));
+        await stuck.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -527,38 +525,36 @@ public sealed class OrderedBySessionTests
         var chain = new OrderedBySession();
 
         Assert.Equal(0, chain.ChainsHeld);
-        await chain.Run("s1", "prompt", "c1", () => Task.FromResult("done"));
-        await chain.Run("s2", "prompt", "c2", () => Task.FromResult("done"));
 
-        // The entry is removed by a continuation that runs AFTER the work's own task completes, so this
-        // polls rather than asserting at once. The budget is a bound on a hang: on correct code the first
-        // or second look succeeds, and a leak never clears however long the test waits.
-        var cleared = await Cleared(chain);
+        // The entry is removed by a continuation that runs AFTER the work's own task completes, so awaiting
+        // the work is not enough. The chain's own tail IS that continuation: captured here and awaited
+        // below, which needs no clock and no polling.
+        var one = chain.Run("s1", "prompt", "c1", () => Task.FromResult("done"));
+        var oneSettled = chain.Settled("s1");
+        var two = chain.Run("s2", "prompt", "c2", () => Task.FromResult("done"));
+        var twoSettled = chain.Settled("s2");
 
-        Assert.True(cleared, $"{chain.ChainsHeld} session queue(s) were still held after everything finished");
-    }
+        await Task.WhenAll(one, two).WaitAsync(TimeSpan.FromSeconds(30));
+        await Task.WhenAll(oneSettled, twoSettled).WaitAsync(TimeSpan.FromSeconds(30));
 
-    private static async Task<bool> Cleared(OrderedBySession chain)
-    {
-        for (var look = 0; look < 300; look++)
-        {
-            if (chain.ChainsHeld == 0) return true;
-            await Task.Delay(10);
-        }
-        return chain.ChainsHeld == 0;
+        Assert.Equal(0, chain.ChainsHeld);
     }
 
     [Fact]
-    public void AQueueHeldPastTheBudget_IsSaidOnce_WithWhatIsWaitingBehindIt()
+    public async Task AQueueHeldPastTheBudget_IsSaidOnce_WithWhatIsWaitingBehindIt()
     {
         var lines = new List<string>();
         var clock = new FakeTimeProvider();
         var chain = new OrderedBySession(clock, lines.Add);
         var held = new TaskCompletionSource<string>();
+        var running = new TaskCompletionSource();
 
-        var stuck = chain.Run("s1", "terminal-paste", "paste-1", () => held.Task);
-        Assert.True(SpinUntil(() => chain.Inside("s1") is not null));
-        chain.Run("s1", "prompt", "prompt-2", () => Task.FromResult("queued behind it"));
+        // The work says when it is running; nothing here waits on a duration. Inside() is stamped before
+        // work() is called, so once this completes the queue is recorded as held.
+        var stuck = chain.Run("s1", "terminal-paste", "paste-1", () => { running.SetResult(); return held.Task; });
+        await running.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.NotNull(chain.Inside("s1"));
+        _ = chain.Run("s1", "prompt", "prompt-2", () => Task.FromResult("queued behind it"));   // left queued
 
         chain.SayIfAnyQueueIsHeld();
         Assert.Empty(lines);                             // inside the budget: nothing to say
@@ -599,18 +595,19 @@ public sealed class OrderedBySessionTests
     // keystroke verbs means typing hours-old input into somebody's terminal.
 
     [Fact]
-    public void AQueueAtItsCap_RefusesTheNextCommand_AndSaysWhatIsInFrontOfIt()
+    public async Task AQueueAtItsCap_RefusesTheNextCommand_AndSaysWhatIsInFrontOfIt()
     {
         var clock = new FakeTimeProvider();
         var chain = new OrderedBySession(clock, _ => { });
         var held = new TaskCompletionSource<string>();
+        var running = new TaskCompletionSource();
 
-        var stuck = chain.Run("s1", "terminal-paste", "paste-1", () => held.Task);
-        Assert.True(SpinUntil(() => chain.Inside("s1") is not null));
+        var stuck = chain.Run("s1", "terminal-paste", "paste-1", () => { running.SetResult(); return held.Task; });
+        await running.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.False(chain.TooManyWaiting("s1", out _));          // one running, nothing waiting
 
         for (var i = 0; i < OrderedBySession.MostThatMayWait; i++)
-            chain.Run("s1", "terminal-input", $"key-{i}", () => Task.FromResult("typed"));
+            _ = chain.Run("s1", "terminal-input", $"key-{i}", () => Task.FromResult("typed"));   // left queued
 
         clock.Advance(TimeSpan.FromSeconds(90));
 
@@ -636,14 +633,4 @@ public sealed class OrderedBySessionTests
         Assert.Equal("", why);
     }
 
-    /// <summary>Wait for something the CODE raises, not for a duration. The bound is a hang's bound.</summary>
-    private static bool SpinUntil(Func<bool> condition)
-    {
-        for (var look = 0; look < 3000; look++)
-        {
-            if (condition()) return true;
-            Thread.Sleep(10);
-        }
-        return condition();
-    }
 }

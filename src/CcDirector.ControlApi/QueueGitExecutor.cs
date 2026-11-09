@@ -51,15 +51,26 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
     /// the queue they just changed, unchanged. The lock makes each verb safe; it cannot make a PAIR of them
     /// mean what the person meant, and only arrival order can.
     ///
-    /// AND queue-send IS NOT IN THIS LIST, which took two reviews to get right. The #4815 review was correct
-    /// that it TYPES - it calls <c>Session.SendTextAsync</c>, which types the queued prompt into the
-    /// terminal - and at the time that meant keeping it on the delivery loop. The #4816 review then showed
-    /// why a typing verb that WAITS does not belong on a session's chain: <c>SendTextAsync</c> is a guarded
-    /// send, and while a guarded section is open <c>Session.SendInput</c> already holds an arriving
-    /// keystroke, answers it <c>Held</c> at once and writes it after the send in the order it was pressed.
-    /// The session layer orders it better than a queue can, because a queue can only be silent until its
-    /// turn. Its claim on the item is atomic either way (<c>PromptQueue.TryTake</c>, #4815), so two sends
-    /// cannot hand the same prompt out twice however they interleave.
+    /// AND queue-send IS NOT IN THIS LIST, which took three reviews to get right - the first two answers were
+    /// both wrong and both written down confidently.
+    ///
+    /// The #4815 review was right that it TYPES: it calls <c>Session.SendTextAsync</c>, which types the
+    /// queued prompt into the terminal. At the time that meant keeping it on the delivery loop.
+    ///
+    /// I then claimed it belonged off the chain because <c>SendTextAsync</c> is a guarded send and
+    /// <c>Session.SendInput</c> would hold an arriving keystroke against it. THAT IS FALSE.
+    /// <c>SendTextAsync</c> is not a guarded send - only
+    /// <c>Session.SendTextOnlyWhenWaitingForInputAsync</c> opens a <c>GuardedInputSection</c> - so a
+    /// keystroke arriving during a queue-send is written straight into it. That is PRE-EXISTING and is not
+    /// narrowed or widened here: on the delivery loop, queue-send released it at its first await and a
+    /// terminal-input could be received and written mid-send exactly as it can now.
+    ///
+    /// THE REASON IT STAYS OFF IS THE WAIT. queue-send waits for an agent round-trip, and chaining it would
+    /// put that wait in front of somebody's Escape - the regression the #4816 review found in the first
+    /// version of that change, where a two-minute compaction delayed the keystroke sent to cancel it. Two
+    /// sends do not interleave with EACH OTHER, because <c>SubmitTextAsync</c> holds <c>_submitGate</c> for
+    /// the whole of one send, and the claim on the item is atomic in any case
+    /// (<c>PromptQueue.TryTake</c>, #4815), so the same prompt cannot be handed out twice.
     /// </summary>
     public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
     {
