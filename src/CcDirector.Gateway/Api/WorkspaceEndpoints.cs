@@ -88,8 +88,31 @@ internal static class WorkspaceEndpoints
         if (teamCaller is not null)
             return teamCaller(ctx);
         if (Teams.TeamEndpointGate.AllowedTeam(ctx) is not null)
-            throw new InvalidOperationException("GET /gateway/workspaces was allowed inside a team, but this Gateway gave it no way to cut the list to the caller's own.");
+            throw new InvalidOperationException("A workspace route was allowed inside a team, but this Gateway gave it no way to tell the caller's own Directors from anyone else's.");
         return null;
+    }
+
+    /// <summary>What a team caller is told when a workspace write is for a Director that is not theirs. It names
+    /// nothing about the team's other Directors.</summary>
+    internal const string TeamWriteRefusal =
+        "Inside a team a Director writes only the record of its own shutdown, and DevThrottle cannot show that the " +
+        "Director this record is for is one of yours. Nothing was written.";
+
+    /// <summary>
+    /// Why, inside a team, this workspace write may not go ahead, or null when it may (devthrottle_internal#2829): the
+    /// Director it is for must be one of the caller's own. A personal account is never refused here.
+    /// </summary>
+    private static IResult? TeamWriteRefused(HttpContext ctx, Func<HttpContext, Teams.TeamCaller?>? teamCaller,
+        Func<string?> directorId, string what)
+    {
+        if (TeamCallerOf(ctx, teamCaller) is not { } team)
+            return null;
+        var director = directorId();
+        if (team.OwnsDirector(director))
+            return null;
+        FileLog.Write($"[WorkspaceEndpoints] {what} REFUSED in a team: director={director ?? "(none)"} is not shown to be the caller's own");
+        return Results.Json(new { error = TeamWriteRefusal, code = Teams.TeamEndpointGate.RefusalCode },
+            statusCode: StatusCodes.Status403Forbidden);
     }
 
     /// <summary>
@@ -406,6 +429,12 @@ internal static class WorkspaceEndpoints
 
             doc.Id = id;
 
+            // INSIDE A TEAM, ONLY AN EXISTING RECORD OF THE CALLER'S OWN DIRECTOR (devthrottle_internal#2829). The Director
+            // is read from the STORED record, never the body: the store keeps it on every update, so it is the Director
+            // the record was captured from. A new workspace (no stored record) names no Director and is refused.
+            if (TeamWriteRefused(ctx, teamCaller, () => store.Get(id)?.DirectorId, $"PUT id={id}") is { } refusedInTeam)
+                return refusedInTeam;
+
             // CREATE-ONLY, when the caller asks for it. "If-None-Match: *" is the standard way to say
             // "write this only if it does not exist", and a caller who has to overwrite must first read
             // what is there. Without it the only way to avoid clobbering is to list, check, and then PUT
@@ -436,11 +465,15 @@ internal static class WorkspaceEndpoints
         // CAPTURE. POST creates a workspace by folding a Director's live sessions - the only way a
         // workspace is created from something that is running, and the reason there is no POST that takes a
         // hand-assembled document (PUT is that path, and it names its own id).
-        app.MapPost("/gateway/workspaces", (WorkspaceCaptureRequest? req) =>
+        app.MapPost("/gateway/workspaces", (WorkspaceCaptureRequest? req, HttpContext ctx) =>
         {
             if (req is null || string.IsNullOrWhiteSpace(req.DirectorId))
                 return Results.Json(new { error = "directorId is required - a capture names the Director it folds" },
                     statusCode: StatusCodes.Status400BadRequest);
+
+            // Inside a team, only a capture of the caller's own Director (devthrottle_internal#2829).
+            if (TeamWriteRefused(ctx, teamCaller, () => req.DirectorId, $"capture directorId={req.DirectorId}") is { } refusedInTeam)
+                return refusedInTeam;
 
             var director = lookupDirector(req.DirectorId);
             if (director is null)

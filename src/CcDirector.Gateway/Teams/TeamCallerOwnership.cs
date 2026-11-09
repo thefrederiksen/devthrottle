@@ -109,6 +109,8 @@ public sealed class TeamCallerOwnership
             return TeamOwnership.Callers;
         if (IsLauncherOwnMachineRoute(pattern, method))
             return TeamOwnership.Callers;
+        if (IsWorkspaceWriteOfOwnDirector(pattern, method))
+            return TeamOwnership.Callers;
         if (string.Equals(pattern, NumberPattern, StringComparison.Ordinal))
             return OwnerOfNumber(tenant, routeValue("sessionId"), callerSubject);
 
@@ -198,6 +200,19 @@ public sealed class TeamCallerOwnership
             || (post && string.Equals(pattern, "/launchers/{machine}/heartbeat", StringComparison.Ordinal))
             || (delete && string.Equals(pattern, "/launchers/{machine}", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// THE TWO WRITES A DIRECTOR MAKES FOR THE RECORD OF ITS OWN SHUTDOWN (devthrottle_internal#2829): the capture
+    /// (<c>POST /gateway/workspaces</c>) names the Director in its body, and a save (<c>PUT /gateway/workspaces/{id}</c>)
+    /// keeps the Director stored on the record it updates - neither of which the gate can read. So the gate lets them
+    /// through and the endpoint refuses, inside a team, a capture of a Director that is not the caller's own
+    /// (<see cref="TeamCaller.OwnsDirector"/>) and a save of anything but an existing record captured from one: a new
+    /// workspace written by hand belongs to no Director, so it cannot be shown to be anyone's. Deleting a workspace, a
+    /// crash record and the restore routes are not these, and stay Unknown and refused.
+    /// </summary>
+    internal static bool IsWorkspaceWriteOfOwnDirector(string pattern, string? method) =>
+        (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) && string.Equals(pattern, "/gateway/workspaces", StringComparison.Ordinal))
+        || (string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase) && string.Equals(pattern, "/gateway/workspaces/{id}", StringComparison.Ordinal));
 
     /// <summary>The launcher's command stream.</summary>
     internal const string LauncherStreamPath = "/launcher-stream";

@@ -271,6 +271,13 @@ public static class TeamEndpointRules
         // belongs to no Director, so it cannot be shown to be anyone's and is left out; every other workspace route stays
         // undeclared and refused.
         new TeamEndpointRule("/gateway/workspaces", TeamMethods.Read, Sessions, TeamTarget.ListCutToCallersOwn, Exact: true),
+        // A member's own Director writing the record of its own shutdown (devthrottle_internal#2829): the capture names
+        // the Director in its body and a save keeps the Director stored on the record, so the endpoint checks that it is
+        // the caller's own (TeamCallerOwnership.IsWorkspaceWriteOfOwnDirector). Only the capture (POST) and the save
+        // (PUT) are answered as the caller's; deleting a workspace, writing one by hand, a crash record and every restore
+        // route stay refused in a team.
+        new TeamEndpointRule("/gateway/workspaces", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/{id}", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
         // The errors a member's own Director logged: filed under the calling key's own device, so what it writes can only
         // be the caller's. Reading them back (GET) stays undeclared: in a team it would read every member's.
         new TeamEndpointRule(Api.DirectorErrorEndpoints.Path, TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
