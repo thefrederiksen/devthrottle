@@ -276,7 +276,7 @@ public sealed class DirectorSupervisor
 
         if (!OperatingSystem.IsMacOS())
         {
-            var psi = DirectStartInfo(DirectorExePath);
+            var psi = DirectStartInfo(DirectorExePath, SupervisedInstanceSlug);
 
             using var proc = Process.Start(psi)
                 ?? throw new InvalidOperationException($"Process.Start returned null for: {DirectorExePath}");
@@ -293,7 +293,8 @@ public sealed class DirectorSupervisor
             FileName = "/usr/bin/open",
             UseShellExecute = false,
         };
-        openPsi.ArgumentList.Add(DirectorExePath);
+        foreach (var argument in OpenArguments(DirectorExePath, SupervisedInstanceSlug))
+            openPsi.ArgumentList.Add(argument);
 
         using var open = Process.Start(openPsi)
             ?? throw new InvalidOperationException($"Process.Start returned null for: /usr/bin/open {DirectorExePath}");
@@ -315,14 +316,47 @@ public sealed class DirectorSupervisor
     /// program entirely (usually <c>xdg-open</c>) or absent - so a launcher that stopped a Linux Director
     /// to install an update started nothing, rolled back, and left the Director down.
     /// </summary>
-    internal static ProcessStartInfo DirectStartInfo(string directorExePath) => new()
+    internal static ProcessStartInfo DirectStartInfo(string directorExePath, string instanceSlug)
     {
-        FileName = directorExePath,
-        WorkingDirectory = Path.GetDirectoryName(directorExePath) ?? "",
-        // Windows keeps the shell start it has always used. On Linux there is no shell association for
-        // an executable, so it is started as itself.
-        UseShellExecute = OperatingSystem.IsWindows(),
-    };
+        var psi = new ProcessStartInfo
+        {
+            FileName = directorExePath,
+            WorkingDirectory = Path.GetDirectoryName(directorExePath) ?? "",
+            // Windows keeps the shell start it has always used. On Linux there is no shell association for
+            // an executable, so it is started as itself.
+            UseShellExecute = OperatingSystem.IsWindows(),
+        };
+        psi.ArgumentList.Add("--instance");
+        psi.ArgumentList.Add(instanceSlug);
+        return psi;
+    }
+
+    /// <summary>
+    /// What <c>/usr/bin/open</c> is given on macOS. The bundle comes first, then <c>--args</c>, then the
+    /// Director's own arguments: <c>open</c> passes everything after <c>--args</c> to the application it
+    /// launches, and keeps everything before it for itself.
+    /// </summary>
+    internal static IReadOnlyList<string> OpenArguments(string bundlePath, string instanceSlug) =>
+        [bundlePath, "--args", "--instance", instanceSlug];
+
+    /// <summary>
+    /// THE INSTANCE THIS SUPERVISOR STARTS THE DIRECTOR AS, SAID OUT LOUD (issue #4552).
+    ///
+    /// Until 9 November 2026 the launcher started the Director with no arguments at all, although it has
+    /// always known which instance it supervises - every lookup it makes is against one instance home. The
+    /// Director was left to work it out for itself, and on a machine with more than one instance registered
+    /// it could not: it stopped on the Select director window to ask a person who was not there. On
+    /// devlinux, 1 November 2026, that cost a whole night of scheduled runs, each failing with "no Director
+    /// on devlinux" while the process sat alive behind the window.
+    ///
+    /// IT IS ASKED OF THE LOCATOR, NOT ASSERTED HERE. The first version of this returned the default slug
+    /// with a comment saying that if the launcher ever supervised a named instance this would have to change
+    /// and the compiler would not say so. The review of #4552 gave the better answer: this class already
+    /// takes any locator, and the locator already knows which instance home it resolves, so the slug is read
+    /// off that. In production it is still <c>default</c>, because the default constructor builds the
+    /// locator against <c>instances/default</c>; nothing has to be remembered if that ever changes.
+    /// </summary>
+    public string SupervisedInstanceSlug => _locator.Slug;
 
     /// <summary>
     /// Stop the running Director: raise its shutdown signal, then wait for the process to go.

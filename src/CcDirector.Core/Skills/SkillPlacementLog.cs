@@ -68,7 +68,7 @@ public static class SkillPlacementLog
             {
                 var path = PathFor(rootOverride);
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                var all = ReadUnlocked(path);
+                var all = ReadForWriting(path);
                 all.RemoveAll(r => string.Equals(r.AgentKind, placement.Kind.ToString(), StringComparison.OrdinalIgnoreCase));
                 all.Add(new SkillPlacementRecord
                 {
@@ -84,7 +84,13 @@ public static class SkillPlacementLog
                         Fault = p.Fault.ToString(),
                     }).ToList(),
                 });
-                File.WriteAllText(path, JsonSerializer.Serialize(all, Json));
+                // ATOMICALLY, BECAUSE THE WRITERS ARE PROCESSES AND NOT JUST THREADS (issue #4552).
+                // The lock above is this process's. File.WriteAllText truncates and then writes, so two
+                // Directors sharing a root - or a Director and a session with a temporary home under /tmp -
+                // could interleave, and a second write shorter than the first left the tail of the first
+                // behind it: one file holding two JSON documents, which every later read then logged as a
+                // failure. About 2,000 of those reports came off one machine in three days.
+                AtomicFileReplace.WriteAllText(path, JsonSerializer.Serialize(all, Json));
             }
         }
         catch (Exception ex)
@@ -101,7 +107,31 @@ public static class SkillPlacementLog
         try
         {
             lock (Gate)
-                return ReadUnlocked(PathFor(rootOverride));
+            {
+                var path = PathFor(rootOverride);
+                try
+                {
+                    return ReadUnlocked(path);
+                }
+                catch (JsonException ex)
+                {
+                    // THE READER HEALS, BECAUSE THE READER IS WHAT WAS STORMING (the review of #4552). This
+                    // is called every sixty seconds by ControlApiHost.PushSkillPlacementAsync, and a strict
+                    // read of a damaged file reported a fresh failure on every one of those ticks - which is
+                    // the cadence of the 2,000 reports in three days. Healing only on the write path left a
+                    // quiet machine, one that is not launching sessions, reporting for ever and never
+                    // repairing.
+                    //
+                    // DELETING IT IS SAFE AND IS THE WHOLE POINT. The file holds one row per agent family,
+                    // each rewritten by that agent's next placement; unparseable content is not recoverable
+                    // by anybody, and keeping it buys nothing but another report a minute from now.
+                    // not-an-error: a diagnostic nobody can read is removed so it stops lying; the damage it held was reported already
+                    FileLog.Write($"[SkillPlacementLog] {path} is not readable JSON ({ex.Message}); it is "
+                                  + "being removed so it stops being reported once a minute (issue #4552).");
+                    TryDelete(path);
+                    return Array.Empty<SkillPlacementRecord>();
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -110,14 +140,69 @@ public static class SkillPlacementLog
         }
     }
 
+    /// <summary>
+    /// The record as it stands, for a write that is about to replace all of it - and EMPTY when it cannot be
+    /// read, so a file that is already damaged is replaced instead of reported for ever (issue #4552).
+    ///
+    /// The atomic write above stops new damage; it cannot undo what is already on disk. Until this existed,
+    /// an unparseable record threw here, the caller's catch swallowed it, and the write that would have
+    /// healed the file never happened - so every placement from then on logged the same failure and changed
+    /// nothing. One machine reported about 2,000 of them in three days. Losing the old rows is the point:
+    /// each is one agent's last placement, each is rewritten by that agent's next one, and a diagnostic
+    /// nobody can read is worth less than an empty one that starts working again.
+    /// </summary>
+    /// <summary>Remove the damaged record. A failure here is left to the caller's own catch: if it cannot be
+    /// deleted it will be read again, and one more line is better than a throw out of a reader.</summary>
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); }
+        // not-an-error: the record stays and is read again next tick; nothing is lost that was not already unreadable
+        catch (Exception ex) { FileLog.Write($"[SkillPlacementLog] {path} could not be removed ({ex.Message})"); }
+    }
+
+    private static List<SkillPlacementRecord> ReadForWriting(string path)
+    {
+        try
+        {
+            return ReadUnlocked(path);
+        }
+        catch (JsonException ex)
+        {
+            // ONLY A JsonException, and the review of #4552 is why. This caught every Exception at first,
+            // which meant a TRANSIENT failure - a sharing violation, a slow network home, a full disk - made
+            // the very next placement wipe every other agent's row. Unparseable content is damage and cannot
+            // get better; an IOException is a bad moment and must reach Record's own catch, which changes
+            // nothing on disk.
+            // The damage this repairs was already reported about 2,000 times from one machine in three days.
+            // not-an-error: replacing a damaged diagnostic IS the repair; reporting it files the same fault again
+            FileLog.Write($"[SkillPlacementLog] {path} is not readable JSON ({ex.Message}); this placement "
+                          + "replaces the whole record rather than reporting it again (issue #4552).");
+            return new List<SkillPlacementRecord>();
+        }
+    }
+
     private static List<SkillPlacementRecord> ReadUnlocked(string path)
     {
         if (!File.Exists(path))
             return new List<SkillPlacementRecord>();
-        var text = File.ReadAllText(path);
+        var text = ReadSharingDelete(path);
         if (string.IsNullOrWhiteSpace(text))
             return new List<SkillPlacementRecord>();
         return JsonSerializer.Deserialize<List<SkillPlacementRecord>>(text, Json)
                ?? new List<SkillPlacementRecord>();
+    }
+
+    /// <summary>
+    /// Read the record while another process may be replacing it. <see cref="AtomicFileReplace"/> renames a
+    /// new file over this one, and on Windows that rename is refused unless every open reader asked for
+    /// <see cref="FileShare.Delete"/> - which <c>File.ReadAllText</c> does not. A reader that does not ask
+    /// for it turns the atomic write it was meant to cooperate with back into a failure.
+    /// </summary>
+    private static string ReadSharingDelete(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.Read | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

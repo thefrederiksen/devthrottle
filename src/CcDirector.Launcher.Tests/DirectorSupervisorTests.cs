@@ -1,3 +1,4 @@
+using CcDirector.Core.Instances;
 using CcDirector.Launcher;
 using CcDirector.Setup.Engine;
 using Xunit;
@@ -140,11 +141,63 @@ public sealed class DirectorSupervisorTests
         // program or absent, so a launcher that stopped a Linux Director to update it started nothing.
         var exe = Path.Combine(Path.GetTempPath(), "app", "cc-director");
 
-        var psi = DirectorSupervisor.DirectStartInfo(exe);
+        var psi = DirectorSupervisor.DirectStartInfo(exe, "default");
 
         Assert.Equal(exe, psi.FileName);
         Assert.Equal(Path.GetDirectoryName(exe), psi.WorkingDirectory);
         Assert.Equal(OperatingSystem.IsWindows(), psi.UseShellExecute);
-        Assert.Empty(psi.ArgumentList);
+    }
+
+    // THE LAUNCHER SAYS WHICH INSTANCE IT IS STARTING (issue #4552). It had always known - every lookup it
+    // makes is against one instance home - and it had never said, so a Director on a machine with two
+    // instances registered stopped on the Select director window to ask a person who was not there. These
+    // three tests used to be one assertion that the argument list was EMPTY, which is how the defect was
+    // pinned rather than found.
+
+    [Fact]
+    public void DirectStartInfo_NamesTheInstanceItSupervises_SoTheDirectorNeverHasToAsk()
+    {
+        var exe = Path.Combine(Path.GetTempPath(), "app", "cc-director");
+
+        var psi = DirectorSupervisor.DirectStartInfo(exe, "default");
+
+        Assert.Equal(["--instance", "default"], psi.ArgumentList);
+    }
+
+    [Fact]
+    public void SupervisedInstanceSlug_IsTheDefaultInstance_BecauseThatIsTheHomeTheLauncherResolves()
+    {
+        // Production: the default constructor builds its locator against instances/default.
+        Assert.Equal(InstanceContext.DefaultSlug, new DirectorSupervisor().SupervisedInstanceSlug);
+    }
+
+    [Fact]
+    public void SupervisedInstanceSlug_FollowsTheLocator_SoNobodyHasToRememberToChangeIt()
+    {
+        // Asked of the locator rather than asserted in the supervisor (the review of #4552). A launcher
+        // pointed at a named instance's home names THAT instance on the command line, with no second
+        // place to update.
+        var home = InstanceContext.InstanceHomeOf(Path.Combine(Path.GetTempPath(), "a-root"), "linuxtest");
+        var supervisor = new DirectorSupervisor(
+            InstallLayout.Default(), new DirectorInstanceLocator(home));
+
+        Assert.Equal("linuxtest", supervisor.SupervisedInstanceSlug);
+    }
+
+    [Fact]
+    public void OpenArguments_PutTheBundleFirst_AndTheDirectorsOwnArgumentsAfterArgs()
+    {
+        // macOS does not start the Director directly: it hands the bundle to launchd through
+        // /usr/bin/open, which keeps everything BEFORE --args for itself and passes everything after it
+        // to the application. An --instance written before --args would be read by open, not by us.
+        var bundle = "/Applications/Director.app";
+
+        var arguments = DirectorSupervisor.OpenArguments(bundle, "default");
+
+        Assert.Equal([bundle, "--args", "--instance", "default"], arguments);
+        Assert.Equal(bundle, arguments[0]);
+        var order = arguments.ToList();
+        Assert.True(order.IndexOf("--args") < order.IndexOf("--instance"),
+            "an --instance written before --args would be read by open, not by the Director");
     }
 }
