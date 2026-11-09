@@ -319,6 +319,25 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/sessions/{sid}/factories", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
     };
 
+    /// <summary>
+    /// ROUTES THAT LIE UNDER A DECLARED FAMILY BUT ARE NOT OPENED TO TEAMS. A request to one of these, or to a route under
+    /// it, states no action whatever family rule would otherwise cover it, so inside a team it is refused like any
+    /// undeclared route. Each is here because the family rule's reason does not hold for it.
+    ///
+    /// <c>/sessions/{sid}/inbox</c> - Your inbox, as a session reads and writes it (Team implementation piece 3.2,
+    /// devthrottle_internal#2797). The "/sessions" rule admits a request that touches only the caller's own SESSION, but
+    /// these routes are not about the session: they read, mark and answer the ACCOUNT's one inbox. Inside a team that is
+    /// the team tenant's inbox, which holds what every member's sessions sent, so a Developer's own session would have
+    /// read the messages the Owner's factory left for the Owner. And the Owner never reads it: the owner's routes under
+    /// <c>/gateway/inbox</c> are undeclared, so refused, in a team. The account inbox is a family the list above already
+    /// refuses in a team; this keeps its session half refused too, until Your inbox is made a team feature. A team's
+    /// factory tells its Owner through a report, which reaches them on their Reports page in the team.
+    /// </summary>
+    public static readonly IReadOnlyList<string> NotOpenedToTeams = new[]
+    {
+        "/sessions/{sid}/inbox",
+    };
+
     /// <summary>The route prefixes of the factory pages and the factory inbox, ruled above as
     /// <see cref="TeamAction.OpenRunAndTalkToTeamFactories"/> - the list the route-table test checks every mapped factory
     /// route against.</summary>
@@ -367,6 +386,9 @@ public static class TeamEndpointRules
     {
         ArgumentNullException.ThrowIfNull(method);
         var normalized = Normalize(pattern);
+        if (NotOpenedToTeams.Any(p => string.Equals(normalized, p, StringComparison.Ordinal)
+                                      || normalized.StartsWith(p + "/", StringComparison.Ordinal)))
+            return null;
         return All
             .Where(r => r.Covers(method, normalized))
             .OrderByDescending(r => r.Prefix.Length)

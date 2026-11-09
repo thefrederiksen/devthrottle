@@ -1,0 +1,476 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using CcDirector.Core.Account;
+using CcDirector.Core.Security;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Data;
+using CcDirector.Gateway.DevReports;
+using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.Factory;
+using CcDirector.Gateway.Factory.Registry;
+using CcDirector.Gateway.History;
+using CcDirector.Core.Sessions;
+using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Settings;
+using CcDirector.Gateway.Skills;
+using CcDirector.Gateway.Streaming;
+using CcDirector.Gateway.Teams;
+using CcDirector.Gateway.Teams.Mentor;
+using CcDirector.Gateway.Tenancy;
+using CcDirector.Gateway.Tests.Data;
+using CcDirector.Gateway.Util;
+using CcDirector.Gateway.Workflows;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests.Teams;
+
+/// <summary>
+/// A TEAM'S FACTORY RUNS ON THE TEAM'S DIRECTOR AND REPORTS INTO THE TEAM (Team implementation piece 3.2,
+/// devthrottle_internal#2797), the whole path in one in-memory hosted Gateway with Teams released - no port, no real
+/// Director, no clock. Every request carries a REAL key and goes through the pipeline the hosted host runs, in its order:
+/// the real authentication middleware (device keys and session keys, with the session key guard), the tenant scope the
+/// verified key names, routing, and the real team gate with the real ownership resolver. The routes are the real ones
+/// wherever the path writes or reads something: the factory registry, the activity record, the dev report routes, and
+/// every team route (<see cref="TeamRoutes.Map"/>). What a Director pulls while it runs a factory (its triggers and
+/// checks) and the Boss's factory inbox are mapped as routes that only say they were reached, because for those the
+/// question this piece asks is only whether the key, the guard and the gate let the team's own Director through.
+///
+/// The people: Acme's Owner (on their own team Director, OWNERPC, with a Boss session on it); Alice, a Developer of Acme
+/// with her own Director on Acme; Mike and Nina, contributors of Acme; Beta, another team of another Owner.
+/// </summary>
+public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
+{
+    private const string Owner = "sub-tf-owner";
+    private const string Alice = "sub-tf-alice";
+    private const string Mike = "sub-tf-mike";
+    private const string Nina = "sub-tf-nina";
+    private const string BetaOwner = "sub-tf-beta-owner";
+    private const string Factory = "demo-website";
+    private const string OwnerDirector = "director-owner";
+    private const string AliceDirector = "director-alice";
+    private const string OwnerMachine = "OWNERPC";
+    private const string AliceMachine = "ALICEPC";
+    private static readonly string BossSession = "b0550000-0000-4000-8000-000000000001";
+    private static readonly string AliceSession = "a11ce000-0000-4000-8000-000000000001";
+    private static readonly DateTime Now = new(2026, 11, 9, 10, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>A report in the shape the publish route accepts, with no questions in it.</summary>
+    private const string ReportHtml =
+        "<header data-dev-report=\"header\" data-dev-report-status=\"done\"><h1>Menu page is live</h1></header>" +
+        "<section data-dev-report=\"summary\"><p>The menu page went live.</p></section>" +
+        "<section data-dev-report=\"questions\"><p data-dev-report-no-questions>No questions.</p></section>" +
+        "<section data-dev-report=\"detail\"><p>Built and checked.</p></section>";
+
+    private readonly GatewayDbTestHarness _harness = new();
+    private readonly string _missionsDir = Path.Combine(Path.GetTempPath(), "cc-tf-missions-" + Guid.NewGuid().ToString("N"));
+    private GatewayDatabase _db = null!;
+    private DeviceRegistry _devices = null!;
+    private TenantRegistry _tenants = null!;
+    private TeamRegistry _teams = null!;
+    private DirectorRegistry _directors = null!;
+    private SessionKeyRegistry _sessionKeys = null!;
+    private DevReportStore _reports = null!;
+    private FactoryRegistryStore _factories = null!;
+    private FactoryActivityRecord _activity = null!;
+    private HostedTenantBoundary _boundary = null!;
+    private WebApplication _app = null!;
+    private HttpClient _http = null!;
+    private string _acme = null!;
+    private string _beta = null!;
+    private readonly Dictionary<string, string> _keys = new(StringComparer.Ordinal);
+    private readonly List<string> _reached = new();
+
+    public async Task InitializeAsync()
+    {
+        var ambient = new AsyncLocalTenantContext();
+        _db = _harness.Open(ambient);
+        _tenants = new TenantRegistry(_db);
+        foreach (var (subject, email) in new[]
+                 {
+                     (Owner, "owner@example.com"), (Alice, "alice@example.com"), (Mike, "mike@example.com"),
+                     (Nina, "nina@example.com"), (BetaOwner, "beta@example.com"),
+                 })
+            _tenants.MintOrLookupBySubject(subject, email);
+        _teams = new TeamRegistry(_db, _tenants);
+        var access = new TeamAccess(_teams);
+        _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
+        _boundary = new HostedTenantBoundary(ambient, _devices, hosted: true);
+        _directors = new DirectorRegistry(_harness.LegacyPath("instances"));
+        var pushed = new PushedSessionStore();
+        _sessionKeys = new SessionKeyRegistry(_db, isHosted: true, clock: () => Now);
+        _reports = new DevReportStore(_db);
+        _factories = new FactoryRegistryStore(_db);
+        _activity = new FactoryActivityRecord(_db);
+        var ownership = new TeamCallerOwnership(_directors, pushed, _devices, new SessionTurnStore(_db), _boundary, _sessionKeys,
+            reportAuthor: (tenant, id) => _reports.Get(tenant, id)?.AuthorSubject);
+        var gate = new TeamEndpointGate(access, _teams, _tenants, _boundary, ownership);
+        var factorySwitch = new FactoryAgentsSwitch(machineWide: false, new TenantSettingsStore(_db), log: _ => { });
+        var skills = new SkillStore(_db, deferInitialize: true);
+        var workflows = new WorkflowStore(_db, deferInitialize: true);
+        using (ambient.Enter(TenantId.System))
+        {
+            skills.Initialize();
+            workflows.Initialize();
+        }
+        var delivery = new DevReportDelivery(_reports,
+            (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session is live in these tests"),
+            (_, _) => null, CancellationToken.None, () => Now);
+
+        // The teams. Factories are switched on for Acme and Beta, as Pro carries them into a team its Owner owns.
+        _acme = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
+        _beta = _teams.CreateTeam(BetaOwner, "Beta").Team!.TeamId;
+        factorySwitch.Set(new TenantId(_acme), true, "the administrator (test)", "factories for Acme", Now);
+        factorySwitch.Set(new TenantId(_beta), true, "the administrator (test)", "factories for Beta", Now);
+        Assert.True(_teams.AddMember(_acme, Alice, TeamRole.Developer).IsDone);
+        Assert.True(_teams.AddMember(_acme, Mike, TeamRole.Collaborator).IsDone);
+        Assert.True(_teams.AddMember(_acme, Nina, TeamRole.Collaborator).IsDone);
+
+        // The keys, minted the way hosted enrolment mints them.
+        _keys["owner-team-browser"] = _devices.RegisterForTenant(new TenantId(_acme), Owner,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_acme, Owner, "browser-owner"), "Browser", deviceType: "browser").DeviceKey;
+        _keys["owner-director"] = TeamDirector(Owner, OwnerDirector, OwnerMachine);
+        _keys["alice-director"] = TeamDirector(Alice, AliceDirector, AliceMachine);
+        _keys["boss"] = SessionKey(OwnerDirector, BossSession);
+        _keys["alice-session"] = SessionKey(AliceDirector, AliceSession);
+        foreach (var (name, subject) in new[] { ("owner", Owner), ("mike", Mike), ("nina", Nina), ("beta-owner", BetaOwner) })
+            _keys[name + "-browser"] = _devices.RegisterForTenant(_tenants.MintOrLookupBySubject(subject, null), subject,
+                "browser-" + name, "Browser", deviceType: "browser").DeviceKey;
+
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.Services.AddRouting();
+        builder.Services.AddLogging();
+        builder.WebHost.UseTestServer();
+        _app = builder.Build();
+
+        // The hosted host's order: authentication, the tenant scope of the verified key, routing, the team gate.
+        var auth = new AuthMiddleware.RequireToken
+        {
+            Hosted = true, Devices = _devices, Sessions = _sessionKeys, Boundary = _boundary,
+            IsRaised = _ => false, RecordRaisedAction = (_, _, _, _) => { },
+        };
+        _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, auth, next));
+        _app.Use(async (ctx, next) =>
+        {
+            if (_boundary.ResolveRequestTenant(ctx) is { } tenant)
+            {
+                using (_boundary.EnterScope(tenant))
+                    await next();
+            }
+            else
+            {
+                await next();
+            }
+        });
+        _app.UseRouting();
+        _app.Use(async (ctx, next) => await gate.RunAsync(ctx, () => next()));
+
+        // The real routes the path writes and reads through.
+        var factoryGate = FactoryAgentsGate.Group(_app, factorySwitch, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _boundary));
+        FactoryActivityEndpoints.Map(factoryGate, _activity);
+        FactoryRegistryEndpoints.Map(factoryGate, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _boundary), _factories,
+            sessionStart: (_, _) => null, nowUtc: () => Now, isDefined: (_, _) => false);
+        DevReportEndpoints.Map(_app, _reports, delivery, _boundary,
+            naming: (_, _) => new DevReportSessionNaming(null, null),
+            // The session history names the Boss session as the factory's Boss seat; nothing else is a seat.
+            factorySeatOf: (_, sid) => sid == BossSession ? new DevReportFactorySeatIdentity(Factory, "boss") : null,
+            author: new DevReportAuthor(_teams, ownership),
+            missionDocuments: new MissionDocumentLinker(new MissionStore(_missionsDir, adoptUnattributedAs: null), (_, _) => null));
+        TeamRoutes.Map(_app, new TeamRouteServices(
+            Teams: _teams, Access: access, Boundary: _boundary, Tenants: _tenants, Devices: _devices,
+            FleetMap: new TeamFleetMap(_teams, access, _directors, ownership, pushed),
+            InvitationMailer: new NoMailer(), PublicBase: () => "https://gateway.example",
+            Requests: new TeamRequestStore(_db, _teams), Skills: skills, Workflows: workflows,
+            MentorStore: new TeamMentorStore(_db), TimeZoneOf: _ => "UTC", MentorRunning: false,
+            Reports: _reports, Recipients: new DevReportRecipients(_db), Comments: new DevReportPersonComments(_db),
+            Delivery: delivery, Factories: _factories, Activity: _activity, FactoryContributors: new FactoryContributors(_db),
+            FactorySwitch: factorySwitch, UtcNow: () => Now));
+
+        // What a Director pulls while it runs a factory, and the Boss's own factory inbox: reached or not.
+        foreach (var (method, pattern) in DirectorAndBossRoutes)
+            _app.MapMethods(pattern, new[] { method }, (HttpContext ctx) =>
+            {
+                _reached.Add($"{method} {pattern}");
+                return Results.Ok(new { reached = true });
+            });
+
+        await _app.StartAsync();
+        _http = _app.GetTestClient();
+    }
+
+    public async Task DisposeAsync()
+    {
+        _http.Dispose();
+        await _app.DisposeAsync();
+        _devices.Dispose();
+        _harness.Dispose();
+        if (Directory.Exists(_missionsDir)) Directory.Delete(_missionsDir, recursive: true);
+    }
+
+    /// <summary>What the team's Director pulls for the factories it runs, and what its Boss session reads and answers in
+    /// its own factory inbox - each with the real route pattern the hosted Gateway maps.</summary>
+    private static readonly (string Method, string Pattern)[] DirectorAndBossRoutes =
+    {
+        ("GET", "/directors/{directorId}/triggers"),
+        ("POST", "/directors/{directorId}/triggers/{id}/checks"),
+        ("GET", "/directors/{directorId}/factory-checks/{factory}/{version:int}"),
+        ("GET", "/directors/{directorId}/factory-check-inputs/{factory}/{version:int}"),
+        ("GET", "/sessions/{sid}/factory-inbox"),
+        ("POST", "/sessions/{sid}/factory-inbox/{messageId}/decide"),
+        // Your inbox, as a session sends to it and reads it: the ACCOUNT's one inbox, not the session's.
+        ("POST", "/sessions/{sid}/inbox"),
+        ("GET", "/sessions/{sid}/inbox"),
+        ("GET", "/sessions/{sid}/inbox/{id}"),
+        ("POST", "/sessions/{sid}/inbox/{id}/reply"),
+    };
+
+    /// <summary>A member's Director enrolled into Acme, registered on its own key the way the tunnel's Hello does.</summary>
+    private string TeamDirector(string subject, string directorId, string machine)
+    {
+        var deviceId = HostedEnrollmentEndpoint.TeamScopedDeviceId(_acme, subject, directorId);
+        var key = _devices.RegisterForTenant(new TenantId(_acme), subject, deviceId, machine).DeviceKey;
+        _directors.RegisterFromStream(directorId, machine, "u", "1.0", 1, Now, new TenantId(_acme), directorId, "device:" + deviceId);
+        return key;
+    }
+
+    /// <summary>A session key the Director wrote for one of its sessions, as a Director registers it at start.</summary>
+    private string SessionKey(string directorId, string sessionId)
+    {
+        var key = GatewaySessionKey.Mint();
+        Assert.True(_sessionKeys.Register(new TenantId(_acme), directorId, sessionId, GatewaySessionKey.Hash(key), Now.AddHours(1)));
+        return key;
+    }
+
+    private async Task<(HttpStatusCode Status, JsonElement Body)> Call(string who, string method, string path, object? body = null)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _keys[who]);
+        if (body is not null)
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        using var response = await _http.SendAsync(request);
+        var text = await response.Content.ReadAsStringAsync();
+        var json = text.TrimStart().StartsWith('{') ? JsonDocument.Parse(text).RootElement.Clone() : default;
+        return (response.StatusCode, json);
+    }
+
+    private static string Describe((HttpStatusCode Status, JsonElement Body) answer) =>
+        $"{(int)answer.Status} {(answer.Body.ValueKind == JsonValueKind.Undefined ? "" : answer.Body.ToString())}";
+
+    private static object Registration(string computer) => new
+    {
+        factory = Factory, title = "Demo website", folder = "/srv/demo-website", computer, bossSeat = "boss",
+        seats = new[] { new { id = "boss", name = "Boss", role = "Boss", briefFile = "agents/boss.yaml" } },
+    };
+
+    /// <summary>The Owner creates the factory in the team, from their browser working in the team.</summary>
+    private async Task CreateFactory()
+    {
+        var created = await Call("owner-team-browser", "PUT", FactoryRegistryEndpoints.RegistryRoute, Registration(OwnerMachine));
+        Assert.True(created.Status == HttpStatusCode.OK, Describe(created));
+    }
+
+    /// <summary>The Boss session publishes one report with its own session key.</summary>
+    private async Task<Guid> PublishFromTheBoss()
+    {
+        var published = await Call("boss", "POST", $"/sessions/{BossSession}/dev-reports",
+            new { key = @"c:\factories\demo-website\reports\menu.html", html = ReportHtml });
+        Assert.True(published.Status == HttpStatusCode.OK, Describe(published));
+        return published.Body.GetProperty("report").GetProperty("id").GetGuid();
+    }
+
+    private static List<string> Ids(JsonElement body, string list) =>
+        body.GetProperty(list).EnumerateArray().Select(r => r.GetProperty("id").GetString()!).ToList();
+
+    // ---------------------------------------------------------------- the whole path
+
+    [Fact]
+    public async Task TeamFactory_CreatedRunAndReported_LandsInTheTeamAndReachesOnlyTheContributorItIsSentTo()
+    {
+        // 1. The Owner creates the factory in the team.
+        await CreateFactory();
+        Assert.Single(_factories.List(new TenantId(_acme)));
+        Assert.Empty(_factories.List(_tenants.MintOrLookupBySubject(Owner, null)));
+        Assert.Empty(_factories.List(new TenantId(_beta)));
+
+        // 2. The Owner's team Director pulls what it needs to run it, for itself.
+        foreach (var path in new[]
+                 {
+                     $"/directors/{OwnerDirector}/triggers", $"/directors/{OwnerDirector}/factory-checks/{Factory}/1",
+                     $"/directors/{OwnerDirector}/factory-check-inputs/{Factory}/1",
+                 })
+        {
+            var pulled = await Call("owner-director", "GET", path);
+            Assert.True(pulled.Status == HttpStatusCode.OK, $"{path}: {Describe(pulled)}");
+        }
+
+        // 3. Its Boss session reads its factory inbox, records a line for the contributor, and publishes a report.
+        var inbox = await Call("boss", "GET", $"/sessions/{BossSession}/factory-inbox");
+        Assert.True(inbox.Status == HttpStatusCode.OK, Describe(inbox));
+        var line = await Call("boss", "POST", FactoryActivityEndpoints.Route, new
+        {
+            factory = Factory, factoryAgent = "boss", what = "boss published the menu page", outcome = "done",
+            forContributor = "Your menu page is live.",
+        });
+        Assert.True(line.Status == HttpStatusCode.Created, Describe(line));
+        var reportId = await PublishFromTheBoss();
+
+        // 4. The report is in the TEAM's tenant, written by the Owner, as the factory's Boss - and nowhere else.
+        var stored = _reports.Get(new TenantId(_acme), reportId);
+        Assert.NotNull(stored);
+        Assert.Equal(Owner, stored!.AuthorSubject);
+        Assert.Null(_reports.Get(_tenants.MintOrLookupBySubject(Owner, null), reportId));
+        Assert.Null(_reports.Get(new TenantId(_beta), reportId));
+        var personalList = await Call("owner-browser", "GET", "/dev-reports");
+        Assert.True(personalList.Status == HttpStatusCode.OK, Describe(personalList));
+        Assert.DoesNotContain(reportId.ToString("D"), personalList.Body.ToString());
+
+        // 5. The Owner, from their own account, finds it among their reports in the team, shares the factory with Mike
+        //    and sends him the report.
+        var mine = await Call("owner-browser", "GET", $"/teams/{_acme}/reports/mine");
+        Assert.True(mine.Status == HttpStatusCode.OK, Describe(mine));
+        Assert.Contains(reportId.ToString("D"), Ids(mine.Body, "reports"));
+        var shared = await Call("owner-browser", "POST", $"/teams/{_acme}/factories/{Factory}/contributors",
+            new { memberId = TeamMemberIds.For(_acme, Mike) });
+        Assert.True(shared.Status == HttpStatusCode.OK, Describe(shared));
+        var sent = await Call("owner-browser", "POST", $"/teams/{_acme}/reports/mine/{reportId:D}/recipients",
+            new { memberIds = new[] { TeamMemberIds.For(_acme, Mike) }, version = 1 });
+        Assert.True(sent.Status == HttpStatusCode.OK, Describe(sent));
+
+        // 6. Mike sees the factory, its line for him and the report; Nina sees none of it.
+        var mikeInbox = await Call("mike-browser", "GET", $"/teams/{_acme}/contributor/inbox");
+        Assert.True(mikeInbox.Status == HttpStatusCode.OK, Describe(mikeInbox));
+        Assert.Contains(reportId.ToString("D"), Ids(mikeInbox.Body, "items"));
+        var mikePage = await Call("mike-browser", "GET", $"/teams/{_acme}/contributor/factories/{Factory}");
+        Assert.True(mikePage.Status == HttpStatusCode.OK, Describe(mikePage));
+        Assert.Contains("Your menu page is live.", mikePage.Body.ToString());
+        Assert.Contains("Menu page is live", mikePage.Body.GetProperty("sentToYou").ToString());
+
+        var ninaInbox = await Call("nina-browser", "GET", $"/teams/{_acme}/contributor/inbox");
+        Assert.True(ninaInbox.Status == HttpStatusCode.OK, Describe(ninaInbox));
+        Assert.DoesNotContain(reportId.ToString("D"), ninaInbox.Body.ToString());
+        Assert.Equal(HttpStatusCode.NotFound, (await Call("nina-browser", "GET", $"/teams/{_acme}/contributor/factories/{Factory}")).Status);
+        Assert.Equal(HttpStatusCode.NotFound, (await Call("nina-browser", "GET", $"/teams/{_acme}/reports/sent-to-me/{reportId:D}")).Status);
+
+        // 7. Another team's Owner cannot reach the team at all.
+        Assert.Equal(HttpStatusCode.NotFound, (await Call("beta-owner-browser", "GET", $"/teams/{_acme}/reports/mine")).Status);
+    }
+
+    // ---------------------------------------------------------------- who else may run it
+
+    [Fact]
+    public async Task AnotherMembersDirector_PullingTheOwnersDirectorsWork_IsRefused()
+    {
+        await CreateFactory();
+
+        var answer = await Call("alice-director", "GET", $"/directors/{OwnerDirector}/triggers");
+
+        Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
+        Assert.Equal(TeamEndpointGate.RefusalCode, answer.Body.GetProperty("code").GetString());
+        Assert.DoesNotContain(_reached, r => r.StartsWith("GET /directors/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ADevelopersOwnDirector_PullingFactoryWork_IsRefused_BecauseOnlyTheOwnerRunsTheTeamsFactories()
+    {
+        var answer = await Call("alice-director", "GET", $"/directors/{AliceDirector}/triggers");
+
+        Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
+        Assert.Empty(_reached);
+    }
+
+    [Fact]
+    public async Task ADevelopersSession_ReadingAFactoryInbox_IsRefused()
+    {
+        var answer = await Call("alice-session", "GET", $"/sessions/{AliceSession}/factory-inbox");
+
+        Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
+        Assert.Empty(_reached);
+    }
+
+    [Fact]
+    public async Task TheBossSession_ReadingAnotherMembersSessionsFactoryInbox_IsRefused()
+    {
+        var answer = await Call("boss", "GET", $"/sessions/{AliceSession}/factory-inbox");
+
+        Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
+        Assert.Empty(_reached);
+    }
+
+    [Fact]
+    public async Task TheBossSession_PublishingAsAnotherSession_IsRefusedAndWritesNothing()
+    {
+        var answer = await Call("boss", "POST", $"/sessions/{AliceSession}/dev-reports",
+            new { key = @"c:\elsewhere\report.html", html = ReportHtml });
+
+        Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
+        Assert.Empty(_reports.List(new TenantId(_acme), null));
+    }
+
+    // ---------------------------------------------------------------- the report reaches only who it is sent to
+
+    [Fact]
+    public async Task ABossReport_NotSentToAContributor_IsNotInTheirInbox_EvenWithTheFactoryShared()
+    {
+        await CreateFactory();
+        var reportId = await PublishFromTheBoss();
+        var shared = await Call("owner-browser", "POST", $"/teams/{_acme}/factories/{Factory}/contributors",
+            new { memberId = TeamMemberIds.For(_acme, Mike) });
+        Assert.True(shared.Status == HttpStatusCode.OK, Describe(shared));
+
+        var inbox = await Call("mike-browser", "GET", $"/teams/{_acme}/contributor/inbox");
+
+        Assert.True(inbox.Status == HttpStatusCode.OK, Describe(inbox));
+        Assert.DoesNotContain(reportId.ToString("D"), inbox.Body.ToString());
+    }
+
+    [Fact]
+    public async Task ABossReport_SentToAContributorWithoutTheFactoryShared_IsInTheirInbox_ButTheFactoryPageIsNotFound()
+    {
+        await CreateFactory();
+        var reportId = await PublishFromTheBoss();
+        var sent = await Call("owner-browser", "POST", $"/teams/{_acme}/reports/mine/{reportId:D}/recipients",
+            new { memberIds = new[] { TeamMemberIds.For(_acme, Nina) }, version = 1 });
+        Assert.True(sent.Status == HttpStatusCode.OK, Describe(sent));
+
+        var inbox = await Call("nina-browser", "GET", $"/teams/{_acme}/contributor/inbox");
+        var page = await Call("nina-browser", "GET", $"/teams/{_acme}/contributor/factories/{Factory}");
+
+        Assert.Contains(reportId.ToString("D"), Ids(inbox.Body, "items"));
+        Assert.Equal(HttpStatusCode.NotFound, page.Status);
+    }
+
+    // ---------------------------------------------------------------- Your inbox is not a team's yet
+
+    [Theory]
+    [InlineData("boss", "POST", "/sessions/" + "b0550000-0000-4000-8000-000000000001" + "/inbox")]
+    [InlineData("alice-session", "GET", "/sessions/" + "a11ce000-0000-4000-8000-000000000001" + "/inbox")]
+    [InlineData("alice-session", "GET", "/sessions/" + "a11ce000-0000-4000-8000-000000000001" + "/inbox/m-1")]
+    [InlineData("alice-session", "POST", "/sessions/" + "a11ce000-0000-4000-8000-000000000001" + "/inbox/m-1/reply")]
+    public async Task YourInbox_FromASessionInTheTeam_IsRefusedAsNotOpenedToTeams(string who, string method, string path)
+    {
+        // Before this piece the "/sessions" rule let these through for the caller's own session, and they read and wrote
+        // the TEAM's one inbox: the Owner's Boss left messages there the Owner can never read, and a Developer's own
+        // session read them.
+        var answer = await Call(who, method, path, method == "POST" ? new { subject = "s", body = "b", text = "t" } : null);
+
+        Assert.True(answer.Status == HttpStatusCode.Forbidden, Describe(answer));
+        Assert.Equal(TeamEndpointGate.UndeclaredRefusal, answer.Body.GetProperty("error").GetString());
+        Assert.Empty(_reached);
+    }
+
+    private sealed class NoMailer : ITeamInvitationMailer
+    {
+        public Task<TeamInvitationMailResult> SendAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default) =>
+            throw new InvalidOperationException("no invitation is sent in these tests");
+
+        public Task<TeamInvitationMailResult> SendAddedAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default) =>
+            throw new InvalidOperationException("no invitation is sent in these tests");
+    }
+}
