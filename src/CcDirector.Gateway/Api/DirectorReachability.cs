@@ -32,6 +32,15 @@ internal enum DirectorReach
 ///
 /// Facts only - no probe, no extra traffic. A reading is a summary of sends that already happened.
 ///
+/// WHAT IT COSTS, AND THE ONE WAY IT LEAKS. An entry is a string key, two timestamps and a count, written
+/// only for a Director the Gateway has actually sent a command to, and removed when that Director's live
+/// connection closes. The entry that is never removed belongs to a Director that vanished without its
+/// active connection closing - a machine that lost power and never came back - and it survives until the
+/// process restarts, which for the hosted Gateway is every deploy. That is a bounded, countable cost rather
+/// than one worth a sweeper, and it is written down here so the next reader does not have to measure it.
+/// The read-then-write in <see cref="Answered"/> is deliberately unlocked for the same reason: two answers
+/// racing can only drop a LastSilentUtc, which nothing decides anything on.
+///
 /// KEYED BY DIRECTOR ID ALONE, AND THAT IS SAFE HERE, in a Gateway where almost everything else is keyed by
 /// (tenant, director). A Director id is a GUID minted by the machine itself (DirectorIdentitySlot), so two
 /// tenants cannot name the same one by construction, and what is held is two timestamps and a count - no
