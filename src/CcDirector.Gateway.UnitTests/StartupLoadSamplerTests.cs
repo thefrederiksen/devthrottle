@@ -1,0 +1,170 @@
+using System.Text;
+using CcDirector.Gateway.Diagnostics;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests;
+
+/// <summary>
+/// The deploy outage measurement: a load line every two seconds for the first ten minutes after start, then
+/// nothing. The loop is driven by a fake clock that the fake wait advances, so these tests take no real time
+/// and do not depend on the machine.
+/// </summary>
+public sealed class StartupLoadSamplerTests
+{
+    private static readonly DateTime Start = new(2026, 11, 9, 2, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void Run_TenMinuteWindow_WritesThreeHundredSamplesThenStops()
+    {
+        using var sampler = new StartupLoadSampler();
+        var clock = TimeSpan.Zero;
+        var lines = new List<string>();
+        var waits = 0;
+
+        var samples = sampler.Run(
+            elapsed: () => clock,
+            wait: d => { waits++; clock += d; return true; },
+            write: lines.Add,
+            utcNow: () => Start + clock);
+
+        // 0, 2, 4 ... 598 seconds: 300 samples, and the loop returned by itself at the window.
+        Assert.Equal(300, samples);
+        Assert.Equal(StartupLoadSampler.Window, clock);
+        Assert.Equal(300, lines.Count(l => l.Contains(" utc=")));
+        Assert.StartsWith($"{StartupLoadSampler.LinePrefix} started", lines[0]);
+        Assert.StartsWith($"{StartupLoadSampler.LinePrefix} finished: 300 samples", lines[^1]);
+        Assert.Equal(300, waits);
+    }
+
+    [Fact]
+    public void Run_SampleLinesCarryUtcTimestampsTwoSecondsApart()
+    {
+        using var sampler = new StartupLoadSampler();
+        var clock = TimeSpan.Zero;
+        var lines = new List<string>();
+
+        sampler.Run(() => clock, d => { clock += d; return true; }, lines.Add, () => Start + clock);
+
+        var samples = lines.Where(l => l.Contains(" utc=")).ToList();
+        Assert.Contains(" utc=2026-11-09T02:00:00.000Z t=0.0s ", samples[0]);
+        Assert.Contains(" utc=2026-11-09T02:00:02.000Z t=2.0s ", samples[1]);
+        Assert.Contains(" utc=2026-11-09T02:09:58.000Z t=598.0s ", samples[^1]);
+    }
+
+    [Fact]
+    public void Run_SlowSample_DoesNotPushTheScheduleBack()
+    {
+        using var sampler = new StartupLoadSampler();
+        var clock = TimeSpan.Zero;
+        var waited = new List<TimeSpan>();
+        var lines = new List<string>();
+
+        sampler.Run(
+            () => clock,
+            d => { waited.Add(d); clock += d; return true; },
+            line => { lines.Add(line); if (line.Contains(" t=0.0s ")) clock += TimeSpan.FromMilliseconds(500); },
+            () => Start + clock);
+
+        // The first sample took half a second, so the first wait is the remaining 1.5 seconds, not 2.
+        Assert.Equal(TimeSpan.FromMilliseconds(1500), waited[0]);
+        Assert.Equal(TimeSpan.FromSeconds(2), waited[1]);
+    }
+
+    [Fact]
+    public void Run_StartedPastTheWindow_WritesNoSample()
+    {
+        using var sampler = new StartupLoadSampler();
+        var lines = new List<string>();
+
+        var samples = sampler.Run(() => StartupLoadSampler.Window, _ => true, lines.Add, () => Start);
+
+        Assert.Equal(0, samples);
+        Assert.Equal(2, lines.Count);
+    }
+
+    [Fact]
+    public void Run_WaitRefuses_StopsEarly()
+    {
+        using var sampler = new StartupLoadSampler();
+        var lines = new List<string>();
+
+        var samples = sampler.Run(() => TimeSpan.Zero, _ => false, lines.Add, () => Start);
+
+        Assert.Equal(1, samples);
+    }
+
+    [Fact]
+    public void FormatLine_NoDatabaseYet_SaysSoAndCarriesTheThreadPool()
+    {
+        using var sampler = new StartupLoadSampler();
+
+        var line = sampler.FormatLine(TimeSpan.FromSeconds(4), Start);
+
+        Assert.StartsWith(StartupLoadSampler.LinePrefix, line);
+        Assert.Contains(" threads=", line);
+        Assert.Contains(" queued=", line);
+        Assert.Contains(" hub=", line);
+        Assert.Contains(" db=none-yet", line);
+    }
+
+    [Fact]
+    public void Record_PoolMeasurements_AppearPerPoolUnderAHashedLabel()
+    {
+        using var sampler = new StartupLoadSampler();
+        const string pool = "Host=db.example.internal;Username=gateway;Database=gw";
+
+        sampler.Record("db.client.connections.usage", observable: true, 15, Tags(pool, "used"));
+        sampler.Record("db.client.connections.usage", observable: true, 0, Tags(pool, "idle"));
+        sampler.Record("db.client.connections.max", observable: true, 15, Tags(pool, null));
+        // Up-down counters arrive as adds: three waiters joined, one left.
+        sampler.Record("db.client.connections.pending_requests", observable: false, 1, Tags(pool, null));
+        sampler.Record("db.client.connections.pending_requests", observable: false, 1, Tags(pool, null));
+        sampler.Record("db.client.connections.pending_requests", observable: false, 1, Tags(pool, null));
+        sampler.Record("db.client.connections.pending_requests", observable: false, -1, Tags(pool, null));
+        sampler.Record("db.client.connections.timeouts", observable: false, 1, Tags(pool, null));
+        // A duration histogram is not a count and is left out.
+        sampler.Record("db.client.commands.duration", observable: false, 1234, Tags(pool, null));
+
+        var sb = new StringBuilder();
+        sampler.AppendDatabasePools(sb);
+        var text = sb.ToString();
+
+        var label = StartupLoadSampler.PoolLabel(pool);
+        Assert.Equal(
+            $" db[{label}] used=15 idle=0 max=15 waiting=2 timeouts=1 executing=-",
+            text);
+        Assert.DoesNotContain("db.example.internal", text);
+        Assert.DoesNotContain("1234", text);
+    }
+
+    [Fact]
+    public void FormatLine_RealNpgsqlPool_IsReadFromNpgsqlsOwnMeter()
+    {
+        // The real library, with no server: creating a pooled data source publishes its pool instruments, and
+        // nothing here opens a connection. This proves the instrument names and tags the sampler listens for
+        // are the ones Npgsql actually emits.
+        using var sampler = new StartupLoadSampler();
+        using var dataSource = Npgsql.NpgsqlDataSource.Create(
+            "Host=sampler-test.invalid;Username=u;Password=p;Database=d;Maximum Pool Size=7");
+
+        var line = sampler.FormatLine(TimeSpan.Zero, Start);
+
+        Assert.Matches(@" db\[[0-9a-f]{6}\] used=0 idle=0 max=7 ", line);
+        Assert.DoesNotContain("sampler-test.invalid", line);
+    }
+
+    [Fact]
+    public void PoolLabel_IsStableAndShort()
+    {
+        Assert.Equal(StartupLoadSampler.PoolLabel("a"), StartupLoadSampler.PoolLabel("a"));
+        Assert.NotEqual(StartupLoadSampler.PoolLabel("a"), StartupLoadSampler.PoolLabel("b"));
+        Assert.Equal(6, StartupLoadSampler.PoolLabel("a").Length);
+    }
+
+    private static KeyValuePair<string, object?>[] Tags(string pool, string? state)
+    {
+        var tags = new List<KeyValuePair<string, object?>> { new("pool.name", pool) };
+        if (state is not null) tags.Add(new("state", state));
+        return tags.ToArray();
+    }
+}

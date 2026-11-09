@@ -1,3 +1,4 @@
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -30,9 +31,13 @@ public static class GatewayEntryPoint
         //
         //  - Its own log file. The default discriminator is the process id, which is 1 in EVERY container,
         //    so both containers computed the same path on the Server Message Block mount and clobbered each
-        //    other's records mid-line. The file now lives on the container's temporary disk as well: process
-        //    logging is not durable workload state, and putting it on the shared mount turns every routine
-        //    line into billed network storage traffic. Both settings must be applied before FileLog.Start().
+        //    other's records mid-line. Each container start now draws a random file token instead, so two
+        //    overlapping containers can never write one file. Both settings must be applied before
+        //    FileLog.Start().
+        //  - On the persistent shared drive, so it SURVIVES A DEPLOY (owner decision, 9 November 2026). From
+        //    September to November 2026 it lived on the container's temporary disk to save share traffic, and
+        //    every deploy erased it - the one moment the deploy outage investigation needed it. It lives in
+        //    its own folder, logs/hosted-gateway, which HostedLogRetention keeps bounded at each start.
         //  - Standard output as a second sink. The platform captures it per container, and it has no queue
         //    in front of it, so it survives a stalled file share - the failure that erased the startup
         //    record of three deploys and left "no listening ports were detected" with nothing to explain it.
@@ -40,16 +45,31 @@ public static class GatewayEntryPoint
         // Keyed on the IMMUTABLE hosted image identity, not the CC_GATEWAY_HOSTED toggle: a slot swap or a
         // config restore can drop the environment variable, and the moment it does is exactly when two
         // containers are running and the logging matters most.
+        string? hostedLogDirectory = null;
+        Diagnostics.HostedLogRetention.Result? hostedLogPrune = null;
+        string? hostedLogPruneError = null;
         if (GatewayHostedMode.IsHostedImage)
         {
-            FileLog.UseUniqueInstanceId(ResolveHostedLogDirectory(Path.GetTempPath()));
+            hostedLogDirectory = ResolveHostedLogDirectory(CcStorage.Root());
+            // The prune reads the share before the log is open. A share that refuses the listing must not stop the
+            // Gateway from starting: it is recorded, said in the log below, and the log itself then reports its own
+            // sink health as it always has.
+            try
+            {
+                hostedLogPrune = Diagnostics.HostedLogRetention.Prune(hostedLogDirectory, DateTime.UtcNow);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                hostedLogPruneError = $"{ex.GetType().Name}: {ex.Message}";
+            }
+            FileLog.UseUniqueInstanceId(hostedLogDirectory);
             FileLog.MirrorToConsole = true;
         }
 
         FileLog.Start();
         FileLog.Write($"[Program] CC Director Gateway starting, log: {FileLog.CurrentLogPath}");
-        // This is the real Gateway process, so its own failure lines go into the error store as well as this log, which
-        // on hosted is lost on every deploy (the Error Logging mission, issue #3675).
+        // This is the real Gateway process, so its own failure lines go into the error store as well as this log
+        // (the Error Logging mission, issue #3675).
         Api.GatewayErrorSink.AttachToProcessLog = true;
         if (GatewayHostedMode.IsHostedImage)
         {
@@ -58,6 +78,23 @@ public static class GatewayEntryPoint
             FileLog.Write(
                 $"[Program] hosted container: machine={Environment.MachineName} " +
                 $"pid={Environment.ProcessId} instance={Environment.GetEnvironmentVariable("WEBSITE_INSTANCE_ID") ?? "<unset>"}");
+            if (hostedLogPrune is null)
+            {
+                FileLog.Write($"[Program] hosted log folder {hostedLogDirectory}: prune FAILED, nothing removed: {hostedLogPruneError}");
+            }
+            else
+            {
+                FileLog.Write(
+                    $"[Program] hosted log folder {hostedLogDirectory}: kept {hostedLogPrune.Kept} file(s), " +
+                    $"{hostedLogPrune.BytesKept} bytes; removed {hostedLogPrune.Removed} file(s), {hostedLogPrune.BytesRemoved} bytes");
+                foreach (var failure in hostedLogPrune.Failures)
+                    FileLog.Write($"[Program] hosted log prune could not remove {failure}");
+            }
+
+            // The deploy outage measurement (owner decision, 9 November 2026): a load line every two seconds for
+            // the first ten minutes, into the log above, which survives the deploy. Started here, before the
+            // host opens any database connection, so its view of the database pools is complete from zero.
+            Diagnostics.StartupLoadSampler.StartOnOwnThread(FileLog.Write);
         }
 
         int port = GatewayHost.DefaultPort;
@@ -150,15 +187,17 @@ public static class GatewayEntryPoint
     }
 
     /// <summary>
-    /// Locate a hosted process log beneath the container's temporary root. Azure App Service keeps paths
-    /// outside <c>/home</c> and explicitly mounted storage on local host disk, so this path cannot fall back
-    /// into the Gateway's durable data share. The root is supplied to make that boundary directly testable.
+    /// Locate the hosted process log on the Gateway's storage root - on Azure App Service, the Azure Files
+    /// share mounted at <c>/home/gateway/cc-director</c> (storage account <c>stdevthrottlegw</c>, share
+    /// <c>gwdata</c>), so the folder is <c>logs/hosted-gateway</c> on that share and outlives every container.
+    /// Its own folder, not the desktop's <c>logs/director</c>, so the retention prune touches nothing else.
+    /// The root is supplied to make the location directly testable.
     /// </summary>
-    internal static string ResolveHostedLogDirectory(string temporaryRoot)
+    internal static string ResolveHostedLogDirectory(string storageRoot)
     {
-        if (string.IsNullOrWhiteSpace(temporaryRoot))
-            throw new ArgumentException("A temporary root is required.", nameof(temporaryRoot));
+        if (string.IsNullOrWhiteSpace(storageRoot))
+            throw new ArgumentException("A storage root is required.", nameof(storageRoot));
 
-        return Path.Combine(Path.GetFullPath(temporaryRoot), "devthrottle", "logs", "director");
+        return Path.Combine(Path.GetFullPath(storageRoot), "logs", "hosted-gateway");
     }
 }

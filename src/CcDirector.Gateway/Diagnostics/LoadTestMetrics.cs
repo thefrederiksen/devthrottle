@@ -133,6 +133,28 @@ public static class LoadTestMetrics
     /// <summary>A DirectorHub connection closed.</summary>
     public static void HubConnectionClosed() => Interlocked.Decrement(ref _hubConnections);
 
+    /// <summary>The running counters and live gauges, read WITHOUT resetting anything, for
+    /// <see cref="StartupLoadSampler"/>. A read only: every counter keeps the meaning it has in
+    /// <see cref="Snapshot"/>, so a sampled line and a scraped snapshot can be compared directly.</summary>
+    internal static LiveCounters ReadLive() => new(
+        RosterRequests: Interlocked.Read(ref _rosterRequests),
+        RosterNonSuccess: Interlocked.Read(ref _rosterNonSuccess),
+        HubConnections: Volatile.Read(ref _hubConnections),
+        HubConnectionsTotal: Interlocked.Read(ref _hubConnectionsTotal),
+        HubPushInFlight: Volatile.Read(ref _hubPushInFlight),
+        HubPushEvents: Interlocked.Read(ref _hubPushEvents),
+        SweepInFlight: Volatile.Read(ref _sweepInFlight));
+
+    /// <summary>See <see cref="ReadLive"/>.</summary>
+    internal readonly record struct LiveCounters(
+        long RosterRequests,
+        long RosterNonSuccess,
+        int HubConnections,
+        long HubConnectionsTotal,
+        int HubPushInFlight,
+        long HubPushEvents,
+        int SweepInFlight);
+
     /// <summary>The worker pool's floor, so the hosted host's MinThreads setting (issue #4400) can be confirmed live.</summary>
     private static int MinWorkerThreads()
     {
