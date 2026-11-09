@@ -191,8 +191,9 @@ public sealed class TeamQuestionsTests : IDisposable
         Assert.Equal(1, mike.GetProperty("count").GetInt32());
         var card = mike.GetProperty("waiting")[0];
         Assert.Equal(Question, card.GetProperty("question").GetString());
-        Assert.Equal("alice@example.com", card.GetProperty("askedBy").GetString());
-        Assert.Equal("Your words go to alice@example.com. Only your choice reaches the agent.", card.GetProperty("commentNote").GetString());
+        // Mike is a Collaborator: the author is named by role, never by address (devthrottle_internal#2787).
+        Assert.Equal("a Developer of the team", card.GetProperty("askedBy").GetString());
+        Assert.Equal("Your words go to a Developer of the team. Only your choice reaches the agent.", card.GetProperty("commentNote").GetString());
         Assert.Equal(new[] { ("14", "14 days", true), ("30", "30 days", false) },
             card.GetProperty("options").EnumerateArray().Select(o => (o.GetProperty("value").GetString()!, o.GetProperty("label").GetString()!, o.GetProperty("recommended").GetBoolean())));
 
@@ -501,7 +502,8 @@ public sealed class TeamQuestionsTests : IDisposable
         Assert.Equal("You chose \"30 days\"", answer.GetProperty("chosenLabel").GetString());
         Assert.Equal("Delivered when the agent finishes its turn", answer.GetProperty("statusLabel").GetString());
         Assert.Equal("my words", answer.GetProperty("yourComment").GetString());
-        Assert.Equal("Your words went to alice@example.com, not to the agent", answer.GetProperty("yourCommentLabel").GetString());
+        // Mike is a Collaborator: the author is named by role, never by address (devthrottle_internal#2787).
+        Assert.Equal("Your words went to a Developer of the team, not to the agent", answer.GetProperty("yourCommentLabel").GetString());
         Assert.False(list.GetProperty("answered")[0].GetProperty("canAnswer").GetBoolean());
     }
 

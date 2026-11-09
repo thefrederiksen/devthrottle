@@ -224,7 +224,8 @@ public sealed class TeamRequestStoreTests : IDisposable
 
         Assert.Equal(("done", "Done"), (seen.State, seen.StateLabel));
         Assert.Equal(T0.AddHours(2), seen.UpdatedAtUtc);
-        Assert.Equal(new[] { "Sent by You", "Accepted by mark@example.com", "Marked Done by olivia@example.com" },
+        // The sender is a Collaborator, who sees the others named by role, never by address (devthrottle_internal#2787).
+        Assert.Equal(new[] { "Sent by You", "Accepted by a Manager of the team", "Marked Done by the team's Owner" },
             seen.Trail.Select(s => s.Sentence));
         Assert.Equal(new[] { T0, T0.AddHours(1), T0.AddHours(2) }, seen.Trail.Select(s => s.AtUtc));
     }
@@ -241,7 +242,8 @@ public sealed class TeamRequestStoreTests : IDisposable
         var seen = Assert.Single(_store.ListMine(_team, Collaborator).Requests);
         Assert.Equal(("declined", "Not doing this"), (seen.State, seen.StateLabel));
         var last = seen.Trail[^1];
-        Assert.Equal(("Not doing this - mark@example.com", "mark@example.com", "Out of scope for this project", T0.AddMinutes(5)),
+        // The sender is a Collaborator, who sees the Manager named by role (devthrottle_internal#2787).
+        Assert.Equal(("Not doing this - a Manager of the team", "a Manager of the team", "Out of scope for this project", T0.AddMinutes(5)),
             (last.Sentence, last.By, last.Reason, last.AtUtc));
     }
 

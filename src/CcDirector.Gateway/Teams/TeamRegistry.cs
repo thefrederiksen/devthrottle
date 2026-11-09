@@ -246,7 +246,13 @@ public sealed partial class TeamRegistry
         }
 
         var members = ReadMembers(ctx, teamId);
-        FileLog.Write($"[TeamRegistry] ListMembers: team {LogTeam(teamId)} has {members.Count} member(s)");
+        // A role the table does not let see the members (a Collaborator, devthrottle_internal#2787) is given every OTHER
+        // member without an address, named by role. Every screen built on this list - a report's "from", a question's
+        // "asked by", a request's trail - therefore cannot show such a caller another person's address.
+        var seesMembers = TeamPermissions.Allows(callerRow.Role, TeamAction.SeeMembersAndRoles);
+        if (!seesMembers)
+            members = members.Select(m => string.Equals(m.AccountSubject, caller, StringComparison.Ordinal) ? m : WithoutAddress(m)).ToList();
+        FileLog.Write($"[TeamRegistry] ListMembers: team {LogTeam(teamId)} has {members.Count} member(s), addresses {(seesMembers ? "shown" : "withheld")}");
         return TeamMembersResult.Found(new TeamSummary(team.Id, team.Name, callerRow.Role, members.Count), members);
     }
 
@@ -264,6 +270,26 @@ public sealed partial class TeamRegistry
         FileLog.Write($"[TeamRegistry] MembersOf: team {LogTeam(teamId)} has {members.Count} member(s)");
         return members;
     }
+
+    /// <summary>A member as a caller who may not see the members reads them: no email address, and the role's name in
+    /// place of a name (<see cref="RoleName"/>). A made-up showcase member keeps the made-up name written on its row.</summary>
+    internal static TeamMember WithoutAddress(TeamMember member) =>
+        member with { Email = null, Name = member.Name ?? RoleName(member.Role) };
+
+    /// <summary>
+    /// How another member is named to a caller who may not see the members: by their role, because the Gateway holds no
+    /// name for a real person (the account's nickname lives on the website and can be read only with that person's own
+    /// token). One team has one Owner, so the Owner is named exactly. Lower case, because the name is set inside sentences
+    /// ("Your words go to the team's Owner") as well as on its own.
+    /// </summary>
+    public static string RoleName(TeamRole role) => role switch
+    {
+        TeamRole.Owner => "the team's Owner",
+        TeamRole.Manager => "a Manager of the team",
+        TeamRole.Developer => "a Developer of the team",
+        TeamRole.Collaborator => "a Collaborator of the team",
+        _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Not one of the four team roles."),
+    };
 
     private static List<TeamMember> ReadMembers(GatewayDbContext ctx, string teamId)
     {

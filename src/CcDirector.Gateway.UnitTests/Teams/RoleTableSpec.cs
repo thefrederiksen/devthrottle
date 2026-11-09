@@ -36,7 +36,8 @@ public static class RoleTableSpec
         new(TeamAction.BillingRenameOrDeleteTeam, "YNNN", "POST", "/teams/{teamId}/bill/start", TeamOwnership.Unknown,
             "no first-version issue adds rename or delete"),
         new(TeamAction.JoinOrWatchSomeoneElsesSession, "NNNN", "GET", "/sessions/{sid}/buffer", TeamOwnership.SomeoneElses, null),
-        new(TeamAction.SeeMembersAndRoles, "YYYY", "GET", "/teams/{teamId}/members", TeamOwnership.Unknown, null),
+        // The owner, 8 November 2026 (devthrottle_internal#2787): a Collaborator sees no member list.
+        new(TeamAction.SeeMembersAndRoles, "YYYN", "GET", "/teams/{teamId}/members", TeamOwnership.Unknown, null),
         new(TeamAction.ReadAnotherPersonsPrompts, "NNNN", "GET", "/prompts", TeamOwnership.SomeoneElses, null),
         new(TeamAction.ReadPromptsQuotedOnMentorPage, "YYNN", null, null, TeamOwnership.Unknown,
             "devthrottle_internal#2305 builds the Mentor page that quotes them"),

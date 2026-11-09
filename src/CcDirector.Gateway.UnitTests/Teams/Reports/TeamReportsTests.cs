@@ -285,7 +285,8 @@ public sealed class TeamReportsTests : IDisposable
 
         Assert.Equal(new[] { report.Id }, Ids(mike));
         var row = mike.GetProperty("reports")[0];
-        Assert.Equal("alice@example.com", row.GetProperty("from").GetString());
+        // Mike is a Collaborator: the author is named by role, never by address (devthrottle_internal#2787).
+        Assert.Equal("a Developer of the team", row.GetProperty("from").GetString());
         Assert.Equal("New", row.GetProperty("readLabel").GetString());
         Assert.False(row.GetProperty("read").GetBoolean());
         Assert.Empty(Ids(nina));
@@ -358,7 +359,8 @@ public sealed class TeamReportsTests : IDisposable
         // The writer sees their own, and where it goes.
         var theirs = (await Answer(_reports.SentToMeDetail(_team, Mike, report.Id))).Body;
         Assert.Equal(marker, theirs.GetProperty("comments")[0].GetProperty("text").GetString());
-        Assert.Equal("Your comments go to alice@example.com, who wrote this report. They are never shown to an agent.",
+        // Mike is a Collaborator: the author is named by role, never by address (devthrottle_internal#2787).
+        Assert.Equal("Your comments go to a Developer of the team, who wrote this report. They are never shown to an agent.",
             theirs.GetProperty("commentsNote").GetString());
         // Nothing reached the agent's conversation: no item to deliver, no reply, nothing waiting for the session.
         Assert.Empty(_store.Items(_tenant, report.Guid));

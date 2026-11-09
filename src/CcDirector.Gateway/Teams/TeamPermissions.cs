@@ -42,8 +42,9 @@ public enum TeamAction
     /// full transcript. No role may.</summary>
     JoinOrWatchSomeoneElsesSession,
 
-    /// <summary>See the team's member list and roles. #2098: "Shared with the team: ... the member list and
-    /// roles", so every member may.</summary>
+    /// <summary>See the team's member list and roles, and the other members' email addresses. #2098 shared the list
+    /// with every member; the owner's decision of 8 November 2026 (devthrottle_internal#2787) took it from the
+    /// Collaborator, who sees other members named by their role and never by their address.</summary>
     SeeMembersAndRoles,
 
     /// <summary>Read another person's prompts. #2098: prompts are "private to the person, apart from the few the
@@ -67,7 +68,7 @@ public enum TeamAction
     ReadAndDecideTeamRequests,
     /// <summary>Open the Team page (screen S1): the member list with roles and seats, and what the caller may do to
     /// each member. devthrottle_internal#2303: the Owner, Managers and Developers have the page; a Collaborator does
-    /// not - their app is the Collaborator's own (#2306), though they may still read the member list
+    /// not - their app is the Collaborator's own (#2306), and they may not read the member list either
     /// (<see cref="SeeMembersAndRoles"/>).</summary>
     SeeTeamPage,
 
@@ -147,7 +148,10 @@ public static class TeamPermissions
         new TeamPermissionRow(TeamAction.MakeManagersAndChangeRoles, "make someone a Manager or change roles", Yes, No, No, No),
         new TeamPermissionRow(TeamAction.BillingRenameOrDeleteTeam, "change the billing, or rename or delete the team", Yes, No, No, No),
         new TeamPermissionRow(TeamAction.JoinOrWatchSomeoneElsesSession, "join or watch someone else's session, or read their full transcript", No, No, No, No),
-        new TeamPermissionRow(TeamAction.SeeMembersAndRoles, "see the team's members and their roles", Yes, Yes, Yes, Yes),
+        // The owner, 8 November 2026 (devthrottle_internal#2787, security review Risk 11): a Collaborator sees only that
+        // the Owner invited them - no member list, and no other member's email address. Hired helpers and customers never
+        // see each other. The registry reads this same cell to name other members by role instead of by address.
+        new TeamPermissionRow(TeamAction.SeeMembersAndRoles, "see the team's members and their roles", Yes, Yes, Yes, No),
         new TeamPermissionRow(TeamAction.ReadAnotherPersonsPrompts, "read another person's prompts", No, No, No, No),
         new TeamPermissionRow(TeamAction.ReadPromptsQuotedOnMentorPage, "read the prompts the Mentor quotes on its page about a person", Yes, Yes, No, No),
         new TeamPermissionRow(TeamAction.ChangeAnotherPersonsMentorSettings, "change the Mentor's settings for another person", No, No, No, No),
