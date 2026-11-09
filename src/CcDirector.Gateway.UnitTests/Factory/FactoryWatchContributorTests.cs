@@ -102,6 +102,11 @@ public sealed class FactoryWatchContributorTests
         rows.Add(Seeded(seats[3].Id, FactoryActivityOutcome.Done, minute++, "owner (device:" + C("device") + ")"));
         rows.Add(Seeded("owner", FactoryActivityOutcome.Done, minute++, "owner (device:" + C("device2") + ")"));
         rows.Add(Seeded(C("unregistered"), FactoryActivityOutcome.Done, minute++, "session:" + C("actor2")));
+        // A correction the contributor DOES see (its sentence passes), so its correction id has a way to leak.
+        var shownCorrection = Seeded(seats[1].Id, FactoryActivityOutcome.Done, minute++, "you");
+        shownCorrection.CorrectsId = Guid.NewGuid();
+        shownCorrection.ForContributor = "Your work is back on track.";
+        rows.Add(shownCorrection);
 
         var view = FactoryWatchFold.View(f, rows, true, Day, Utc, FactoryWatchAudience.Contributor, new FactoryWatchContributorScope(wholeFactory, Machines));
         var json = JsonSerializer.Serialize(view);
@@ -114,6 +119,7 @@ public sealed class FactoryWatchContributorTests
         foreach (var row in rows)
             Assert.DoesNotContain(row.Id.ToString(), json, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(rows, r => r.CorrectsId is not null);
+        Assert.Equal(wholeFactory, json.Contains("Your work is back on track.", StringComparison.Ordinal)); // the correction is on the timeline
         foreach (var corrects in rows.Where(r => r.CorrectsId is not null).Select(r => r.CorrectsId!.Value))
             Assert.DoesNotContain(corrects.ToString(), json, StringComparison.OrdinalIgnoreCase);
 
