@@ -10,6 +10,7 @@ import {
   renewLicenseSignIn,
   setLicenseApprover,
   switchLicenseNow,
+  switchLicenseMachineNow,
   type LicenseAccount,
   type LicenseApprover,
   type LicenseApprovers,
@@ -22,6 +23,7 @@ import {
   type LicenseSetApprover,
   type LicenseSignInStarted,
   type LicenseSwitchNowResult,
+  type LicenseSwitchTarget,
   type LicenseVerdict,
 } from "@devthrottle/client-core/licenses/licensesClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
@@ -207,6 +209,25 @@ export function LicensesView({ initialTab = "overview" }: { initialTab?: License
     if (confirming === null || target === null) return;
     const result = await switchLicenseNow(confirming.accountEmail, target === confirming.switchNowTargetAccountEmail ? null : target);
     setLastSwitch(result);
+    refreshAll();
+  };
+
+  // SWITCH THIS MACHINE TO... (the drawer): one machine, to a target the person picks from the Gateway's list for that
+  // machine alone. The pick starts where the Gateway says (switchNowTargetAccountEmail, null when its choice cannot be
+  // chosen, and then the person picks); it is always sent as named, with the license the page showed the machine on, so
+  // a machine that moved meanwhile is refused rather than switched from a license nobody saw. The answer is shown where
+  // Switch now's is, in the same shape.
+  const [switchingMachine, setSwitchingMachine] = useState<LicenseMachine | null>(null);
+  const [machineTarget, setMachineTarget] = useState<string | null>(null);
+
+  const askSwitchMachine = (machine: LicenseMachine) => {
+    setMachineTarget(machine.switchNowTargetAccountEmail);
+    setSwitchingMachine(machine);
+  };
+
+  const confirmSwitchMachine = async () => {
+    if (switchingMachine === null || machineTarget === null) return;
+    setLastSwitch(await switchLicenseMachineNow(switchingMachine.machineId, switchingMachine.activeAccountEmail, machineTarget));
     refreshAll();
   };
 
@@ -454,6 +475,7 @@ export function LicensesView({ initialTab = "overview" }: { initialTab?: License
           onRenew={(machine, holding) => fromDrawer(() => setRenewing({ machine, holding }))}
           onAddSpare={(machine) => fromDrawer(() => askAddSpare(machine))}
           onRemove={(machine) => fromDrawer(() => setForgetting(machine))}
+          onSwitch={(machine) => fromDrawer(() => askSwitchMachine(machine))}
         />
       )}
 
@@ -469,6 +491,27 @@ export function LicensesView({ initialTab = "overview" }: { initialTab?: License
         action="switch the account"
         onConfirm={confirmSwitchNow}
         onClose={() => setConfirming(null)}
+      />
+
+      <ConfirmDialog
+        open={switchingMachine !== null}
+        title={switchingMachine === null ? "" : `Switch ${switchingMachine.label} now?`}
+        message={
+          switchingMachine === null ? null : (
+            <div className="lic-choice">
+              {switchingMachine.switchNowText !== null && <p className="lic-choice-text">{switchingMachine.switchNowText}</p>}
+              <SwitchTargetList targets={switchingMachine.switchTargets} target={machineTarget} onPick={setMachineTarget} />
+            </div>
+          )
+        }
+        confirmLabel="Switch now"
+        busyLabel="Switching..."
+        // One machine, and it can be moved back.
+        danger={false}
+        confirmDisabled={machineTarget === null}
+        action="switch the machine"
+        onConfirm={confirmSwitchMachine}
+        onClose={() => setSwitchingMachine(null)}
       />
 
       <ConfirmDialog
@@ -538,10 +581,27 @@ function SwitchNowChoice({
     <div className="lic-choice">
       {/* The sentence describes the Gateway's own choice, so it is shown only while that choice is the one picked. */}
       {target === account.switchNowTargetAccountEmail && <p className="lic-choice-text">{account.switchNowText}</p>}
-      {account.switchTargets.length > 0 && (
+      <SwitchTargetList targets={account.switchTargets} target={target} onPick={onPick} />
+    </div>
+  );
+}
+
+/** The targets the Gateway listed, each with its own sentence; one that cannot be chosen is shown, and shut. */
+function SwitchTargetList({
+  targets,
+  target,
+  onPick,
+}: {
+  targets: LicenseSwitchTarget[];
+  target: string | null;
+  onPick: (accountEmail: string) => void;
+}) {
+  return (
+    <>
+      {targets.length > 0 && (
         <fieldset className="lic-choice-targets">
           <legend>Move to</legend>
-          {account.switchTargets.map((option) => (
+          {targets.map((option) => (
             <label key={option.accountEmail} className={`lic-choice-target${option.canChoose ? "" : " disabled"}`}>
               <input
                 type="radio"
@@ -558,7 +618,7 @@ function SwitchNowChoice({
           ))}
         </fieldset>
       )}
-    </div>
+    </>
   );
 }
 

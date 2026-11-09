@@ -285,4 +285,8 @@ public static class LicenseManualRefusals
 
     /// <summary>No target was named and none qualifies.</summary>
     public const string NoTarget = "no-target";
+
+    /// <summary>Switch this machine now: the machine is no longer on the license the page showed it on, so the switch
+    /// the owner confirmed is not the one that would run.</summary>
+    public const string MachineMoved = "machine-moved";
 }

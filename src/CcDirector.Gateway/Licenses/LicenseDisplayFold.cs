@@ -479,7 +479,7 @@ public static partial class LicenseDisplayFold
         var everRead = picture.Overview.Accounts.Where(a => a.Freshest is not null).Select(a => a.AccountEmail).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var holdings = machine.Holdings.Select(h => Holding(h, nowUtc, everRead.Contains(h.AccountEmail))).ToList();
         var hold = HoldInForce(picture.Snapshot, machine);
-        return new LicenseMachineDto
+        var dto = new LicenseMachineDto
         {
             MachineId = machine.MachineId.ToString("N"),
             MachineName = machine.MachineName,
@@ -499,7 +499,57 @@ public static partial class LicenseDisplayFold
             HeldUntilUtc = hold is null ? null : Utc(hold.HeldUntilUtc),
             HeldText = hold is null ? null : HeldText(hold, nowUtc),
         };
+        ApplyMachineSwitch(dto, machine, picture);
+        return dto;
     }
+
+    // "Switch this machine to..." is the engine's own answer for this machine alone (the one SwitchMachineNowAsync gets),
+    // asked once per other license, so the drawer offers exactly what the route would accept.
+    private static void ApplyMachineSwitch(LicenseMachineDto dto, LicenseMachineView machine, LicensePicture picture)
+    {
+        if (machine.ActiveAccountEmail is not { } on)
+        {
+            dto.SwitchNowText = $"{dto.Label} is on no license, so there is nothing to switch it from.";
+            return;
+        }
+        var snapshot = LicenseSwitchService.SnapshotForOneMachine(LicenseSwitchService.SnapshotSwitchNowDecidesOn(picture),
+            machine.MachineName, machine.OsUser);
+        var best = LicenseDecisionEngine.NextTarget(snapshot, on);
+        string? firstRefusal = null;
+        foreach (var other in snapshot.Accounts.Select(a => a.AccountEmail).Where(e => !string.Equals(e, on, StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(e => e, StringComparer.Ordinal))
+        {
+            var named = LicenseDecisionEngine.PreviewManual(snapshot, on, other);
+            // Why the machine itself cannot move (stale, mid-switch) is the same for every target: said once below.
+            if (named.RefusalCode == LicenseManualRefusals.NoMachineToSwitch)
+            {
+                dto.SwitchTargets.Clear();
+                dto.SwitchNowText = MachineCannotMoveText(dto.Label, named);
+                return;
+            }
+            firstRefusal ??= named.RefusalMessage;
+            dto.SwitchTargets.Add(new LicenseSwitchTargetDto
+            {
+                AccountEmail = other,
+                CanChoose = named.Accepted,
+                UnavailableText = named.RefusalMessage,
+                IsAutomaticChoice = other == best,
+            });
+        }
+        dto.CanSwitchNow = dto.SwitchTargets.Any(t => t.CanChoose);
+        dto.SwitchNowTargetAccountEmail = dto.SwitchTargets.FirstOrDefault(t => t.IsAutomaticChoice && t.CanChoose)?.AccountEmail;
+        if (dto.CanSwitchNow)
+            dto.SwitchNowText = $"Moves {dto.Label} off {on}. The other machines stay where they are.";
+        else
+            dto.SwitchNowText = dto.SwitchTargets.Count == 0
+                ? $"There is no other license to switch {dto.Label} to."
+                : $"No other license can take {dto.Label} now. {firstRefusal}";
+    }
+
+    private static string MachineCannotMoveText(string label, LicenseManualSwitchVerdict refused)
+        => refused.Skipped.FirstOrDefault() is { } skipped
+            ? $"{label} cannot be switched now: {skipped.Why}."
+            : $"{label} cannot be switched now.";
 
     /// <summary>What a <see cref="LicenseLogKinds.Forgotten"/> row is called in the log.</summary>
     public const string ForgottenKindText = "Machine forgotten";

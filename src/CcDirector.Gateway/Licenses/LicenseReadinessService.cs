@@ -127,7 +127,7 @@ public sealed class LicenseReadinessService
         var next = LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace, outlook.RunsOut);
         var cannotSwitch = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns,
             _alarms.ListOpen(tenant), outlook.RunsOut);
-        return new LicensePageJudgement(next, judged, cannotSwitch, outlook.RunsOut);
+        return new LicensePageJudgement(next, judged, cannotSwitch, outlook.RunsOut, outlook.WeeklyPace);
     }
 
     private IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture,
@@ -322,8 +322,9 @@ public sealed class LicenseReadinessService
 /// <param name="Judged">Every machine's readiness.</param>
 /// <param name="CannotSwitch">The one license alarm's conditions, exactly as the minute check raises them.</param>
 /// <param name="RunsOut">For a license: when the forecast expects it to reach the switching threshold, or null.</param>
+/// <param name="WeeklyPace">For a license: its weekly pace in percent an hour, from the same forecast, or null.</param>
 public sealed record LicensePageJudgement(IReadOnlyList<LicenseNextLicense> Next, IReadOnlyList<LicenseMachineReadiness> Judged,
-    IReadOnlyList<LicenseAlarmCondition> CannotSwitch, Func<string, DateTime?> RunsOut);
+    IReadOnlyList<LicenseAlarmCondition> CannotSwitch, Func<string, DateTime?> RunsOut, Func<string, double?> WeeklyPace);
 
 /// <summary>One picture's machines and their next-license verdicts, read at <paramref name="NowUtc"/>.</summary>
 public sealed record LicenseNextLicenseReading(DateTime NowUtc, IReadOnlyList<LicenseMachineView> Machines,

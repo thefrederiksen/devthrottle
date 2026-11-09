@@ -233,12 +233,76 @@ public sealed class LicenseSwitchService
     /// switch identifiers with where each row stood. Must be called inside the tenant's scope, which a request is.
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="sourceAccountEmail"/> is null or blank.</exception>
-    public async Task<LicenseSwitchNowResult> SwitchNowAsync(TenantId tenant, string sourceAccountEmail, string? targetAccountEmail,
+    public Task<LicenseSwitchNowResult> SwitchNowAsync(TenantId tenant, string sourceAccountEmail, string? targetAccountEmail,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(sourceAccountEmail))
             throw new ArgumentException("The account to switch away from is required", nameof(sourceAccountEmail));
         FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: tenant={tenant.ToLogString()}, targetNamed={!string.IsNullOrWhiteSpace(targetAccountEmail)}");
+        return SwitchAsync(tenant, sourceAccountEmail, one: null, targetAccountEmail, ct);
+    }
+
+    /// <summary>
+    /// Switch this machine now: the same as <see cref="SwitchNowAsync"/>, for ONE machine - the one the Licenses page's
+    /// machine drawer names - moved off the account it is on now. The engine is asked about that machine alone
+    /// (<see cref="SnapshotForOneMachine"/>), so the other machines on its account stay where they are, and the account it
+    /// leaves is read from the picture under the same gate as the decision, never taken from the caller. Refused with
+    /// <see cref="LicenseManualRefusals.NoMachineToSwitch"/> when the machine is not on the page or is on no account, and
+    /// with <see cref="LicenseManualRefusals.MachineMoved"/> when <paramref name="expectedAccountEmail"/> - the license
+    /// the page showed it on - is not the one it is on now: the owner confirmed a different switch from the one that
+    /// would run. The expected license is only ever compared, never used as the one to leave.
+    /// </summary>
+    public Task<LicenseSwitchNowResult> SwitchMachineNowAsync(TenantId tenant, Guid machineId, string? expectedAccountEmail,
+        string? targetAccountEmail, CancellationToken ct)
+    {
+        FileLog.Write($"[LicenseSwitchService] SwitchMachineNowAsync: tenant={tenant.ToLogString()}, machine={machineId:N}, targetNamed={!string.IsNullOrWhiteSpace(targetAccountEmail)}");
+        return SwitchAsync(tenant, sourceAccountEmail: null, new OneMachine(machineId, expectedAccountEmail), targetAccountEmail, ct);
+    }
+
+    // Switch this machine now: which machine, and the license the page showed it on (null when not said).
+    private sealed record OneMachine(Guid MachineId, string? ExpectedAccountEmail);
+
+    /// <summary>
+    /// The picture narrowed to one machine, for asking the engine about that machine alone: every account reading, bar
+    /// and open event is kept, only the other machines are left out. The machine drawer's targets
+    /// (<see cref="LicenseDisplayFold"/>) and <see cref="SwitchMachineNowAsync"/> ask with it, so the drawer offers exactly
+    /// what the route accepts.
+    /// </summary>
+    internal static LicenseSnapshot SnapshotForOneMachine(LicenseSnapshot snapshot, string machineName, string osUser)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var key = MachineKey(machineName, osUser);
+        return snapshot with { Machines = snapshot.Machines.Where(m => MachineKey(m.MachineName, m.OsUser) == key).ToList() };
+    }
+
+    private static LicenseSwitchNowResult OneMachineRefused(string code, string message)
+        => new(false, code, message, null, Array.Empty<LicenseSwitchNowMachine>(), Array.Empty<LicenseSkippedMachine>());
+
+    // The engine's refusal, said of the one machine asked about. The reasons that are about the machine itself are put
+    // in its own words; a reason about the target (no room, no sign-in for it) is the engine's sentence as it stands,
+    // which names the target and, where it is about the machine, the machine too.
+    private static string OneMachineRefusal(string code, string label, LicenseManualSwitchVerdict verdict, string? target)
+        => code switch
+        {
+            LicenseManualRefusals.NoMachineToSwitch => verdict.Skipped.FirstOrDefault() is { } skipped
+                ? $"{label} cannot be switched now: {skipped.Why}."
+                : $"{label} cannot be switched now.",
+            LicenseManualRefusals.TargetIsSource => $"{label} is already on {LicenseStore.NormalizeEmail(target ?? "")}.",
+            _ => verdict.RefusalMessage ?? $"{label} cannot be switched now.",
+        };
+
+    // What the page calls a machine: its name, with its user when another machine shares the name.
+    private static string LabelOf(LicenseMachineView machine, IReadOnlyList<LicenseMachineView> all)
+        => all.Count(m => string.Equals(m.MachineName, machine.MachineName, StringComparison.OrdinalIgnoreCase)) > 1
+            ? $"{machine.MachineName} ({machine.OsUser})"
+            : machine.MachineName;
+
+    // Switch now for an account (one null) or for one machine (sourceAccountEmail null: it is the machine's own).
+    private async Task<LicenseSwitchNowResult> SwitchAsync(TenantId tenant, string? sourceAccountEmail, OneMachine? one,
+        string? targetAccountEmail, CancellationToken ct)
+    {
+        // One machine's refusals are said of that machine, never of "every machine on" its license.
+        string? label = null;
         IReadOnlyList<PlannedSend> marked = Array.Empty<PlannedSend>();
         try
         {
@@ -257,10 +321,34 @@ public sealed class LicenseSwitchService
                 var overview = picture.Overview;
                 var open = Classify(tenant, picture.OpenSwitches);
                 var snapshot = SnapshotToDecideOn(picture, open.Blocked);
-                var verdict = LicenseDecisionEngine.DecideManual(snapshot, sourceAccountEmail, targetAccountEmail);
+                if (one is not null)
+                {
+                    var view = overview.Machines.FirstOrDefault(m => m.MachineId == one.MachineId);
+                    label = view is null ? null : LabelOf(view, overview.Machines);
+                    if (view?.ActiveAccountEmail is not { } on)
+                    {
+                        FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: refused, machine {one.MachineId:N} is {(view is null ? "not on the page" : "on no account")}");
+                        return OneMachineRefused(LicenseManualRefusals.NoMachineToSwitch,
+                            view is null
+                                ? "That machine is not on the Licenses page any more."
+                                : $"{label} is on no license, so there is nothing to switch it from.");
+                    }
+                    if (one.ExpectedAccountEmail is { } expected && !string.IsNullOrWhiteSpace(expected)
+                        && LicenseStore.NormalizeEmail(expected) != LicenseStore.NormalizeEmail(on))
+                    {
+                        FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: refused, machine {one.MachineId:N} has moved since the page was read");
+                        return OneMachineRefused(LicenseManualRefusals.MachineMoved,
+                            $"{label} is no longer on {LicenseStore.NormalizeEmail(expected)}: it is on {on} now. Look at it again before switching it.");
+                    }
+                    sourceAccountEmail = on;
+                    snapshot = SnapshotForOneMachine(snapshot, view.MachineName, view.OsUser);
+                }
+                var verdict = LicenseDecisionEngine.DecideManual(snapshot, sourceAccountEmail!, targetAccountEmail);
                 if (verdict.RefusalCode is { } code)
                 {
                     FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: refused {code}");
+                    if (label is not null)
+                        return OneMachineRefused(code, OneMachineRefusal(code, label, verdict, targetAccountEmail));
                     return new LicenseSwitchNowResult(false, code, verdict.RefusalMessage, null,
                         Array.Empty<LicenseSwitchNowMachine>(), verdict.Skipped);
                 }
@@ -309,6 +397,8 @@ public sealed class LicenseSwitchService
             if (answered.Count == 0)
             {
                 FileLog.Write("[LicenseSwitchService] SwitchNowAsync: refused, every machine was taken by another switch at the same moment");
+                if (label is not null)
+                    return OneMachineRefused(LicenseManualRefusals.NoMachineToSwitch, $"{label} cannot be switched now: a switch sent to it has not finished.");
                 return new LicenseSwitchNowResult(false, LicenseManualRefusals.NoMachineToSwitch,
                     "No machine on the account can be switched now: each already has a switch that has not finished.", null,
                     Array.Empty<LicenseSwitchNowMachine>(), skipped);

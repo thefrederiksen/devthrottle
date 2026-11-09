@@ -243,6 +243,24 @@ Each machine adds `readyForNext` (true, false, or null when there is nothing to 
 and `readyForNextTone` - `bad` or `warning` ONLY for a machine the alarm names; a machine that is not ready but not
 running out is `neutral`.
 
+Each account also has `paceText`: how fast its weekly use is rising, from the forecast's own weekly pace ("+3.4% an
+hour"), or null when it is not rising or the forecast cannot say. Each machine also has `canSwitchNow`, `switchNowText`
+and `switchTargets` for the drawer's "Switch this machine to...": the same target list an account's Switch now has
+(below), asked of the engine for that machine alone, so the drawer offers exactly what
+`POST /gateway/licenses/machines/switch-now` accepts. `switchNowText` is the drawer's sentence: what the switch does
+when one is offered ("Moves the-mac off account-a@example.com. The other machines stay where they are."), or why none
+is ("the-mac cannot be switched now: ...", "No other license can take the-mac now. ..."). `switchNowTargetAccountEmail`
+is the target the confirmation starts on: the Gateway's own choice when it can be chosen, else null and the owner picks.
+
+`POST /gateway/licenses/machines/switch-now` takes `{"machineId": "...", "expectedAccountEmail": "...",
+"targetAccountEmail": "..."}` (a null target lets the Gateway choose) and moves that one machine off the license it is
+on now, which the Gateway reads itself. `expectedAccountEmail` is the license the page showed it on: when the machine is
+on another one now the call is refused with `machine-moved` ("the-mac is no longer on a@example.com: it is on
+b@example.com now. Look at it again before switching it."), and nothing is written or sent; it is only ever compared,
+never used as the license to leave. It is answered exactly as Switch now is - 200 with the machine's switch, or 409 with
+the refusal word and a sentence about that one machine - and, like Switch now, it is the owner's own action: refused to
+every session key, device key and the shared machine token.
+
 ### Example
 
 ```json
@@ -340,7 +358,8 @@ running out is `neutral`.
       "roleText": "In use - 2 machines",
       "roleTone": "neutral",
       "tileText": "Switches at 97% in about 7 hours 49 minutes.",
-      "tileAtUtc": "2026-10-11T11:01:00Z"
+      "tileAtUtc": "2026-10-11T11:01:00Z",
+      "paceText": "+2.5% an hour"
     },
     {
       "accountEmail": "account-b@example.com",
@@ -418,7 +437,8 @@ running out is `neutral`.
       "roleText": "Next - ready on all 2",
       "roleTone": "good",
       "tileText": "Takes over in about 7 hours 49 minutes.",
-      "tileAtUtc": "2026-10-11T11:01:00Z"
+      "tileAtUtc": "2026-10-11T11:01:00Z",
+      "paceText": null
     },
     {
       "accountEmail": "account-c@example.com",
@@ -490,7 +510,8 @@ running out is `neutral`.
       "roleText": "Resting",
       "roleTone": "neutral",
       "tileText": "Not needed now.",
-      "tileAtUtc": null
+      "tileAtUtc": null,
+      "paceText": null
     }
   ],
   "machines": [
@@ -564,7 +585,24 @@ running out is `neutral`.
       "readinessTone": "good",
       "readyForNext": true,
       "readyForNextText": "Ready",
-      "readyForNextTone": "good"
+      "readyForNextTone": "good",
+      "canSwitchNow": true,
+      "switchNowText": "Moves the-mac off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": true,
+          "unavailableText": null,
+          "isAutomaticChoice": true
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
+          "isAutomaticChoice": false
+        }
+      ]
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -655,7 +693,24 @@ running out is `neutral`.
       "readinessTone": "good",
       "readyForNext": true,
       "readyForNextText": "Ready",
-      "readyForNextTone": "good"
+      "readyForNextTone": "good",
+      "canSwitchNow": true,
+      "switchNowText": "Moves the-windows-machine off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": true,
+          "unavailableText": null,
+          "isAutomaticChoice": true
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
+          "isAutomaticChoice": false
+        }
+      ]
     }
   ],
   "coverage": {

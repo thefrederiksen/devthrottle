@@ -158,6 +158,8 @@ export interface LicenseAccount {
   tileText: string;
   /** The moment tileText speaks of, shown beside it as a local clock time; null when none. */
   tileAtUtc: string | null;
+  /** How fast its weekly use is rising: "+3.4% an hour"; null when it is not rising or not known. */
+  paceText: string | null;
 }
 
 export type LicenseRole = "in-use" | "next" | "resting";
@@ -252,6 +254,14 @@ export interface LicenseMachine extends LicenseMachineRef {
   readyForNextText: string;
   /** Bad or warning only for a machine the one license alarm names. */
   readyForNextTone: LicenseTone;
+  /** The drawer offers "Switch this machine to...": at least one of switchTargets can be chosen. */
+  canSwitchNow: boolean;
+  /** The drawer's sentence: what the switch does when one is offered, or why none is. */
+  switchNowText: string | null;
+  /** The target the confirmation starts on: the Gateway's own choice when it can be chosen; else null. */
+  switchNowTargetAccountEmail: string | null;
+  /** Every other license as a target for this machine alone. */
+  switchTargets: LicenseSwitchTarget[];
 }
 
 /** GET /gateway/licenses. */
@@ -702,6 +712,36 @@ export async function switchLicenseNow(
   const body = (await res.json()) as LicenseSwitchNowResult | null;
   if (!Array.isArray(body?.switches) || !Array.isArray(body?.skipped)) {
     throw new GatewayError(res.status, "The Gateway answered Switch now without its 'switches' and 'skipped' lists.");
+  }
+  return body;
+}
+
+/**
+ * POST /gateway/licenses/machines/switch-now - Switch this machine now: move ONE machine off the license it is on, to
+ * `targetAccountEmail` (null lets the Gateway choose). `expectedAccountEmail` is the license the page showed it on: the
+ * Gateway refuses (machine-moved) when it is on another one now, and reads the license it leaves itself. The answer has
+ * the same shape as Switch now; a refusal throws GatewayError carrying the Gateway's own sentence.
+ */
+export async function switchLicenseMachineNow(
+  machineId: string,
+  expectedAccountEmail: string | null,
+  targetAccountEmail: string | null,
+  signal?: AbortSignal,
+): Promise<LicenseSwitchNowResult> {
+  const res = await gatewayFetch(
+    "/gateway/licenses/machines/switch-now",
+    {
+      method: "POST",
+      headers: jsonWriteHeaders(),
+      body: JSON.stringify({ machineId, expectedAccountEmail, targetAccountEmail }),
+      signal,
+    },
+    { timeoutMs: SWITCH_NOW_TIMEOUT_MS },
+  );
+  if (!res.ok) throw await GatewayError.from(res, "switch the machine");
+  const body = (await res.json()) as LicenseSwitchNowResult | null;
+  if (!Array.isArray(body?.switches) || !Array.isArray(body?.skipped)) {
+    throw new GatewayError(res.status, "The Gateway answered Switch this machine now without its 'switches' and 'skipped' lists.");
   }
   return body;
 }

@@ -27,12 +27,14 @@ public static class LicenseStatusFold
     /// </summary>
     /// <param name="cannotSwitch">The one license alarm's conditions on the same picture.</param>
     /// <param name="runsOut">For a license: when the forecast expects it to reach the switching threshold, or null.</param>
+    /// <param name="weeklyPace">For a license: its weekly pace in percent an hour, as the forecast reads it, or null.</param>
     public static void Apply(LicenseOverviewResponse response, IReadOnlyList<LicenseAlarmCondition> cannotSwitch,
-        Func<string, DateTime?> runsOut, DateTime nowUtc)
+        Func<string, DateTime?> runsOut, Func<string, double?> weeklyPace, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(cannotSwitch);
         ArgumentNullException.ThrowIfNull(runsOut);
+        ArgumentNullException.ThrowIfNull(weeklyPace);
         var alarmed = cannotSwitch.Where(c => c.MachineId is not null)
             .GroupBy(c => c.MachineId!.Value.ToString("N"))
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -42,7 +44,10 @@ public static class LicenseStatusFold
 
         var covering = response.Machines.Where(IsCovering).ToList();
         foreach (var account in response.Accounts)
+        {
             ApplyAccount(account, covering, runsOut, nowUtc);
+            account.PaceText = PaceText(weeklyPace(account.AccountEmail));
+        }
 
         response.Todos = Todos(response);
         response.Verdict = response.IsEmpty ? null : Verdict(response, covering, cannotSwitch, runsOut, nowUtc);
@@ -86,6 +91,13 @@ public static class LicenseStatusFold
         => alarm.Tone == LicenseAlarmTones.Critical ? LicenseTones.Bad : LicenseTones.Warning;
 
     // ---- The license tiles ----
+
+    /// <summary>The tile's pace: "+3.4% an hour" while the weekly use is rising; null when it is not, or not known. Rounded
+    /// as the Forecast tab rounds it, so a rise too small to show as 0.1 is not shown at all.</summary>
+    internal static string? PaceText(double? percentPerHour)
+        => percentPerHour is { } perHour && Math.Round(perHour, 1) > 0
+            ? $"+{perHour.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}% an hour"
+            : null;
 
     private static void ApplyAccount(LicenseAccountDto account,
         IReadOnlyList<LicenseMachineDto> covering, Func<string, DateTime?> runsOut, DateTime nowUtc)

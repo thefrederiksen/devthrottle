@@ -128,7 +128,8 @@ export const OVERVIEW: LicenseOverview = {
       "roleText": "In use - 2 machines",
       "roleTone": "neutral",
       "tileText": "Switches at 97% in about 7 hours 49 minutes.",
-      "tileAtUtc": "2026-10-11T11:01:00Z"
+      "tileAtUtc": "2026-10-11T11:01:00Z",
+      "paceText": "+2.5% an hour"
     },
     {
       "accountEmail": "account-b@example.com",
@@ -206,7 +207,8 @@ export const OVERVIEW: LicenseOverview = {
       "roleText": "Next - ready on all 2",
       "roleTone": "good",
       "tileText": "Takes over in about 7 hours 49 minutes.",
-      "tileAtUtc": "2026-10-11T11:01:00Z"
+      "tileAtUtc": "2026-10-11T11:01:00Z",
+      "paceText": null
     },
     {
       "accountEmail": "account-c@example.com",
@@ -278,7 +280,8 @@ export const OVERVIEW: LicenseOverview = {
       "roleText": "Resting",
       "roleTone": "neutral",
       "tileText": "Not needed now.",
-      "tileAtUtc": null
+      "tileAtUtc": null,
+      "paceText": null
     }
   ],
   "machines": [
@@ -352,7 +355,24 @@ export const OVERVIEW: LicenseOverview = {
       "readinessTone": "good",
       "readyForNext": true,
       "readyForNextText": "Ready",
-      "readyForNextTone": "good"
+      "readyForNextTone": "good",
+      "canSwitchNow": true,
+      "switchNowText": "Moves the-mac off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": true,
+          "unavailableText": null,
+          "isAutomaticChoice": true
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
+          "isAutomaticChoice": false
+        }
+      ]
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -443,7 +463,24 @@ export const OVERVIEW: LicenseOverview = {
       "readinessTone": "good",
       "readyForNext": true,
       "readyForNextText": "Ready",
-      "readyForNextTone": "good"
+      "readyForNextTone": "good",
+      "canSwitchNow": true,
+      "switchNowText": "Moves the-windows-machine off account-a@example.com. The other machines stay where they are.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": true,
+          "unavailableText": null,
+          "isAutomaticChoice": true
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
+          "isAutomaticChoice": false
+        }
+      ]
     }
   ],
   "coverage": {
