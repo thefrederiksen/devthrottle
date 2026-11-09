@@ -222,6 +222,7 @@ export function DevReportViewer({
   // from an older Gateway carries neither, and then there is no back link and no session line - never an
   // identifier, and never a sentence this file composed.
   const sessionLabel = nonEmpty(snapshot.detail?.report.sessionLabel);
+  const statusLabel = nonEmpty(snapshot.detail?.report.statusLabel);
   const backLabel = nonEmpty(snapshot.detail?.report.backLabel);
 
   const conversation: DevReportConversationModel = {
@@ -258,7 +259,11 @@ export function DevReportViewer({
                 {sessionLabel}
               </span>
             )}
-            <span className="dev-report-status">{snapshot.detail.report.status}</span>
+            {statusLabel && (
+              <span className="dev-report-status" data-testid="dev-report-status">
+                {statusLabel}
+              </span>
+            )}
             <span className="dev-report-viewer-version" data-testid="dev-report-version">
               Version {snapshot.loadedVersion ?? snapshot.detail.report.version}
             </span>

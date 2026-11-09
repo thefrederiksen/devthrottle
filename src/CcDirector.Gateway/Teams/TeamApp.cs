@@ -3,8 +3,12 @@ namespace CcDirector.Gateway.Teams;
 /// <summary>One page of the Cockpit that is ruled by a cell of the role table: its id, the name the navigation shows,
 /// its address, the action that opens it, and - for a page that counts what waits on the person - the route whose answer
 /// carries that count (with <c>{teamId}</c> in it), or null for a page with no count. The Cockpit shows the count beside
-/// the page's name in the navigation (S8, devthrottle_internal#2307 review F8); which page has one is decided here.</summary>
-public sealed record TeamAppPage(string Id, string Label, string Path, TeamAction Action, string? CountRoute = null);
+/// the page's name in the navigation (S8, devthrottle_internal#2307 review F8); which page has one is decided here.
+/// <paramref name="ContributorApp"/> is true for a page of the contributor's own app - their Factories and Inbox (Team
+/// implementation piece 4.1) - which is listed only where the person does NOT get the whole Cockpit, and false for a page
+/// listed only where they do.</summary>
+public sealed record TeamAppPage(string Id, string Label, string Path, TeamAction Action, string? CountRoute = null,
+    bool ContributorApp = false);
 
 /// <summary>
 /// WHAT ONE PERSON'S COCKPIT IS IN ONE TEAM (devthrottle_internal#2306), as the Gateway's verdict - the Cockpit renders it
@@ -21,10 +25,12 @@ public sealed record TeamAppVerdict(bool FullApp, IReadOnlyList<TeamAppPage> Pag
 /// <summary>
 /// THE PAGES A PERSON MAY OPEN IN A TEAM, READ FROM THE ROLE TABLE (devthrottle_internal#2306). A page is listed when the
 /// role's cell for the page's action is not "no" (<see cref="TeamPermissions"/>), and the whole Cockpit is given when the
-/// cell for running sessions is not "no" - so the Collaborator's three pages and nothing else follow from the table's
-/// Collaborator column, and a change to that column changes the app without an edit here.
+/// cell for running sessions is not "no".
 ///
-/// Questions, Requests and Reports are the slots devthrottle_internal#2307, #2308 and #2309 fill.
+/// TWO APPS. A person with the whole Cockpit also gets Questions, Requests and Reports (devthrottle_internal#2307, #2308,
+/// #2309). A person without it - a contributor - gets their own app instead: Factories and Inbox (Team implementation
+/// piece 4.1; mockup.html folds the first version's three pages into the Inbox and adds Factories). Both pages show every
+/// team the person is a contributor on, together, so the app is the same whichever of those teams is on screen.
 /// </summary>
 public static class TeamApp
 {
@@ -35,6 +41,12 @@ public static class TeamApp
             Api.TeamQuestionEndpoints.GroupPath),
         new TeamAppPage("requests", "Requests", "/requests", TeamAction.AnswerQuestionsSendRequestsReadReports),
         new TeamAppPage("reports", "Reports", "/reports", TeamAction.AnswerQuestionsSendRequestsReadReports),
+        // The contributor's app (piece 4.1). No count beside Inbox yet: a count read for the team on screen would leave out
+        // the person's other teams, and the Inbox shows them all.
+        new TeamAppPage("factories", "Factories", "/contributor/factories", TeamAction.AnswerQuestionsSendRequestsReadReports,
+            ContributorApp: true),
+        new TeamAppPage("inbox", "Inbox", "/contributor/inbox", TeamAction.AnswerQuestionsSendRequestsReadReports,
+            ContributorApp: true),
     };
 
     /// <summary>The row that gives the whole Cockpit: sessions, computers and everything around them.</summary>
@@ -43,8 +55,9 @@ public static class TeamApp
     /// <summary>The verdict for a person who holds <paramref name="role"/> in a team.</summary>
     public static TeamAppVerdict For(TeamRole role)
     {
-        var pages = Pages.Where(p => TeamPermissions.Grant(role, p.Action) != TeamGrant.No).ToList();
-        if (TeamPermissions.Grant(role, FullAppAction) != TeamGrant.No)
+        var full = TeamPermissions.Grant(role, FullAppAction) != TeamGrant.No;
+        var pages = Pages.Where(p => p.ContributorApp != full && TeamPermissions.Grant(role, p.Action) != TeamGrant.No).ToList();
+        if (full)
             return new TeamAppVerdict(true, pages, null, null);
 
         if (pages.Count == 0)
@@ -77,7 +90,8 @@ public sealed record TeamStartVerdict(TeamStartPlace Place, string? TeamId);
 /// <summary>
 /// WHERE A FRESH BROWSER STARTS (devthrottle_internal#2306, review finding F1, Tech Lead ruling): the person's own account
 /// if they have a Director on record there - it is where their work is; otherwise their only team, when they
-/// have exactly one; otherwise the chooser. A person in no team starts on their own account, as before Teams. Every
+/// have exactly one; otherwise, when every team gives them the contributor's app, the first of them, because that app
+/// shows all of those teams together and there is nothing to choose (piece 4.1: "no switcher"); otherwise the chooser. A person in no team starts on their own account, as before Teams. Every
 /// load reads it again until the person picks, so a later answer replaces an earlier one; a pick outranks it.
 /// </summary>
 public static class TeamStart
@@ -88,7 +102,7 @@ public static class TeamStart
         ArgumentNullException.ThrowIfNull(teams);
         if (ownAccountHasADirector || teams.Count == 0)
             return new TeamStartVerdict(TeamStartPlace.OwnAccount, null);
-        if (teams.Count == 1)
+        if (teams.Count == 1 || teams.All(t => !TeamApp.For(t.Role).FullApp))
             return new TeamStartVerdict(TeamStartPlace.Team, teams[0].TeamId);
         return new TeamStartVerdict(TeamStartPlace.Choose, null);
     }

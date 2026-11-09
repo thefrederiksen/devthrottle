@@ -449,6 +449,7 @@ internal static class DevReportEndpoints
                 key = r.Key,
                 title = r.Title,
                 status = r.Status,
+                statusLabel = DevReportStatusLabel.For(r.Status, contributor: false),
                 version = r.Version,
                 publishedAtUtc = r.PublishedAtUtc,
                 updatedAtUtc = r.UpdatedAtUtc,

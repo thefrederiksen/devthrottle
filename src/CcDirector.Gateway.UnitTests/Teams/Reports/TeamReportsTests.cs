@@ -304,6 +304,19 @@ public sealed class TeamReportsTests : IDisposable
     }
 
     [Fact]
+    public async Task SentToMe_TheStatusInWords_ForEachReader_NeverTheCode()
+    {
+        var report = Publish(Alice);
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), MemberId(Bob) }, 1));
+
+        var (_, mike) = await Answer(_reports.SentToMeDetail(_team, Mike, report.Id));
+        var (_, bob) = await Answer(_reports.SentToMe(_team, Bob));
+
+        Assert.Equal("Waiting on you", mike.GetProperty("report").GetProperty("statusLabel").GetString());
+        Assert.Equal("Waiting on you", bob.GetProperty("reports")[0].GetProperty("statusLabel").GetString());
+    }
+
+    [Fact]
     public async Task Issue2309_AReportNotSentToTheCaller_IsNotFound_OnEveryRecipientRoute()
     {
         var toMike = Publish(Alice);
@@ -360,7 +373,7 @@ public sealed class TeamReportsTests : IDisposable
         var theirs = (await Answer(_reports.SentToMeDetail(_team, Mike, report.Id))).Body;
         Assert.Equal(marker, theirs.GetProperty("comments")[0].GetProperty("text").GetString());
         // Mike is a Collaborator: the author is named by role, never by address (devthrottle_internal#2787).
-        Assert.Equal("Your comments go to a Developer of the team, who wrote this report. They are never shown to an agent.",
+        Assert.Equal("Your comments go to a Developer of the team, who wrote this report. They are not passed on to the factory.",
             theirs.GetProperty("commentsNote").GetString());
         // Nothing reached the agent's conversation: no item to deliver, no reply, nothing waiting for the session.
         Assert.Empty(_store.Items(_tenant, report.Guid));

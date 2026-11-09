@@ -60,9 +60,17 @@ public sealed class TeamStartTests : IDisposable
     }
 
     [Fact]
-    public void For_NoDirectorAndSeveralTeams_OffersTheChooser()
+    public void For_NoDirectorAndSeveralTeamsWithTheWholeApp_OffersTheChooser()
     {
-        Assert.Equal(new TeamStartVerdict(TeamStartPlace.Choose, null), TeamStart.For(false, new[] { Team("a"), Team("b") }));
+        var teams = new[] { Team("a") with { Role = TeamRole.Developer }, Team("b") };
+        Assert.Equal(new TeamStartVerdict(TeamStartPlace.Choose, null), TeamStart.For(false, teams));
+    }
+
+    [Fact]
+    public void For_NoDirectorAndAContributorOnEveryTeam_StartsInTheFirst_WithNoChooser()
+    {
+        // The contributor's app shows every one of their teams together, so there is nothing to choose (piece 4.1).
+        Assert.Equal(new TeamStartVerdict(TeamStartPlace.Team, "a"), TeamStart.For(false, new[] { Team("a"), Team("b") }));
     }
 
     [Theory]

@@ -114,6 +114,7 @@ internal sealed class ContributorPages
 
     internal const string FactoriesEmpty = "No factory is building something for you yet. Work sent to you arrives in your Inbox.";
     internal const string InboxEmpty = "Nothing has been sent to you yet.";
+    internal const string FactoriesIntro = "The factories building something for you.";
     internal const string InboxIntro = "Only yours: what was sent to you, and your conversation with the team's Owner.";
     internal const string WriteLabel = "Write to the team's Owner";
     internal const string WritePlaceholder = "An idea, a change, a problem...";
@@ -189,7 +190,7 @@ internal sealed class ContributorPages
             };
         }).ToList();
         FileLog.Write($"[ContributorPages] Factories: team {new TenantId(teamId).ToLogString()} count={cards.Count}");
-        return new { teamId, teamLabel, count = cards.Count, emptyText = FactoriesEmpty, factories = cards };
+        return new { teamId, teamLabel, count = cards.Count, intro = FactoriesIntro, emptyText = FactoriesEmpty, factories = cards };
     }
 
     /// <summary>One factory's customer page, or null when <see cref="ContributorFactoryAccess"/> refuses it - whichever
@@ -264,12 +265,13 @@ internal sealed class ContributorPages
         var teamLabel = TeamLabel(teamId, caller);
         var team = new TenantId(teamId);
         var received = _recipients.SentTo(team, caller);
-        var waiting = _questions.WaitingByReport(teamId, caller, received);
+        var questions = _questions.ByReport(teamId, caller, received);
         var names = TeamReports.MemberNames(_teams, teamId, caller);
 
         var reports = received.Select(r =>
         {
-            var isWaiting = waiting.TryGetValue(r.Row.ReportId, out var n) && n > 0;
+            var asked = questions.TryGetValue(r.Row.ReportId, out var q) ? q : null;
+            var isWaiting = asked is { Waiting: > 0 };
             var isRead = r.Row.ReadAtUtc is not null;
             var (label, tone) = isWaiting ? ("Waiting on you", "waiting") : isRead ? ("Read", "done") : ("New", "new");
             return new InboxItem(
@@ -282,6 +284,7 @@ internal sealed class ContributorPages
                 StateLabel: label,
                 Tone: tone,
                 Trail: Array.Empty<object>(),
+                Questions: asked is null ? Array.Empty<object>() : asked.Cards,
                 Order: Order(isWaiting, r.Row.SentAtUtc, r.Title, teamId));
         });
 
@@ -298,6 +301,7 @@ internal sealed class ContributorPages
             StateLabel: q.StateLabel,
             Tone: "message",
             Trail: q.Trail.Select(s => (object)new { label = s.Label, by = s.By, atUtc = s.AtUtc, reason = s.Reason, sentence = s.Sentence }).ToList(),
+            Questions: Array.Empty<object>(),
             Order: Order(false, q.UpdatedAtUtc, q.Text, teamId)));
 
         var items = reports.Concat(messages).OrderBy(i => i.Order, StringComparer.Ordinal).Select(i => new
@@ -313,6 +317,7 @@ internal sealed class ContributorPages
             stateLabel = i.StateLabel,
             tone = i.Tone,
             trail = i.Trail,
+            questions = i.Questions,
             order = i.Order,
         }).ToList();
         FileLog.Write($"[ContributorPages] Inbox: team {team.ToLogString()} count={items.Count}");
@@ -329,7 +334,7 @@ internal sealed class ContributorPages
     }
 
     private sealed record InboxItem(string Kind, string Id, string Title, string? Text, string FromLabel, DateTime AtUtc,
-        string StateLabel, string Tone, IReadOnlyList<object> Trail, string Order);
+        string StateLabel, string Tone, IReadOnlyList<object> Trail, IReadOnlyList<object> Questions, string Order);
 
     // ---------------------------------------------------------------- helpers
 

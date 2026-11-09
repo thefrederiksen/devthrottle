@@ -43,6 +43,8 @@ import { AcceptInviteView } from "./team/AcceptInviteView";
 import { TeamPageRoute } from "./teams/collaborator/TeamPageRoute";
 import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
 import { RequestsPage } from "./teams/collaborator/RequestsPage";
+import { ContributorFactoriesPage } from "./teams/collaborator/ContributorFactoriesPage";
+import { ContributorInboxPage } from "./teams/collaborator/ContributorInboxPage";
 import { ReportsRoute } from "./reports/ReportsRoute";
 import { MentorView } from "./mentor/MentorView";
 import { MailDeskHowItWorksView, MailDeskView } from "./maildesk/MailDeskView";
@@ -282,6 +284,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // the page component alone; neither the route nor the rail changes for it.
           { path: "/questions", element: <TeamPageRoute pageId="questions"><QuestionsPage /></TeamPageRoute> },
           { path: "/requests", element: <TeamPageRoute pageId="requests"><RequestsPage /></TeamPageRoute> },
+          // A contributor's own app (Team implementation piece 4.1): Factories and Inbox, every team they are a contributor
+          // on together. Only where the Gateway's page verdict lists them; everywhere else the ordinary "Page not found".
+          { path: "/contributor/factories", element: <TeamPageRoute pageId="factories"><ContributorFactoriesPage /></TeamPageRoute> },
+          { path: "/contributor/inbox", element: <TeamPageRoute pageId="inbox"><ContributorInboxPage /></TeamPageRoute> },
           // Reports is in Work for everyone (owner, 8 Oct 2026): the team's page with a team on screen (still only where the
           // Gateway's verdict lists it), the person's own sessions' reports on their own account.
           { path: "/reports", element: <ReportsRoute /> },

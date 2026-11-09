@@ -11,6 +11,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 public sealed class TeamAppTests
 {
     private static readonly string[] ThreePages = { "questions", "requests", "reports" };
+    private static readonly string[] ContributorPages = { "factories", "inbox" };
 
     [Theory]
     [InlineData(TeamRole.Owner)]
@@ -31,10 +32,12 @@ public sealed class TeamAppTests
     [InlineData(TeamRole.Manager)]
     [InlineData(TeamRole.Developer)]
     [InlineData(TeamRole.Collaborator)]
-    public void For_EveryRole_ListsTheThreePagesWhereTheSpecLetsThemAnswerAndRead(TeamRole role)
+    public void For_EveryRole_ListsItsAppsPagesWhereTheSpecLetsThemAnswerAndRead(TeamRole role)
     {
+        // The whole Cockpit carries the three pages; the contributor's own app carries Factories and Inbox instead.
+        var full = RoleTableSpec.Cell(TeamAction.RunSessionsOnOwnComputers, role) != TeamGrant.No;
         var expected = RoleTableSpec.Cell(TeamAction.AnswerQuestionsSendRequestsReadReports, role) != TeamGrant.No
-            ? ThreePages
+            ? full ? ThreePages : ContributorPages
             : Array.Empty<string>();
 
         var app = TeamApp.For(role);
@@ -43,14 +46,14 @@ public sealed class TeamAppTests
     }
 
     [Fact]
-    public void For_Collaborator_GetsExactlyThreePages_LandsOnQuestions_AndIsToldEverythingElseIsNotAvailable()
+    public void For_Collaborator_GetsFactoriesAndInbox_LandsOnFactories_AndIsToldEverythingElseIsNotAvailable()
     {
         var app = TeamApp.For(TeamRole.Collaborator);
 
         Assert.False(app.FullApp);
-        Assert.Equal(new[] { ("Questions", "/questions"), ("Requests", "/requests"), ("Reports", "/reports") },
+        Assert.Equal(new[] { ("Factories", "/contributor/factories"), ("Inbox", "/contributor/inbox") },
             app.Pages.Select(p => (p.Label, p.Path)));
-        Assert.Equal("/questions", app.Landing);
+        Assert.Equal("/contributor/factories", app.Landing);
         Assert.Equal("This page is not available to contributors.", app.Elsewhere);
     }
 

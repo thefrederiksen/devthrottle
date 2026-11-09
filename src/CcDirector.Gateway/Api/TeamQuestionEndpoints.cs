@@ -176,16 +176,35 @@ internal sealed class TeamQuestions
     /// <summary>The comment box's placeholder - the words of the mockup.</summary>
     internal const string CommentPlaceholder = "Anything to add (optional)";
 
-    /// <summary>Said beside the send button: where the words go, and that only the choice reaches the agent (S8).</summary>
-    internal static string WordsGoTo(string authorName) => $"Your words go to {authorName}. Only your choice reaches the agent.";
+    /// <summary>Said beside the send button: where the words go, and that only the choice reaches the agent (S8). A
+    /// contributor reads no word about agents (Team implementation 4.1): for them, only the choice reaches the factory.</summary>
+    internal static string WordsGoTo(string authorName, bool contributor) => contributor
+        ? $"Your words go to {authorName}. Only your choice is passed on to the factory."
+        : $"Your words go to {authorName}. Only your choice reaches the agent.";
+
+    /// <summary>Beside an answer given with words: where the words went.</summary>
+    internal static string WordsWentTo(string authorName, bool contributor) => contributor
+        ? $"Your words went to {authorName}, not to the factory"
+        : $"Your words went to {authorName}, not to the agent";
 
     /// <summary>The line on a report sent to a person, when questions in it wait on them (review F11). Null when none do.</summary>
-    internal static string? WaitingLabel(int waiting) => waiting switch
+    internal static string? WaitingLabel(int waiting) => WaitingLabel(waiting, answeredOnQuestionsPage: true);
+
+    /// <summary>The same line for a reader who answers somewhere else: a contributor answers a report's questions above
+    /// the report itself, in their Inbox (Team implementation piece 4.1), and has no Questions page.</summary>
+    internal static string? WaitingLabel(int waiting, bool answeredOnQuestionsPage) => (waiting, answeredOnQuestionsPage) switch
     {
-        0 => null,
-        1 => "1 question waiting on you - answer it on Questions",
-        _ => $"{waiting} questions waiting on you - answer them on Questions",
+        (0, _) => null,
+        (1, true) => "1 question waiting on you - answer it on Questions",
+        (_, true) => $"{waiting} questions waiting on you - answer them on Questions",
+        (1, false) => "1 question waiting on you - answer it above",
+        _ => $"{waiting} questions waiting on you - answer them above",
     };
+
+    /// <summary>The page a reader in <paramref name="role"/> answers questions on, or null when they answer them where the
+    /// report is shown (a contributor, whose app has no Questions page). Read from the one page list (TeamApp).</summary>
+    internal static string? QuestionsPagePath(TeamRole? role) =>
+        role is { } r ? TeamApp.For(r).Pages.FirstOrDefault(p => p.Id == "questions")?.Path : null;
 
     /// <summary>What the page is for, under its title when nothing waits; the empty state alone says nothing does.</summary>
     internal const string PagePurpose = "Questions your team is waiting on you to answer.";
@@ -245,6 +264,26 @@ internal sealed class TeamQuestions
             answeredHeading = "Answered",
         });
     }
+
+    /// <summary>
+    /// The questions of each report in <paramref name="received"/>, for the reader, as the cards the Questions page shows:
+    /// the ones waiting on them first, then the ones they answered, each in the report's own order - so a page that draws
+    /// a report's questions above it (a contributor's Inbox, Team implementation 4.1) draws them as sent, never picks or
+    /// orders them itself (rule 7). A report with no question for the reader is absent.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, ReportQuestions> ByReport(string teamId, string caller, IReadOnlyList<DevReportReceived> received)
+    {
+        ArgumentNullException.ThrowIfNull(received);
+        var names = TeamReports.MemberNames(_teams, teamId, caller);
+        return Cards(teamId, caller, received, names)
+            .GroupBy(c => c.ReportId)
+            .ToDictionary(g => g.Key, g => new ReportQuestions(
+                g.Count(c => c.Answer is null),
+                g.Where(c => c.Answer is null).Concat(g.Where(c => c.Answer is not null)).Select(Shape).ToList()));
+    }
+
+    /// <summary>One report's questions for a reader: how many wait on them, and every card in the order to draw them.</summary>
+    public sealed record ReportQuestions(int Waiting, IReadOnlyList<object> Cards);
 
     /// <summary>How many questions wait on the caller in each of <paramref name="received"/>, by report. A report with
     /// none is absent.</summary>
@@ -431,7 +470,7 @@ internal sealed class TeamQuestions
     private sealed record Card(
         Guid ReportId, int Version, string ReportTitle, string QuestionId, string Question,
         IReadOnlyList<DevReportQuestionOption> Options, string AskedBy, DateTime AskedAtUtc,
-        bool CanComment, string CommentNote, AnswerShape? Answer);
+        bool CanComment, string CommentNote, AnswerShape? Answer, bool ForContributor);
 
     private sealed record AnswerShape(string OptionValue, string OptionLabel, string StatusLabel, DateTime AtUtc, string? YourComment);
 
@@ -454,7 +493,7 @@ internal sealed class TeamQuestions
 
             var author = TeamReports.NameOf(report.AuthorSubject, names);
             var canComment = TeamReports.AuthorCanReceive(_access, teamId, report);
-            var commentNote = canComment ? WordsGoTo(author) : CommentClosed;
+            var commentNote = canComment ? WordsGoTo(author, contributor) : CommentClosed;
             var ended = _delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended;
             var mine = questions.Any(q => answers.ContainsKey((report.Id, q.Id)))
                 ? _comments.From(team, report.Id, caller)
@@ -477,7 +516,7 @@ internal sealed class TeamQuestions
                     continue;
                 }
                 cards.Add(new Card(report.Id, r.Row.SentVersion, held.Title, q.Id, q.Text, q.Options, author, r.Row.SentAtUtc,
-                    canComment, commentNote, answer));
+                    canComment, commentNote, answer, contributor));
             }
         }
         return cards;
@@ -507,7 +546,7 @@ internal sealed class TeamQuestions
             statusLabel = c.Answer.StatusLabel,
             atUtc = c.Answer.AtUtc,
             yourComment = c.Answer.YourComment,
-            yourCommentLabel = c.Answer.YourComment is null ? null : $"Your words went to {c.AskedBy}, not to the agent",
+            yourCommentLabel = c.Answer.YourComment is null ? null : WordsWentTo(c.AskedBy, c.ForContributor),
         },
     };
 
