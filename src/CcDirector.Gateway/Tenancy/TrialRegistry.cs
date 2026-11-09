@@ -197,13 +197,15 @@ public sealed class TrialRegistry
     /// this came from; this method does not re-verify it.</param>
     /// <param name="nowUtc">The moment to judge the trial window against. Injected so the expiry boundary is
     /// testable at an exact instant.</param>
-    public TrialDecision Evaluate(string accountSubject, DateTime nowUtc)
+    /// <param name="quiet">True for a caller on a timer that asks the same question over and over: the verdict lines
+    /// are not written. A read that FAILS is logged either way - that is a fault, not a repeated answer.</param>
+    public TrialDecision Evaluate(string accountSubject, DateTime nowUtc, bool quiet = false)
     {
         // DELEGATES to the single read rather than performing its own (issue #1243). There is exactly ONE
         // place that loads the row and ONE expiry comparison in this type, so the access decision and the
         // sentence shown to the member can never disagree about whether a trial is running - which they could
         // the moment a second method repeated the boundary rule and one of the two was later edited.
-        var status = ReadStatus(accountSubject, nowUtc);
+        var status = ReadStatus(accountSubject, nowUtc, quiet);
 
         return status.Kind switch
         {
@@ -232,7 +234,9 @@ public sealed class TrialRegistry
     /// <param name="accountSubject">The verified account subject. The caller must have validated the token
     /// this came from; this method does not re-verify it.</param>
     /// <param name="nowUtc">The moment to judge the trial window against.</param>
-    public TrialStatus ReadStatus(string accountSubject, DateTime nowUtc)
+    /// <param name="quiet">True for a caller on a timer that asks the same question over and over: the verdict lines
+    /// are not written. A read that FAILS is logged either way - that is a fault, not a repeated answer.</param>
+    public TrialStatus ReadStatus(string accountSubject, DateTime nowUtc, bool quiet = false)
     {
         // A blank subject is a caller error, not a failed read. Answering Unreadable would invite a retry loop
         // that can never succeed. There is no trial for nobody.
@@ -270,7 +274,7 @@ public sealed class TrialRegistry
         if (nowUtc < row.ExpiresAtUtc)
             return new TrialStatus(TrialStatusKind.Active, row.StartedAtUtc, row.ExpiresAtUtc);
 
-        FileLog.Write("[TrialRegistry] ReadStatus: NO TRIAL - this account's trial has ended (it is never extended or re-granted)");
+        if (!quiet) FileLog.Write("[TrialRegistry] ReadStatus: NO TRIAL - this account's trial has ended (it is never extended or re-granted)");
         return new TrialStatus(TrialStatusKind.Expired, row.StartedAtUtc, row.ExpiresAtUtc);
     }
 

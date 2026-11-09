@@ -145,9 +145,11 @@ public sealed class EntitlementRegistry
     /// <param name="accountSubject">The verified account subject. The caller must have validated the token
     /// this came from; this method does not re-verify it.</param>
     /// <param name="nowUtc">The moment to judge the paid period against, injected for exact-boundary tests.</param>
-    public EntitlementDecision Evaluate(string accountSubject, DateTime nowUtc)
+    /// <param name="quiet">True for a caller on a timer that asks the same question over and over: the verdict lines
+    /// are not written. A read that FAILS is logged either way - that is a fault, not a repeated answer.</param>
+    public EntitlementDecision Evaluate(string accountSubject, DateTime nowUtc, bool quiet = false)
     {
-        var paid = EvaluatePaid(accountSubject, nowUtc);
+        var paid = EvaluatePaid(accountSubject, nowUtc, quiet);
 
         // No trial ledger wired means trials do not exist here at all - the paid answer IS the answer, exactly
         // as it was before trials. That is the self-host case and the control the trial tests revert against.
@@ -165,7 +167,7 @@ public sealed class EntitlementRegistry
         // The paid answer is NotEntitled (no row, cancelled, elapsed, test-mode) or Unknown (the read failed).
         // Either way a running trial entitles this account on its own, so the trial is read in BOTH cases: a
         // failed PAID read is not a reason to deny a member who is inside their free window.
-        var trial = _trials.Evaluate(accountSubject, nowUtc);
+        var trial = _trials.Evaluate(accountSubject, nowUtc, quiet);
 
         if (trial.Outcome == TrialOutcome.Active)
         {
@@ -175,7 +177,7 @@ public sealed class EntitlementRegistry
             // enforced at the entitlement read, not just displayed" actually happens: the instant the trial
             // ends this stops returning Entitled, and the same read that lets a member in is the one that
             // stops letting them in.
-            FileLog.Write("[EntitlementRegistry] Evaluate: ENTITLED by the free Pro trial (no paid entitlement; the trial has not ended)");
+            if (!quiet) FileLog.Write("[EntitlementRegistry] Evaluate: ENTITLED by the free Pro trial (no paid entitlement; the trial has not ended)");
             return new EntitlementDecision(EntitlementOutcome.Entitled, TierPro, trial.ExpiresAtUtc);
         }
 
@@ -211,7 +213,7 @@ public sealed class EntitlementRegistry
         // branch makes: Entitled-on-free is NOT a paying account.
         if (paid.Outcome == EntitlementOutcome.NotEntitled)
         {
-            FileLog.Write("[EntitlementRegistry] Evaluate: ENTITLED on the FREE plan (no paid entitlement and no running trial; orchestration only - no artificial-intelligence scopes)");
+            if (!quiet) FileLog.Write("[EntitlementRegistry] Evaluate: ENTITLED on the FREE plan (no paid entitlement and no running trial; orchestration only - no artificial-intelligence scopes)");
             return new EntitlementDecision(EntitlementOutcome.Entitled, TierFree);
         }
 
@@ -226,7 +228,7 @@ public sealed class EntitlementRegistry
     /// <see cref="Evaluate"/> so the paid policy - active, the past-due grace window, live-money-only, and the
     /// three outcomes - is one unbroken piece of reasoning that the free trial sits beside rather than inside.
     /// </summary>
-    private EntitlementDecision EvaluatePaid(string accountSubject, DateTime nowUtc)
+    private EntitlementDecision EvaluatePaid(string accountSubject, DateTime nowUtc, bool quiet)
     {
         // A blank subject is not a failed read - it is a caller error, and answering Unknown would invite a
         // retry loop that can never succeed. There is no entitlement for nobody, and no tier.
@@ -272,7 +274,7 @@ public sealed class EntitlementRegistry
         // From here the read SUCCEEDED, so whatever we conclude is knowledge.
         if (row is null)
         {
-            FileLog.Write("[EntitlementRegistry] Evaluate: NOT ENTITLED - the read succeeded and the account has no entitlement record");
+            if (!quiet) FileLog.Write("[EntitlementRegistry] Evaluate: NOT ENTITLED - the read succeeded and the account has no entitlement record");
             return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
         }
 
@@ -292,7 +294,7 @@ public sealed class EntitlementRegistry
         // self-host - which has no billing at all - is untouched.
         if (_requireLivemode && row.Livemode != true)
         {
-            FileLog.Write("[EntitlementRegistry] Evaluate: NOT ENTITLED - the entitlement is not a live-mode subscription (a test-mode or unrecorded one is not an entitlement)");
+            if (!quiet) FileLog.Write("[EntitlementRegistry] Evaluate: NOT ENTITLED - the entitlement is not a live-mode subscription (a test-mode or unrecorded one is not an entitlement)");
             return new EntitlementDecision(EntitlementOutcome.NotEntitled, tier);
         }
 
@@ -313,13 +315,13 @@ public sealed class EntitlementRegistry
             && row.CurrentPeriodEnd is { } periodEnd
             && nowUtc < periodEnd)
         {
-            FileLog.Write("[EntitlementRegistry] Evaluate: ENTITLED within the payment-retry grace window (payment is past due, the paid period has not ended)");
+            if (!quiet) FileLog.Write("[EntitlementRegistry] Evaluate: ENTITLED within the payment-retry grace window (payment is past due, the paid period has not ended)");
             return new EntitlementDecision(EntitlementOutcome.Entitled, tier, periodEnd);
         }
 
         // Canceled, past_due with the period ended or with no period recorded, or any state this code does
         // not recognise. An unrecognised state is NOT entitled - we do not guess in the paying direction.
-        FileLog.Write($"[EntitlementRegistry] Evaluate: NOT ENTITLED - the read succeeded and the record's state does not grant access (state='{status}')");
+        if (!quiet) FileLog.Write($"[EntitlementRegistry] Evaluate: NOT ENTITLED - the read succeeded and the record's state does not grant access (state='{status}')");
         return new EntitlementDecision(EntitlementOutcome.NotEntitled, tier);
     }
 
@@ -334,8 +336,10 @@ public sealed class EntitlementRegistry
     /// </summary>
     /// <param name="accountSubject">The verified subject of the person.</param>
     /// <param name="nowUtc">The moment to judge against, injected for exact tests.</param>
-    public EntitlementDecision EvaluatePersonalTenant(string accountSubject, DateTime nowUtc)
-        => Evaluate(accountSubject, nowUtc);
+    /// <param name="quiet">True for a caller on a timer that asks the same question over and over: the verdict lines
+    /// are not written. A read that FAILS is logged either way - that is a fault, not a repeated answer.</param>
+    public EntitlementDecision EvaluatePersonalTenant(string accountSubject, DateTime nowUtc, bool quiet = false)
+        => Evaluate(accountSubject, nowUtc, quiet);
 
     /// <summary>
     /// The decision for one person in a TEAM tenant (#2299). Reads the TEAM's bill and the person's membership
@@ -431,7 +435,9 @@ public sealed class EntitlementRegistry
     /// <param name="nowUtc">The moment to judge against. A team row has no period cut-off, so this does not
     /// change the outcome today; it is taken so the signature matches every other entitlement read and a future
     /// cut-off is one line.</param>
-    public EntitlementDecision EvaluateTeam(string teamId, DateTime nowUtc)
+    /// <param name="quiet">True for a caller on a timer that asks the same question over and over: the verdict lines
+    /// are not written. A read that FAILS is logged either way - that is a fault, not a repeated answer.</param>
+    public EntitlementDecision EvaluateTeam(string teamId, DateTime nowUtc, bool quiet = false)
     {
         // A blank team id is a caller error, not a failed read - answering Unknown would invite a retry loop that
         // can never succeed.
@@ -449,7 +455,7 @@ public sealed class EntitlementRegistry
             return new EntitlementDecision(EntitlementOutcome.Unknown, null);
         if (!bill.HasBill)
         {
-            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team has no bill");
+            if (!quiet) FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team has no bill");
             return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
         }
 
@@ -463,11 +469,11 @@ public sealed class EntitlementRegistry
             // NO PERIOD CUT-OFF, by the owner's decision (see the method remarks). No period end is returned
             // either: the hosted access lease clips a positive lease to CurrentPeriodEnd, and clipping to a
             // boundary that ends nothing would only force extra reads that all answer Entitled.
-            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} ENTITLED - the team's payment is past due, and a failed team payment stops nothing (owner, 3 Oct 2026)");
+            if (!quiet) FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} ENTITLED - the team's payment is past due, and a failed team payment stops nothing (owner, 3 Oct 2026)");
             return new EntitlementDecision(EntitlementOutcome.Entitled, TierTeam);
         }
 
-        FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team's bill does not grant access (state='{status}')");
+        if (!quiet) FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team's bill does not grant access (state='{status}')");
         return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
     }
 

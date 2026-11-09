@@ -145,6 +145,14 @@ public sealed class TenantAiGate
     public TenantAiDecision ForTenantOnATimer(TenantId? tenant, string scope)
         => Decide(tenant, scope, person: null, personKnown: false, via: "tenant", logTheAnswer: false);
 
+    /// <summary>
+    /// <see cref="ForTenantOnATimer"/> with the entitlement read's own verdict lines left out too, for a caller that asks
+    /// on a heartbeat and must write NOTHING per tick (the factory switch's quiet answer: the inbox wake every 15
+    /// seconds, the roster's factory chip). The answer is identical. A read that FAILS is still logged.
+    /// </summary>
+    public TenantAiDecision ForTenantQuietly(TenantId? tenant, string scope)
+        => Decide(tenant, scope, person: null, personKnown: false, via: "tenant", logTheAnswer: false, quiet: true);
+
     /// <summary>The answer for a call about one session: in a team's tenant, for the session's owner there.</summary>
     public TenantAiDecision ForSession(TenantId tenant, string sessionId, string scope)
         => Decide(tenant, scope, () => _personOfSession?.Invoke(tenant, sessionId), personKnown: true, via: "session");
@@ -178,7 +186,7 @@ public sealed class TenantAiGate
 
     // THE DECISION. Every public question lands here, so there is one reading of the plan for every model call.
     private TenantAiDecision Decide(TenantId? tenant, string scope, Func<string?>? person, bool personKnown, string via,
-        bool logTheAnswer = true)
+        bool logTheAnswer = true, bool quiet = false)
     {
         if (string.IsNullOrWhiteSpace(scope))
             throw new ArgumentException("A scope name is required", nameof(scope));
@@ -197,7 +205,7 @@ public sealed class TenantAiGate
         // rule the entitlement read itself keeps, applied to the reads around it.
         try
         {
-            return Log(DecideHosted(t, scope, person, personKnown), t, via, logTheAnswer);
+            return Log(DecideHosted(t, scope, person, personKnown, quiet), t, via, logTheAnswer);
         }
         catch (Exception ex)
         {
@@ -206,14 +214,14 @@ public sealed class TenantAiGate
         }
     }
 
-    private TenantAiDecision DecideHosted(TenantId tenant, string scope, Func<string?>? person, bool personKnown)
+    private TenantAiDecision DecideHosted(TenantId tenant, string scope, Func<string?>? person, bool personKnown, bool quiet)
     {
         var now = _clock.GetUtcNow().UtcDateTime;
 
         if (_teams is not null && _teams.IsTeam(tenant))
         {
             if (!personKnown)
-                return FromEntitlement(_entitlements!.EvaluateTeam(tenant.Value, now), scope, "the team's bill");
+                return FromEntitlement(_entitlements!.EvaluateTeam(tenant.Value, now, quiet), scope, "the team's bill");
 
             // NOBODY'S CALL IS NOBODY'S PLAN. A call in a team that names no person (a session no Director claims), or
             // names someone who is not a member, has no seat to read - so it is not made, and nothing is said about a
@@ -234,7 +242,7 @@ public sealed class TenantAiGate
         if (string.IsNullOrWhiteSpace(subject))
             return new TenantAiDecision(TenantAiVerdict.Refused, scope, null, "the tenant maps to no account");
 
-        return FromEntitlement(_entitlements!.Evaluate(subject, now), scope, "the account's plan");
+        return FromEntitlement(_entitlements!.Evaluate(subject, now, quiet), scope, "the account's plan");
     }
 
     private static TenantAiDecision FromEntitlement(EntitlementDecision decision, string scope, string whose) => decision.Outcome switch

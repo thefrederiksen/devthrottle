@@ -46,7 +46,9 @@ public sealed class TeamOwnerFactories
     /// Null when <paramref name="tenant"/> is not a team's account (a personal account is never asked about an Owner).
     /// Otherwise whether the team's Owner's own plan includes factories, with the tier it named.
     /// </summary>
-    public TeamOwnerPlanDecision? Read(TenantId tenant)
+    /// <param name="quiet">True for a caller on a timer that asks the same question over and over: the verdict lines
+    /// are not written. A read that FAILS is logged either way - that is a fault, not a repeated answer.</param>
+    public TeamOwnerPlanDecision? Read(TenantId tenant, bool quiet = false)
     {
         string? owner;
         try
@@ -63,10 +65,10 @@ public sealed class TeamOwnerFactories
 
         if (string.IsNullOrWhiteSpace(owner))
         {
-            _log($"[TeamOwnerFactories] Read: team {tenant.ToLogString()} has NO Owner recorded, so no Pro account stands behind its factories");
+            if (!quiet) _log($"[TeamOwnerFactories] Read: team {tenant.ToLogString()} has NO Owner recorded, so no Pro account stands behind its factories");
             return new TeamOwnerPlanDecision(TeamOwnerPlanAnswer.NotPro, null);
         }
 
-        return _ownerPlan.Decide(owner, _utcNow(), EntitlementScopes.Factories);
+        return _ownerPlan.Decide(owner, _utcNow(), EntitlementScopes.Factories, quiet);
     }
 }

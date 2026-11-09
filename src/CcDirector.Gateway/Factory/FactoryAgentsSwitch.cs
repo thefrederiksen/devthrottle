@@ -92,22 +92,24 @@ public sealed class FactoryAgentsSwitch
     public FactoryAgentsAnswer Answer(TenantId? tenant) => Decide(tenant, logTheAnswer: true);
 
     /// <summary>
-    /// <see cref="Answer"/> without its log line, for a caller on a hot path that asks the same question over and over
-    /// (the roster's factory chip, on every read of the session list). The answer is identical. A plan read that FAILS
-    /// is still logged by <see cref="TenantAiGate"/>: that is a fault, not a repeated answer.
+    /// <see cref="Answer"/> WRITING NOTHING, for a caller on a hot path that asks the same question over and over (the
+    /// roster's factory chip on every read of the session list, the inbox wake every 15 seconds). The answer is
+    /// identical. Neither this switch nor the plan reads beneath it (the account's plan, the trial, the team's bill, a
+    /// team Owner's plan) write their verdict lines; a read that FAILS is still logged - that is a fault, not a
+    /// repeated answer.
     /// </summary>
     public FactoryAgentsAnswer AnswerQuietly(TenantId? tenant) => Decide(tenant, logTheAnswer: false);
 
     private FactoryAgentsAnswer Decide(TenantId? tenant, bool logTheAnswer)
     {
-        var answer = DecideUnlogged(tenant);
+        var answer = DecideUnlogged(tenant, quiet: !logTheAnswer);
         if (logTheAnswer)
             _log($"[FactoryAgentsSwitch] account={tenant?.ToLogString() ?? "none"} state={answer.State} grant={answer.GrantName} "
                  + $"reason={answer.OffReason ?? "none"} tier={answer.Tier ?? "none"}: {answer.Why}");
         return answer;
     }
 
-    private FactoryAgentsAnswer DecideUnlogged(TenantId? tenant)
+    private FactoryAgentsAnswer DecideUnlogged(TenantId? tenant, bool quiet)
     {
         if (MachineWide)
             return FactoryAgentsAnswer.On(FactoryAgentsGrant.MachineSwitch, tier: null, "on for this machine");
@@ -121,13 +123,16 @@ public sealed class FactoryAgentsSwitch
                 tenant is null ? "no account is bound to this request" : "not switched on on this Gateway or for this account");
 
         // Grant 4: in a team's account, the Owner's own plan. Null for a personal account, which is never asked.
-        var owner = tenant is { } team ? _teamOwners?.Read(team) : null;
+        var owner = tenant is { } team ? _teamOwners?.Read(team, quiet) : null;
         if (owner is { Answer: TeamOwnerPlanAnswer.Granted })
             return FactoryAgentsAnswer.On(FactoryAgentsGrant.TeamOwnerPlan, owner.Tier, "the team's Owner's own plan includes factories");
 
         // The gate's timer variant, because THIS class writes the one line for the decision: the answer is identical to
-        // ForTenant's, and a read that fails is still logged by the gate.
-        var plan = _plans.ForTenantOnATimer(tenant, EntitlementScopes.Factories);
+        // ForTenant's, and a read that fails is still logged by the gate. The quiet answer asks the variant that leaves
+        // the entitlement read's verdict lines out as well.
+        var plan = quiet
+            ? _plans.ForTenantQuietly(tenant, EntitlementScopes.Factories)
+            : _plans.ForTenantOnATimer(tenant, EntitlementScopes.Factories);
         if (plan.Verdict == TenantAiVerdict.Allowed)
             return FactoryAgentsAnswer.On(FactoryAgentsGrant.Plan, plan.Tier, plan.Reason);
         if (plan.Verdict == TenantAiVerdict.Unknown)

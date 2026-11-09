@@ -240,6 +240,61 @@ public sealed class ProCarriesFactoriesIntoTeamsTests : IDisposable
         Assert.Contains(_log, l => l.Contains("NO Owner recorded", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(TeamRole.Manager)]
+    [InlineData(TeamRole.Developer)]
+    public void Answer_PaidSeatOnProInATeamWhoseOwnerIsOnFree_IsOff(TeamRole role)
+    {
+        // Arrange - only the OWNER's plan carries factories in; another member's own Pro never does.
+        var team = TeamOwnedBy("sub-owner-free-with-pro-member");
+        Paid("sub-member-pro", EntitlementRegistry.TierPro);
+        TenantOf("sub-member-pro");
+        using (var ctx = _db.CreateUnscopedContext())
+        {
+            ctx.TeamMembers.Add(new TeamMemberEntity { TeamId = team.Value, AccountSubject = "sub-member-pro", Role = role, JoinedAtUtc = Now });
+            ctx.SaveChanges();
+        }
+
+        // Act
+        var answer = HostedSwitch().Answer(team);
+
+        // Assert
+        Assert.Equal(FactoryAgentsOffReasons.TeamOwnerPlanRequired, answer.OffReason);
+    }
+
+    [Fact]
+    public void Answer_OwnersPlanUnreadableButTheTeamBillRuns_IsOnByTheBill()
+    {
+        // Arrange - the OR holds through an unreadable Owner: the bill alone grants.
+        var team = TeamOwnedBy("sub-owner-unreadable-with-bill");
+        TeamBillSeed.Active(_db, team.Value, seats: 3);
+        using (var ctx = _db.CreateUnscopedContext())
+            ctx.Database.ExecuteSqlRaw("DROP TABLE entitlements");
+
+        // Act
+        var answer = HostedSwitch().Answer(team);
+
+        // Assert
+        Assert.Equal(FactoryAgentsState.On, answer.State);
+        Assert.Equal(FactoryAgentsGrant.Plan, answer.Grant);
+    }
+
+    [Fact]
+    public void Read_TheMembershipReadFails_IsUnknownAndLogged()
+    {
+        // Arrange - the team is known (settled when it was created), and the membership table is then gone.
+        var team = TeamOwnedBy("sub-owner-membership-fails");
+        using (var ctx = _db.CreateUnscopedContext())
+            ctx.Database.ExecuteSqlRaw("DROP TABLE team_members");
+
+        // Act
+        var read = TeamOwners().Read(team);
+
+        // Assert
+        Assert.Equal(TeamOwnerPlanAnswer.Unknown, read!.Answer);
+        Assert.Contains(_log, l => l.StartsWith("[TeamOwnerFactories] Read FAILED", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Answer_SelfHostedGatewayHandedTeamOwners_NeverGrantsByTheOwner()
     {
