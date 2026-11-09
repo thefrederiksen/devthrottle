@@ -168,6 +168,20 @@ describe("FactoryWatchPlayer", () => {
     expect(container.querySelector('[data-effect="bubble"]')).toBeNull();
   });
 
+  it("a hiccup with no alarm draws no smoke and no wires on the floor", () => {
+    const { container } = render(<FactoryWatchPlayer view={contributor} />);
+    const index = contributor.steps.findIndex((s) => s.kind === "hiccup");
+    expect(contributor.steps[index].alarm).toBe(false);
+
+    fireEvent.click(container.querySelectorAll(".fwp-step .fwp-step-main")[index]);
+    for (let i = 0; i < 5; i++) runFrame(100);
+
+    const g = container.querySelector(`.fwp-character[data-seat="${contributor.steps[index].seat}"]`)!;
+    expect(g.getAttribute("data-animation")).toBe("hiccup");
+    expect(container.querySelector('[data-effect="smoke"]')).toBeNull();
+    expect(container.querySelector('[data-glyph="wires"]')).toBeNull();
+  });
+
   it("contributor: no notes and no truncated sentence are drawn when the view has none", () => {
     const { container } = render(<FactoryWatchPlayer view={contributor} />);
     expect(container.querySelector(".fwp-notes")).toBeNull();

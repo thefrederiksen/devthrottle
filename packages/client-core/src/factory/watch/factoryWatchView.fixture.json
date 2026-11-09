@@ -133,7 +133,8 @@
         "toUtc": null,
         "time": "22:00",
         "words": "Boss started the Website Desk: new photos arrived.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000002",
@@ -143,7 +144,8 @@
         "toUtc": null,
         "time": "22:02",
         "words": "The Website Desk started building version 21.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000003",
@@ -153,7 +155,8 @@
         "toUtc": "2026-11-07T22:15:00Z",
         "time": "22:05-22:15",
         "words": "Checked 3 times - nothing to do",
-        "emptyChecks": 3
+        "emptyChecks": 3,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000006",
@@ -163,7 +166,8 @@
         "toUtc": null,
         "time": "22:20",
         "words": "The Photo Desk asked the Boss which photo goes first.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000007",
@@ -173,7 +177,8 @@
         "toUtc": null,
         "time": "22:30",
         "words": "The Website Desk finished: version 21 of the site is live.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000008",
@@ -183,7 +188,8 @@
         "toUtc": null,
         "time": "22:35",
         "words": "The site check could not open the contact page.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": true
       },
       {
         "key": "00000000-0000-0000-0000-000000000009",
@@ -193,7 +199,8 @@
         "toUtc": null,
         "time": "22:40",
         "words": "The Writer drafted the reply about version 21.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000010",
@@ -203,7 +210,8 @@
         "toUtc": null,
         "time": "22:45",
         "words": "Checked the mail - nothing to do",
-        "emptyChecks": 1
+        "emptyChecks": 1,
+        "alarm": false
       }
     ],
     "window": {
@@ -370,7 +378,8 @@
         "toUtc": null,
         "time": "02:00",
         "words": "The Drafter started chapter 3.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000012",
@@ -380,7 +389,8 @@
         "toUtc": null,
         "time": "02:12",
         "words": "The Cover Desk finished the front cover.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": false
       },
       {
         "key": "00000000-0000-0000-0000-000000000013",
@@ -390,7 +400,8 @@
         "toUtc": null,
         "time": "02:30",
         "words": "The Editor sent chapter 2 back for a rewrite.",
-        "emptyChecks": 0
+        "emptyChecks": 0,
+        "alarm": true
       }
     ],
     "window": {

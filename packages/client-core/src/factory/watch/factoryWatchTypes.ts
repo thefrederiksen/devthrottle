@@ -97,6 +97,9 @@ export interface FactoryWatchStep {
   words: string;
   /** How many empty checks the step stands for: at least 1 for "checked-nothing", 0 otherwise. */
   emptyChecks: number;
+  /** True only for a hiccup in the owner's view: the player draws the red lamp and the sparking wires only then. A
+   * hiccup with alarm false is drawn as a calm stumble with no red. Every audience sends it on every step. */
+  alarm: boolean;
   /** Contributor audience only: true when the step is the contributor's own crate. A step that is not theirs carries
    * no words and is drawn as a plain crate. Absent in the owner audience. */
   mine?: boolean;
@@ -126,6 +129,6 @@ export const FACTORY_WATCH_KEYS = {
   station: keys<FactoryWatchStation>()(["id", "label", "sub", "isBoss", "gx", "gy", "width", "height", "line"] as const, [] as const, true),
   line: keys<FactoryWatchLine>()(["name", "index", "gx", "gy", "width", "height"] as const, [] as const, true),
   character: keys<FactoryWatchCharacter>()(["seat", "name", "colour", "station", "homeGx", "homeGy"] as const, [] as const, true),
-  step: keys<FactoryWatchStep>()(["key", "kind", "seat", "utc", "toUtc", "time", "words", "emptyChecks"] as const, ["mine"] as const, true),
+  step: keys<FactoryWatchStep>()(["key", "kind", "seat", "utc", "toUtc", "time", "words", "emptyChecks", "alarm"] as const, ["mine"] as const, true),
   window: keys<FactoryWindow>()(["key", "label", "fromUtc", "toUtc", "fromLocal", "toLocal", "choices"] as const, [] as const, true),
 };

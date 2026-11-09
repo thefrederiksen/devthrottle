@@ -66,6 +66,8 @@ describe("the watch view contract", () => {
       expectValueTypes(view);
       expect(typeof view.truncatedText === "string" || view.truncatedText === null).toBe(true);
       expect(Array.isArray(view.notes)).toBe(true);
+      // The owner's alarm is raised on a hiccup and on nothing else.
+      for (const s of view.steps) expect(s.alarm, s.key).toBe(s.kind === "hiccup");
     });
   }
 
@@ -76,6 +78,9 @@ describe("the watch view contract", () => {
     expect(contributor).not.toHaveProperty("notes");
     expect(contributor).not.toHaveProperty("truncatedText");
     for (const s of contributor.steps) expect(typeof s.mine).toBe("boolean");
+    // A contributor never sees an alarm, not even on their own hiccup.
+    for (const s of contributor.steps) expect(s.alarm, s.key).toBe(false);
+    expect(contributor.steps.some((s) => s.kind === "hiccup" && s.mine === true)).toBe(true);
     // A step that is not the contributor's carries no words.
     for (const s of contributor.steps.filter((s) => s.mine === false)) expect(s.words).toBe("");
   });

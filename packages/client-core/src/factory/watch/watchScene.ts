@@ -8,7 +8,8 @@
 //                    bench when it is the Boss, or there is none); confetti where it lands
 //   talked           the lamp goes blue and the step's own words appear in a speech bubble
 //   checked-nothing  a magnifier peeks at the station with the count of checks, the character peeks, shrugs, dozes
-//   hiccup           the lamp blinks red, wires spark out of the character and it goes dizzy, then worried
+//   hiccup           when the step's alarm is set (an owner's hiccup): the lamp blinks red, wires spark out of the
+//                    character and it goes dizzy, then worried. Without the alarm: a calm stumble and a shrug, no red
 //   waiting          a calm lamp pulses, an hourglass turns and the character waits, looking about - never a failure
 //
 // And one drawing that is not a kind: a step the view marks as NOT the contributor's own (mine === false) carries no
@@ -354,7 +355,14 @@ export const ANIMATIONS: Record<FactoryWatchStepKind, (c: AnimationContext) => v
     if (k < 0.8) scene.magnifier = { station: station.id, x: sx, y: sy, count: step.emptyChecks };
   },
 
-  hiccup: ({ scene, pose, station, u, t }) => {
+  hiccup: ({ scene, pose, station, step, u, t }) => {
+    if (!step.alarm) {
+      // The Gateway raised no alarm: a calm stumble - a small lurch that settles, then a shrug. No red, no wires.
+      scene.lamps[station.id] = IDLE_LAMP;
+      pose.expression = u < 1.2 ? "surprised" : "shrug";
+      pose.x += Math.sin(u * 9) * 5 * Math.max(0, 1 - u / 1.2);
+      return;
+    }
     scene.lamps[station.id] = Math.sin(t * 14) > -0.2 ? LAMP.hiccup : IDLE_LAMP;
     if (u < 2.6) {
       pose.expression = "dizzy";

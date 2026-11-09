@@ -104,11 +104,12 @@ describe("sceneAt: each step kind has its one animation", () => {
     expect(shrug.scene.poses.find((p) => p.seat === seat)!.expression).toBe("shrug");
   });
 
-  it("hiccup: the lamp blinks red, wires spark and the character goes dizzy, then worried", () => {
+  it("hiccup with the alarm (owner): the lamp blinks red, wires spark and the character goes dizzy, then worried", () => {
     const early = midStep(hub, "hiccup", 0.2);
     const late = midStep(hub, "hiccup", 0.9);
     const seat = early.ts.step.seat;
 
+    expect(early.ts.step.alarm).toBe(true);
     expect(early.scene.poses.find((p) => p.seat === seat)).toMatchObject({ animation: "hiccup", expression: "dizzy", wires: true });
     expect(early.scene.smoke).not.toBeNull();
     expect(late.scene.poses.find((p) => p.seat === seat)!.expression).toBe("worried");
@@ -117,6 +118,25 @@ describe("sceneAt: each step kind has its one animation", () => {
     const station = hub.characters.find((c) => c.seat === seat)!.station;
     const colours = new Set(Array.from({ length: 20 }, (_, i) => sceneAt(hub, timeline, early.ts.start + i * 0.05).lamps[station]));
     expect(colours).toEqual(new Set([LAMP.hiccup, IDLE_LAMP]));
+  });
+
+  it("hiccup with no alarm (contributor): a calm stumble and a shrug - no red lamp, no wires, no smoke", () => {
+    const timeline = buildTimeline(contributor);
+    const ts = timeline.steps.find((s) => s.step.kind === "hiccup")!;
+    expect(ts.step.alarm).toBe(false);
+    const station = contributor.characters.find((c) => c.seat === ts.step.seat)!.station;
+
+    const scenes = Array.from({ length: 40 }, (_, i) => sceneAt(contributor, timeline, ts.start + ((ts.end - ts.start) * i) / 40));
+
+    for (const scene of scenes) {
+      const pose = scene.poses.find((p) => p.seat === ts.step.seat)!;
+      expect(pose).toMatchObject({ animation: "hiccup", wires: false });
+      expect(["surprised", "shrug"]).toContain(pose.expression);
+      expect(scene.smoke).toBeNull();
+      expect(scene.lamps[station]).toBe(IDLE_LAMP);
+      expect(Object.values(scene.lamps)).not.toContain(LAMP.hiccup);
+    }
+    expect(scenes.at(-1)!.poses.find((p) => p.seat === ts.step.seat)!.expression).toBe("shrug");
   });
 
   it("waiting (contributor): a calm lamp, an hourglass and a waiting face - never red, never dizzy", () => {

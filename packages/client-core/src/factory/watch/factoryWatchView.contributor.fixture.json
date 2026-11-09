@@ -132,6 +132,7 @@
       "time": "22:00",
       "words": "Your factory has started work on your photos.",
       "emptyChecks": 0,
+      "alarm": false,
       "mine": true
     },
     {
@@ -143,6 +144,7 @@
       "time": "22:04",
       "words": "",
       "emptyChecks": 0,
+      "alarm": false,
       "mine": false
     },
     {
@@ -154,6 +156,7 @@
       "time": "22:06",
       "words": "Your request is waiting its turn.",
       "emptyChecks": 0,
+      "alarm": false,
       "mine": true
     },
     {
@@ -165,10 +168,23 @@
       "time": "22:10",
       "words": "",
       "emptyChecks": 0,
+      "alarm": false,
       "mine": false
     },
     {
       "key": "step-5",
+      "kind": "hiccup",
+      "seat": "seat-3",
+      "utc": "2026-11-07T22:20:00Z",
+      "toUtc": null,
+      "time": "22:20",
+      "words": "One step on your request hit a snag, and the factory is trying again.",
+      "emptyChecks": 0,
+      "alarm": false,
+      "mine": true
+    },
+    {
+      "key": "step-6",
       "kind": "delivered",
       "seat": "seat-2",
       "utc": "2026-11-07T22:30:00Z",
@@ -176,6 +192,7 @@
       "time": "22:30",
       "words": "A new version of your website is live.",
       "emptyChecks": 0,
+      "alarm": false,
       "mine": true
     }
   ],
