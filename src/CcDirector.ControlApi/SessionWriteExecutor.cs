@@ -80,37 +80,57 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
     };
 
     /// <summary>
-    /// The verbs here that put characters into the session's terminal, so their arrival order is the
-    /// person's intent (issue #4490). Each one reaches <c>Session.SendInput</c>,
-    /// <c>PressKeyAfterAnySend</c> or <c>TypeDriverInputAsync</c>:
+    /// THE VERBS THAT WRITE INPUT AND RETURN, so their arrival order is the person's intent and nothing
+    /// else can give it to them (issues #4490, #4816).
     ///
-    ///   prompt             types the text and presses Enter
+    /// THE RULE, AND IT IS NARROWER THAN IT WAS. A verb belongs here if it puts characters into the
+    /// terminal AND COMES BACK - no waiting for the agent to answer. A verb that WAITS stays out, because
+    /// chaining a wait puts it in front of everything else that session is sent, and the sends serialise
+    /// against each other on their own: <c>SubmitTextAsync</c> holds <c>_submitGate</c> for the whole of
+    /// one send, first keystroke to proof.
+    ///
+    /// AN EARLIER VERSION OF THIS PARAGRAPH SAID SOMETHING ELSE AND IT WAS FALSE: that the session layer
+    /// holds an arriving keystroke against those verbs and answers it <c>Held</c> at once. That is true
+    /// only of a GUARDED send (<c>Session.SendTextOnlyWhenWaitingForInputAsync</c>), which is the
+    /// only-when-waiting prompt path. An ordinary <c>SendTextAsync</c> is not guarded, so a keystroke
+    /// arriving during one is written into it. That is pre-existing, unchanged here, and not something a
+    /// chain was going to fix without reintroducing the wait.
+    ///
     ///   interrupt, escape  the control keys, which must not overtake the line they interrupt
     ///   terminal-*         the Cockpit's terminal, every chunk of it
     ///   enter              the phone's Enter key - a raw carriage return, written synchronously
-    ///   clear-context      types /clear
-    ///   compact-context    types /compact
-    ///   history-picker     types the history key
-    ///   execute-action     the Wingman's type / send_keys / submit
-    ///   queue-send         TYPING, and the review of #4815 caught this list calling it something else: it
-    ///                      calls Session.SendTextAsync, which types the queued prompt into the terminal.
-    ///                      Session.BeginInputAsync waits only for a guarded SECTION, so two plain sends
-    ///                      are not serialised against each other - queued text would interleave with a
-    ///                      prompt. It is ordered for the keystroke reason, like every line above it.
-    ///   the other queue-*  not typing, and ordered because a person's reordering is a SEQUENCE: move-down
-    ///                      A then move-up C on [A,B,C] gives [B,C,A] and the other way round gives
-    ///                      [C,A,B]; add-then-clear and clear-then-add leave different queues. The queue
-    ///                      itself is thread-safe since #4815, so tearing is no longer the reason - that
-    ///                      is written where they are declared, in QueueGitExecutor.
+    ///   execute-action     the Wingman's type / send_keys / submit - synchronous, answers at once
+    ///
+    /// WHAT CAME OUT OF THIS LIST ON 9 NOVEMBER 2026, AND WHY - the review of #4816 found this, and it was
+    /// a real regression I had shipped past myself. Until then the delivery loop let go at a verb's first
+    /// await, so a long verb's WAIT was never ordered against anything. Putting these on a per-session chain
+    /// made the whole wait block that session:
+    ///
+    ///   compact-context    waits up to TWO MINUTES for the compaction (Session.CompactionWaitTimeout)
+    ///   clear-context      waits up to 60 seconds for the new transcript to appear
+    ///   prompt             answers "delivering" at 20 seconds and goes on typing after that
+    ///   history-picker     types the history key through the same guarded path
+    ///
+    /// The session layer holds its own input gate only while the <c>/compact</c> text is TYPED, deliberately
+    /// not during the wait - so Escape, interrupt and typed keys reached the terminal at once during a
+    /// compaction, which is exactly when a person wants to cancel one. Chained, that Escape would have
+    /// waited behind the compaction, the Gateway's 30-second wait would have expired showing "the Director
+    /// did not answer", and the Escape would have landed up to 110 seconds later in whatever state the
+    /// session had reached by then. They are out, and the guarded send orders them.
+    ///
+    /// terminal-paste stays IN even though it is slow - about nineteen seconds for ten kilobytes - because
+    /// it is not waiting for anything, it IS writing, and a keystroke's order against it is the person's
+    /// intent. It paces inside the session's input gate (<c>Session.PasteIntoTerminalAsync</c>) so that no
+    /// guarded send can start in the middle and split the pasted text around it.
     ///
     /// Everything else this area owns - create, kill, patch, resize, relink, the mode switches - is not
-    /// ordered and does not hold the delivery loop.
+    /// ordered at all.
     /// </summary>
     public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
     {
-        "prompt", "interrupt", "escape",
+        "interrupt", "escape",
         "terminal-input", "terminal-keys", "terminal-paste", "terminal-mouse",
-        "enter", "clear-context", "compact-context", "history-picker", "execute-action",
+        "enter", "execute-action",
     };
 
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
@@ -135,7 +155,7 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
             "resize" => Resize(sessionManager, command),
             "terminal-input" => TerminalInput(sessionManager, command),
             "terminal-keys" => TerminalKeys(sessionManager, command),
-            "terminal-paste" => TerminalPaste(sessionManager, command),
+            "terminal-paste" => await TerminalPasteAsync(sessionManager, command),
             "terminal-mouse" => TerminalMouse(sessionManager, command),
             "clear-context" => await ClearContextAsync(sessionManager, command, cancellationToken),
             "compact-context" => await CompactContextAsync(sessionManager, command, cancellationToken),
@@ -261,7 +281,23 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }
     }
 
-    internal static DirectorCommandResult TerminalPaste(SessionManager sessionManager, DirectorCommand command)
+    /// <summary>
+    /// The <c>terminal-paste</c> verb. AWAITED, never blocked on (issue #4816).
+    ///
+    /// <see cref="TerminalPasteExecutor.PasteAsync"/> paces its chunks with a real wait between them -
+    /// eight bytes every fifteen milliseconds for an unbracketed paste, which is about nineteen seconds for
+    /// ten kilobytes. This used to call <c>.GetAwaiter().GetResult()</c> on it, which held whatever thread
+    /// it was on for the whole paste, and that thread was the Director's single command delivery loop: for
+    /// nineteen seconds the machine received no Gateway command at all while its reports went up as usual.
+    /// The verb now hands its task back at the first chunk's wait, and its order against the next thing
+    /// typed into the same session is kept by that session's chain instead (<c>OrderedBySession</c>).
+    ///
+    /// NO CANCELLATION TOKEN IS PASSED, deliberately. The paste has never been cancellable from here, and
+    /// giving it the command's token would abandon a long paste half-written into somebody's terminal the
+    /// moment the Gateway stopped waiting for the answer - a worse outcome than a slow one. A paste that is
+    /// too long to be sensible is a separate question about the pacing itself, not about this await.
+    /// </summary>
+    internal static async Task<DirectorCommandResult> TerminalPasteAsync(SessionManager sessionManager, DirectorCommand command)
     {
         if (!Guid.TryParse(command.SessionId, out var id)) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
         var request = SessionCommandExecutor.Deserialize<TerminalPasteRequest>(command.PayloadJson);
@@ -270,9 +306,8 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         if (session is null) return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
         try
         {
-            InputAnswer answer = InputAnswer.Written;
-            TerminalPasteExecutor.PasteAsync(request.Text, session.BracketedPasteEnabled, session.Backend, bytes =>
-                answer = session.SendInput(bytes, InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device"))).GetAwaiter().GetResult();
+            var answer = await session.PasteIntoTerminalAsync(request.Text, InputOrigin.DesktopTyped,
+                SubmissionProvenance.Typed("gateway-terminal", "device")).ConfigureAwait(false);
             return SessionCommandExecutor.Answer(answer);
         }
         catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }

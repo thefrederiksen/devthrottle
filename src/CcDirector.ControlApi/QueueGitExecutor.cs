@@ -51,16 +51,31 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
     /// the queue they just changed, unchanged. The lock makes each verb safe; it cannot make a PAIR of them
     /// mean what the person meant, and only arrival order can.
     ///
-    /// AND queue-send IS A TYPING VERB, which is the one in this list that must not be read as a list edit.
-    /// It calls <c>Session.SendTextAsync</c>, which types the queued prompt into the terminal, and
-    /// <c>Session.BeginInputAsync</c> waits only for a guarded SECTION - so two plain sends are not
-    /// serialised against each other, and queued text would interleave with a prompt. It is ordered for
-    /// exactly the reason the keystroke verbs are, and moving it off would corrupt somebody's terminal.
+    /// AND queue-send IS NOT IN THIS LIST, which took three reviews to get right - the first two answers were
+    /// both wrong and both written down confidently.
+    ///
+    /// The #4815 review was right that it TYPES: it calls <c>Session.SendTextAsync</c>, which types the
+    /// queued prompt into the terminal. At the time that meant keeping it on the delivery loop.
+    ///
+    /// I then claimed it belonged off the chain because <c>SendTextAsync</c> is a guarded send and
+    /// <c>Session.SendInput</c> would hold an arriving keystroke against it. THAT IS FALSE.
+    /// <c>SendTextAsync</c> is not a guarded send - only
+    /// <c>Session.SendTextOnlyWhenWaitingForInputAsync</c> opens a <c>GuardedInputSection</c> - so a
+    /// keystroke arriving during a queue-send is written straight into it. That is PRE-EXISTING and is not
+    /// narrowed or widened here: on the delivery loop, queue-send released it at its first await and a
+    /// terminal-input could be received and written mid-send exactly as it can now.
+    ///
+    /// THE REASON IT STAYS OFF IS THE WAIT. queue-send waits for an agent round-trip, and chaining it would
+    /// put that wait in front of somebody's Escape - the regression the #4816 review found in the first
+    /// version of that change, where a two-minute compaction delayed the keystroke sent to cancel it. Two
+    /// sends do not interleave with EACH OTHER, because <c>SubmitTextAsync</c> holds <c>_submitGate</c> for
+    /// the whole of one send, and the claim on the item is atomic in any case
+    /// (<c>PromptQueue.TryTake</c>, #4815), so the same prompt cannot be handed out twice.
     /// </summary>
     public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
     {
         "queue-read", "queue-add", "queue-update", "queue-remove",
-        "queue-move-up", "queue-move-down", "queue-clear", "queue-send",
+        "queue-move-up", "queue-move-down", "queue-clear",
     };
 
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
