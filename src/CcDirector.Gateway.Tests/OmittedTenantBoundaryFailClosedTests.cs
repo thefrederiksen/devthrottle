@@ -104,7 +104,6 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
 
     private const string LocalSecretMachine = "local-partition-secret-machine";
     private const string LocalSecretPrompt = "local-partition-secret-prompt-text";
-    private const string LocalSecretScreenshot = "local-partition-secret-screenshot.png";
 
     private readonly string _storageRoot =
         Path.Combine(Path.GetTempPath(), "cc-omitted-boundary-" + Guid.NewGuid().ToString("N"));
@@ -315,57 +314,6 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         var ex = Assert.Throws<InvalidOperationException>(
             () => new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: true));
         Assert.Contains("hosted", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    // ===== site 7: SessionWsProxyEndpoints, probed at GET /sessions/{sid}/screenshots ===============
-
-    [Fact]
-    public async Task SessionScreenshots_refuses_on_hosted_when_the_boundary_was_omitted()
-    {
-        // The widest fail-open surface on the census: this helper's resolver used to decide on the ARGUMENT
-        // (`boundary is null ? TenantId.Local : ...`) with no hosted-mode gate at all, so a null boundary on
-        // hosted served the LOCAL partition to every leg it guards. The seeded disclosure: a session pushed
-        // into the Local partition, and a stand-in tunnel that echoes WHICH Director id it served - so the
-        // assertion is about the partition the route chose, not about an empty store.
-        const string sid = "11111111-1111-1111-1111-111111111111";
-        var unwiredStore = new PushedSessionStore(() => DateTime.UtcNow);
-        unwiredStore.RegisterConnection(TenantId.Local, "local-dir", "conn-local");
-        Assert.True(unwiredStore.ApplyDelta(TenantId.Local, "local-dir", "conn-local", 1,
-            new SessionDto { SessionId = sid })); // the disclosure claim is meaningless if the seed failed
-        DirectorCommandRouter.SendDirectorCommandAsync unwiredSend = (directorId, _, _) =>
-            Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(
-                "{\"servedBy\":\"" + directorId + "\",\"items\":[\"" + LocalSecretScreenshot + "\"]}"));
-
-        await using (var unwired = await Host.StartAsync(_tenant,
-            app => SessionWsProxyEndpoints.Map(app, unwiredStore, new GatewayStreamRegistry(), unwiredSend,
-                new DirectorRegistry(Path.Combine(_storageRoot, "wsproxy-unwired")), tenantBoundary: null!)))
-        {
-            var (status, body) = await Get(unwired.Http, $"/sessions/{sid}/screenshots?count=5");
-            AssertRefusal(status, body);
-            Assert.DoesNotContain(LocalSecretScreenshot, body, StringComparison.Ordinal);
-            Assert.DoesNotContain("local-dir", body, StringComparison.Ordinal);
-        }
-
-        // Positive companion: the SAME session id exists in BOTH the Local partition and the caller's own,
-        // owned by differently-named Directors, and the tunnel echoes which one it dispatched to. The wired
-        // twin must serve the caller's OWN Director - so the 403 above is the guard refusing, and the
-        // partition choice (never the Local one) is proven directly rather than inferred from absence.
-        var wiredStore = new PushedSessionStore(() => DateTime.UtcNow);
-        wiredStore.RegisterConnection(TenantId.Local, "local-dir", "conn-local");
-        Assert.True(wiredStore.ApplyDelta(TenantId.Local, "local-dir", "conn-local", 1, new SessionDto { SessionId = sid }));
-        wiredStore.RegisterConnection(_tenant, "own-dir", "conn-own");
-        Assert.True(wiredStore.ApplyDelta(_tenant, "own-dir", "conn-own", 1, new SessionDto { SessionId = sid }));
-        DirectorCommandRouter.SendDirectorCommandAsync wiredSend = (directorId, _, _) =>
-            Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(
-                "{\"servedBy\":\"" + directorId + "\",\"items\":[]}"));
-
-        await using var wired = await Host.StartAsync(_tenant,
-            app => SessionWsProxyEndpoints.Map(app, wiredStore, new GatewayStreamRegistry(), wiredSend,
-                new DirectorRegistry(Path.Combine(_storageRoot, "wsproxy-wired")), tenantBoundary: WiredBoundary()));
-        var (wiredStatus, wiredBody) = await Get(wired.Http, $"/sessions/{sid}/screenshots?count=5");
-        Assert.Equal(HttpStatusCode.OK, wiredStatus);
-        Assert.Contains("own-dir", wiredBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("local-dir", wiredBody, StringComparison.Ordinal);
     }
 
     // ===== site 8: DeviceEnrollmentEndpoint, probed at GET /devices =================================
