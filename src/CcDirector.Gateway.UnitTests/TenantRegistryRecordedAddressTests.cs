@@ -33,7 +33,7 @@ public sealed class TenantRegistryRecordedAddressTests : IDisposable
     private static string Subject() => "sub-" + Guid.NewGuid().ToString("N");
 
     [Fact]
-    public void A_tenant_minted_without_an_email_gets_one_recorded_when_the_account_next_resolves()
+    public void MintOrLookupBySubject_MintedWithoutAnEmail_RecordsTheEmailWhenTheAccountNextResolves()
     {
         var registry = NewRegistry();
         var subject = Subject();
@@ -168,7 +168,7 @@ public sealed class TenantRegistryRecordedAddressTests : IDisposable
     }
 
     [Fact]
-    public void Resolving_without_an_email_leaves_a_null_alone_rather_than_blanking_anything()
+    public void MintOrLookupBySubject_ResolvedWithoutAnEmail_KeepsTheRecordedAddress()
     {
         var registry = NewRegistry();
         var subject = Subject();
@@ -180,7 +180,7 @@ public sealed class TenantRegistryRecordedAddressTests : IDisposable
     }
 
     [Fact]
-    public void The_backfilled_email_is_what_makes_the_account_findable_by_email()
+    public void LookupByAccount_EmailRecordedOnALaterResolution_FindsTheAccount()
     {
         // The end-to-end point of the backfill, stated as the property the morning report depends on.
         var registry = NewRegistry();
@@ -200,7 +200,7 @@ public sealed class TenantRegistryRecordedAddressTests : IDisposable
     // ---- the lookup itself -----------------------------------------------------------------------------
 
     [Fact]
-    public void An_account_is_findable_by_its_tenant_id_and_by_its_email_in_any_casing()
+    public void LookupByAccount_TenantIdOrEmailInAnyCasing_FindsTheAccount()
     {
         var registry = NewRegistry();
         var tenant = registry.MintOrLookupBySubject(Subject(), "Mixed.Case@Example.com");
@@ -219,7 +219,7 @@ public sealed class TenantRegistryRecordedAddressTests : IDisposable
     [InlineData("   ")]
     [InlineData("nobody@example.com")]
     [InlineData("00000000-0000-0000-0000-000000000000")]
-    public void An_unknown_or_empty_identifier_is_NotFound(string? identifier)
+    public void LookupByAccount_UnknownOrEmptyIdentifier_IsNotFound(string? identifier)
     {
         var registry = NewRegistry();
         registry.MintOrLookupBySubject(Subject(), "somebody@example.com");
@@ -229,7 +229,7 @@ public sealed class TenantRegistryRecordedAddressTests : IDisposable
     }
 
     [Fact]
-    public void Two_accounts_sharing_a_display_email_are_AMBIGUOUS_never_resolved_to_one_of_them()
+    public void LookupByAccount_TwoAccountsShareAnEmail_IsAmbiguous()
     {
         // Two DIFFERENT accounts (different subjects - the real key) that happen to carry the same display
         // email. Picking either would email one person the other person's day, so there is no answer.
@@ -244,7 +244,7 @@ public sealed class TenantRegistryRecordedAddressTests : IDisposable
     }
 
     [Fact]
-    public void The_lookup_never_mints()
+    public void LookupByAccount_UnknownAccount_NeverMints()
     {
         var registry = NewRegistry();
 
