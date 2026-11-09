@@ -16,23 +16,42 @@ namespace CcDirector.Avalonia.Tests;
 public sealed class DeliveryLoopOrderTests
 {
     [Theory]
-    [InlineData("prompt")]
     [InlineData("interrupt")]
     [InlineData("escape")]
     [InlineData("terminal-input")]
     [InlineData("terminal-keys")]
     [InlineData("terminal-paste")]
     [InlineData("terminal-mouse")]
-    [InlineData("clear-context")]
-    [InlineData("compact-context")]
-    [InlineData("history-picker")]
-    public void AKeystrokeVerb_ArrivesInOrder_ButNoLongerOnTheLoop(string verb)
+    [InlineData("enter")]
+    [InlineData("execute-action")]
+    public void AVerbThatWritesInputAndReturns_ArrivesInOrder_ButNoLongerOnTheLoop(string verb)
     {
         // Typing a line and then pressing Escape must reach the terminal in that order. Until #4816 the
         // loop was what gave them that order, and the price was deafness: terminal-paste held it for about
         // nineteen seconds for ten kilobytes, during which the Director received no command of any kind.
         // They are ordered PER SESSION now, which is the same order and costs nothing else.
         Assert.True(DeliveryLoopOrder.MustArriveInOrder(verb));
+        Assert.False(DeliveryLoopOrder.MustStayOnTheLoop(verb));
+    }
+
+    [Theory]
+    [InlineData("prompt")]             // a guarded send: answers "delivering" at 20s and types on after it
+    [InlineData("clear-context")]      // waits up to 60s for the new transcript
+    [InlineData("compact-context")]    // waits up to TWO MINUTES for the compaction
+    [InlineData("history-picker")]
+    [InlineData("queue-send")]         // types the queued prompt through the same guarded send
+    [InlineData("ring")]               // the doorbell line, and it refuses a second ring itself
+    public void AVerbThatWAITSForTheAgent_IsOrderedByTheGuardedSend_AndNeverChained(string verb)
+    {
+        // THE REGRESSION THE #4816 REVIEW CAUGHT, pinned. Chaining these made a session's whole WAIT block
+        // every keystroke behind it: compact-context on a session, the person presses Escape ten seconds
+        // later to cancel it, and the Escape waits out the compaction - the Gateway's 30-second wait expires
+        // showing "the Director did not answer" and the Escape lands up to 110 seconds later in whatever
+        // state the session reached. The session layer orders these properly and the chain cannot: while a
+        // guarded section is open, Session.SendInput HOLDS an arriving keystroke, answers it Held at once,
+        // and writes it after the send in the order it was pressed. A queue can only be silent until its turn.
+        Assert.False(DeliveryLoopOrder.MustArriveInOrder(verb),
+            $"{verb} waits for the agent; chaining it puts that wait in front of somebody's Escape");
         Assert.False(DeliveryLoopOrder.MustStayOnTheLoop(verb));
     }
 
@@ -99,7 +118,9 @@ public sealed class DeliveryLoopOrderTests
     [InlineData("enter")]            // the phone's Enter key: a raw carriage return, written synchronously
     [InlineData("execute-action")]   // the Wingman's type / send_keys / submit
     [InlineData("queue-add")]        // not typing: a person's reordering is a sequence (#4815)
-    [InlineData("queue-send")]       // typing, in fact - it types the queued prompt in (#4815 review)
+    // queue-send was here too, from the #4815 review, which was right that it TYPES. The #4816 review then
+    // showed that a typing verb which WAITS belongs to the guarded send rather than to a chain; it is pinned
+    // by AVerbThatWAITSForTheAgent_IsOrderedByTheGuardedSend_AndNeverChained instead.
     public void TheVerbsTheREVIEWFound_AreOrdered(string verb)
     {
         Assert.True(DeliveryLoopOrder.MustArriveInOrder(verb));
@@ -308,9 +329,20 @@ public sealed class DeliveryLoopDoesNotStopOnAHungVerbTests
             return Task.FromResult(DirectorCommandResult.Success());
         });
 
-        // The first wedges; the rest queue behind it. None of these calls blocks - that is the fix.
+        // THE FIRST CALL GOES THROUGH Task.Run WITH A WATCHDOG, like its siblings above, and the review of
+        // #4816 is why: called inline, this test does not FAIL on the old routing, it HANGS - the handler
+        // runs on the test's own thread and wedged.Wait() never returns, which took out a whole test host
+        // for ten minutes and hid the other failures behind it. A test whose failure mode is a dead run
+        // proves nothing about anything.
         var queued = new List<Task<DirectorCommandResult>>();
-        for (var i = 0; i <= OrderedBySession.MostThatMayWait; i++)
+        Task<DirectorCommandResult>? first = null;
+        var handedItBack = Task.Run(() => { first = client.DeliverAsync(new DirectorCommand
+            { Verb = "terminal-input", SessionId = "slow", CommandId = "key-0" }); });
+        await handedItBack.WaitAsync(TimeSpan.FromSeconds(30));
+        queued.Add(first!);
+
+        // The rest queue behind it. None of these calls blocks - that is the fix.
+        for (var i = 1; i <= OrderedBySession.MostThatMayWait; i++)
             queued.Add(client.DeliverAsync(new DirectorCommand
                 { Verb = "terminal-input", SessionId = "slow", CommandId = $"key-{i}" }));
 
@@ -379,14 +411,15 @@ public sealed class DeliveryLoopIsWatchedByTheTickTests
             "dir-test", "0.0.0", () => new List<SessionDto>(),
             commandDispatcher: cmd =>
             {
-                if (cmd.Verb == "prompt") { entered.TrySetResult(); wedged.Wait(); }
+                if (cmd.Verb == "terminal-input") { entered.TrySetResult(); wedged.Wait(); }
                 return Task.FromResult(DirectorCommandResult.Success());
             },
             rePushInterval: TimeSpan.FromSeconds(30));
 
-        // An ORDERED verb, which since #4816 wedges its SESSION'S QUEUE rather than the delivery loop. It is
-        // held from another thread; this one drives the tick.
-        _ = Task.Run(() => client.DeliverAsync(new DirectorCommand { Verb = "prompt", SessionId = "s1", CommandId = "wedged" }));
+        // A verb that WRITES INPUT AND RETURNS, which since #4816 wedges its SESSION'S QUEUE rather than the
+        // delivery loop. Not prompt: a prompt waits for the agent, so it is deliberately not chained at all
+        // (the #4816 review). It is held from another thread; this one drives the tick.
+        _ = Task.Run(() => client.DeliverAsync(new DirectorCommand { Verb = "terminal-input", SessionId = "s1", CommandId = "wedged" }));
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));   // a watchdog on a hang, never the verdict
 
         // WHERE THE WEDGE IS NOW, AND THE WHOLE POINT OF #4816: the session's queue is held and the loop is

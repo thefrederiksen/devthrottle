@@ -42,8 +42,11 @@ namespace CcDirector.ControlApi;
 /// callable concurrently, as the REST surface it came from was, and the two shared writers were checked by
 /// hand: CcDirectorConfigService.MergePatch holds a process-wide write lock, so two settings-put calls
 /// cannot clobber one another; Session.PromptQueue did NOT, which is why the queue verbs were kept on the
-/// loop. It does now (issue #4815), and they stay ordered for a different and smaller reason that is written
-/// where they are declared: a person's reordering is a sequence.
+/// loop. It does now (issue #4815), and the queue EDITS stay ordered for a different and smaller reason
+/// that is written where they are declared: a person's reordering is a sequence. They run on their
+/// session's chain, not on the loop - they are synchronous and the queue is per session, so the chain
+/// serialises them exactly as the loop did. queue-send is no longer among them at all; see
+/// QueueGitExecutor for why a typing verb that WAITS belongs to the guarded send instead.
 /// </summary>
 internal static class DeliveryLoopOrder
 {

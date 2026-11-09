@@ -51,16 +51,20 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
     /// the queue they just changed, unchanged. The lock makes each verb safe; it cannot make a PAIR of them
     /// mean what the person meant, and only arrival order can.
     ///
-    /// AND queue-send IS A TYPING VERB, which is the one in this list that must not be read as a list edit.
-    /// It calls <c>Session.SendTextAsync</c>, which types the queued prompt into the terminal, and
-    /// <c>Session.BeginInputAsync</c> waits only for a guarded SECTION - so two plain sends are not
-    /// serialised against each other, and queued text would interleave with a prompt. It is ordered for
-    /// exactly the reason the keystroke verbs are, and moving it off would corrupt somebody's terminal.
+    /// AND queue-send IS NOT IN THIS LIST, which took two reviews to get right. The #4815 review was correct
+    /// that it TYPES - it calls <c>Session.SendTextAsync</c>, which types the queued prompt into the
+    /// terminal - and at the time that meant keeping it on the delivery loop. The #4816 review then showed
+    /// why a typing verb that WAITS does not belong on a session's chain: <c>SendTextAsync</c> is a guarded
+    /// send, and while a guarded section is open <c>Session.SendInput</c> already holds an arriving
+    /// keystroke, answers it <c>Held</c> at once and writes it after the send in the order it was pressed.
+    /// The session layer orders it better than a queue can, because a queue can only be silent until its
+    /// turn. Its claim on the item is atomic either way (<c>PromptQueue.TryTake</c>, #4815), so two sends
+    /// cannot hand the same prompt out twice however they interleave.
     /// </summary>
     public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
     {
         "queue-read", "queue-add", "queue-update", "queue-remove",
-        "queue-move-up", "queue-move-down", "queue-clear", "queue-send",
+        "queue-move-up", "queue-move-down", "queue-clear",
     };
 
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)

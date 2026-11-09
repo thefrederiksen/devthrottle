@@ -25,7 +25,14 @@ internal sealed class FleetDoorbellExecutor : ISessionCommandArea
     /// is being typed there. It is not a person's keystroke - the Gateway asks for it - and it costs the loop
     /// nothing either way, because it awaits the facts it gathers before it types anything.
     /// </summary>
-    public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[] { FleetDoorbellVerbs.Ring };
+    /// <summary>
+    /// NOTHING. <c>ring</c> was here until the review of #4816, for the keystroke reason - it writes a
+    /// doorbell line into the session. It does that through the session's GUARDED SEND, which already holds
+    /// and orders any keystroke arriving during it, and it refuses a second ring to the same session itself
+    /// (<c>FleetDoorbellRinger.Ringing</c> answers <c>working</c> rather than queueing). A chain would have
+    /// added nothing but a wait for an agent round-trip in front of somebody's Escape.
+    /// </summary>
+    public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = Array.Empty<string>();
 
     public Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
     {

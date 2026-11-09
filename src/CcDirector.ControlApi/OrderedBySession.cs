@@ -81,6 +81,20 @@ internal sealed class OrderedBySession
 
     private readonly object _gate = new();
     private readonly Dictionary<string, Chain> _chains = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// ONE SESSION IS ONE KEY, WHATEVER ITS IDENTIFIER WAS SPELLED LIKE (the review of #4816). The Gateway
+    /// passes the request's session identifier through untouched, and the key is compared with an ordinal
+    /// comparer, so two spellings of one identifier differing only in letter case would be two chains - and
+    /// two chains are no order at all. Parsing it settles the spelling; anything that is not an identifier
+    /// at all keeps its own text, because a malformed command is refused in microseconds and its ordering
+    /// against anything is moot.
+    /// </summary>
+    private static string KeyFor(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return NoSession;
+        return Guid.TryParse(sessionId, out var parsed) ? parsed.ToString("D") : sessionId;
+    }
     private readonly TimeProvider _clock;
     private readonly Action<string> _write;
 
@@ -108,7 +122,7 @@ internal sealed class OrderedBySession
     internal Task<T> Run<T>(string? sessionId, string? verb, string? commandId, Func<Task<T>> work)
     {
         ArgumentNullException.ThrowIfNull(work);
-        var key = string.IsNullOrEmpty(sessionId) ? NoSession : sessionId;
+        var key = KeyFor(sessionId);
 
         lock (_gate)
         {
@@ -146,7 +160,7 @@ internal sealed class OrderedBySession
     /// </summary>
     internal bool TooManyWaiting(string? sessionId, out string why)
     {
-        var key = string.IsNullOrEmpty(sessionId) ? NoSession : sessionId;
+        var key = KeyFor(sessionId);
         lock (_gate)
         {
             if (!_chains.TryGetValue(key, out var chain) || chain.Waiting <= MostThatMayWait)
@@ -222,7 +236,7 @@ internal sealed class OrderedBySession
     /// free. The question the loop watch answers for the loop, asked of one session.</summary>
     internal (string Verb, string CommandId, TimeSpan Held, int Waiting)? Inside(string? sessionId)
     {
-        var key = string.IsNullOrEmpty(sessionId) ? NoSession : sessionId;
+        var key = KeyFor(sessionId);
         lock (_gate)
         {
             if (!_chains.TryGetValue(key, out var chain) || chain.RunningVerb is null) return null;
@@ -253,6 +267,20 @@ internal sealed class OrderedBySession
         lock (_gate)
         {
             if (!_chains.TryGetValue(key, out var chain)) return;
+
+            // HOW LONG IT LASTED IN THE END, which is the number whoever reads the log afterwards wants
+            // (the review of #4816 found this missing; DeliveryLoopWatch has said it since #4490). The line
+            // written while a queue is held says only that it started, and the tick that writes it runs
+            // every ten seconds, so a hold is first reported 30 to 40 seconds in and never summed up.
+            if (chain.RunningVerb is not null)
+            {
+                var held = _clock.GetElapsedTime(chain.StartedAt);
+                if (held >= Budget)
+                    _write($"[OrderedBySession] session={key} input queue released by verb={chain.RunningVerb}, "
+                           + $"cmdId={chain.RunningCommandId} after {held.TotalSeconds:F1}s, with "
+                           + $"{chain.Waiting - 1} command(s) still waiting (issue #4816).");
+            }
+
             chain.RunningVerb = null;
             chain.RunningCommandId = null;
             if (--chain.Waiting <= 0)

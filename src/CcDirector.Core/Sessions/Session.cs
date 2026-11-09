@@ -5023,6 +5023,40 @@ public sealed class Session : IDisposable
             DateTime.UtcNow, origin.ModalityToken, origin.SurfaceToken, charCount));
     }
 
+    /// <summary>
+    /// PASTE INTO THE TERMINAL, PACED INSIDE THIS SESSION'S INPUT GATE (issues #4816, #4490).
+    ///
+    /// A paste is written in chunks with a real wait between them - eight bytes every fifteen milliseconds
+    /// unbracketed, so ten kilobytes is about nineteen seconds. Two things have to be true for all of it:
+    ///
+    ///   - THE DIRECTOR MUST STILL HEAR THE GATEWAY. It did not: the tunnel verb blocked on this with
+    ///     .GetAwaiter().GetResult() on the one command delivery loop, so for nineteen seconds no command of
+    ///     any kind was received while the machine's reports went up and every screen called it healthy.
+    ///     The verb awaits now, and its order against the next thing TYPED is kept by that session's chain.
+    ///   - NO GUARDED SEND MAY START IN THE MIDDLE OF IT. That is this method. A prompt, a /clear or a
+    ///     /compact arriving mid-paste would open a guarded section, and from that moment
+    ///     <see cref="SendInput"/> HOLDS the paste's remaining chunks and writes them after the send - so
+    ///     the person's text would arrive split around somebody else's. Holding the gate makes the send wait
+    ///     for the paste instead, which is what <see cref="BeginInputAsync"/> is for.
+    ///
+    /// Raw keystrokes are deliberately NOT held by the gate, here as everywhere: a person typing at the
+    /// terminal owns it, and the command surface's ordering against them is the delivery chain's job.
+    /// </summary>
+    internal async Task<InputAnswer> PasteIntoTerminalAsync(
+        string? text, InputOrigin? origin, SubmissionProvenance provenance, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(provenance);
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("PasteIntoTerminalAsync");
+
+        using (await BeginInputAsync().ConfigureAwait(false))
+        {
+            var answer = InputAnswer.Written;
+            await TerminalPasteExecutor.PasteAsync(text, BracketedPasteEnabled, Backend,
+                bytes => answer = SendInput(bytes, origin, provenance), cancellationToken).ConfigureAwait(false);
+            return answer;
+        }
+    }
+
     /// <summary>Send text followed by Enter (sync wrapper). See
     /// <see cref="SendTextAsync(string, SubmissionProvenance, SendSource, InputOrigin?)"/> for what <paramref name="source"/> and
     /// <paramref name="origin"/> mean.</summary>
