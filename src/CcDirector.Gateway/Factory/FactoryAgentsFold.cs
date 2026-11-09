@@ -175,7 +175,7 @@ public static class FactoryAgentsFold
     };
 
     // "in the last 24 hours" / "between 21 Sep 18:00 and 22 Sep 08:00" - the window inside a sentence.
-    private static string WindowPhrase(FactoryWindow window, TimeZoneInfo zone) => window.Key switch
+    internal static string WindowPhrase(FactoryWindow window, TimeZoneInfo zone) => window.Key switch
     {
         WindowLast24h => "in the last 24 hours",
         WindowLast7d => "in the last 7 days",
@@ -430,31 +430,48 @@ public static class FactoryAgentsFold
             .GroupBy(r => r.CorrectsId!.Value)
             .ToDictionary(g => g.Key, g => g.OrderBy(r => r.OccurredUtc).Last());
 
-        var lines = new List<FactoryActivityRowViewDto>();
+        return EmptyCheckRuns(rows)
+            .Select(run => run.Count == 1 ? Line(run[0], window, zone, byId, correctedBy) : Collapsed(run, window, zone))
+            .ToList();
+    }
+
+    /// <summary>
+    /// THE ONE GROUPING OF EMPTY CHECKS, shared by the Activity tab and the watch view so the two can never disagree
+    /// on what a quiet stretch is. The rows, in the order given, as runs: every row is a run of one, except that a run
+    /// of empty trigger checks - consecutive "nothing to do" rows from a trigger with nothing else between them - is
+    /// one run per trigger, placed where the run started.
+    /// </summary>
+    internal static List<IReadOnlyList<FactoryActivityDto>> EmptyCheckRuns(IReadOnlyList<FactoryActivityDto> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var runs = new List<IReadOnlyList<FactoryActivityDto>>();
         var i = 0;
         while (i < rows.Count)
         {
             if (!IsEmptyTriggerCheck(rows[i]))
             {
-                lines.Add(Line(rows[i], window, zone, byId, correctedBy));
+                runs.Add(new[] { rows[i] });
                 i++;
                 continue;
             }
 
             var j = i;
             while (j < rows.Count && IsEmptyTriggerCheck(rows[j])) j++;
-            // One line per trigger: the actor names it. The sentence is for a person to read and is never grouped on.
-            var groups = rows.Skip(i).Take(j - i)
-                .GroupBy(r => r.Actor, StringComparer.Ordinal)
-                .ToList();
-            foreach (var g in groups)
-            {
-                var run = g.ToList();
-                lines.Add(run.Count == 1 ? Line(run[0], window, zone, byId, correctedBy) : Collapsed(run, window, zone));
-            }
+            // One run per trigger: the actor names it. The sentence is for a person to read and is never grouped on.
+            foreach (var g in rows.Skip(i).Take(j - i).GroupBy(r => r.Actor, StringComparer.Ordinal))
+                runs.Add(g.ToList());
             i = j;
         }
-        return lines;
+        return runs;
+    }
+
+    /// <summary>The words of a collapsed run of empty checks: "Checked 25 times - nothing to do".</summary>
+    internal static string CollapsedWhat(IReadOnlyList<FactoryActivityDto> run)
+    {
+        var first = run[0];
+        return string.IsNullOrWhiteSpace(first.Subject)
+            ? $"Checked {run.Count} times - nothing to do"
+            : $"Checked \"{first.Subject.Trim()}\" {run.Count} times - nothing to do";
     }
 
     private static FactoryActivityRowViewDto Line(FactoryActivityDto r, FactoryWindow window, TimeZoneInfo zone,
@@ -489,10 +506,7 @@ public static class FactoryAgentsFold
     {
         var first = run[0];
         var last = run[^1];
-        var n = run.Count;
-        var what = string.IsNullOrWhiteSpace(first.Subject)
-            ? $"Checked {n} times - nothing to do"
-            : $"Checked \"{first.Subject.Trim()}\" {n} times - nothing to do";
+        var what = CollapsedWhat(run);
         return new FactoryActivityRowViewDto
         {
             Key = first.Id.ToString(),
@@ -969,7 +983,7 @@ public static class FactoryAgentsFold
         Local(utc, zone).ToString("d MMM HH:mm", CultureInfo.InvariantCulture);
 
     // A time inside a view: the clock alone for a window of a day or less, with the date for a longer one.
-    private static string ClockText(DateTime utc, FactoryWindow window, TimeZoneInfo zone) =>
+    internal static string ClockText(DateTime utc, FactoryWindow window, TimeZoneInfo zone) =>
         window.ToUtc - window.FromUtc <= TimeSpan.FromHours(24)
             ? Local(utc, zone).ToString("HH:mm", CultureInfo.InvariantCulture)
             : DateTimeText(utc, zone);
