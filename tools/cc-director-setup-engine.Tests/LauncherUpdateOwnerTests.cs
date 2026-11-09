@@ -265,6 +265,41 @@ public class LauncherUpdateOwnerTests : IDisposable
     }
 
     [Fact]
+    public async Task APassThatFindsTheStagedBuildIsNOTNEWER_SweepsIt_ThroughRunOnceAsync()
+    {
+        // THE BRANCH PRODUCTION HITS EVERY PASS, and the review's finding: the end-to-end test above
+        // leaves through the already-running shortcut, which is the state of a machine whose manifest has
+        // not caught up yet. One pass later the manifest agrees with the binary, FindStagedUpdate answers
+        // "not newer", and THAT is the branch a machine sits in for the rest of its life - the one this
+        // file was 117 MB of residue in on 8 November 2026.
+        var manifest = InstalledManifest.Load(_layout);
+        manifest.Set(ComponentRegistry.Launcher.Id, StagedVersion);     // the manifest has caught up
+        manifest.Save(_layout);
+        StagedBuildVersion.Write(_staged, StagedVersion);
+        WriteRegistration(1001, StagedVersion);                          // and the running launcher proves it
+
+        var owner = new LauncherUpdateOwner(_root,
+            directorStillHoldsItsInstance: () => true,
+            witness: new LauncherWitness(_root)
+            {
+                RegistrationPath = _registration,
+                ProcessIsAlive = _ => true,
+                HasListener = _ => true,
+            })
+        {
+            SwapLockName = _swapLockName,
+            ListLauncherProcesses = () => [InstalledLauncher(1001)],
+        };
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.NothingStaged, result.Decision);
+        Assert.Contains("not newer", result.Message);
+        Assert.False(File.Exists(_staged));
+        Assert.False(File.Exists(StagedBuildVersion.PathFor(_staged)));
+    }
+
+    [Fact]
     public void StagedBuildPath_IsUnderTheSharedRoot()
     {
         // Resolved through the calling process's own storage instead, this points into a Director's
