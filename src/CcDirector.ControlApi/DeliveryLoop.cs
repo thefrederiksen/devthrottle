@@ -14,16 +14,21 @@ namespace CcDirector.ControlApi;
 /// 22:02 and none for the next fourteen hours, while its reports went up the whole time and every screen
 /// called the machine healthy.
 ///
-/// THE THREE KINDS THAT STAY. A verb stays on the loop when the loop is what gives it its meaning:
+/// NOTHING WITH WORK IN IT STAYS ON THE LOOP ANY MORE (issue #4816). Two kinds remain, and both are
+/// connection-bound registry operations that return at once rather than work that could wedge:
 ///
-///   - THE KEYSTROKE VERBS, because arrival order IS the person's intent. Typing a line and then pressing
-///     Escape must reach the terminal in that order; on the thread pool two of them could overtake each
-///     other. This is the ordering the handler's own comment protects, and it is why "everything on the
-///     thread pool" is not the fix.
-///   - THE STREAM VERBS, which are connection-bound: they start and stop streams on THIS connection and
-///     touch its per-stream cancellation registry. They are registry operations and return at once.
+///   - THE STREAM VERBS: they start and stop streams on THIS connection and touch its per-stream
+///     cancellation registry.
 ///   - THE DESKTOP VERBS, connection-bound for the same reason - the stream a desktop open starts rides
 ///     this connection.
+///
+/// THE KEYSTROKE VERBS USED TO BE A THIRD KIND, and they were the last thing that could still hold the
+/// loop for a long time. Arrival order IS the person's intent - typing a line and then pressing Escape is
+/// one intention - so they could not simply go to the thread pool, and the loop was what gave them that
+/// order. The price was deafness: a ten-kilobyte paste paces itself for about nineteen seconds, and for
+/// all of it the Director received no command of any kind. They are now ordered PER SESSION instead, by
+/// <see cref="OrderedBySession"/>, which preserves exactly what the loop preserved - the SignalR client
+/// calls this handler one command at a time, in arrival order - while releasing the loop at once.
 ///
 /// EVERYTHING ELSE GOES OFF THE LOOP, including create, which is the verb that held it for 430 seconds, and
 /// including the chunked image upload - its chunks carry a zero-based <c>Seq</c>, the Director refuses an
@@ -59,10 +64,17 @@ internal static class DeliveryLoopOrder
     internal static bool MustStayOnTheLoop(string? verb)
     {
         if (string.IsNullOrEmpty(verb)) return true;   // a malformed command is refused in a microsecond
-        return InOrder.Contains(verb)
-               || DirectorUpStreamHandler.IsStreamVerb(verb)
+        return DirectorUpStreamHandler.IsStreamVerb(verb)
                || Boxes.DirectorDesktopRelayHandler.IsDesktopVerb(verb);
     }
+
+    /// <summary>
+    /// True when <paramref name="verb"/> must reach its session in the order it was sent, and so runs on
+    /// that session's chain rather than loose on the thread pool (issue #4816). Asked of the areas that own
+    /// the verbs, never of a list here: see <see cref="OrderedVerbs"/>.
+    /// </summary>
+    internal static bool MustArriveInOrder(string? verb) =>
+        !string.IsNullOrEmpty(verb) && InOrder.Contains(verb);
 }
 
 /// <summary>

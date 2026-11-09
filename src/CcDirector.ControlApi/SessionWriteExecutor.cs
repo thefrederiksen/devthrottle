@@ -135,7 +135,7 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
             "resize" => Resize(sessionManager, command),
             "terminal-input" => TerminalInput(sessionManager, command),
             "terminal-keys" => TerminalKeys(sessionManager, command),
-            "terminal-paste" => TerminalPaste(sessionManager, command),
+            "terminal-paste" => await TerminalPasteAsync(sessionManager, command),
             "terminal-mouse" => TerminalMouse(sessionManager, command),
             "clear-context" => await ClearContextAsync(sessionManager, command, cancellationToken),
             "compact-context" => await CompactContextAsync(sessionManager, command, cancellationToken),
@@ -261,7 +261,23 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }
     }
 
-    internal static DirectorCommandResult TerminalPaste(SessionManager sessionManager, DirectorCommand command)
+    /// <summary>
+    /// The <c>terminal-paste</c> verb. AWAITED, never blocked on (issue #4816).
+    ///
+    /// <see cref="TerminalPasteExecutor.PasteAsync"/> paces its chunks with a real wait between them -
+    /// eight bytes every fifteen milliseconds for an unbracketed paste, which is about nineteen seconds for
+    /// ten kilobytes. This used to call <c>.GetAwaiter().GetResult()</c> on it, which held whatever thread
+    /// it was on for the whole paste, and that thread was the Director's single command delivery loop: for
+    /// nineteen seconds the machine received no Gateway command at all while its reports went up as usual.
+    /// The verb now hands its task back at the first chunk's wait, and its order against the next thing
+    /// typed into the same session is kept by that session's chain instead (<c>OrderedBySession</c>).
+    ///
+    /// NO CANCELLATION TOKEN IS PASSED, deliberately. The paste has never been cancellable from here, and
+    /// giving it the command's token would abandon a long paste half-written into somebody's terminal the
+    /// moment the Gateway stopped waiting for the answer - a worse outcome than a slow one. A paste that is
+    /// too long to be sensible is a separate question about the pacing itself, not about this await.
+    /// </summary>
+    internal static async Task<DirectorCommandResult> TerminalPasteAsync(SessionManager sessionManager, DirectorCommand command)
     {
         if (!Guid.TryParse(command.SessionId, out var id)) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
         var request = SessionCommandExecutor.Deserialize<TerminalPasteRequest>(command.PayloadJson);
@@ -271,8 +287,9 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         try
         {
             InputAnswer answer = InputAnswer.Written;
-            TerminalPasteExecutor.PasteAsync(request.Text, session.BracketedPasteEnabled, session.Backend, bytes =>
-                answer = session.SendInput(bytes, InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device"))).GetAwaiter().GetResult();
+            await TerminalPasteExecutor.PasteAsync(request.Text, session.BracketedPasteEnabled, session.Backend, bytes =>
+                answer = session.SendInput(bytes, InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device")))
+                .ConfigureAwait(false);
             return SessionCommandExecutor.Answer(answer);
         }
         catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }

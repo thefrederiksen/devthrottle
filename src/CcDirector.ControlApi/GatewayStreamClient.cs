@@ -78,10 +78,20 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private readonly DeliveryLoopWatch _deliveryLoop = new();
 
     /// <summary>
+    /// Where an ordered verb runs now that it no longer runs on the delivery loop: on its own session's
+    /// chain, in arrival order (issue #4816). One per client, because the order it keeps is the order this
+    /// connection delivered.
+    /// </summary>
+    private readonly OrderedBySession _bySession = new();
+
+    /// <summary>
     /// The delivery loop's watch, for a test that proves the periodic tick asks it. Read-only: an instrument
     /// is readable, and nothing about delivery can be changed through it.
     /// </summary>
     internal DeliveryLoopWatch DeliveryLoop => _deliveryLoop;
+
+    /// <summary>The per-session ordering, for the tests that pin it (issue #4816).</summary>
+    internal OrderedBySession OrderedBySession => _bySession;
 
     private readonly DirectorUpStreamHandler? _upStreamHandler;
 
@@ -104,10 +114,19 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// the 25 October failure on devthrottle-mac-mini, fourteen hours of it, and the 430-second create of
     /// 6 November is the same thing in miniature.
     ///
-    /// So only the verbs that need the loop keep it - the keystrokes, whose order is the person's intent,
-    /// and the connection-bound stream and desktop verbs - and everything else is handed to the thread pool
-    /// and awaited there. The hold is measured either way, because a keystroke verb can wedge too, and the
-    /// measurement has to come from outside the call: see <see cref="DeliveryLoopWatch"/>.
+    /// So the only verbs that keep the loop are the connection-bound stream and desktop verbs, which are
+    /// registry operations and return at once. Everything else leaves it, by one of two doors: a verb whose
+    /// arrival order is the person's intent goes on its own SESSION'S chain
+    /// (<see cref="OrderedBySession"/>), and everything else goes loose to the thread pool. The hold is
+    /// measured on all three paths, because the measurement has to come from outside the call: see
+    /// <see cref="DeliveryLoopWatch"/>.
+    ///
+    /// THE KEYSTROKE VERBS USED TO KEEP IT TOO, and they were the last thing that could hold it for a long
+    /// time (issue #4816). A ten-kilobyte paste into a terminal paces itself eight bytes at a time with a
+    /// fifteen-millisecond wait between chunks - about nineteen seconds of holding the loop, which is two
+    /// thirds of the Gateway's own wait for a command, so one person pasting a page of text could make
+    /// their machine answer "the Director did not answer" to somebody else's prompt. They are ordered per
+    /// session now, which is the same order the loop was giving them and costs nothing else.
     ///
     /// Internal, so a test can prove the thing that matters: a verb that never returns does not stop the
     /// next command from being answered.
@@ -119,6 +138,31 @@ public sealed class GatewayStreamClient : IAsyncDisposable
 
         if (DeliveryLoopOrder.MustStayOnTheLoop(verb))
             return HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher, _desktopRelay);
+
+        // The append is a dictionary lookup under a lock, so the loop is released before the verb's own
+        // work starts - and the append happens INSIDE this call, which the SignalR client makes one command
+        // at a time in arrival order. That is what makes the chain's order the same order the loop gave.
+        if (DeliveryLoopOrder.MustArriveInOrder(verb))
+        {
+            // A queue that is not moving is refused rather than joined. While a verb held the loop, the
+            // deafness was also the backpressure - nothing could be delivered behind it. With the loop free,
+            // a wedged session would accept commands for ever and then run every stale one at once, which
+            // for the keystroke verbs means typing hours-old input into somebody's terminal.
+            if (_bySession.TooManyWaiting(cmd?.SessionId, out var tooMany))
+            {
+                FileLog.Write($"[GatewayStreamClient] {verb} refused for session={cmd?.SessionId}, "
+                              + $"cmdId={cmd?.CommandId}: {tooMany}");
+                var refusal = DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, tooMany);
+                // Stamped like every other result on this path - the stream and desktop branches below do
+                // the same, and the unary dispatcher does it in SessionCommandExecutor. A result the
+                // Gateway cannot match to its command is a result it cannot show anybody.
+                refusal.CommandId = cmd?.CommandId ?? "";
+                return Task.FromResult(refusal);
+            }
+
+            return _bySession.Run(cmd?.SessionId, verb, cmd?.CommandId,
+                () => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher, _desktopRelay));
+        }
 
         // Task.Run, not a queue: these verbs already run concurrently today whenever each of them reaches
         // its first await, so nothing here is newly parallel - what changes is that the work BEFORE that
@@ -399,6 +443,9 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // that nothing was watching. Before every return below, because a Director whose loop is wedged
         // is exactly the one whose connection may also be down.
         _deliveryLoop.SayIfHeld();
+        // And the session queues, which are where a long verb lives now that none of them holds the loop
+        // (issue #4816). Without this the instrument #4490 added would have been left watching nothing.
+        _bySession.SayIfAnyQueueIsHeld();
 
         // HOW LATE WAS THIS CALLBACK (issue #2818). Measured FIRST, before any path below can return,
         // and measured from the SCHEDULE rather than from the moment this method began running. Every
