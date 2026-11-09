@@ -58,6 +58,33 @@ public sealed class TeamEndpointRulesTests
         Assert.Null(TeamEndpointRules.Find(method, pattern));
     }
 
+    [Theory]
+    [InlineData("POST", "/sessions/{sid}/inbox")]
+    [InlineData("GET", "/sessions/{sid}/inbox")]
+    [InlineData("GET", "/sessions/{sid}/inbox/{id}")]
+    [InlineData("POST", "/sessions/{sid}/inbox/{id}/state")]
+    [InlineData("POST", "/sessions/{sid}/inbox/{id}/reply")]
+    public void Find_YourInboxAsASessionReachesIt_IsTheFactoryRow_NotTheSessionsRule(string method, string pattern)
+    {
+        // Team implementation 3.2: these read and write the ACCOUNT's one inbox, not the session, so the "/sessions" rule's
+        // reason does not hold for them. The Owner's own sessions only; another member's session is watching it.
+        var rule = TeamEndpointRules.Find(method, pattern);
+
+        Assert.NotNull(rule);
+        Assert.Equal((TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn, TeamAction.JoinOrWatchSomeoneElsesSession),
+            (rule!.Action, rule.Target, rule.OthersAction));
+    }
+
+    [Theory]
+    [InlineData("GET", "/sessions/{sid}/factory-inbox", TeamAction.OpenRunAndTalkToTeamFactories)]
+    [InlineData("POST", "/sessions/{sid}/factories/{factory}/inbox", TeamAction.OpenRunAndTalkToTeamFactories)]
+    [InlineData("POST", "/sessions/{sid}/dev-reports", TeamAction.RunSessionsOnOwnComputers)]
+    [InlineData("GET", "/sessions/{sid}", TeamAction.RunSessionsOnOwnComputers)]
+    public void Find_TheSessionRoutesBesideYourInbox_KeepTheirRule(string method, string pattern, TeamAction expected)
+    {
+        Assert.Equal(expected, TeamEndpointRules.Find(method, pattern)?.Action);
+    }
+
     [Fact]
     public void Find_ThePromptsFamily_TouchingSomeoneElsesIsReadingTheirPrompts()
     {

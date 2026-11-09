@@ -317,7 +317,19 @@ public static class TeamEndpointRules
         // than the "/sessions" rule, so a Developer's own session cannot reach the team's factory inbox through it.
         new TeamEndpointRule("/sessions/{sid}/factory-inbox", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
         new TeamEndpointRule("/sessions/{sid}/factories", TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
+        // Your inbox as a session reaches it (Team implementation piece 3.2, devthrottle_internal#2797). These routes read,
+        // mark and answer the ACCOUNT's one inbox - in a team, the team tenant's - and use {sid} only to name the caller,
+        // so the "/sessions" rule's reason ("touches only the caller's own session") does not hold for them: under it a
+        // Developer's own session read what the Owner's factory left for the Owner. In step one only the Owner runs the
+        // team's factories, and the inbox is where a factory's seats tell the Owner, so it is the factory row: the Owner's
+        // own sessions, on the Owner's own Directors, and nobody else (the Delivery Lead's decision, 9 November 2026).
+        // Narrower than "/sessions", so it wins; EveryYourInboxSessionRoute_StatesTheFactoryRow walks the mapped routes,
+        // so a renamed parameter cannot fall back to the "/sessions" rule unnoticed.
+        new TeamEndpointRule(YourInboxSessionPrefix, TeamMethods.Any, Factories, TeamTarget.CallersOwn, Watch),
     };
+
+    /// <summary>The route pattern Your inbox's session routes are mapped under (<see cref="Api.YourInboxEndpoints"/>).</summary>
+    public const string YourInboxSessionPrefix = "/sessions/{sid}/inbox";
 
     /// <summary>The route prefixes of the factory pages and the factory inbox, ruled above as
     /// <see cref="TeamAction.OpenRunAndTalkToTeamFactories"/> - the list the route-table test checks every mapped factory
