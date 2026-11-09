@@ -107,6 +107,10 @@ public sealed class ContributorIsTheWordOnScreenTests
                         continue;
                     if (OldWord.IsMatch(literal.Value) || FeatureName.IsMatch(literal.Value))
                         hits.Add($"{rel}:{i + 1}: {literal.Value}");
+                    // A label inside a sentence reads "join the team as Contributor"; a sentence uses InText.
+                    if (literal.Value.StartsWith("$", StringComparison.Ordinal)
+                        && literal.Value.Contains("{TeamRoles.Label(", StringComparison.Ordinal))
+                        hits.Add($"{rel}:{i + 1}: TeamRoles.Label inside a sentence - use TeamRoles.InText: {literal.Value}");
                 }
             }
         }
