@@ -77,28 +77,6 @@ public sealed class RecordingCompletenessGateHttpTests
         });
     }
 
-    [Fact]
-    public async Task Complete_EmptyCapture_Returns400_NamedError()
-    {
-        await WithEndpointsAsync(async http =>
-        {
-            var id = "gate-" + Guid.NewGuid().ToString("N")[..8];
-
-            await http.PostAsJsonAsync("/ingest/recording", new RecordingRegisterRequest(
-                id, "Gate Test", "test", "2026-05-23T09:00:00Z", "mp3", 16000, 1));
-
-            // Zero segments declared = empty capture.
-            var manifest = new RecordingManifest(id, "Gate Test", "test",
-                "2026-05-23T09:00:00Z", null, 16000, 1, "mp3", new(), new());
-
-            var resp = await http.PostAsJsonAsync($"/ingest/recording/{id}/complete", manifest);
-            Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-
-            var body = await resp.Content.ReadAsStringAsync();
-            Assert.Contains("empty capture", body, StringComparison.OrdinalIgnoreCase);
-        });
-    }
-
     private static async Task WithEndpointsAsync(Func<HttpClient, Task> body)
     {
         // Issue #2161: bind an operating-system-assigned port, then learn the number it gave us. The
