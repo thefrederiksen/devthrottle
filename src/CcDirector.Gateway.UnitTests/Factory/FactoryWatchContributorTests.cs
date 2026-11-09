@@ -113,6 +113,13 @@ public sealed class FactoryWatchContributorTests
             Assert.DoesNotContain(leak, json, StringComparison.OrdinalIgnoreCase);
         foreach (var row in rows)
             Assert.DoesNotContain(row.Id.ToString(), json, StringComparison.OrdinalIgnoreCase);
+
+        // No red tone anywhere in the contributor view, though the same rows hold hiccups the owner sees as alarms.
+        Assert.All(view.Steps, s => Assert.False(s.Alarm));
+        Assert.Contains(view.Steps, s => s.Kind == FactoryWatchStepKind.Hiccup);
+        var owner = FactoryWatchFold.View(f, rows, true, Day, Utc, FactoryWatchAudience.Owner);
+        Assert.Contains(owner.Steps, s => s.Alarm);
+        Assert.All(owner.Steps, s => Assert.Equal(s.Kind == FactoryWatchStepKind.Hiccup, s.Alarm));
     }
 
     // ------------------------------------------------------------------------------------------------ the words
@@ -359,6 +366,48 @@ public sealed class FactoryWatchContributorTests
         Assert.All(view.Steps, s => Assert.False(s.Mine));
         Assert.Equal("demo", view.FactoryId);
         Assert.NotEmpty(view.Notes);
+    }
+
+    // ------------------------------------------------------------------------------------------------ the alarm verdict
+
+    private static List<FactoryActivityDto> EveryOutcomeAndAMachineProblem()
+    {
+        var rows = FactoryActivityOutcome.All.Select((o, i) => Row("desk", o, Now.AddMinutes(-100 + i))).ToList();
+        rows.Add(Row("desk", FactoryActivityOutcome.Failed, Now.AddMinutes(-10), "trigger:x"));
+        return rows;
+    }
+
+    [Theory]
+    [InlineData(FactoryActivityOutcome.Failed)]
+    [InlineData(FactoryActivityOutcome.Blocked)]
+    [InlineData(FactoryActivityOutcome.SentBack)]
+    public void View_OwnerViewHiccup_IsAnAlarm(string outcome)
+    {
+        var view = FactoryWatchFold.View(Factory(), new[] { Row("desk", outcome, Now.AddHours(-1)) }, false, Day, Utc, FactoryWatchAudience.Owner);
+
+        var step = Assert.Single(view.Steps);
+        Assert.Equal(FactoryWatchStepKind.Hiccup, step.Kind);
+        Assert.True(step.Alarm);
+    }
+
+    [Fact]
+    public void View_OwnerViewEveryStepThatIsNotAHiccup_IsNotAnAlarm()
+    {
+        var view = FactoryWatchFold.View(Factory(), EveryOutcomeAndAMachineProblem(), false, Day, Utc, FactoryWatchAudience.Owner);
+
+        Assert.Contains(view.Steps, s => s.Kind != FactoryWatchStepKind.Hiccup);
+        Assert.All(view.Steps.Where(s => s.Kind != FactoryWatchStepKind.Hiccup), s => Assert.False(s.Alarm));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void View_ContributorViewEveryStepHiccupsIncluded_IsNotAnAlarm(bool wholeFactory)
+    {
+        var view = View(Factory(), EveryOutcomeAndAMachineProblem(), new FactoryWatchContributorScope(wholeFactory, Machines));
+
+        Assert.Contains(view.Steps, s => s.Kind == FactoryWatchStepKind.Hiccup);
+        Assert.All(view.Steps, s => Assert.False(s.Alarm));
     }
 
     [Fact]

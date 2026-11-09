@@ -195,6 +195,7 @@ public static class FactoryWatchFold
             Time = RunTime(run, window, zone),
             Words = FactoryWatchWords.ForOwner(run),
             EmptyChecks = kind == FactoryWatchStepKind.CheckedNothing ? run.Count : 0,
+            Alarm = kind == FactoryWatchStepKind.Hiccup,
         };
     }
 
@@ -269,6 +270,7 @@ public static class FactoryWatchFold
                 Words = FactoryWatchWords.ForContributor(run, kind, mine, machines),
                 EmptyChecks = kind == FactoryWatchStepKind.CheckedNothing ? run.Count : 0,
                 Mine = mine,
+                Alarm = false, // a contributor's hiccup has no red tone (piece 3 rule); never an alarm in this view
             });
         }
         view.EmptyText = view.Steps.Count == 0 ? $"Nothing happened in your factory {FactoryAgentsFold.WindowPhrase(window, zone)}." : null;

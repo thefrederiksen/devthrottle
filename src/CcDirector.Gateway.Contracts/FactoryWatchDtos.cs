@@ -183,6 +183,11 @@ public sealed class FactoryWatchStepDto
     /// which is a plain crate with no words. Always false in the owner view.</summary>
     public bool Mine { get; set; }
 
+    /// <summary>The Gateway's verdict on whether the step is drawn as an alarm (the red tone): true only for a
+    /// <see cref="FactoryWatchStepKind.Hiccup"/> in the OWNER view. False for every other step, and for every step in
+    /// the contributor view, hiccups included. The player draws the tone from this and never decides it by audience.</summary>
+    public bool Alarm { get; set; }
+
     /// <summary>How many empty checks the step stands for: at least 1 for <see cref="FactoryWatchStepKind.CheckedNothing"/>,
     /// 0 for every other kind.</summary>
     public int EmptyChecks { get; set; }
