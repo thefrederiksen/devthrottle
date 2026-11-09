@@ -160,7 +160,7 @@ describe("the Governance tab", () => {
   });
 
   it("shows a role the Gateway refuses the tab to the Gateway's sentence instead of the rules", async () => {
-    client.getTeamGovernance.mockRejectedValue(new GatewayError(403, "A Collaborator may not see the team's governance rules.", { reason: "A Collaborator may not see the team's governance rules." }));
+    client.getTeamGovernance.mockRejectedValue(new GatewayError(403, "A contributor may not see the team's governance rules.", { reason: "A contributor may not see the team's governance rules." }));
     mount();
 
     expect((await screen.findByRole("note")).textContent).toContain("may not see the team's governance rules");

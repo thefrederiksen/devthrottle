@@ -30,7 +30,7 @@ const RECEIVED = {
 const OWN_DETAIL = {
   report: { id: "r1", title: "Signup page rewrite", status: "done", version: 3, publishedAtUtc: "2026-10-01T09:00:00Z", updatedAtUtc: "2026-10-02T09:00:00Z" },
   recipients: [],
-  choices: [{ memberId: "m-mike", name: "mike@example.com", role: "Collaborator" }],
+  choices: [{ memberId: "m-mike", name: "mike@example.com", role: "Contributor" }],
   sendNote: "The people you send this report to can read it and comment on it.",
   comments: [],
   commentsEmptyText: "No comments yet.",

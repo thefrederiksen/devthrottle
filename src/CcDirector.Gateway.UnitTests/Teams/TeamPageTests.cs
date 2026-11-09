@@ -77,7 +77,7 @@ public sealed class TeamPageTests : IDisposable
         {
             var row = Row(page, other);
             Assert.True(row.CanChangeRole, other);
-            Assert.Equal(new[] { "Manager", "Developer", "Collaborator" }, row.RoleChoices);
+            Assert.Equal(new[] { "Manager", "Developer", "Contributor" }, row.RoleChoices);
             Assert.True(row.CanRemove, other);
             Assert.False(string.IsNullOrWhiteSpace(row.RemoveWarning));
         }
@@ -114,7 +114,7 @@ public sealed class TeamPageTests : IDisposable
         Assert.All(page.Members, m => Assert.False(m.CanRemove));
         Assert.Empty(page.Invitations);
         // Someone who cannot see invitations is not told how many are waiting.
-        Assert.Equal("4 paid seats, 1 Collaborator (no charge)", page.Summary);
+        Assert.Equal("4 paid seats, 1 contributor (no charge)", page.Summary);
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public sealed class TeamPageTests : IDisposable
 
         var page = PageFor(Owner);
 
-        Assert.Equal("4 paid seats, 1 Collaborator (no charge), 2 invitations waiting", page.Summary);
+        Assert.Equal("4 paid seats, 1 contributor (no charge), 2 invitations waiting", page.Summary);
         Assert.Equal("Paid", Row(page, Developer).Seat);
         Assert.Equal("Paid", Row(page, Owner).Seat);
         Assert.Equal("No charge", Row(page, Collaborator).Seat);
@@ -185,7 +185,7 @@ public sealed class TeamPageTests : IDisposable
         Assert.True(expired.CanCancel);
         Assert.Equal(TeamInvitationStates.Sent, page.Invitations.Single(i => i.Id == live.Id).State);
         // Waiting means waiting on someone: the lapsed one is listed but not counted (review F1).
-        Assert.Equal("4 paid seats, 1 Collaborator (no charge), 1 invitation waiting", page.Summary);
+        Assert.Equal("4 paid seats, 1 contributor (no charge), 1 invitation waiting", page.Summary);
     }
 
     [Fact]
@@ -198,7 +198,7 @@ public sealed class TeamPageTests : IDisposable
 
         var page = PageFor(Owner);
         Assert.Empty(page.Invitations);
-        Assert.Equal("4 paid seats, 1 Collaborator (no charge), 0 invitations waiting", page.Summary);
+        Assert.Equal("4 paid seats, 1 contributor (no charge), 0 invitations waiting", page.Summary);
     }
 
     // ---- Change a role --------------------------------------------------------------------------------------------
@@ -407,7 +407,7 @@ public sealed class TeamPageTests : IDisposable
     {
         var (collaborator, refusal) = await RenderAsync(TeamEndpoints.TeamPage(_teams, Collaborator, _team));
         Assert.Equal(403, collaborator);
-        Assert.Contains("Collaborator", refusal.GetProperty("error").GetString());
+        Assert.Contains("contributor", refusal.GetProperty("error").GetString());
 
         var (stranger, _) = await RenderAsync(TeamEndpoints.TeamPage(_teams, Stranger, _team));
         Assert.Equal(404, stranger);
@@ -464,9 +464,9 @@ public sealed class TeamPageTests : IDisposable
     }
 
     [Theory]
-    [InlineData(1, 0, null, "1 paid seat, 0 Collaborators (no charge)")]
-    [InlineData(3, 2, 1, "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting")]
-    [InlineData(2, 1, 0, "2 paid seats, 1 Collaborator (no charge), 0 invitations waiting")]
+    [InlineData(1, 0, null, "1 paid seat, 0 contributors (no charge)")]
+    [InlineData(3, 2, 1, "3 paid seats, 2 contributors (no charge), 1 invitation waiting")]
+    [InlineData(2, 1, 0, "2 paid seats, 1 contributor (no charge), 0 invitations waiting")]
     public void Summary_CountsInWords(int paid, int free, int? waiting, string expected)
     {
         Assert.Equal(expected, TeamRegistry.Summary(paid, free, waiting));

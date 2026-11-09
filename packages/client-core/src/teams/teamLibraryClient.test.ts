@@ -71,7 +71,7 @@ describe("teamLibraryClient", () => {
   });
 
   it("GetTeamLibrary_ACollaboratorIsRefused_ThrowsWithTheGatewaysSentenceAndCode", async () => {
-    const sentence = "In this team you are a Collaborator, and a Collaborator may not use the team's shared skills and workflows.";
+    const sentence = "In this team you are a contributor, and a contributor may not use the team's shared skills and workflows.";
     stubFetch(respond({ error: sentence, code: "team_action_refused" }, 403));
     // The code is what makes the page show a calm note instead of a red error with a retry.
     await expect(getTeamLibrary("team-a")).rejects.toMatchObject({ status: 403, serverReason: sentence, code: "team_action_refused" });

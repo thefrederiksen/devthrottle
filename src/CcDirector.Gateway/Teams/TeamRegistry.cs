@@ -287,7 +287,7 @@ public sealed partial class TeamRegistry
         TeamRole.Owner => "the team's Owner",
         TeamRole.Manager => "a Manager of the team",
         TeamRole.Developer => "a Developer of the team",
-        TeamRole.Collaborator => "a Collaborator of the team",
+        TeamRole.Collaborator => "a contributor of the team",
         _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Not one of the four team roles."),
     };
 
@@ -529,7 +529,7 @@ public static class TeamRefusals
 
     /// <summary>Creating a team on an account whose plan does not include teams (piece 1.6).</summary>
     public const string CreateNeedsPro =
-        "Teams come with a Pro account, and your account is not on Pro, so the team was not created. Choose Pro at devthrottle.com/pricing, then create the team.";
+        "A team comes with a Pro account, and your account is not on Pro, so the team was not created. Choose Pro at devthrottle.com/pricing, then create the team.";
 
     /// <summary>Creating a team when the creator's plan could not be read: not a no, so try again.</summary>
     public const string CreatePlanUnreadable = "DevThrottle could not check your plan just now, so the team was not created. Try again shortly.";
@@ -538,7 +538,7 @@ public static class TeamRefusals
 
     public const string AlreadyAMember = "That person is already a member of this team. To give them a different role, change their role instead.";
 
-    public const string SecondOwner = "A team has exactly one Owner, and this team already has one. Choose Manager, Developer or Collaborator.";
+    public const string SecondOwner = "A team has exactly one Owner, and this team already has one. Choose Manager, Developer or Contributor.";
 
     public const string DemoteOwner = "The Owner's role cannot be changed: a team always has exactly one Owner, and this would leave the team without one.";
 

@@ -38,7 +38,7 @@ public sealed class TeamRolesTests
     [InlineData(TeamRole.Owner, "Owner")]
     [InlineData(TeamRole.Manager, "Manager")]
     [InlineData(TeamRole.Developer, "Developer")]
-    [InlineData(TeamRole.Collaborator, "Collaborator")]
+    [InlineData(TeamRole.Collaborator, "Contributor")]
     public void Label_EachRole_IsItsPlainName(TeamRole role, string expected)
     {
         Assert.Equal(expected, TeamRoles.Label(role));

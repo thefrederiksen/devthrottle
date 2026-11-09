@@ -49,6 +49,6 @@ describe("the questions client", () => {
   it("a Gateway that answers with its own web page is not read as data", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<!doctype html>", { status: 200, headers: { "Content-Type": "text/html" } })));
 
-    await expect(getMyQuestions("t")).rejects.toThrow(/Teams are not available/);
+    await expect(getMyQuestions("t")).rejects.toThrow(/does not offer teams/);
   });
 });

@@ -284,7 +284,7 @@ public sealed class TeamShowcaseTests : IDisposable
 
         var result = Showcase().Write(_rig.Team.Value, Tag, ContentSentToLisa(forContributors: false));
 
-        Assert.Equal("The report \"Invoice export is ready to try\" is sent to Lisa Jensen, a Collaborator, and its question " +
+        Assert.Equal("The report \"Invoice export is ready to try\" is sent to Lisa Jensen, a contributor, and its question " +
                      "\"Include cancelled orders?\" is not marked for contributors.", result.Refusal);
         var after = Snapshot();
         Assert.All(after, t => Assert.Equal(before[t.Key].Count, t.Value.Count));

@@ -78,7 +78,7 @@ internal static class FactoryAgentsViewEndpoints
     /// <summary>The upgrade page's body: what a factory does and which plans include it. Short and true; no trial is
     /// offered, because there is none (owner, 21 Oct 2026).</summary>
     internal const string PlanRequiredText =
-        "A factory runs your agents for you on a schedule and reports what they did. Factories come with the Pro and Teams plans.";
+        "A factory runs your agents for you on a schedule and reports what they did. Factories come with the Pro plan.";
 
     /// <summary>The sentence while the account's plan cannot be read.</summary>
     internal const string PlanUnknownText =

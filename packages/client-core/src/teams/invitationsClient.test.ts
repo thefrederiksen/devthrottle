@@ -56,6 +56,6 @@ describe("the invitations client", () => {
 
     const err = await getInviteOptions("t").catch((e: unknown) => e);
 
-    expect(gatewayErrorMessage(err, "load the invite form")).toBe("Teams are not available on this DevThrottle Gateway yet.");
+    expect(gatewayErrorMessage(err, "load the invite form")).toBe("This DevThrottle Gateway does not offer teams yet.");
   });
 });

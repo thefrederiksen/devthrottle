@@ -60,7 +60,7 @@ describe("getTeamFleetMap", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond({ error: "In this team you are a Collaborator, and a Collaborator may not see the team's Fleet Map.", code: "team_action_refused" }, 403),
+        respond({ error: "In this team you are a contributor, and a contributor may not see the team's Fleet Map.", code: "team_action_refused" }, 403),
       ),
     );
     await expect(getTeamFleetMap("t1")).rejects.toMatchObject({ status: 403, code: "team_action_refused" });

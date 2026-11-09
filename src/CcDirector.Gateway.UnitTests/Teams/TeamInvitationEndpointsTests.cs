@@ -125,7 +125,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
             new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", role), CancellationToken.None));
 
         Assert.Equal(400, status);
-        Assert.Contains("Manager, Developer or Collaborator", body.GetProperty("error").GetString());
+        Assert.Contains("Manager, Developer or Contributor", body.GetProperty("error").GetString());
         Assert.Empty(_mailer.Sent);
     }
 
@@ -158,7 +158,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
 
         Assert.Equal(200, status);
         Assert.Equal("Acme", body.GetProperty("teamName").GetString());
-        Assert.Equal(new[] { "Manager", "Developer", "Collaborator" },
+        Assert.Equal(new[] { "Manager", "Developer", "Contributor" },
             body.GetProperty("roles").EnumerateArray().Select(r => r.GetProperty("role").GetString()));
         Assert.Equal(JsonValueKind.Null, body.GetProperty("blocked").ValueKind);
         Assert.Equal("The invitation expires in 7 days.", body.GetProperty("expiryNote").GetString());

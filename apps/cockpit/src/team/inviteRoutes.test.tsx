@@ -120,7 +120,7 @@ function options(overrides: Partial<InviteOptions> = {}): InviteOptions {
     roles: [
       { role: "Manager", allowed: false, hint: "Only the Owner can invite a Manager." },
       { role: "Developer", allowed: true, hint: "Runs sessions on their own computer. A paid seat on soren@centerconsulting.com's bill." },
-      { role: "Collaborator", allowed: true, hint: "Answers questions, sends requests, reads reports. No charge." },
+      { role: "Contributor", allowed: true, hint: "Answers questions, sends requests, reads reports. No charge." },
     ],
     blocked: null,
     expiryNote: "The invitation expires in 7 days.",

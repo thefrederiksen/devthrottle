@@ -290,7 +290,7 @@ public class HostedTeamEnrollRunnerTests
     [Fact]
     public async Task SignInChooseTeamAndEnrollHosted_Enroll403_ShowsTheGatewaysWordsAndStoresNothing()
     {
-        const string refusal = "You are a Collaborator on DevThrottle, so you cannot run sessions there.";
+        const string refusal = "You are a contributor on DevThrottle, so you cannot run sessions there.";
         var h = Build(Gateway(TeamsHealth,
             teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "developer", 5))),
             enroll: () => Json(HttpStatusCode.Forbidden, JsonSerializer.Serialize(new { error = refusal }))));
@@ -377,7 +377,7 @@ public class HostedTeamEnrollRunnerTests
     private const string GatewayAmbiguous =
         "This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.";
     private const string GatewayCollaborator =
-        "You cannot run sessions in that team, so a Director cannot be set up for it. In this team you are a Collaborator, and a Collaborator may not run sessions on their own computers.";
+        "You cannot run sessions in that team, so a Director cannot be set up for it. In this team you are a contributor, and a contributor may not run sessions on their own computers.";
 
     [Theory]
     [InlineData(HttpStatusCode.NotFound, GatewayNoSuchDirector, GatewayAccountEnrollRunner.MoveNoWorkingKey)]

@@ -10,7 +10,7 @@ import type { TeamQuestion, TeamQuestions } from "@devthrottle/client-core/teams
 // route; where each goes is the Gateway's doing, proven in the Gateway's own tests.
 
 vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({
-  useCurrentTeam: () => ({ current: { id: "team-dt", name: "DevThrottle", role: "Collaborator" } }),
+  useCurrentTeam: () => ({ current: { id: "team-dt", name: "DevThrottle", role: "Contributor" } }),
 }));
 
 // The poll, fired by hand: the page reads once on mount as before, and a test can read again at the moment it chooses.

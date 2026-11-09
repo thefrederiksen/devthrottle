@@ -69,6 +69,10 @@ public static class ScheduleFailureWords
 {
     private const string DirectorReturned = "director returned ";
     private const string NotStarted = "not started: ";
+
+    // The start both wordings of the plan refusal share: today's "factories come with the Pro plan" and the
+    // "factories come with the Pro and Teams plans" already stored on older run rows (devthrottle_internal#2791).
+    private const string FactoriesNeedPro = "factories come with the Pro";
     private const string WorkListEmptyReason = "its work list did not start: " + nameof(CronWorkListOutcome.EmptyList);
 
     private static readonly Regex LaunchTimeout = new(@"none registered within (\d+)s", RegexOptions.CultureInvariant);
@@ -188,9 +192,9 @@ public static class ScheduleFailureWords
             return (ScheduleFailureCauses.PastDeadline,
                 "This run was skipped: it was reached only after its deadline, so it was not started late. Nothing needs doing: the next run starts as usual.");
 
-        if (reason.Contains("factories come with the Pro and Teams plans", StringComparison.Ordinal))
+        if (reason.Contains(FactoriesNeedPro, StringComparison.Ordinal))
             return (ScheduleFailureCauses.FactoriesNeedAPlan,
-                "This factory run did not start: factories come with the Pro and Teams plans, and this account's plan does not include them. Change the plan to run it.");
+                "This factory run did not start: factories come with the Pro plan, and this account's plan does not include them. Change the plan to run it.");
         if (reason.Contains("factory agents are switched off", StringComparison.Ordinal))
             return (ScheduleFailureCauses.FactoryAgentsOff,
                 "This factory run did not start: factory agents are switched off for this account. Switch them on to run it.");
@@ -259,9 +263,9 @@ public static class ScheduleFailureWords
 
     private static (string, string) CheckNotRun(string reason, string machine)
     {
-        if (reason.Contains("factories come with the Pro and Teams plans", StringComparison.Ordinal))
+        if (reason.Contains(FactoriesNeedPro, StringComparison.Ordinal))
             return (ScheduleFailureCauses.FactoriesNeedAPlan,
-                "The schedule's check did not run: factories come with the Pro and Teams plans, and this account's plan does not include them.");
+                "The schedule's check did not run: factories come with the Pro plan, and this account's plan does not include them.");
         if (reason.Contains("factory agents are switched off", StringComparison.Ordinal))
             return (ScheduleFailureCauses.FactoryAgentsOff,
                 "The schedule's check did not run: factory agents are switched off for this account. Switch them on to run it.");

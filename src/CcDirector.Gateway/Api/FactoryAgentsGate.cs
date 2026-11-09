@@ -88,6 +88,6 @@ internal static class FactoryAgentsGate
     /// </summary>
     internal static string OffSentence(FactoryAgentsAnswer answer, string whatWasNotDone)
         => answer.OffReason == FactoryAgentsOffReasons.PlanRequired
-            ? $"Factories come with the Pro and Teams plans, and this account's plan does not include them, so {whatWasNotDone}."
+            ? $"Factories come with the Pro plan, and this account's plan does not include them, so {whatWasNotDone}."
             : $"Factory agents are switched off for this account, so {whatWasNotDone}. The administrator switches them on per account.";
 }

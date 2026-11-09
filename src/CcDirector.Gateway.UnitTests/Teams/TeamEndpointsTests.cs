@@ -84,7 +84,7 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.Equal(new[] { "Questions|/questions", "Requests|/requests", "Reports|/reports" },
             asCollaborator.GetProperty("pages").EnumerateArray().Select(p => $"{p.GetProperty("label").GetString()}|{p.GetProperty("path").GetString()}"));
         Assert.Equal("/questions", asCollaborator.GetProperty("landing").GetString());
-        Assert.Equal("This page is not available to Collaborators.", asCollaborator.GetProperty("elsewhere").GetString());
+        Assert.Equal("This page is not available to contributors.", asCollaborator.GetProperty("elsewhere").GetString());
 
         var asDeveloper = byId[dev.TeamId];
         Assert.True(asDeveloper.GetProperty("full").GetBoolean());
@@ -155,7 +155,7 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.Equal("Developer", body.GetProperty("team").GetProperty("role").GetString());
         Assert.Equal(3, body.GetProperty("count").GetInt32());
         var members = body.GetProperty("members").EnumerateArray().ToList();
-        Assert.Equal(new[] { "Owner", "Developer", "Collaborator" }, members.Select(m => m.GetProperty("role").GetString()));
+        Assert.Equal(new[] { "Owner", "Developer", "Contributor" }, members.Select(m => m.GetProperty("role").GetString()));
         Assert.Equal(new[] { false, true, false }, members.Select(m => m.GetProperty("isYou").GetBoolean()));
         Assert.Equal("alice@example.com", members[0].GetProperty("email").GetString());
         Assert.Equal(JsonValueKind.Null, members[2].GetProperty("email").ValueKind);
@@ -249,7 +249,7 @@ public sealed class TeamEndpointsTests : IDisposable
 
         Assert.Equal(403, status);
         Assert.Equal(TeamEndpointGate.RefusalCode, body.GetProperty("code").GetString());
-        Assert.Contains("Collaborator may not see the team's Fleet Map", body.GetProperty("error").GetString());
+        Assert.Contains("contributor may not see the team's Fleet Map", body.GetProperty("error").GetString());
     }
 
     [Fact]

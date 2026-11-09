@@ -435,7 +435,7 @@ public sealed class FactoriesNeedProTests : IDisposable
         var plan = FactoryAgentsAnswer.Off(FactoryAgentsOffReasons.PlanRequired, EntitlementRegistry.TierRemote, "remote");
         var switchedOff = FactoryAgentsAnswer.Off(FactoryAgentsOffReasons.NotSwitchedOn, null, "off");
 
-        Assert.Equal("Factories come with the Pro and Teams plans, and this account's plan does not include them, so no talk was started.",
+        Assert.Equal("Factories come with the Pro plan, and this account's plan does not include them, so no talk was started.",
             FactoryAgentsGate.OffSentence(plan, "no talk was started"));
         Assert.Equal("Factory agents are switched off for this account, so no talk was started. The administrator switches them on per account.",
             FactoryAgentsGate.OffSentence(switchedOff, "no talk was started"));
@@ -611,7 +611,7 @@ public sealed class FactoriesNeedProTests : IDisposable
         Assert.Equal(CronEngine.FactoryAgentsOffStatus, run.InfraStatus);
         Assert.Equal(CronRunProblems.DidNotRun, run.Problem);
         Assert.Null(run.SessionId);
-        Assert.Contains("Pro and Teams", run.ResultReason, StringComparison.Ordinal);
+        Assert.Contains("the Pro plan", run.ResultReason, StringComparison.Ordinal);
         Assert.Equal(Now.AddHours(1), rig.Store.Get(rig.FactoryJob.Id)!.NextRunUtc);
     }
 

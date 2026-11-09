@@ -205,7 +205,7 @@ public sealed class TeamFleetMapTests : IDisposable
 
         Assert.Equal(TeamFleetMapOutcome.Refused, result.Outcome);
         Assert.Null(result.Map);
-        Assert.Equal("In this team you are a Collaborator, and a Collaborator may not see the team's Fleet Map.", result.Refusal);
+        Assert.Equal("In this team you are a contributor, and a contributor may not see the team's Fleet Map.", result.Refusal);
     }
 
     [Theory]

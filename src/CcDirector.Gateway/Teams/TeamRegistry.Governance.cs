@@ -164,7 +164,7 @@ public sealed partial class TeamRegistry
             TeamRole.Owner => "Owner",
             TeamRole.Manager => "Managers",
             TeamRole.Developer => "Developers",
-            TeamRole.Collaborator => "Collaborators",
+            TeamRole.Collaborator => TeamRoles.InTextPlural(TeamRole.Collaborator),
             _ => throw new ArgumentOutOfRangeException(nameof(roles), r, "Not one of the four team roles."),
         }).ToList();
         return words.Count switch

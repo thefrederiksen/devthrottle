@@ -126,30 +126,30 @@ public static class TeamInvitationRefusals
 
     public const string OnlyOwnerInvitesManager = "Only the Owner can invite a Manager.";
 
-    public const string InviteOwner = "A team has exactly one Owner, so nobody can be invited as Owner. Choose Manager, Developer or Collaborator.";
+    public const string InviteOwner = "A team has exactly one Owner, so nobody can be invited as Owner. Choose Manager, Developer or Contributor.";
 
     public const string BadEmail = "That is not an email address. Type the full address, for example anna@example.com.";
 
     // ---- the Owner's Pro plan (piece 1.6): teams come with the pro account, so without it nobody can be added ----
 
     public const string OwnerNotPro =
-        "Teams come with a Pro account, and the team's Owner is not on Pro right now, so nobody can be added. The Owner renews Pro first.";
+        "A team comes with a Pro account, and the team's Owner is not on Pro right now, so nobody can be added. The Owner renews Pro first.";
 
     public const string OwnerPlanUnreadable = "DevThrottle could not check the Owner's plan just now, so the invitation was not sent. Try again shortly.";
 
     /// <summary>Accepting, when the team's Owner is no longer on Pro.</summary>
     public const string OwnerNotProOnAccept =
-        "Teams come with a Pro account, and the team's Owner is not on Pro right now, so nobody can join the team. Ask the team's Owner.";
+        "A team comes with a Pro account, and the team's Owner is not on Pro right now, so nobody can join the team. Ask the team's Owner.";
 
     public const string OwnerPlanUnreadableOnAccept = "DevThrottle could not check the team's plan just now, so you have not joined yet. Try again shortly.";
 
     // ---- the team bill: for the PAID seats only (Manager, Developer). A Collaborator is free and never meets these ----
 
     public const string BillNotStarted =
-        "Managers and Developers are paid seats, and the team plan has not started - the Owner starts the team plan first. A Collaborator can be invited now at no charge.";
+        "Managers and Developers are paid seats, and the team plan has not started - the Owner starts the team plan first. A contributor can be invited now at no charge.";
 
     public const string BillCancelled =
-        "Managers and Developers are paid seats, and the team plan has ended, so they cannot be invited. The Owner renews the team plan first. A Collaborator can still be invited at no charge.";
+        "Managers and Developers are paid seats, and the team plan has ended, so they cannot be invited. The Owner renews the team plan first. A contributor can still be invited at no charge.";
 
     public const string BillUnreadable = "DevThrottle could not check the team plan just now, so the invitation was not sent. Try again shortly.";
 

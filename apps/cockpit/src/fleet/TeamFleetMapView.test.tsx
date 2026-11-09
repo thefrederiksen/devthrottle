@@ -238,12 +238,12 @@ describe("TeamFleetMapView", () => {
 
   it("TeamFleetMapView_Collaborator_ShowsTheGatewaysRefusalAndNoMap", async () => {
     read.fn.mockRejectedValue(
-      new GatewayError(403, "x", { reason: "In this team you are a Collaborator, and a Collaborator may not see the team's Fleet Map." }),
+      new GatewayError(403, "x", { reason: "In this team you are a contributor, and a contributor may not see the team's Fleet Map." }),
     );
-    render(<TeamFleetMapView team={{ ...TEAM, role: "Collaborator" }} />);
+    render(<TeamFleetMapView team={{ ...TEAM, role: "Contributor" }} />);
 
     const refused = await screen.findByTestId("team-fleet-map-refused");
-    expect(refused.textContent).toContain("a Collaborator may not see the team's Fleet Map");
+    expect(refused.textContent).toContain("a contributor may not see the team's Fleet Map");
     expect(screen.queryByTestId("team-fleet-map-by-person")).toBeNull();
     expect(screen.queryByTestId("team-fleet-map-by-director")).toBeNull();
   });

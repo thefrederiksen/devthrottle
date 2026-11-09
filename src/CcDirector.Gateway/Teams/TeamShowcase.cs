@@ -407,7 +407,7 @@ public sealed class TeamShowcase
             if (m.Name.Trim().Length > MaxNameLength || m.Email.Trim().Length > TeamInvitationRules.MaxEmailLength)
                 return $"The member \"{m.Key}\" has a name or an email that is too long.";
             if (RoleNamed(m.Role) is not { } role || role == TeamRole.Owner)
-                return $"The member \"{m.Key}\" has the role \"{m.Role}\"; a made-up member is a Manager, a Developer or a Collaborator.";
+                return $"The member \"{m.Key}\" has the role \"{m.Role}\"; a made-up member is a Manager, a Developer or a contributor.";
             if (m.JoinedDaysAgo < 0) return $"The member \"{m.Key}\" joined in the future.";
         }
 
@@ -451,7 +451,6 @@ public sealed class TeamShowcase
         return null;
     }
 
-    /// <summary>The role a name says - Manager, Developer or Collaborator as the screens write them - or null.</summary>
     /// <summary>Why <paramref name="r"/> may not go to the contributors it is sent to - a question in its page that is not
     /// marked for contributors - or null when it may. Read from the page the showcase writes, by the Gateway's own
     /// question reader, exactly as <c>TeamReports.Send</c> reads it.</summary>
@@ -464,13 +463,12 @@ public sealed class TeamShowcase
         var unmarked = DevReports.DevReportQuestions.NotForContributors(DevReports.DevReportQuestions.Read(ReportHtml(r)));
         return unmarked.Count == 0
             ? null
-            : $"The report \"{r.Title}\" is sent to {contributor.Name.Trim()}, a Collaborator, and its question " +
+            : $"The report \"{r.Title}\" is sent to {contributor.Name.Trim()}, a contributor, and its question " +
               $"\"{unmarked[0].Text}\" is not marked for contributors.";
     }
 
-    private static TeamRole? RoleNamed(string? name) =>
-        Enum.GetValues<TeamRole>().Cast<TeamRole?>()
-            .FirstOrDefault(r => string.Equals(TeamRoles.Label(r!.Value), name?.Trim(), StringComparison.OrdinalIgnoreCase));
+    /// <summary>The role a name says - Manager, Developer or Contributor as the screens write them, or the stored word - or null.</summary>
+    private static TeamRole? RoleNamed(string? name) => TeamRoles.Parse(name);
 
     private static string? BlockRefusal(TeamShowcaseMentorBlock b)
     {

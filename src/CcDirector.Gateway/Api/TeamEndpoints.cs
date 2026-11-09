@@ -45,7 +45,7 @@ internal static class TeamEndpoints
 
     /// <summary>What a self-hosted Gateway says on every team route.</summary>
     internal const string SelfHostedRefusal =
-        "Teams are part of the hosted DevThrottle service. This is a self-hosted Gateway with a single account, so it has no teams.";
+        "A team is part of the hosted DevThrottle service. This is a self-hosted Gateway with a single account, so it has no teams.";
 
     /// <summary>The answer for a team that does not exist or that the caller is not a member of - deliberately one
     /// answer, so the route cannot be used to learn which teams exist.</summary>
@@ -354,7 +354,7 @@ internal static class TeamEndpoints
     internal static IResult ChangeRole(TeamRegistry teams, string callerSubject, string? teamId, string? memberId, ChangeRoleRequest? body)
     {
         if (!TryParseRole(body?.Role, out var role))
-            return Results.BadRequest(new { error = "Choose the new role: Manager, Developer or Collaborator." });
+            return Results.BadRequest(new { error = "Choose the new role: Manager, Developer or Contributor." });
         return AnswerChange(teams.ChangeMemberRole(teamId ?? "", callerSubject, memberId ?? "", role), "change role");
     }
 
@@ -380,24 +380,15 @@ internal static class TeamEndpoints
 
     private static bool TryParseRole(string? value, out TeamRole role)
     {
-        role = default;
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-        foreach (var candidate in Enum.GetValues<TeamRole>())
-        {
-            if (string.Equals(TeamRoles.Label(candidate), value.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                role = candidate;
-                return true;
-            }
-        }
-        return false;
+        var parsed = TeamRoles.Parse(value);
+        role = parsed ?? default;
+        return parsed is not null;
     }
 
     /// <summary>A key whose tenant is not a person's own account - a team's own key, Director or session - is told this
     /// by every team route that admits through ResolveCaller (devthrottle_internal#2309, review F4).</summary>
     internal const string NotAPersonalAccountRefusal =
-        "DevThrottle cannot tell which person is making this request: the device is not signed in to a personal account. Teams are managed from a device signed in to your own account.";
+        "DevThrottle cannot tell which person is making this request: the device is not signed in to a personal account. A team is managed from a device signed in to your own account.";
 
     /// <summary>
     /// Who is asking. On hosted: the account subject behind the caller's device key, or a refusal. Off hosted: the

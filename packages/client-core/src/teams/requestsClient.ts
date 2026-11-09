@@ -61,8 +61,8 @@ async function call<T>(method: "GET" | "POST", path: string, what: string, body?
   // A Gateway with Teams not released answers an unknown page path with the app's own HTML shell and a 200. Never
   // read that as data.
   if (type !== "application/json") {
-    throw new GatewayError(404, "Teams are not available on this DevThrottle Gateway yet.", {
-      reason: "Teams are not available on this DevThrottle Gateway yet.",
+    throw new GatewayError(404, "This DevThrottle Gateway does not offer teams yet.", {
+      reason: "This DevThrottle Gateway does not offer teams yet.",
     });
   }
   return (await res.json()) as T;

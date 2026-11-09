@@ -156,7 +156,7 @@ internal static class TeamInvitationEndpoints
         string callerSubject, string teamId, CreateInvitationRequest? body, CancellationToken ct)
     {
         if (!TryParseRole(body?.Role, out var role))
-            return Results.BadRequest(new { error = "Choose the role to invite them as: Manager, Developer or Collaborator." });
+            return Results.BadRequest(new { error = "Choose the role to invite them as: Manager, Developer or Contributor." });
 
         var result = teams.CreateInvitation(teamId, callerSubject, body?.Email, role);
         if (result.Outcome != TeamInvitationOutcome.Done)
@@ -286,18 +286,9 @@ internal static class TeamInvitationEndpoints
 
     private static bool TryParseRole(string? value, out TeamRole role)
     {
-        role = default;
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-        foreach (var candidate in Enum.GetValues<TeamRole>())
-        {
-            if (string.Equals(TeamRoles.Label(candidate), value.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                role = candidate;
-                return true;
-            }
-        }
-        return false;
+        var parsed = TeamRoles.Parse(value);
+        role = parsed ?? default;
+        return parsed is not null;
     }
 
     private static async Task<IResult> WithToken(HttpContext ctx, HostedTenantBoundary boundary, TenantRegistry tenants,

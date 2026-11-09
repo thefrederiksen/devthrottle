@@ -1011,14 +1011,14 @@ describe("Cockpit license alarm triangle", () => {
     const collaboratorTeam = {
       id: "team-dt",
       name: "DevThrottle",
-      role: "Collaborator",
+      role: "Contributor",
       memberCount: 5,
       people: "5 people",
       app: {
         full: false,
         pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null }],
         landing: "/questions",
-        elsewhere: "This page is not available to Collaborators.",
+        elsewhere: "This page is not available to contributors.",
       },
     } as unknown as TeamSummary;
     myTeams.answer = { kind: "teams", teams: [collaboratorTeam], start: { where: "own-account" } };
@@ -1093,14 +1093,14 @@ describe("Cockpit rail head alerts", () => {
     const collaboratorTeam = {
       id: "team-dt",
       name: "DevThrottle",
-      role: "Collaborator",
+      role: "Contributor",
       memberCount: 5,
       people: "5 people",
       app: {
         full: false,
         pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null }],
         landing: "/questions",
-        elsewhere: "This page is not available to Collaborators.",
+        elsewhere: "This page is not available to contributors.",
       },
     } as unknown as TeamSummary;
     myTeams.answer = { kind: "teams", teams: [collaboratorTeam], start: { where: "own-account" } };

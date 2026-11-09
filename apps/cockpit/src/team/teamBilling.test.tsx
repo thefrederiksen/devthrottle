@@ -108,7 +108,7 @@ function page(role: string, teamBill: TeamBill | null): TeamPage {
     teamId: TEAM,
     teamName: "DevThrottle",
     yourRole: role,
-    summary: "3 paid seats, 1 Collaborator",
+    summary: "3 paid seats, 1 contributor",
     billNotice: null,
     canInvite: role !== "Developer",
     members: [],
