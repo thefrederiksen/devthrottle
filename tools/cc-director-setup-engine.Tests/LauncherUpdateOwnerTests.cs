@@ -155,6 +155,150 @@ public class LauncherUpdateOwnerTests : IDisposable
         }
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Sweeping a SPENT staged build (issue #4504). Nothing in this product ever deleted one: a swap
+    // that succeeded left the file it installed from in place, and every pass afterwards read it,
+    // found it was not newer, and walked away - for ever. Measured on devthrottle-mac-mini on
+    // 8 November 2026 as a 117 MB file byte-identical to the running launcher.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ASpentStagedBuild_IsDiscarded_WhenTheRunningLauncherProvesItIsSpent()
+    {
+        // The running launcher IS the installed process and reports the staged version, so the file can
+        // repair nothing.
+        StagedBuildVersion.Write(_staged, StagedVersion);
+        WriteRegistration(1001, StagedVersion);
+        var owner = Owner([InstalledLauncher(1001)], newBuildIsCommandable: true);
+
+        Assert.True(await owner.DiscardSpentStagedBuildAsync());
+
+        Assert.False(File.Exists(_staged));
+        Assert.False(File.Exists(StagedBuildVersion.PathFor(_staged)));
+    }
+
+    [Fact]
+    public async Task AStagedBuildNEWERThanTheRunningLauncher_IsKept()
+    {
+        // This is pending work, not residue: the running launcher is older than what is staged.
+        StagedBuildVersion.Write(_staged, StagedVersion);
+        WriteRegistration(1001, InstalledVersion);
+        var owner = Owner([InstalledLauncher(1001)], newBuildIsCommandable: true);
+
+        Assert.False(await owner.DiscardSpentStagedBuildAsync());
+
+        Assert.True(File.Exists(_staged));
+    }
+
+    [Fact]
+    public async Task AStagedBuildTheMANIFESTCallsInstalled_IsKeptWhileTheRUNNINGLauncherIsOlder()
+    {
+        // THE TRAP THIS SWEEP MUST NOT FALL INTO. The manifest can name a version that is not on disk -
+        // this class documents it: once a version is recorded without being witnessed, the staged build
+        // stops looking newer and the repair can never happen again. The staged file is the only build
+        // that could perform that repair, so a sweep that trusted the manifest would destroy it.
+        var manifest = InstalledManifest.Load(_layout);
+        manifest.Set(ComponentRegistry.Launcher.Id, StagedVersion);   // recorded, never witnessed
+        manifest.Save(_layout);
+        StagedBuildVersion.Write(_staged, StagedVersion);
+        WriteRegistration(1001, InstalledVersion);                     // what is actually running
+        var owner = Owner([InstalledLauncher(1001)], newBuildIsCommandable: true);
+
+        Assert.False(await owner.DiscardSpentStagedBuildAsync());
+
+        Assert.True(File.Exists(_staged));
+        Assert.True(File.Exists(StagedBuildVersion.PathFor(_staged)));
+    }
+
+    [Fact]
+    public async Task AStagedBuildWithNoRecordedVersion_IsKept()
+    {
+        // Somebody else's file. Its version cannot be compared with anything, so it is not ours to delete.
+        WriteRegistration(1001, StagedVersion);
+        var owner = Owner([InstalledLauncher(1001)], newBuildIsCommandable: true);
+        owner = new LauncherUpdateOwner(_root, () => true) { ReadVersionOnDisk = _ => null, SwapLockName = _swapLockName };
+
+        Assert.False(await owner.DiscardSpentStagedBuildAsync());
+
+        Assert.True(File.Exists(_staged));
+    }
+
+    [Fact]
+    public async Task WithNoLauncherRunning_AStagedBuildIsKept_HoweverOldItLooks()
+    {
+        // Nothing is proved by a manifest and an absent launcher: this machine may be the one whose
+        // installed binary needs replacing.
+        StagedBuildVersion.Write(_staged, StagedVersion);
+        WriteRegistration(1001, StagedVersion);
+        var owner = Owner([], newBuildIsCommandable: true);
+
+        Assert.False(await owner.DiscardSpentStagedBuildAsync());
+
+        Assert.True(File.Exists(_staged));
+    }
+
+    [Fact]
+    public async Task APassWithNothingToInstall_TakesTheSpentBuildAwayWithIt_AndStillSaysNothingStaged()
+    {
+        // The whole point, end to end: the pass that has been reading this file every cycle is the pass
+        // that removes it.
+        StagedBuildVersion.Write(_staged, StagedVersion);
+        WriteRegistration(1001, StagedVersion);
+        var owner = Owner([InstalledLauncher(1001)], newBuildIsCommandable: true);
+        owner = new LauncherUpdateOwner(_root,
+            directorStillHoldsItsInstance: () => true,
+            witness: new LauncherWitness(_root)
+            {
+                RegistrationPath = _registration,
+                ProcessIsAlive = _ => true,
+                HasListener = _ => true,
+            })
+        {
+            SwapLockName = _swapLockName,
+            ListLauncherProcesses = () => [InstalledLauncher(1001)],
+        };
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.NothingStaged, result.Decision);
+        Assert.False(File.Exists(_staged));
+    }
+
+    [Fact]
+    public async Task APassThatFindsTheStagedBuildIsNOTNEWER_SweepsIt_ThroughRunOnceAsync()
+    {
+        // THE BRANCH PRODUCTION HITS EVERY PASS, and the review's finding: the end-to-end test above
+        // leaves through the already-running shortcut, which is the state of a machine whose manifest has
+        // not caught up yet. One pass later the manifest agrees with the binary, FindStagedUpdate answers
+        // "not newer", and THAT is the branch a machine sits in for the rest of its life - the one this
+        // file was 117 MB of residue in on 8 November 2026.
+        var manifest = InstalledManifest.Load(_layout);
+        manifest.Set(ComponentRegistry.Launcher.Id, StagedVersion);     // the manifest has caught up
+        manifest.Save(_layout);
+        StagedBuildVersion.Write(_staged, StagedVersion);
+        WriteRegistration(1001, StagedVersion);                          // and the running launcher proves it
+
+        var owner = new LauncherUpdateOwner(_root,
+            directorStillHoldsItsInstance: () => true,
+            witness: new LauncherWitness(_root)
+            {
+                RegistrationPath = _registration,
+                ProcessIsAlive = _ => true,
+                HasListener = _ => true,
+            })
+        {
+            SwapLockName = _swapLockName,
+            ListLauncherProcesses = () => [InstalledLauncher(1001)],
+        };
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.NothingStaged, result.Decision);
+        Assert.Contains("not newer", result.Message);
+        Assert.False(File.Exists(_staged));
+        Assert.False(File.Exists(StagedBuildVersion.PathFor(_staged)));
+    }
+
     [Fact]
     public void StagedBuildPath_IsUnderTheSharedRoot()
     {

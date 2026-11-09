@@ -247,6 +247,12 @@ public sealed class LauncherUpdateOwner
         if (staged is null)
         {
             FileLog.Write($"[LauncherUpdateOwner] nothing to do: {why}");
+
+            // The reason is already decided above and does not change: this only takes away a file that
+            // has nothing left to do, so that it stops being read on every pass for the rest of the
+            // machine's life. See DiscardSpentStagedBuildAsync.
+            await DiscardSpentStagedBuildAsync();
+
             return LauncherUpdateResult.Of(
                 why.StartsWith("pinned", StringComparison.Ordinal)
                     ? LauncherUpdateDecision.SkippedPinnedBadVersion
@@ -311,6 +317,14 @@ public sealed class LauncherUpdateOwner
             FileLog.Write($"[LauncherUpdateOwner] the installed launcher (pid {reading.Pid}) already reports "
                           + $"{reading.Version} and is commandable; nothing to install.");
             RecordInstalledVersion(staged.Version);
+
+            // AND THIS IS THE STRONGEST PROOF THERE IS THAT THE FILE IS SPENT: the installed launcher is
+            // running, commandable, and reporting the very version staged beside it. The other sweep
+            // call, below, covers the pass that finds the staged build is not newer than the manifest;
+            // this one covers the machine whose manifest had not caught up yet - which is the same
+            // machine one pass earlier, and the state the 26 October restart storm sat in all day.
+            await DiscardSpentStagedBuildAsync();
+
             return LauncherUpdateResult.Of(LauncherUpdateDecision.NothingStaged,
                 $"The running launcher already reports {reading.Version} and can be commanded.");
         }
@@ -414,6 +428,12 @@ public sealed class LauncherUpdateOwner
             ? result.Message
             : result.Message + " THE DIRECTOR NO LONGER HOLDS ITS INSTANCE - the launcher swap took it with it.";
 
+        // SPENT THE MOMENT IT IS IN. The lock is still held here, so this is the inner delete rather
+        // than the public sweep - the public one would ask a second thread for a mutex this one owns.
+        if (decision == LauncherUpdateDecision.Applied
+            && CanProveTheStagedBuildIsSpent(out var spentPath, out var spentVersion, out var nowRunning))
+            DeleteSpentStagedBuild(spentPath, spentVersion, nowRunning);
+
         FileLog.Write($"[LauncherUpdateOwner] launcher {staged.Version}: {decision} - {message}");
         return new LauncherUpdateResult(decision, message, steps);
     }
@@ -468,6 +488,111 @@ public sealed class LauncherUpdateOwner
 
         why = "";
         return new StagedLauncherUpdate(stagedVersion, stagedPath, _layout.PathFor(ComponentRegistry.Launcher));
+    }
+
+    /// <summary>
+    /// Delete a staged launcher build that is SPENT, and say so in the log. True when one was deleted.
+    ///
+    /// WHY THERE IS ANYTHING TO DELETE. Nothing in this product has ever removed a staged launcher. A
+    /// swap that succeeds leaves the file it installed from sitting in state/staged, and every pass
+    /// after it reads that file, finds it is not newer than what is now installed, and walks away -
+    /// so it stays for ever. Measured on devthrottle-mac-mini, 8 November 2026: a 117,362,592-byte
+    /// staged launcher, byte for byte the running binary (one SHA-256 between them), with a sidecar
+    /// declaring the version already installed, left behind by that morning's update. It is also the
+    /// shape behind the restart storm of 26 October (issue #4504), where a staged build at the running
+    /// version was read on every pass for a day.
+    ///
+    /// WHAT COUNTS AS PROOF THAT IT IS SPENT, AND WHY IT IS NOT THE MANIFEST. The obvious test - the
+    /// staged version is not newer than the INSTALLED version - is the one that must not be used alone,
+    /// because the manifest can say a version that is not on disk. That is a known trap in this very
+    /// class: once a version is recorded without being witnessed, the staged build stops looking newer
+    /// and the retry that would have repaired the machine can never happen again. Deleting the file on
+    /// the manifest's word would delete the only build that could perform that repair.
+    ///
+    /// So the proof is the RUNNING LAUNCHER: the registration names a live process, that process is one
+    /// running from the install directory, and the version it reports is at least as new as the staged
+    /// build. Then the machine is demonstrably already running what is staged, and the file can repair
+    /// nothing. Anything less - no sidecar, no live launcher, a launcher reporting something older -
+    /// keeps the file. A sweep acts only on what it can prove is disposable, and this one deletes two
+    /// named files, never a directory.
+    /// </summary>
+    public Task<bool> DiscardSpentStagedBuildAsync()
+    {
+        if (!CanProveTheStagedBuildIsSpent(out var stagedPath, out var stagedVersion, out var runningVersion))
+            return Task.FromResult(false);
+
+        // THE SAME MACHINE-WIDE LOCK THE SWAP TAKES. Another Director may be installing this very file
+        // at this moment: its pass read the manifest before the swap that is now finishing, so it saw a
+        // build that was newer. A swap in progress holds the lock, so this waits for nothing and simply
+        // leaves the file alone until the next pass.
+        return BinarySwapLock.RunExclusivelyAsync(
+            () => Task.FromResult(DeleteSpentStagedBuild(stagedPath, stagedVersion, runningVersion)),
+            whenBusy: why =>
+            {
+                FileLog.Write($"[LauncherUpdateOwner] the spent staged launcher {stagedVersion} was left alone: {why}");
+                return false;
+            },
+            who: "staged-sweep",
+            name: SwapLockName);
+    }
+
+    /// <summary>
+    /// The proof described on <see cref="DiscardSpentStagedBuildAsync"/>. Reads only; the answer is
+    /// re-read inside the lock by nothing, deliberately - the running launcher cannot become older than
+    /// the staged build while this pass holds the lock, and a launcher that STOPS in the meantime leaves
+    /// a file that the next pass will consider again.
+    /// </summary>
+    private bool CanProveTheStagedBuildIsSpent(out string stagedPath, out string stagedVersion, out string runningVersion)
+    {
+        stagedPath = StagedBuildPath;
+        stagedVersion = "";
+        runningVersion = "";
+
+        if (!File.Exists(stagedPath)) return false;
+
+        var staged = ReadVersionOnDisk(stagedPath);
+        if (string.IsNullOrWhiteSpace(staged))
+        {
+            // A staged file with no sidecar was not put there by this product's staging path, and its
+            // version cannot be compared with anything. Somebody else's file is not ours to delete.
+            FileLog.Write($"[LauncherUpdateOwner] {stagedPath} has no recorded version, so whether it is spent "
+                          + "cannot be established; leaving it.");
+            return false;
+        }
+
+        var reading = _witness.Read();
+        if (!reading.ProcessAlive || string.IsNullOrWhiteSpace(reading.Version)) return false;
+
+        var ours = OursNow();
+        if (ours.Count != 1 || ours[0].Pid != reading.Pid) return false;
+
+        // Not newer means "at least as new as", which is the whole question: a launcher running 2.40.0
+        // makes a staged 2.40.0 and a staged 2.39.0 equally spent.
+        if (VersionUtil.IsNewer(staged, reading.Version)) return false;
+
+        stagedVersion = staged;
+        runningVersion = reading.Version!;
+        return true;
+    }
+
+    /// <summary>The two files, by name, with the reason in the log. Never throws.</summary>
+    private static bool DeleteSpentStagedBuild(string stagedPath, string stagedVersion, string runningVersion)
+    {
+        try
+        {
+            var bytes = new FileInfo(stagedPath).Length;
+            File.Delete(stagedPath);
+            StagedBuildVersion.Delete(stagedPath);
+            FileLog.Write($"[LauncherUpdateOwner] discarded the spent staged launcher {stagedVersion} "
+                          + $"({bytes:N0} bytes at {stagedPath}, with {StagedBuildVersion.PathFor(stagedPath)}): "
+                          + $"the installed launcher is running {runningVersion}.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LauncherUpdateOwner] discarding the spent staged launcher {stagedVersion} FAILED: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
