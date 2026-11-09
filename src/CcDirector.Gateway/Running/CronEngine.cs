@@ -412,11 +412,19 @@ public sealed class CronEngine
     public const string FactoriesNeedAPlanCheckSentence =
         "factories come with the Pro plan and this account's plan does not include them, so no Director is handed the check";
 
-    /// <summary>Why a due check cannot run, in the decision's own terms: the plan when the plan is why, otherwise the
-    /// switch - the same split <see cref="FactoryOffReason"/> makes for a seat's schedule, so one account never reads
-    /// two causes for one.</summary>
-    internal static string CheckOffSentence(Factory.FactoryAgentsAnswer answer)
-        => answer.OffReason == Factory.FactoryAgentsOffReasons.PlanRequired ? FactoriesNeedAPlanCheckSentence : FactoryAgentsOffSentence;
+    /// <summary>Why a due check cannot run in a TEAM's account whose Owner is not on Pro (owner ruling, 9 Nov 2026).</summary>
+    public const string TeamFactoriesNeedTheOwnersPlanCheckSentence =
+        "factories in a team come with the team Owner's Pro plan and this team's Owner is not on Pro, so no Director is handed the check";
+
+    /// <summary>Why a due check cannot run, in the decision's own terms: the plan when the plan is why, the team Owner's
+    /// plan in a team, otherwise the switch - the same split <see cref="FactoryOffReason"/> makes for a seat's schedule,
+    /// so one account never reads two causes for one.</summary>
+    internal static string CheckOffSentence(Factory.FactoryAgentsAnswer answer) => answer.OffReason switch
+    {
+        Factory.FactoryAgentsOffReasons.PlanRequired => FactoriesNeedAPlanCheckSentence,
+        Factory.FactoryAgentsOffReasons.TeamOwnerPlanRequired => TeamFactoriesNeedTheOwnersPlanCheckSentence,
+        _ => FactoryAgentsOffSentence,
+    };
 
     /// <summary>
     /// THE FIRE OF A SCHEDULE WITH A CHECK (Factory Definition, phase 5b, design 3.3). It starts no session and calls no
@@ -479,10 +487,14 @@ public sealed class CronEngine
     public const string FactoryAgentsOffStatus = "factory-agents-off";
 
     /// <summary>Why a factory seat's scheduled run was not started, in the decision's own terms.</summary>
-    internal static string FactoryOffReason(Factory.FactoryAgentsAnswer answer)
-        => answer.OffReason == Factory.FactoryAgentsOffReasons.PlanRequired
-            ? "factories come with the Pro plan and this account's plan does not include them, so the scheduled run was not started"
-            : "factory agents are switched off for this account, so the scheduled run was not started";
+    internal static string FactoryOffReason(Factory.FactoryAgentsAnswer answer) => answer.OffReason switch
+    {
+        Factory.FactoryAgentsOffReasons.PlanRequired
+            => "factories come with the Pro plan and this account's plan does not include them, so the scheduled run was not started",
+        Factory.FactoryAgentsOffReasons.TeamOwnerPlanRequired
+            => "factories in a team come with the team Owner's Pro plan and this team's Owner is not on Pro, so the scheduled run was not started",
+        _ => "factory agents are switched off for this account, so the scheduled run was not started",
+    };
 
     /// <summary>
     /// THE FIRE OF A FACTORY SEAT'S SCHEDULE ON AN ACCOUNT WITHOUT FACTORIES (Factories need Pro mission). No session is

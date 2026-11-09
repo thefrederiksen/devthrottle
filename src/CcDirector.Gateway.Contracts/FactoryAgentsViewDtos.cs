@@ -36,8 +36,10 @@ public sealed class FactoryAgentsSwitchDto
     public bool Enabled { get; set; }
 
     /// <summary>Why the area is off: <c>plan_required</c> (hosted, the plan does not include factories),
-    /// <c>not_switched_on</c> (self-hosted, the machine switch is off) or <c>plan_unknown</c> (hosted, the plan could
-    /// not be read just now). Null exactly when <see cref="Enabled"/> is true.</summary>
+    /// <c>team_owner_plan_required</c> (hosted, a team's account whose Owner's own plan does not include factories and
+    /// whose bill does not either), <c>not_switched_on</c> (self-hosted, the machine switch is off) or
+    /// <c>plan_unknown</c> (hosted, the plan could not be read just now). Null exactly when <see cref="Enabled"/> is
+    /// true.</summary>
     public string? Reason { get; set; }
 
     /// <summary>When the area is off: the Gateway's own sentence. For <c>plan_required</c> it is the upgrade page's body;
@@ -45,7 +47,8 @@ public sealed class FactoryAgentsSwitchDto
     /// shortly. Never null while the area is off; null when it is on.</summary>
     public string? HowToStart { get; set; }
 
-    /// <summary>The upgrade page's heading, "Factories come with Pro". Set only for <c>plan_required</c>.</summary>
+    /// <summary>The upgrade page's heading, "Factories come with Pro". Set for <c>plan_required</c>, and for
+    /// <c>team_owner_plan_required</c> with that reason's own heading.</summary>
     public string? Title { get; set; }
 
     /// <summary>Where a plan with factories is bought (the pricing page). Set only for <c>plan_required</c>.</summary>

@@ -2751,8 +2751,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // per-tenant settings just built, written by the administrator route), or - on the hosted Gateway only - the
         // account's plan, read through the same AI gate every model call asks (Factories need Pro mission). A
         // self-hosted Gateway passes no plan read: its gate allows everything and must never grant factories.
+        // In a team's account the team Owner's own plan grants too (owner ruling, 9 November 2026: "Yes, Pro carries
+        // factories into my teams."), read live on every question - only where Teams is released, so a dark Gateway
+        // reads exactly as before.
         FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings,
-            plans: AiGate.IsGating ? AiGate : null);
+            plans: AiGate.IsGating ? AiGate : null,
+            teamOwners: Hosted && TeamsReleased
+                ? new Teams.TeamOwnerFactories(TeamRegistry, Teams.TeamOwnerPlan.Hosted(EntitlementRegistry))
+                : null);
         // The Mail Desk switch per account, in the same per-tenant settings; no machine switch, so no config.json key.
         MailDeskSwitch = new MailDesk.MailDeskSwitch(_tenantSettings);
         MailDeskChannels = new MailDesk.MailDeskChannelStore(_gatewayDb);

@@ -50,20 +50,37 @@ public sealed class TeamOwnerPlan
 
     /// <summary>The answer for <paramref name="accountSubject"/>'s own plan at <paramref name="nowUtc"/>. Never logs the subject.</summary>
     public TeamOwnerPlanAnswer Read(string accountSubject, DateTime nowUtc)
+        => Decide(accountSubject, nowUtc, EntitlementScopes.Teams).Answer;
+
+    /// <summary>
+    /// Whether <paramref name="accountSubject"/>'s own plan carries <paramref name="scope"/> at <paramref name="nowUtc"/>,
+    /// with the tier the plan read named. <see cref="Read"/> asks it for <see cref="EntitlementScopes.Teams"/>; a team's
+    /// factories ask it for <see cref="EntitlementScopes.Factories"/> (<see cref="TeamOwnerFactories"/>). Never logs the
+    /// subject.
+    /// </summary>
+    /// <param name="quiet">True for a caller on a timer that asks the same question over and over: the verdict lines
+    /// are not written. A read that FAILS is logged either way - that is a fault, not a repeated answer.</param>
+    public TeamOwnerPlanDecision Decide(string accountSubject, DateTime nowUtc, string scope, bool quiet = false)
     {
         if (string.IsNullOrWhiteSpace(accountSubject))
             throw new ArgumentException("An account subject is required.", nameof(accountSubject));
+        if (string.IsNullOrWhiteSpace(scope))
+            throw new ArgumentException("A scope name is required.", nameof(scope));
         if (_entitlements is null)
-            return TeamOwnerPlanAnswer.Granted;
+            return new TeamOwnerPlanDecision(TeamOwnerPlanAnswer.Granted, null);
 
-        var decision = _entitlements.EvaluatePersonalTenant(accountSubject, nowUtc);
+        var decision = _entitlements.EvaluatePersonalTenant(accountSubject, nowUtc, quiet);
         var answer = decision.Outcome switch
         {
             EntitlementOutcome.Unknown => TeamOwnerPlanAnswer.Unknown,
-            EntitlementOutcome.Entitled when EntitlementScopes.Grants(decision.Tier, EntitlementScopes.Teams) => TeamOwnerPlanAnswer.Granted,
+            EntitlementOutcome.Entitled when EntitlementScopes.Grants(decision.Tier, scope) => TeamOwnerPlanAnswer.Granted,
             _ => TeamOwnerPlanAnswer.NotPro,
         };
-        FileLog.Write($"[TeamOwnerPlan] Read: outcome={decision.Outcome} tier={decision.Tier ?? "none"} answer={answer}");
-        return answer;
+        if (!quiet) FileLog.Write($"[TeamOwnerPlan] Decide: scope={scope} outcome={decision.Outcome} tier={decision.Tier ?? "none"} answer={answer}");
+        return new TeamOwnerPlanDecision(answer, decision.Tier);
     }
 }
+
+/// <summary>One answer from <see cref="TeamOwnerPlan.Decide"/>: the answer, and the tier the owner's plan read named
+/// (null when nothing was read or it named none).</summary>
+public sealed record TeamOwnerPlanDecision(TeamOwnerPlanAnswer Answer, string? Tier);

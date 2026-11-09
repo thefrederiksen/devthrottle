@@ -49,7 +49,7 @@ export function FactoryAreaGate({ children }: { children: ReactNode }) {
     // An "off" without the Gateway's sentence never reaches here: useFactorySwitch turns it into a reported error.
     return (
       <section className="pane" data-testid="factories-off">
-        <h1 className="pane-title">Factories</h1>
+        <h1 className="pane-title">{title ?? "Factories"}</h1>
         <p className="pane-note">{howToStart}</p>
       </section>
     );
