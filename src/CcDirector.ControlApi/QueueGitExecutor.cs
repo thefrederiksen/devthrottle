@@ -34,11 +34,17 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
     };
 
     /// <summary>
-    /// The queue writes, ordered for a reason that is not typing (issue #4490): <c>Session.PromptQueue</c> is
-    /// a plain <c>List</c> with no lock, so two of these at once can tear it - lose an item, move the wrong
-    /// one, or throw mid-enumeration. The delivery loop serialised them before this change, because every one
-    /// of them is synchronous, and it keeps doing so until the queue itself is safe (#4815). queue-read and
-    /// queue-send are here too: a read enumerates the same list, and a send mutates it.
+    /// The queue writes, ordered because A PERSON'S REORDERING IS A SEQUENCE (issues #4490, #4815).
+    ///
+    /// This list used to say something else: that <c>Session.PromptQueue</c> was a plain <c>List</c> with no
+    /// lock, so two of these at once could tear it, and that the delivery loop was holding them apart until
+    /// the queue itself was safe. The queue now takes a lock on every read and every write and hands out a
+    /// snapshot (#4815), so tearing is no longer the reason and the loop is no longer standing in for a lock.
+    ///
+    /// They stay ordered on their own merits. Two move-ups are the person asking for two steps; applied at
+    /// once against the same index they are one. A read that overtakes the write before it shows the person
+    /// the queue they just changed, unchanged. The lock makes each verb safe; it cannot make a pair of them
+    /// mean what the person meant, and only arrival order can.
     /// </summary>
     public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
     {
