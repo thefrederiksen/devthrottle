@@ -29,8 +29,9 @@ public sealed class TenantEntity
     /// Unique across the table. Never logged (personally identifying).</summary>
     public string AccountSubject { get; set; } = "";
 
-    /// <summary>The account email as last seen at mint time - DISPLAY METADATA ONLY, never the mapping key
-    /// (an email can change). Null when not supplied. Never logged.</summary>
+    /// <summary>The sign-in address: the token's top-level <c>email</c> claim, overwritten at every sign-in that
+    /// carries one, so it follows the provider (devthrottle_internal#2816). Never the mapping key (an email can
+    /// change). Kept, not cleared, when a token carries no claim; null when none was ever supplied. Never logged.</summary>
     public string? Email { get; set; }
 
     /// <summary>When this tenant was minted (UTC).</summary>

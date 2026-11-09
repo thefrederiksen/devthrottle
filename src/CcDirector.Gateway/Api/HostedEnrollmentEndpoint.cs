@@ -254,7 +254,9 @@ internal static class HostedEnrollmentEndpoint
         if (refusal is not null)
             return refusal;
 
-        // The email is DISPLAY METADATA only (never the mapping key). Read it from the same verified token.
+        // The email is never the mapping key. Read only the top-level claim the provider signs, from the same verified
+        // token (never user_metadata, which the person can edit); the registry records it at every sign-in, so the
+        // address the team checks compare against follows the provider (devthrottle_internal#2816).
         var email = JwtIdentityReader.Read(bearer)?.Email;
 
         // Mint-or-lookup the tenant for this verified subject (same account -> same tenant).

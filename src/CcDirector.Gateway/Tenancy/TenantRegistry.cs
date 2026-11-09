@@ -41,11 +41,13 @@ public sealed class TenantRegistry
     /// Resolve the tenant for a verified account subject, minting one if the subject has none. Returns the
     /// EXISTING tenant when the subject is already mapped (idempotent - a second device of the same account
     /// resolves to the same tenant); mints a new tenant id (a code-generated GUID) only for a subject with no
-    /// mapping. The email is stored as display metadata on a fresh mint only and is never the lookup key.
+    /// mapping. The email is recorded on every resolution that carries one, so the row holds the address the sign-in
+    /// provider last confirmed (devthrottle_internal#2816); it is never the lookup key.
     /// </summary>
     /// <param name="accountSubject">The verified Supabase subject (<c>sub</c>). The caller must have already
     /// validated the token this came from; this method does not re-verify.</param>
-    /// <param name="email">The account email for display metadata, or null. Never used as a key.</param>
+    /// <param name="email">The top-level <c>email</c> claim of the verified token, or null when the token carries none.
+    /// Never anything from <c>user_metadata</c>, which the person can edit. Never used as a key.</param>
     /// <returns>The resolved (existing or newly minted) tenant.</returns>
     public TenantId MintOrLookupBySubject(string accountSubject, string? email)
     {
@@ -61,21 +63,7 @@ public sealed class TenantRegistry
             var existing = ctx.Tenants.FirstOrDefault(t => t.AccountSubject == subject);
             if (existing is not null)
             {
-                // Backfill the display email when the row has none and this resolution carries one (issue
-                // #2119). The email used to be recorded on a FRESH MINT ONLY, which left every tenant minted
-                // before the email was captured - or from a token that carried none - permanently without
-                // one. That is not a cosmetic gap: the morning report resolves an account BY EMAIL, so a
-                // null here makes a real, fully enrolled account look like no such account.
-                //
-                // It is a backfill, never an overwrite: a row that already has an email keeps it, so this
-                // cannot silently re-point an account's display identity, and the mapping KEY is still the
-                // subject and only the subject. The email is personally identifying and is never logged.
-                if (string.IsNullOrWhiteSpace(existing.Email) && !string.IsNullOrWhiteSpace(email))
-                {
-                    existing.Email = email.Trim();
-                    ctx.SaveChanges();
-                    FileLog.Write("[TenantRegistry] MintOrLookupBySubject: recorded the display email on an existing tenant that had none");
-                }
+                RecordSignInAddress(ctx, existing, email);
 
                 FileLog.Write("[TenantRegistry] MintOrLookupBySubject: resolved an existing tenant for a known account");
                 return new TenantId(existing.Id);
@@ -117,6 +105,42 @@ public sealed class TenantRegistry
             FileLog.Write("[TenantRegistry] MintOrLookupBySubject: minted a new tenant for a first-seen account");
             return new TenantId(tenantId);
         }
+    }
+
+    /// <summary>
+    /// Record the sign-in address on an existing account's row (devthrottle_internal#2816). It follows the provider: the
+    /// token's <c>email</c> claim REPLACES whatever was recorded, so an account whose sign-in address moved is matched by
+    /// its new address and no longer by its old one - by the add-at-once lookup, by invitation open, accept and decline,
+    /// and by the morning report. It used to be a backfill that never overwrote, which left an account answering to an
+    /// address it no longer holds, while the mailbox's new holder got the mail.
+    ///
+    /// The address is personally identifying and never logged. It is written only when it differs from what is
+    /// recorded (compared exactly, after trimming), so an ordinary sign-in costs no write.
+    ///
+    /// A resolution with NO email claim keeps what is recorded and logs that the claim was missing. It never clears
+    /// the address: a token without the claim says nothing about the address, and blanking it would silently turn
+    /// the account into one every address check refuses (an invitation check fails closed on no address).
+    /// </summary>
+    private static void RecordSignInAddress(GatewayDbContext ctx, TenantEntity existing, string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            FileLog.Write(string.IsNullOrWhiteSpace(existing.Email)
+                ? "[TenantRegistry] MintOrLookupBySubject: the token carried no email claim and the account has no address recorded"
+                : "[TenantRegistry] MintOrLookupBySubject: the token carried no email claim - the recorded address is kept, not cleared");
+            return;
+        }
+
+        var address = email.Trim();
+        if (string.Equals(existing.Email, address, StringComparison.Ordinal))
+            return;
+
+        var hadOne = !string.IsNullOrWhiteSpace(existing.Email);
+        existing.Email = address;
+        ctx.SaveChanges();
+        FileLog.Write(hadOne
+            ? "[TenantRegistry] MintOrLookupBySubject: the sign-in address changed - recorded the token's address in place of the old one"
+            : "[TenantRegistry] MintOrLookupBySubject: recorded the sign-in address on an existing account that had none");
     }
 
     /// <summary>
@@ -189,8 +213,8 @@ public sealed class TenantRegistry
     /// need an id, and widening it to drag personally-identifying columns into every sweep would be the
     /// wrong trade. This read exists for the ONE caller that legitimately needs an address.
     ///
-    /// The email is DISPLAY METADATA captured at mint time and it is nullable, so a caller must treat a
-    /// missing or stale address as exactly that - see <see cref="TenantEntity.Email"/>. Read through the
+    /// The email is the address the sign-in provider last confirmed for the account, recorded at its latest
+    /// sign-in, and it is nullable, so a caller must treat a missing or stale address as exactly that - see <see cref="TenantEntity.Email"/>. Read through the
     /// UNSCOPED context because the mapping table carries no tenant_id, as every other census read does.
     /// </summary>
     public IReadOnlyList<TenantRecipient> ListAll()
@@ -283,7 +307,8 @@ public sealed class TenantRegistry
     /// partition to read. Nothing here mints, and nothing here decides whether the caller may look.
     ///
     /// A duplicate email across two tenants returns <see cref="AccountLookupOutcome.Ambiguous"/> rather than
-    /// picking one. Two accounts CAN share a display email (the mint records whatever the token carried), and
+    /// picking one. Two accounts CAN share an address - an account that moved its sign-in address away and has not
+    /// signed in since still carries the old one, beside the account that holds it now - and
     /// sending one person's report to the other is the exact harm the tenant boundary exists to prevent.
     /// The subject and the email are personally identifying and are never logged.
     /// </summary>
@@ -332,9 +357,9 @@ public sealed class TenantRegistry
     /// The display email recorded on a tenant's row, or null when there is none (issue #1856). Read-only:
     /// it neither mints nor writes.
     ///
-    /// NULL IS ORDINARY HERE, NOT AN ERROR. <see cref="MintOrLookupBySubject"/> records the email on a FRESH
-    /// MINT ONLY, so a tenant minted before the email was captured, or from a token that carried none, simply
-    /// has no email - while being a perfectly valid, fully enrolled tenant. A caller must therefore treat a
+    /// NULL IS ORDINARY HERE, NOT AN ERROR. <see cref="MintOrLookupBySubject"/> records the email only when a
+    /// token carries one, so a tenant minted before the email was captured, or only ever reached by a token that
+    /// carried none, simply has no email - while being a perfectly valid, fully enrolled tenant. A caller must therefore treat a
     /// null as "this identity is not available" and NEVER as "there is no such tenant" or "nobody is signed
     /// in": those are different answers and a caller that folds them together states a falsehood. The email
     /// is personally identifying and is never logged.
@@ -358,5 +383,5 @@ public sealed record TenantAccount(string AccountSubject, DateTime CreatedAtUtc)
 
 /// <summary>A tenant and the account email recorded for it, which may be absent.</summary>
 /// <param name="TenantId">The tenant's own id.</param>
-/// <param name="Email">The account email as last seen at mint time, or null.</param>
+/// <param name="Email">The sign-in address recorded at the account's latest sign-in that carried one, or null.</param>
 public sealed record TenantRecipient(string TenantId, string? Email);

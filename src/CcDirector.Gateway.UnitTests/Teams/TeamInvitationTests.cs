@@ -295,6 +295,102 @@ public sealed class TeamInvitationTests : IDisposable
         Assert.Equal(TeamRole.Developer, _teams.RoleOf(_team, Newcomer));
     }
 
+    // ---- The recorded address follows the sign-in provider (devthrottle_internal#2816) ---------------------------
+
+    [Fact]
+    public void CreateInvitation_AccountMovedItsSignInAddress_IsAddedAtOnceByTheNewAddressAndNotByTheOld()
+    {
+        _tenants.MintOrLookupBySubject(Newcomer, "anna.old@x.example");
+        _tenants.MintOrLookupBySubject(Newcomer, "anna.new@x.example");   // signs in again after changing address
+
+        var byOld = Invite(Owner, "anna.old@x.example", TeamRole.Developer);
+        var byNew = Invite(Owner, "anna.new@x.example", TeamRole.Developer);
+
+        // The old address no longer names the account, so it gets an invitation (sent to whoever holds that mailbox).
+        Assert.False(byOld.AddedAtOnce);
+        Assert.Equal(TeamInvitationStates.Sent, byOld.Invitation!.State);
+        Assert.True(byNew.AddedAtOnce);
+        Assert.Equal(TeamRole.Developer, _teams.RoleOf(_team, Newcomer));
+    }
+
+    [Fact]
+    public void CreateInvitation_OldAddressNowHeldByAnotherAccount_AddsOnlyTheNewHolder()
+    {
+        _tenants.MintOrLookupBySubject(Newcomer, "mailbox@x.example");
+        _tenants.MintOrLookupBySubject(Newcomer, "moved@x.example");
+        _tenants.MintOrLookupBySubject("sub-new-holder", "mailbox@x.example");
+
+        var result = Invite(Owner, "mailbox@x.example", TeamRole.Collaborator);
+
+        Assert.True(result.AddedAtOnce);
+        Assert.Equal(TeamRole.Collaborator, _teams.RoleOf(_team, "sub-new-holder"));
+        Assert.Null(_teams.RoleOf(_team, Newcomer));
+    }
+
+    [Fact]
+    public void CreateInvitation_OldHolderNotSignedInSinceTheAddressMoved_TwoAccountsCarryIt_IsInvitedNotGuessed()
+    {
+        // The old holder's row still carries the address beside the new holder's token: adding either would be a
+        // guess, so an invitation goes to the mailbox and only the account that holds it now can take it.
+        _tenants.MintOrLookupBySubject("sub-old-holder", "mailbox@x.example");
+        _tenants.MintOrLookupBySubject("sub-new-holder", "mailbox@x.example");
+
+        var result = Invite(Owner, "mailbox@x.example", TeamRole.Developer);
+
+        Assert.False(result.AddedAtOnce);
+        Assert.Null(_teams.RoleOf(_team, "sub-old-holder"));
+        Assert.Null(_teams.RoleOf(_team, "sub-new-holder"));
+    }
+
+    [Fact]
+    public void OpenAcceptDecline_AccountMovedItsSignInAddress_MatchesTheNewAddressAndNotTheOld()
+    {
+        var toOld = TokenOf(Invite(Owner, "anna.old@x.example", TeamRole.Developer));
+        var toNew = TokenOf(Invite(Owner, "anna.new@x.example", TeamRole.Developer));
+        var toBetween = TokenOf(Invite(Manager, "anna.new2@x.example", TeamRole.Collaborator));
+        _tenants.MintOrLookupBySubject(Newcomer, "anna.old@x.example");
+        _tenants.MintOrLookupBySubject(Newcomer, "anna.new2@x.example");   // a sign-in with a changed address
+        _tenants.MintOrLookupBySubject(Newcomer, "anna.new@x.example");    // and another
+
+        // Every action on the link sent to the OLD address is refused: the account no longer holds it.
+        foreach (var answer in new[] { _teams.OpenInvitation(toOld, Newcomer), _teams.AcceptInvitation(toOld, Newcomer), _teams.DeclineInvitation(toOld, Newcomer) })
+        {
+            Assert.Equal(TeamInvitationOutcome.Forbidden, answer.Outcome);
+            Assert.Equal(TeamInvitationRefusals.NotTheirAddress, answer.Refusal);
+        }
+        // So is the one sent to an address it held only in between.
+        Assert.Equal(TeamInvitationRefusals.NotTheirAddress, _teams.DeclineInvitation(toBetween, Newcomer).Refusal);
+
+        // The link sent to the CURRENT address opens and accepts.
+        Assert.True(_teams.OpenInvitation(toNew, Newcomer).Invitation!.CanRespond);
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.AcceptInvitation(toNew, Newcomer).Outcome);
+        Assert.Equal(TeamRole.Developer, _teams.RoleOf(_team, Newcomer));
+    }
+
+    [Fact]
+    public void Decline_AccountMovedItsSignInAddress_DeclinesByTheNewAddress()
+    {
+        var token = TokenOf(Invite(Owner, "anna.new@x.example", TeamRole.Collaborator));
+        _tenants.MintOrLookupBySubject(Newcomer, "anna.old@x.example");
+        Assert.Equal(TeamInvitationRefusals.NotTheirAddress, _teams.DeclineInvitation(token, Newcomer).Refusal);
+
+        _tenants.MintOrLookupBySubject(Newcomer, "anna.new@x.example");
+
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.DeclineInvitation(token, Newcomer).Outcome);
+    }
+
+    [Fact]
+    public void OpenAndAccept_ASignInWithNoEmailClaim_KeepsTheRecordedAddress_SoTheInvitationStillMatches()
+    {
+        var token = TokenOf(Invite(Owner, "anna@x.example", TeamRole.Developer));
+        _tenants.MintOrLookupBySubject(Newcomer, "anna@x.example");
+
+        _tenants.MintOrLookupBySubject(Newcomer, null);   // a token without the claim
+
+        Assert.True(_teams.OpenInvitation(token, Newcomer).Invitation!.CanRespond);
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.AcceptInvitation(token, Newcomer).Outcome);
+    }
+
     [Fact]
     public void OpenInvitation_ExpiredLinkForwardedToSomeoneElse_DoesNotNameTheInviter()
     {
