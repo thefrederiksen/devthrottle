@@ -61,7 +61,7 @@ public sealed class FactorySharesFollowTheOwnersPlanTests : IDisposable
             teamOwners: new TeamOwnerFactories(_teams, TeamOwnerPlan.Hosted(entitlements), () => Now, _ => { }));
         _factories = new FactoryRegistryStore(_db);
         _shares = new FactoryContributors(_db);
-        _owner = new FactoryShares(_teams, _factories, _shares, factorySwitch, () => Now);
+        _owner = new FactoryShares(_teams, _factories, _shares, factorySwitch, new ContributorNotices(_db, _teams, () => Now), () => Now);
 
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         Assert.True(_teams.AddMember(_team, Contributor, TeamRole.Collaborator).IsDone);

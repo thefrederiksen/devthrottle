@@ -1283,6 +1283,20 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private Timer? _teamSeatConvergenceTimer;
     private Timer? _teamBillRenewalTimer;
+    private Timer? _contributorNoticeTimer;
+
+    /// <summary>
+    /// What a contributor has not been told about yet, and how each person wants to be told (Team implementation piece
+    /// 4.4). Present on every host; written only where the team routes are mapped.
+    /// </summary>
+    public Teams.ContributorNotices ContributorNotices { get; }
+
+    /// <summary>
+    /// Emails a person by account subject through the existing tenant-addressed owner email (piece 4.4). Settable only so
+    /// a test can install a recording sender BEFORE <see cref="StartAsync"/> starts the notice sweep; nothing changes it
+    /// after.
+    /// </summary>
+    public Teams.IPersonEmailSender PersonEmail { get; set; }
 
     /// <summary>The paid-entitlement gate read at hosted enrollment. Present on every host; consulted only
     /// where the hosted enrollment route is mapped, which is hosted only.</summary>
@@ -2491,6 +2505,8 @@ public sealed class GatewayHost : IAsyncDisposable
             : Tenancy.TenantAiGate.SelfHost;
         TeamGate =new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
         TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
+        ContributorNotices = new Teams.ContributorNotices(_gatewayDb, TeamRegistry);
+        PersonEmail = new Teams.PersonEmailSender(new Core.Account.AccountNotifyByTenantClient(), TenantRegistry);
         // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
         // there are revoked and their open tunnels there cut (devthrottle_internal#2311). Attached only where Teams is
         // released, at the one place a membership change is committed.
@@ -6306,7 +6322,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 Reports: _devReports, Recipients: _devReportRecipients, Comments: _devReportComments, Delivery: _devReportDelivery,
                 Factories: FactoryRegistry, Activity: FactoryActivity, FactoryContributors: new Teams.FactoryContributors(_gatewayDb), FactorySwitch: FactoryAgentsSwitch,
                 FactoryInbox: FactoryInbox,
-                FactoryInboxMessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc)));
+                FactoryInboxMessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),
+                Notices: ContributorNotices));
             // The administrator routes that fill one team so it can be shown as it is, and empty it again by one tag
             // (owner, 8 Oct 2026). Same admin service token as the factory switch; exact-match public in AuthMiddleware.
             AdminTeamShowcaseEndpoint.Map(_app, Hosted, new Teams.TeamShowcase(_gatewayDb, TeamRegistry, TenantRegistry,
@@ -6320,6 +6337,16 @@ public sealed class GatewayHost : IAsyncDisposable
         if (TeamBillRenewal is { } renewal)
             _teamBillRenewalTimer = new Timer(_ => renewal.RunSafe(), null,
                 TimeSpan.FromMinutes(1), Teams.TeamBillRenewal.Interval);
+        // Contributors told that something is waiting, by their own choice (piece 4.4): hosted with Teams released only,
+        // where contributors exist and the owner email can address one.
+        if (Hosted && TeamsReleased)
+        {
+            var noticeSweep = new Teams.ContributorNoticeSweep(_gatewayDb, ContributorNotices, TeamRegistry, TenantRegistry, PersonEmail,
+                _tenantSettingsResolver.TimeZone, () => GatewayPublicUrl.ResolveBase(Hosted), () => DateTime.UtcNow);
+            _contributorNoticeTimer = new Timer(_ => noticeSweep.RunSafe(), null,
+                TimeSpan.FromMinutes(1), Teams.ContributorNoticeSweep.Interval);
+            FileLog.Write($"[GatewayHost] contributor notice sweep started: tick every {Teams.ContributorNoticeSweep.Interval.TotalMinutes:0}m");
+        }
 
         // The administrator trial EXTENSION: POST /gateway/admin/trials/extend. The write twin of the read
         // above, and the only way a trial's end date moves. It lives here rather than as a database grant to
@@ -8615,6 +8642,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
         try { _teamSeatConvergenceTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team seat convergence timer dispose error: {ex.Message}"); }
         try { _teamBillRenewalTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team bill renewal timer dispose error: {ex.Message}"); }
+        try { _contributorNoticeTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] contributor notice timer dispose error: {ex.Message}"); }
         try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
         try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
         try { _fleetManagerReplacementTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager replacement timer dispose error: {ex.Message}"); }

@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-09",
+  "results": [
+    {
+      "id": "A",
+      "ok": true,
+      "detail": "right away chosen, no hour shown"
+    },
+    {
+      "id": "B",
+      "ok": true,
+      "detail": "[{\"mode\":\"daily\",\"dailyHour\":8}]"
+    },
+    {
+      "id": "C",
+      "ok": true,
+      "detail": "[{\"mode\":\"daily\",\"dailyHour\":8},{\"mode\":\"daily\",\"dailyHour\":17}]"
+    }
+  ]
+}

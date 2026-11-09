@@ -37,6 +37,7 @@ public sealed class TeamRequestStore
     private readonly GatewayDatabase _db;
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
+    private readonly ContributorNotices _notices;
     private readonly Func<DateTime> _utcNow;
     private readonly object _writeLock = new();
 
@@ -46,6 +47,9 @@ public sealed class TeamRequestStore
         _teams = teams ?? throw new ArgumentNullException(nameof(teams));
         _access = new TeamAccess(teams);
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        // The record of what a contributor has not been told about yet (piece 4.4), over the same database: an answer to
+        // a contributor's request adds one.
+        _notices = new ContributorNotices(db, teams, _utcNow);
     }
 
     /// <summary>
@@ -145,6 +149,7 @@ public sealed class TeamRequestStore
             return TeamRequestResult.NoSuchRequest();
         }
 
+        string sender;
         lock (_writeLock)
         {
             using var ctx = _db.CreateContext(new TenantId(teamId));
@@ -162,6 +167,7 @@ public sealed class TeamRequestStore
             }
 
             var now = _utcNow();
+            sender = request.SenderSubject;
             request.State = TeamRequestStates.StateAfter(decision);
             request.UpdatedAtUtc = now;
             ctx.TeamRequestChanges.Add(Step(teamId, request.Id, request.State, caller, now,
@@ -170,6 +176,9 @@ public sealed class TeamRequestStore
         }
 
         FileLog.Write($"[TeamRequestStore] Decide: request {id} is now {TeamRequestStates.StateAfter(decision)}");
+        // The answer reaches the person who wrote it: a contributor is told by their own choice (piece 4.4).
+        if (!string.Equals(sender, caller, StringComparison.Ordinal))
+            _notices.Tell(teamId, sender, ContributorNoticeKinds.Reply);
         return TeamRequestResult.Done(View(teamId, caller, id));
     }
 

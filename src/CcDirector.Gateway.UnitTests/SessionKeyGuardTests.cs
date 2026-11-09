@@ -715,6 +715,15 @@ public sealed class SessionKeyGuardTests
     public void The_admission_boundary_stays_refused_even_though_configuration_opened(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must NOT be allowed");
 
+    [Theory]
+    // How a contributor is told that something is waiting (Team implementation piece 4.4): a person's own choice of
+    // email, never an agent's to read or change. Refused by the allow list's default, and named here so a later widening
+    // of the /teams family cannot let it through unnoticed.
+    [InlineData("GET", "/teams/notifications")]
+    [InlineData("PUT", "/teams/notifications")]
+    public void Check_ContributorNoticeChoice_IsRefusedToASessionKey(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must NOT be allowed");
+
     // ---------- The account surface: what a session key must never reach ----------
 
     [Theory]

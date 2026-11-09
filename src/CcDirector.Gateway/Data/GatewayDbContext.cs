@@ -549,6 +549,15 @@ public sealed class GatewayDbContext : DbContext
     /// piece 4.1). Written only through <see cref="Teams.FactoryContributors"/>.</summary>
     public DbSet<FactoryContributorEntity> FactoryContributors => Set<FactoryContributorEntity>();
 
+    /// <summary>The things sent to a contributor that they have not been told about yet (<c>contributor_notices</c>, Team
+    /// implementation piece 4.4). Written and settled only through <see cref="Teams.ContributorNotices"/>.</summary>
+    public DbSet<ContributorNoticeEntity> ContributorNotices => Set<ContributorNoticeEntity>();
+
+    /// <summary>How a person wants to be told that something is waiting (<c>contributor_notice_choices</c>, Team
+    /// implementation piece 4.4), one row in the person's own tenant. Written only through
+    /// <see cref="Teams.ContributorNotices"/>.</summary>
+    public DbSet<ContributorNoticeChoiceEntity> ContributorNoticeChoices => Set<ContributorNoticeChoiceEntity>();
+
     /// <summary>A person's comments on a dev report sent to them, for the report's author person only
     /// (<c>dev_report_comments</c>, devthrottle_internal#2309). Written only through
     /// <see cref="DevReports.DevReportPersonComments"/>; never read by dev report delivery.</summary>
@@ -1595,6 +1604,26 @@ public sealed class GatewayDbContext : DbContext
             // A contributor's Factories page: what was sent to them in the team.
             b.HasIndex(e => new { e.TenantId, e.ContributorSubject });
             b.Property(e => e.Factory).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<ContributorNoticeEntity>(b =>
+        {
+            b.ToTable("contributor_notices");
+            b.HasKey(e => e.Id);
+            // The sweep: what still waits in a team, oldest first.
+            b.HasIndex(e => new { e.TenantId, e.SettledAtUtc, e.CreatedAtUtc });
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.Outcome).HasMaxLength(32);
+        });
+
+        modelBuilder.Entity<ContributorNoticeChoiceEntity>(b =>
+        {
+            b.ToTable("contributor_notice_choices");
+            b.HasKey(e => e.Id);
+            // One choice per person: the row lives in their own tenant.
+            b.HasIndex(e => e.TenantId).IsUnique();
+            b.Property(e => e.Mode).HasMaxLength(16);
+            b.Property(e => e.DailyHandledLocalDate).HasMaxLength(10);
         });
 
         modelBuilder.Entity<DevReportCommentEntity>(b =>
@@ -2907,6 +2936,8 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<DevReportReplyEntity>(modelBuilder);
         ApplyTenantScope<DevReportRecipientEntity>(modelBuilder);
         ApplyTenantScope<FactoryContributorEntity>(modelBuilder);
+        ApplyTenantScope<ContributorNoticeEntity>(modelBuilder);
+        ApplyTenantScope<ContributorNoticeChoiceEntity>(modelBuilder);
         ApplyTenantScope<DevReportCommentEntity>(modelBuilder);
         ApplyTenantScope<FleetMessageEntity>(modelBuilder);
         ApplyTenantScope<FleetOutcomeEntity>(modelBuilder);

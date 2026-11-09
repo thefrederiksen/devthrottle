@@ -115,11 +115,15 @@ internal sealed class FactoryShares
     private readonly FactoryRegistryStore _factories;
     private readonly FactoryContributors _shares;
     private readonly FactoryAgentsSwitch _factorySwitch;
+    private readonly ContributorNotices _notices;
     private readonly Func<DateTime> _utcNow;
 
+    /// <param name="notices">Told when a factory is newly shared with a contributor, so they are emailed by their own
+    /// choice (Team implementation piece 4.4).</param>
     public FactoryShares(TeamRegistry teams, FactoryRegistryStore factories, FactoryContributors shares,
-        FactoryAgentsSwitch factorySwitch, Func<DateTime>? utcNow = null)
+        FactoryAgentsSwitch factorySwitch, ContributorNotices notices, Func<DateTime>? utcNow = null)
     {
+        _notices = notices ?? throw new ArgumentNullException(nameof(notices));
         _teams = teams ?? throw new ArgumentNullException(nameof(teams));
         _factories = factories ?? throw new ArgumentNullException(nameof(factories));
         _shares = shares ?? throw new ArgumentNullException(nameof(shares));
@@ -173,7 +177,9 @@ internal sealed class FactoryShares
             FileLog.Write($"[FactoryShares] Share: team {new TenantId(teamId).ToLogString()} factory={f.Factory} - the person chosen is not a contributor, REFUSED");
             return TeamReportEndpoints.BadRequest("not_a_contributor", FactoryShareEndpoints.NotAContributor);
         }
-        _shares.Share(new TenantId(teamId), f.Factory, member.AccountSubject, caller, _utcNow());
+        // Told only when this send added the share: sending it again tells nobody twice.
+        if (_shares.Share(new TenantId(teamId), f.Factory, member.AccountSubject, caller, _utcNow()))
+            _notices.Tell(teamId, member.AccountSubject, ContributorNoticeKinds.Factory);
         return Results.Json(Describe(teamId, caller, f.Factory, f.Title));
     }
 

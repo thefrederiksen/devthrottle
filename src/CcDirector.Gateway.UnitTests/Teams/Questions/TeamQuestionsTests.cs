@@ -83,7 +83,7 @@ public sealed class TeamQuestionsTests : IDisposable
             _lifetime.Token,
             () => Now);
         _questions = new TeamQuestions(_store, _recipients, _comments, _teams, _access, _delivery, () => Now);
-        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, _questions, () => Now);
+        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, _questions, new ContributorNotices(db, _teams, () => Now), () => Now);
 
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _tenant = new TenantId(_team);

@@ -86,7 +86,7 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         // The factory area is off unless switched on per account, as on a Gateway that does not grant it to every one.
         _factorySwitch = new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: false,
             new CcDirector.Gateway.Settings.TenantSettingsStore(_db), log: _ => { });
-        _owner = new FactoryShares(_teams, _factories, _shares, _factorySwitch, () => Now);
+        _owner = new FactoryShares(_teams, _factories, _shares, _factorySwitch, new ContributorNotices(_db, _teams, () => Now), () => Now);
         var devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
         var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices, hosted: false);
         _gate = new TeamEndpointGate(_access, _teams, _tenants, boundary);
@@ -519,6 +519,20 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         // shares a factory.
         Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path).Allowed);
         Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path, raised: true).Allowed);
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("PUT")]
+    public void Gate_TheNoticeChoice_IsThePersonsOwnAndRefusedInsideATeam(string method)
+    {
+        // Piece 4.4: the email choice acts for the person's own account, like GET /teams. From their own phone or browser it
+        // is not a team request at all; with a key bound to a team's tenant it states no action there, and is refused.
+        Assert.Equal(TeamGateOutcome.NotATeamRequest, _gate.Check(method, ContributorNoticeEndpoints.Pattern, _ => null,
+            PersonalTenant(Mike), () => Mike, _ => TeamOwnership.Callers).Outcome);
+        Assert.Equal(TeamGateOutcome.Refused, _gate.Check(method, ContributorNoticeEndpoints.Pattern, _ => null,
+            new TenantId(_acme), () => Mike, _ => TeamOwnership.Callers).Outcome);
+        Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, ContributorNoticeEndpoints.Pattern, raised: true).Allowed);
     }
 
     private TeamGateVerdict GateFor(string method, string pattern, string team, string person) =>

@@ -38,6 +38,7 @@ internal sealed record TeamRouteServices(
     Factory.FactoryAgentsSwitch FactorySwitch,
     Factory.Inbox.FactoryInboxStore FactoryInbox,
     Action<TenantId, string, DateTime> FactoryInboxMessageSent,
+    ContributorNotices Notices,
     Func<DateTime>? UtcNow = null);
 
 /// <summary>
@@ -81,7 +82,7 @@ internal static class TeamRoutes
         // questions in those reports, waiting on the members they were sent to (devthrottle_internal#2307): the choice
         // goes to the session through the one answer delivery, the words to the author person.
         var questions = new TeamQuestions(s.Reports, s.Recipients, s.Comments, s.Teams, s.Access, s.Delivery);
-        TeamReportEndpoints.Map(app, s.Reports, s.Recipients, s.Comments, s.Teams, s.Access, s.Boundary, s.Tenants, questions);
+        TeamReportEndpoints.Map(app, s.Reports, s.Recipients, s.Comments, s.Teams, s.Access, s.Boundary, s.Tenants, questions, s.Notices);
         TeamQuestionEndpoints.Map(app, questions, s.Boundary, s.Tenants);
         // A contributor's Factories and Inbox (Team implementation piece 4.1): the factories sent to them by name as customer
         // pages, through the one check (ContributorFactoryAccess), and only what was sent to them; and the Owner's share of
@@ -89,7 +90,9 @@ internal static class TeamRoutes
         var customerAccess = new ContributorFactoryAccess(s.Teams, s.Factories, s.FactoryContributors);
         ContributorEndpoints.Map(app, new ContributorPages(customerAccess, s.FactoryContributors, s.Activity, s.Reports, s.Recipients, questions,
             s.Requests, s.Teams, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants);
-        FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.FactorySwitch, s.UtcNow), s.Boundary, s.Tenants);
+        FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.FactorySwitch, s.Notices, s.UtcNow), s.Boundary, s.Tenants);
+        // How a contributor is told that something is waiting (piece 4.4): one choice for the person, for every team.
+        ContributorNoticeEndpoints.Map(app, s.Notices, s.Teams, s.Boundary, s.Tenants, s.TimeZoneOf);
 
         FileLog.Write("[TeamRoutes] mapped every route under /teams and /team-invitations, and /account/mentor");
     }

@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contributor email choice proof</title>
+    <link rel="stylesheet" href="/settings.css" />
+    <link rel="stylesheet" href="/shell.css" />
+    <style>
+      /* The Cockpit shell's own variables, so the card renders in its real colours. */
+      :root {
+        --text: #e6edf3;
+        --text-dim: #9aa4b2;
+        --accent: #58a6ff;
+        --border: #30363d;
+        --code-bg: #0d1117;
+        --panel: #161b22;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #0b0f14;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        color: var(--text);
+      }
+      #root {
+        max-width: 720px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="frame"><div id="root"></div></div>
+    <script src="/harness.iife.js"></script>
+  </body>
+</html>

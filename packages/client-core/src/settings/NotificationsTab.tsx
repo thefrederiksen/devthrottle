@@ -11,6 +11,7 @@ import { formatSnoozeLength, snoozeDraftFrom, snoozeMinutesFrom, type SnoozeUnit
 import { ACCOUNT_SCOPE, CardHead, errText, useGatewaySettings } from "./settingsShared";
 import { disablePush, enablePush, isPushSubscribed, notificationPermission, pushSupported } from "../push/register";
 import { WebsiteInboxCard } from "./WebsiteInboxCard";
+import { ContributorNoticeCard } from "./ContributorNoticeCard";
 import "./settings.css";
 
 // ---- "Notifications" tab: how a session that needs you reaches you --------------------------------
@@ -30,6 +31,7 @@ export function NotificationsTab() {
       <SnoozeCard />
       <TimeZoneCard />
       <NotificationsCard />
+      <ContributorNoticeCard />
       <DailyReportCard />
       <MentorReportCard />
       <WebsiteInboxCard />

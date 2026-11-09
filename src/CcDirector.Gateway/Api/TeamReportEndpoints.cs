@@ -130,7 +130,7 @@ internal static class TeamReportEndpoints
     /// <summary>Maps every route listed in the class comment.</summary>
     public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportRecipients recipients,
         DevReportPersonComments comments, TeamRegistry teams, TeamAccess access, HostedTenantBoundary boundary, TenantRegistry tenants,
-        TeamQuestions questions)
+        TeamQuestions questions, ContributorNotices notices)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
@@ -165,7 +165,7 @@ internal static class TeamReportEndpoints
             }
         });
 
-        var reports = new TeamReports(store, recipients, comments, teams, access, questions);
+        var reports = new TeamReports(store, recipients, comments, teams, access, questions, notices);
 
         // ---------------------------------------------------------------- the recipient's routes
 
@@ -283,14 +283,18 @@ internal sealed class TeamReports
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
     private readonly TeamQuestions _questions;
+    private readonly ContributorNotices _notices;
     private readonly Func<DateTime> _utcNow;
 
     /// <param name="questions">The questions in the reports sent to a person (devthrottle_internal#2307), for the line
     /// that says how many wait on them and the question beside a comment. Required (review F6): a Reports page built
     /// without it would say nothing waits and lose what a comment is about, reading as true.</param>
+    /// <param name="notices">Told of every contributor a report is sent to, so they are emailed by their own choice (Team
+    /// implementation piece 4.4). Required: a send that told nobody would read as one that did.</param>
     public TeamReports(DevReportStore store, DevReportRecipients recipients, DevReportPersonComments comments,
-        TeamRegistry teams, TeamAccess access, TeamQuestions questions, Func<DateTime>? utcNow = null)
+        TeamRegistry teams, TeamAccess access, TeamQuestions questions, ContributorNotices notices, Func<DateTime>? utcNow = null)
     {
+        _notices = notices ?? throw new ArgumentNullException(nameof(notices));
         _questions = questions ?? throw new ArgumentNullException(nameof(questions));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _recipients = recipients ?? throw new ArgumentNullException(nameof(recipients));
@@ -578,6 +582,10 @@ internal sealed class TeamReports
             FileLog.Write($"[TeamReports] Send: team {Team(teamId).ToLogString()} report={report.Id} - a newer version was published before the send took effect, REFUSED");
             return NotTheNewest();
         }
+        // The send has taken effect: each contributor it reached is told by their own choice (piece 4.4). The notice names
+        // the person and the team only, never the report.
+        foreach (var contributor in contributors)
+            _notices.Tell(teamId, contributor.AccountSubject, ContributorNoticeKinds.Report);
         return Results.Json(Describe(teamId, caller, report));
     }
 

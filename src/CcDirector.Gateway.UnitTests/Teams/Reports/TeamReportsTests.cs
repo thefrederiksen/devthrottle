@@ -85,7 +85,7 @@ public sealed class TeamReportsTests : IDisposable
             (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session in these tests"),
             (_, _) => null, CancellationToken.None, () => _now);
         _questions = new TeamQuestions(_store, _recipients, _comments, _teams, _access, delivery, () => _now);
-        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, _questions, () => _now);
+        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, _questions, new ContributorNotices(_db, _teams, () => _now), () => _now);
 
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _tenant = new TenantId(_team);
@@ -555,16 +555,20 @@ public sealed class TeamReportsTests : IDisposable
         Assert.Equal("A former member of the team", detail.GetProperty("comments")[0].GetProperty("from").GetString());
     }
 
+    private ContributorNotices Notices() => new(_db, _teams, () => _now);
+
     [Fact]
     public void TeamReports_NullDependencies_Throw()
     {
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(null!, _recipients, _comments, _teams, _access, _questions));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, null!, _comments, _teams, _access, _questions));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, null!, _teams, _access, _questions));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, null!, _access, _questions));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, null!, _questions));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(null!, _recipients, _comments, _teams, _access, _questions, Notices()));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, null!, _comments, _teams, _access, _questions, Notices()));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, null!, _teams, _access, _questions, Notices()));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, null!, _access, _questions, Notices()));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, null!, _questions, Notices()));
         // Review F6: no Reports page without its Questions collaborator.
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, _access, null!));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, _access, null!, Notices()));
+        // Piece 4.4: no send that tells no contributor.
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, _access, _questions, null!));
         Assert.Throws<ArgumentNullException>(() => new DevReportRecipients(null!));
         Assert.Throws<ArgumentNullException>(() => new DevReportPersonComments(null!));
     }

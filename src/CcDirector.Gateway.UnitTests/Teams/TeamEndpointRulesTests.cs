@@ -119,6 +119,10 @@ public sealed class TeamEndpointRulesTests
     [InlineData("/x/{TeamId:guid}", true)]
     [InlineData("/x/{**team}", true)]
     [InlineData("/teams", false)]
+    // A person's own email choice (piece 4.4), exactly: anything under it, or any other word, still names a team.
+    [InlineData("/teams/notifications", false)]
+    [InlineData("/teams/notifications/{x}", true)]
+    [InlineData("/teams/notification", true)]
     [InlineData("/sessions/{sid}", false)]
     [InlineData("/gateway/skills/{id}", false)]
     [InlineData(null, false)]

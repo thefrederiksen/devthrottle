@@ -117,7 +117,8 @@ public sealed class TeamPersonOnlyRouteWalkTests : IAsyncLifetime
             FactoryContributors: new FactoryContributors(_db),
             FactorySwitch: new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: true, new CcDirector.Gateway.Settings.TenantSettingsStore(_db)),
             FactoryInbox: new CcDirector.Gateway.Factory.Inbox.FactoryInboxStore(_db, _ => CcDirector.Core.Dictation.Models.DictationDictionary.Empty),
-            FactoryInboxMessageSent: (_, _, _) => { }));
+            FactoryInboxMessageSent: (_, _, _) => { },
+            Notices: new ContributorNotices(_db, _teams)));
 
         _teamRoutes = ((IEndpointRouteBuilder)_app).DataSources
             .SelectMany(d => d.Endpoints)
@@ -294,6 +295,8 @@ public sealed class TeamPersonOnlyRouteWalkTests : IAsyncLifetime
             "/teams/{teamId}/requests/mine", "/teams/{teamId}/library", "/teams/{teamId}/skills", "/teams/{teamId}/workflows",
             "/teams/{teamId}/governance", "/teams/{teamId}/mentor", "/teams/{teamId}/reports/sent-to-me",
             "/teams/{teamId}/reports/mine", "/teams/{teamId}/questions/",
+            // The person's own email choice (piece 4.4): under /teams but about no one team.
+            "/teams/notifications",
         }.SelectMany(p => new[] { new object[] { "browser", p }, new object[] { "phone", p } });
 
     [Theory]
@@ -318,6 +321,30 @@ public sealed class TeamPersonOnlyRouteWalkTests : IAsyncLifetime
         var (_, code) = await Call(caller, "POST", "/team-invitations/open");
 
         Assert.NotEqual(PersonOnlyCaller.Code, code);
+    }
+
+    [Theory]
+    [InlineData("browser")]
+    [InlineData("phone")]
+    public async Task NoticeChoice_APersonsOwnKey_StoresItThroughTheRealGate_AndReadsItBack(string caller)
+    {
+        // Arrange
+        using var put = new HttpRequestMessage(HttpMethod.Put, "/teams/notifications")
+        {
+            Content = new StringContent("{\"mode\":\"daily\",\"dailyHour\":7}", Encoding.UTF8, "application/json"),
+        };
+        put.Headers.Add(CallerHeader, caller);
+
+        // Act
+        using var stored = await _http.SendAsync(put);
+        var (status, _) = await Call(caller, "GET", "/teams/notifications");
+
+        // Assert
+        Assert.True(stored.IsSuccessStatusCode, $"PUT /teams/notifications answered {(int)stored.StatusCode}");
+        using var card = JsonDocument.Parse(await stored.Content.ReadAsStringAsync());
+        Assert.Equal("daily", card.RootElement.GetProperty("mode").GetString());
+        Assert.Equal(7, card.RootElement.GetProperty("dailyHour").GetInt32());
+        Assert.Equal(HttpStatusCode.OK, status);
     }
 
     [Fact]

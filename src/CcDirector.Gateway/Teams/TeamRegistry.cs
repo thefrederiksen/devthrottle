@@ -586,7 +586,7 @@ public sealed partial class TeamRegistry
     /// <c>dev_report_recipients</c>, which both their Reports page and their Questions page read (security review M4),
     /// and the factories shared with them in <c>factory_contributors</c>, which their Factories page and the customer
     /// page check read (Team implementation piece 4.1) - so a person added back starts empty and sees no old factory
-    /// until the Owner shares it again. Read through the unscoped context, so the tenant filter is lifted and the team's
+    /// until the Owner shares it again; and what waited to be told in <c>contributor_notices</c> (piece 4.4). Read through the unscoped context, so the tenant filter is lifted and the team's
     /// id is named explicitly. Returns how many rows of each were marked.
     /// </summary>
     private static (int Reports, int Factories) ClearWhatWasSentTo(GatewayDbContext ctx, string teamId, string accountSubject)
@@ -599,6 +599,11 @@ public sealed partial class TeamRegistry
             .Where(r => r.TenantId == teamId && r.ContributorSubject == accountSubject)
             .ToList();
         ctx.FactoryContributors.RemoveRange(factories);
+        // What waited to be told goes too (piece 4.4): a person removed from the team is never emailed about it.
+        var notices = ctx.ContributorNotices.IgnoreQueryFilters()
+            .Where(r => r.TenantId == teamId && r.RecipientSubject == accountSubject)
+            .ToList();
+        ctx.ContributorNotices.RemoveRange(notices);
         return (reports.Count, factories.Count);
     }
 

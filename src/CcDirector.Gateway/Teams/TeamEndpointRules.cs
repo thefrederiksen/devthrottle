@@ -366,6 +366,23 @@ public static class TeamEndpointRules
         "/team-invitations/decline",
     };
 
+    /// <summary>
+    /// THE ROUTES UNDER <c>/teams/</c> THAT ACT FOR THE PERSON'S OWN ACCOUNT AND NAME NO TEAM, each exactly. Every other
+    /// route under <c>/teams/</c> names a team (<see cref="NamesATeam"/>), so the gate refuses it from a person's own
+    /// account unless a rule states its action. Unlike <see cref="OwnAccountOnly"/>, the gate DOES read this list, through
+    /// <see cref="NamesATeam"/>: an entry here is "not a team request" from a person's own account, and from a key bound to
+    /// a team's tenant it states no action and is refused like any undeclared endpoint. Still person-only by its address
+    /// (<see cref="TeamPersonOnlyRoutes"/>), and dark with every team route.
+    ///
+    /// How a contributor is told that something is waiting (Team implementation piece 4.4): one choice for the person, for
+    /// every team, kept in their own tenant - so it is about no one team. Team ids are Gateway-minted GUIDs, so no team can
+    /// be named "notifications".
+    /// </summary>
+    public static readonly IReadOnlyList<string> OwnAccountUnderTeams = new[]
+    {
+        Api.ContributorNoticeEndpoints.Pattern,
+    };
+
     /// <summary>The route families whose every endpoint must be declared, here or in <see cref="All"/> - checked by the
     /// test named on <see cref="OwnAccountOnly"/>.</summary>
     public static readonly IReadOnlyList<string> OwnAccountFamilies = new[]
@@ -396,11 +413,13 @@ public static class TeamEndpointRules
     /// (any parameter whose name contains "team", in any case - <c>{teamId}</c>, <c>{team}</c>, <c>{teamSlug}</c>). Such
     /// an endpoint acts in that team from a person's own account, so <see cref="TeamEndpointGate"/> refuses it unless a
     /// rule here states its action (review finding F2). <c>/teams</c> itself - the caller's own list, and creating a
-    /// team - names none.
+    /// team - names none, and nor does a route on <see cref="OwnAccountUnderTeams"/>, exactly as written there.
     /// </summary>
     public static bool NamesATeam(string? pattern)
     {
         var normalized = Normalize(pattern);
+        if (OwnAccountUnderTeams.Any(r => string.Equals(r, normalized, StringComparison.OrdinalIgnoreCase)))
+            return false;
         if (normalized.StartsWith("/teams/", StringComparison.OrdinalIgnoreCase))
             return true;
         foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(normalized, @"\{\**([^}:=?]+)"))

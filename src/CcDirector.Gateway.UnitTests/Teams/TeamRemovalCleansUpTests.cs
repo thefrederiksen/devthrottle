@@ -67,7 +67,7 @@ public sealed class TeamRemovalCleansUpTests : IDisposable
             (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session in these tests"),
             (_, _) => null, CancellationToken.None, () => _now);
         _questions = new TeamQuestions(_store, _recipients, comments, _teams, access, delivery, () => _now);
-        _reports = new TeamReports(_store, _recipients, comments, _teams, access, _questions, () => _now);
+        _reports = new TeamReports(_store, _recipients, comments, _teams, access, _questions, new ContributorNotices(_db, _teams, () => _now), () => _now);
         _gate = new TeamEndpointGate(access, _teams, _tenants,
             new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false));
 
