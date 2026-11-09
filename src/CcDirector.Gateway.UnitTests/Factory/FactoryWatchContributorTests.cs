@@ -84,7 +84,7 @@ public sealed class FactoryWatchContributorTests
         {
             Id = Guid.NewGuid(), Factory = factoryId, FactoryAgent = agent, FactoryAgentVersion = C("version"),
             SessionId = C("session"), What = C("what") + " C:\\Users\\soren", Outcome = outcome, Subject = C("subject"),
-            Link = C("link"), Actor = actor, CorrectsId = Guid.NewGuid(),
+            Link = C("link"), Actor = actor, CorrectsId = minutes % 2 == 0 ? Guid.NewGuid() : null,
             ForContributor = C("forcontributor") + " on devlinux, mail soren@example.com",
             OccurredUtc = Now.AddMinutes(-600 + minutes), RecordedUtc = Now.AddMinutes(-600 + minutes),
         };
@@ -113,6 +113,9 @@ public sealed class FactoryWatchContributorTests
             Assert.DoesNotContain(leak, json, StringComparison.OrdinalIgnoreCase);
         foreach (var row in rows)
             Assert.DoesNotContain(row.Id.ToString(), json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(rows, r => r.CorrectsId is not null);
+        foreach (var corrects in rows.Where(r => r.CorrectsId is not null).Select(r => r.CorrectsId!.Value))
+            Assert.DoesNotContain(corrects.ToString(), json, StringComparison.OrdinalIgnoreCase);
 
         // No red tone anywhere in the contributor view, though the same rows hold hiccups the owner sees as alarms.
         Assert.All(view.Steps, s => Assert.False(s.Alarm));
@@ -219,6 +222,63 @@ public sealed class FactoryWatchContributorTests
 
         Assert.Equal(6, step.EmptyChecks);
         Assert.Equal("Checked for new work. Nothing yet.", step.Words);
+    }
+
+    // ------------------------------------------------------------------------------------------------ corrections
+
+    private static FactoryActivityDto Correcting(FactoryActivityDto failed, DateTime at, string? forContributor = null)
+    {
+        var row = Row(failed.FactoryAgent, FactoryActivityOutcome.Done, at, "you", "Resolved by you: fixed the mail settings", forContributor);
+        row.CorrectsId = failed.Id;
+        return row;
+    }
+
+    [Fact]
+    public void View_ScheduleFailureThenResolvedByYou_IsWaitingAndNothingAfter()
+    {
+        // The reviewer's input: a schedule failure, then the owner resolving it. The resolution is not finished work.
+        var failed = Row("desk", FactoryActivityOutcome.Failed, Now.AddHours(-2), "schedule:nightly");
+        var rows = new[] { failed, Correcting(failed, Now.AddHours(-1)) };
+
+        var step = Assert.Single(View(Factory(), rows).Steps);
+
+        Assert.Equal(FactoryWatchStepKind.Waiting, step.Kind);
+        Assert.Equal("Your request is waiting its turn.", step.Words);
+    }
+
+    [Fact]
+    public void View_CorrectingRowWithAPassingContributorSentence_ShowsThatSentenceWithItsKind()
+    {
+        var failed = Row("desk", FactoryActivityOutcome.Failed, Now.AddHours(-2), "schedule:nightly");
+        var rows = new[] { failed, Correcting(failed, Now.AddHours(-1), "Your mail is flowing again.") };
+
+        var steps = View(Factory(), rows).Steps;
+
+        Assert.Equal(new[] { FactoryWatchStepKind.Waiting, FactoryWatchStepKind.Delivered }, steps.Select(s => s.Kind));
+        Assert.Equal("Your mail is flowing again.", steps[1].Words);
+    }
+
+    [Fact]
+    public void View_CorrectingRowWithARefusedContributorSentence_IsKeptOffTheTimeline()
+    {
+        var failed = Row("desk", FactoryActivityOutcome.Failed, Now.AddHours(-2), "schedule:nightly");
+        var rows = new[] { failed, Correcting(failed, Now.AddHours(-1), "Fixed it on SOREN_NORTH.") };
+
+        var step = Assert.Single(View(Factory(), rows).Steps);
+
+        Assert.Equal(FactoryWatchStepKind.Waiting, step.Kind);
+    }
+
+    [Fact]
+    public void View_OwnerView_StillShowsTheCorrectingRowWithItsOwnWords()
+    {
+        var failed = Row("desk", FactoryActivityOutcome.Failed, Now.AddHours(-2), "schedule:nightly", "Nightly build did not report");
+        var rows = new[] { failed, Correcting(failed, Now.AddHours(-1)) };
+
+        var view = FactoryWatchFold.View(Factory(), rows, false, Day, Utc, FactoryWatchAudience.Owner);
+
+        Assert.Equal(new[] { FactoryWatchStepKind.Hiccup, FactoryWatchStepKind.Delivered }, view.Steps.Select(s => s.Kind));
+        Assert.Equal("Resolved by you: fixed the mail settings", view.Steps[1].Words);
     }
 
     // ------------------------------------------------------------------------------------------------ their own work

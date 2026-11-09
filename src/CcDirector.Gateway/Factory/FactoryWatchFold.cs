@@ -254,7 +254,11 @@ public static class FactoryWatchFold
             });
         }
 
-        var (runs, ownerActs, unregistered) = Runs(factory, windowRows);
+        // A correcting row (one that marks an earlier row handled) is not new work: shown with the fixed sentence for
+        // its kind it would say something untrue (a resolved failure is not "Finished a piece of work."). So it stays off
+        // the contributor timeline unless it carries its own contributor sentence that passes the check now.
+        var shown = windowRows.Where(r => r.CorrectsId is null || FactoryWatchWords.HasPassingSentence(r, machines)).ToList();
+        var (runs, ownerActs, unregistered) = Runs(factory, shown);
         foreach (var run in runs)
         {
             var mine = scope.IsMine(run[0]);
@@ -518,10 +522,14 @@ internal static class FactoryWatchWords
         if (!mine) return "";                                           // other people's work: a plain crate
         if (kind == FactoryWatchStepKind.Hiccup) return "";             // a hiccup: no red, no words
         if (kind == FactoryWatchStepKind.Waiting) return WaitingTurn;   // a machine problem, whatever the seat wrote
-        if (run.Count == 1 && run[0].ForContributor is { } sentence && Passes(sentence, machines))
-            return sentence;
+        if (run.Count == 1 && HasPassingSentence(run[0], machines))
+            return run[0].ForContributor!;
         return Fixed[kind];
     }
+
+    /// <summary>True when the row carries a contributor sentence that passes the check at read time.</summary>
+    internal static bool HasPassingSentence(FactoryActivityDto row, IReadOnlyList<string> machines) =>
+        row.ForContributor is { } sentence && Passes(sentence, machines);
 
     /// <summary>A seat's name or role, or the fixed neutral word for its place when the check refuses it.</summary>
     internal static string SeatLabel(string text, bool isBoss, IReadOnlyList<string> machines) =>
