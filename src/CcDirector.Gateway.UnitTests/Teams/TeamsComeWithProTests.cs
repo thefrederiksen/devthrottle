@@ -310,6 +310,103 @@ public sealed class TeamsComeWithProTests : IDisposable
             _teams.CreateInvitation(team, ProOwner, "paid@acme.example", TeamRole.Developer).Refusal);
     }
 
+    // ================================================================= a role change into a paid seat (review finding 1)
+
+    [Theory]
+    [InlineData(TeamRole.Developer)]
+    [InlineData(TeamRole.Manager)]
+    public void ChangeMemberRole_CollaboratorToPaidSeat_NoTeamBill_IsRefusedWithTheBillSentence(TeamRole role)
+    {
+        var team = NewTeam();
+        var ben = AddCollaboratorAtOnce(team, "sub-ben", "ben@client.example");
+
+        var result = _teams.ChangeMemberRole(team, ProOwner, ben, role);
+
+        Assert.Equal(TeamMemberChangeOutcome.Refused, result.Outcome);
+        Assert.Equal(TeamInvitationRefusals.BillNotStarted, result.Refusal);
+        AssertStillAFreeCollaborator(team, "sub-ben");
+    }
+
+    [Theory]
+    [InlineData(TeamRole.Developer)]
+    [InlineData(TeamRole.Manager)]
+    public void ChangeMemberRole_CollaboratorToPaidSeat_CancelledTeamBill_IsRefusedWithTheBillSentence(TeamRole role)
+    {
+        var team = NewTeam();
+        var ben = AddCollaboratorAtOnce(team, "sub-ben", "ben@client.example");
+        TeamBillSeed.Canceled(_db, team, seats: 1);
+
+        var result = _teams.ChangeMemberRole(team, ProOwner, ben, role);
+
+        Assert.Equal(TeamMemberChangeOutcome.Refused, result.Outcome);
+        Assert.Equal(TeamInvitationRefusals.BillCancelled, result.Refusal);
+        AssertStillAFreeCollaborator(team, "sub-ben");
+    }
+
+    [Theory]
+    [InlineData(TeamRole.Developer)]
+    [InlineData(TeamRole.Manager)]
+    public void ChangeMemberRole_CollaboratorToPaidSeat_RunningTeamBill_IsMade(TeamRole role)
+    {
+        var team = NewTeam();
+        var ben = AddCollaboratorAtOnce(team, "sub-ben", "ben@client.example");
+        TeamBillSeed.Active(_db, team, seats: 1);
+
+        var result = _teams.ChangeMemberRole(team, ProOwner, ben, role);
+
+        Assert.Equal(TeamMemberChangeOutcome.Done, result.Outcome);
+        Assert.Equal(role, _teams.RoleOf(team, "sub-ben"));
+    }
+
+    [Fact]
+    public void ChangeMemberRole_CollaboratorToPaidSeat_OwnerNotOnPro_IsRefusedWithThePlanSentence()
+    {
+        var team = NewTeam();
+        var ben = AddCollaboratorAtOnce(team, "sub-ben", "ben@client.example");
+        TeamBillSeed.Active(_db, team, seats: 1);
+        Plan(ProOwner, EntitlementRegistry.TierFree);
+
+        var result = _teams.ChangeMemberRole(team, ProOwner, ben, TeamRole.Developer);
+
+        Assert.Equal(TeamMemberChangeOutcome.Refused, result.Outcome);
+        Assert.Equal(TeamInvitationRefusals.OwnerNotPro, result.Refusal);
+    }
+
+    [Fact]
+    public void ChangeMemberRole_CollaboratorToPaidSeat_PlanUnreadable_IsUnavailable_AndAnswers503()
+    {
+        var team = NewTeam();
+        var ben = AddCollaboratorAtOnce(team, "sub-ben", "ben@client.example");
+        PlanTableGone();
+
+        var result = _teams.ChangeMemberRole(team, ProOwner, ben, TeamRole.Developer);
+
+        Assert.Equal(TeamMemberChangeOutcome.Unavailable, result.Outcome);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable,
+            ((IStatusCodeHttpResult)TeamEndpoints.AnswerChange(result, "change role")).StatusCode);
+        AssertStillAFreeCollaborator(team, "sub-ben");
+    }
+
+    [Fact]
+    public void ChangeMemberRole_DeveloperToCollaborator_NoTeamBill_IsStillAllowed()
+    {
+        var team = NewTeam();
+        TeamBillSeed.Active(_db, team, seats: 1);
+        Account("sub-dev", "dev@acme.example");
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.CreateInvitation(team, ProOwner, "dev@acme.example", TeamRole.Developer).Outcome);
+        // The bill goes away after the Developer joined: the step down must not need it.
+        using (var ctx = _db.CreateUnscopedContext())
+        {
+            ctx.TeamBills.Remove(ctx.TeamBills.Single(b => b.TeamId == team));
+            ctx.SaveChanges();
+        }
+
+        var result = _teams.ChangeMemberRole(team, ProOwner, TeamMemberIds.For(team, "sub-dev"), TeamRole.Collaborator);
+
+        Assert.Equal(TeamMemberChangeOutcome.Done, result.Outcome);
+        AssertStillAFreeCollaborator(team, "sub-dev");
+    }
+
     // ================================================================= the scope table
 
     [Fact]
@@ -357,6 +454,21 @@ public sealed class TeamsComeWithProTests : IDisposable
     }
 
     private string NewTeam() => _teams.CreateTeam(ProOwner, "Acme").Team!.TeamId;
+
+    /// <summary>Adds an existing account as a Collaborator at once and returns its Team page member id.</summary>
+    private string AddCollaboratorAtOnce(string team, string subject, string email)
+    {
+        Account(subject, email);
+        Assert.True(_teams.CreateInvitation(team, ProOwner, email, TeamRole.Collaborator).AddedAtOnce);
+        return TeamMemberIds.For(team, subject);
+    }
+
+    private void AssertStillAFreeCollaborator(string team, string subject)
+    {
+        Assert.Equal(TeamRole.Collaborator, _teams.RoleOf(team, subject));
+        using var ctx = _db.CreateUnscopedContext();
+        Assert.Equal(1, TeamBillStore.PaidSeats(ctx, team));
+    }
 
     private bool HasTeamBill(string team)
     {

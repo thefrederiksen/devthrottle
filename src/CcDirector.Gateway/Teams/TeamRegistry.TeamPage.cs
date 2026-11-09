@@ -123,6 +123,19 @@ public sealed partial class TeamRegistry
             if (target is null)
                 return MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.NotFound, "no-such-member", TeamRefusals.NotAMember);
 
+            // INTO A PAID SEAT IS JOINING ONE (piece 1.6 review, finding 1). A Collaborator is a free seat that needs no
+            // team bill, so making one a Manager or a Developer must meet exactly what joining in that role meets - the
+            // Owner's Pro plan and the running team bill - with the same sentence. A move between two paid seats, or
+            // down to a free one, adds no paid seat and is not asked.
+            if (IsPaidSeat(newRole) && !IsPaidSeat(target.Value.Role))
+            {
+                using var ctx = _db.CreateUnscopedContext();
+                if (JoinRefusal(ctx, teamId!, newRole, caller, onAccept: false) is { } joinRefused)
+                    return MemberChangeRefused("ChangeMemberRole",
+                        joinRefused.Outcome == TeamInvitationOutcome.Unavailable ? TeamMemberChangeOutcome.Unavailable : TeamMemberChangeOutcome.Refused,
+                        joinRefused.Kind, joinRefused.Text);
+            }
+
             var written = ChangeRole(teamId!, target.Value.Subject, newRole);
             return written.IsDone
                 ? TeamMemberChangeResult.Done
@@ -376,8 +389,12 @@ public enum TeamMemberChangeOutcome
     /// <summary>The caller's role does not allow it.</summary>
     Forbidden,
 
-    /// <summary>Refused by the team's own rules: the Owner is never demoted or removed, and nobody is made Owner.</summary>
+    /// <summary>Refused by the team's own rules: the Owner is never demoted or removed, nobody is made Owner, and nobody
+    /// is moved into a paid seat the team's plan or bill does not allow.</summary>
     Refused,
+
+    /// <summary>Not made because the Owner's plan or the team's bill could not be read just now. Not a no: try again.</summary>
+    Unavailable,
 }
 
 /// <summary>The outcome of a change to a member: done, or the plain-words reason it was not.</summary>
