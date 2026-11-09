@@ -31,6 +31,13 @@ internal enum DirectorReach
 /// answered ANYTHING down that connection since 22:02 the night before.
 ///
 /// Facts only - no probe, no extra traffic. A reading is a summary of sends that already happened.
+///
+/// KEYED BY DIRECTOR ID ALONE, AND THAT IS SAFE HERE, in a Gateway where almost everything else is keyed by
+/// (tenant, director). A Director id is a GUID minted by the machine itself (DirectorIdentitySlot), so two
+/// tenants cannot name the same one by construction, and what is held is two timestamps and a count - no
+/// customer data of any kind. The alternative would be a tenant parameter on
+/// <see cref="DirectorCommandRouter.TrySendAsync"/>, which eighteen call sites would have to carry for a
+/// fact that does not need it.
 /// </summary>
 internal static class DirectorDownlinkFacts
 {
