@@ -46,8 +46,15 @@ public static class FactoryWatchStepKind
     /// <summary>Something went wrong: a failure, a block, work sent back.</summary>
     public const string Hiccup = "hiccup";
 
-    /// <summary>Every step kind.</summary>
+    /// <summary>CONTRIBUTOR VIEW ONLY. The seat could not start or did not finish as scheduled - a machine problem,
+    /// which a contributor never sees as one: "Your request is waiting its turn." The owner view never emits it.</summary>
+    public const string Waiting = "waiting";
+
+    /// <summary>Every step kind the owner view emits.</summary>
     public static readonly string[] All = { Woke, Delivered, Talked, CheckedNothing, Hiccup };
+
+    /// <summary>Every step kind the contributor view may emit: the owner's, and <see cref="Waiting"/>.</summary>
+    public static readonly string[] AllForContributor = { Woke, Delivered, Talked, CheckedNothing, Hiccup, Waiting };
 }
 
 /// <summary>
@@ -171,6 +178,15 @@ public sealed class FactoryWatchStepDto
 
     /// <summary>The sentence to show.</summary>
     public string Words { get; set; } = "";
+
+    /// <summary>CONTRIBUTOR VIEW: true when the step is the contributor's own work (their crate); false for other work,
+    /// which is a plain crate with no words. Always false in the owner view.</summary>
+    public bool Mine { get; set; }
+
+    /// <summary>The Gateway's verdict on whether the step is drawn as an alarm (the red tone): true only for a
+    /// <see cref="FactoryWatchStepKind.Hiccup"/> in the OWNER view. False for every other step, and for every step in
+    /// the contributor view, hiccups included. The player draws the tone from this and never decides it by audience.</summary>
+    public bool Alarm { get; set; }
 
     /// <summary>How many empty checks the step stands for: at least 1 for <see cref="FactoryWatchStepKind.CheckedNothing"/>,
     /// 0 for every other kind.</summary>
