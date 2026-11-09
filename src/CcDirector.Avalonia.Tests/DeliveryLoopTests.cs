@@ -80,8 +80,8 @@ public sealed class DeliveryLoopOrderTests
     [Theory]
     [InlineData("enter")]            // the phone's Enter key: a raw carriage return, written synchronously
     [InlineData("execute-action")]   // the Wingman's type / send_keys / submit
-    [InlineData("queue-add")]        // not typing: the queue behind it is a List no lock protects (#4815)
-    [InlineData("queue-send")]
+    [InlineData("queue-add")]        // not typing: a person's reordering is a sequence (#4815)
+    [InlineData("queue-send")]       // typing, in fact - it types the queued prompt in (#4815 review)
     public void TheVerbsTheREVIEWFound_AreOnTheLoopNow(string verb)
     {
         Assert.True(DeliveryLoopOrder.MustStayOnTheLoop(verb));

@@ -6918,12 +6918,24 @@ public partial class MainWindow : Window
             return;
 
         FileLog.Write($"[MainWindow] QueueItemPop_Click: {itemId}");
-        var item = _queueItems.FirstOrDefault(q => q.Id == itemId);
-        if (item == null) return;
 
-        // Insert into prompt input
-        PromptInput.Text = (PromptInput.Text ?? "") + item.FullText;
-        _activeSession?.Session.PromptQueue?.Remove(itemId);
+        // THE SECOND ENTRY TO ONE ACTION, and the review of #4815 caught that only the other one was fixed.
+        // This pasted item.FullText from the PANEL'S copy and then removed, discarding the answer - so a
+        // queue-send arriving from the Gateway at the same moment sent the prompt while this left a copy of
+        // it in the composer to be sent again by hand. Taking the item is the claim on it.
+        //
+        // It also cures a smaller fault of its own: the text now comes from the QUEUE rather than from the
+        // panel's copy, so a pop after a tunnel queue-update pastes what the item says now and not what the
+        // rail was last drawn with.
+        var queue = _activeSession?.Session.PromptQueue;
+        if (queue is null || !queue.TryTake(itemId, out var poppedText))
+        {
+            FileLog.Write($"[MainWindow] QueueItemPop_Click: {itemId} was already taken; nothing popped");
+            RefreshQueuePanel();
+            return;
+        }
+
+        PromptInput.Text = (PromptInput.Text ?? "") + poppedText;
         RefreshQueuePanel();
     }
 
@@ -6992,10 +7004,20 @@ public partial class MainWindow : Window
 
         FileLog.Write($"[MainWindow] QueueItemsList_DoubleTapped: {selected.Id}");
 
-        // Pop item and insert into prompt input
-        PromptInput.Text = (PromptInput.Text ?? "") + selected.FullText;
+        // POP IT FIRST, AND ONLY THEN PUT IT IN THE COMPOSER (found reviewing #4815). This used to paste the
+        // text and then remove the item, discarding the answer - so a queue-send arriving from the Gateway
+        // at the same moment sent the prompt while this left a copy of it sitting in the composer to be sent
+        // again by hand. Taking the item is the claim on it; whoever is not given it does nothing.
+        var queue = _activeSession.Session.PromptQueue;
+        if (queue is null || !queue.TryTake(selected.Id, out var poppedText))
+        {
+            FileLog.Write($"[MainWindow] QueueItemsList_DoubleTapped: {selected.Id} was already taken; nothing popped");
+            RefreshQueuePanel();
+            return;
+        }
+
+        PromptInput.Text = (PromptInput.Text ?? "") + poppedText;
         PromptInput.CaretIndex = PromptInput.Text.Length;
-        _activeSession.Session.PromptQueue?.Remove(selected.Id);
         RefreshQueuePanel();
         PromptInput.Focus();
     }

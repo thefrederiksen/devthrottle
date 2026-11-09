@@ -36,8 +36,9 @@ namespace CcDirector.ControlApi;
 /// serialised them COMPLETELY, and they are newly concurrent with each other. Each one is written to be
 /// callable concurrently, as the REST surface it came from was, and the two shared writers were checked by
 /// hand: CcDirectorConfigService.MergePatch holds a process-wide write lock, so two settings-put calls
-/// cannot clobber one another; Session.PromptQueue does NOT, which is why the queue verbs stay on the loop
-/// until it does.
+/// cannot clobber one another; Session.PromptQueue did NOT, which is why the queue verbs were kept on the
+/// loop. It does now (issue #4815), and they stay ordered for a different and smaller reason that is written
+/// where they are declared: a person's reordering is a sequence.
 /// </summary>
 internal static class DeliveryLoopOrder
 {
