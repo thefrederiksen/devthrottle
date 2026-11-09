@@ -123,7 +123,12 @@ export const OVERVIEW: LicenseOverview = {
       "barredText": null,
       "approver": null,
       "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
-      "approverTone": "neutral"
+      "approverTone": "neutral",
+      "role": "in-use",
+      "roleText": "In use - 2 machines",
+      "roleTone": "neutral",
+      "tileText": "Switches at 97% in about 7 hours 49 minutes.",
+      "tileAtUtc": "2026-10-11T11:01:00Z"
     },
     {
       "accountEmail": "account-b@example.com",
@@ -196,7 +201,12 @@ export const OVERVIEW: LicenseOverview = {
       "barredText": null,
       "approver": null,
       "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
-      "approverTone": "neutral"
+      "approverTone": "neutral",
+      "role": "next",
+      "roleText": "Next - ready on all 2",
+      "roleTone": "good",
+      "tileText": "Takes over in about 7 hours 49 minutes.",
+      "tileAtUtc": "2026-10-11T11:01:00Z"
     },
     {
       "accountEmail": "account-c@example.com",
@@ -263,7 +273,12 @@ export const OVERVIEW: LicenseOverview = {
       "barredText": null,
       "approver": null,
       "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
-      "approverTone": "neutral"
+      "approverTone": "neutral",
+      "role": "resting",
+      "roleText": "Resting",
+      "roleTone": "neutral",
+      "tileText": "Not needed now.",
+      "tileAtUtc": null
     }
   ],
   "machines": [
@@ -334,7 +349,10 @@ export const OVERVIEW: LicenseOverview = {
       "readiness": "ready",
       "readinessTargetAccountEmail": "account-b@example.com",
       "readinessText": "Ready for account-b@example.com.",
-      "readinessTone": "good"
+      "readinessTone": "good",
+      "readyForNext": true,
+      "readyForNextText": "Ready",
+      "readyForNextTone": "good"
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -422,7 +440,10 @@ export const OVERVIEW: LicenseOverview = {
       "readiness": "ready",
       "readinessTargetAccountEmail": "account-b@example.com",
       "readinessText": "Ready for account-b@example.com.",
-      "readinessTone": "good"
+      "readinessTone": "good",
+      "readyForNext": true,
+      "readyForNextText": "Ready",
+      "readyForNextTone": "good"
     }
   ],
   "coverage": {
@@ -515,7 +536,18 @@ export const OVERVIEW: LicenseOverview = {
         ]
       }
     ]
-  }
+  },
+  "verdict": {
+    "state": "covered",
+    "tone": "good",
+    "headline": "All 2 machines are covered.",
+    "detail": "account-a@example.com is at 92% of its weekly limit and switches to account-b@example.com at 97% in about 7 hours 49 minutes. That license is ready on every machine.",
+    "actionText": null,
+    "machine": null,
+    "fix": null,
+    "switchNowAccountEmail": "account-a@example.com"
+  },
+  "todos": []
 };
 
 /** The last two fields of an account that is barred from the automatic choice of a target. */
@@ -1288,7 +1320,9 @@ export const EMPTY_OVERVIEW: LicenseOverview = {
     "gapCount": 0,
     "accounts": [],
     "rows": []
-  }
+  },
+  "verdict": null,
+  "todos": []
 };
 
 /** PUT /gateway/licenses/accounts/renewal, a date stored. */

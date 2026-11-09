@@ -1,4 +1,5 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
@@ -895,4 +896,121 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
     private LicenseReadinessService Readiness()
         => new(_store, new LicenseSnapshotSource(_store, _reads), _log, _signIns, _approverReadiness.WhyNotReady,
             _directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now);
+
+    // ----- the Licenses page's status card reads THE SAME rule (the owner's redesign, 8 November 2026) -----
+
+    // The page as GET /gateway/licenses folds it, on the same store, clock and alarms as the minute check.
+    private LicenseOverviewResponse Page()
+        => LicenseEndpoints.FoldOverview(One, new LicenseSnapshotSource(_store, _reads), _now,
+            new LicenseApproverStore(new TenantSettingsStore(_db)), _log, _directors.IsConnected, Readiness());
+
+    private static readonly string[] Loud = { LicenseTones.Bad, LicenseTones.Warning };
+
+    private static void AssertNothingLoud(LicenseOverviewResponse page)
+    {
+        Assert.DoesNotContain(page.Machines, m => Loud.Contains(m.ReadyForNextTone));
+        Assert.DoesNotContain(page.Accounts, a => Loud.Contains(a.RoleTone));
+    }
+
+    // Today's shape (8 November 2026): every machine on one license at 92%, the next license ready on every machine. The
+    // card is green, says when the switch happens and that the next license is ready everywhere; every machine reads
+    // Ready; the tiles are in use / next / resting; nothing anywhere is red or yellow; and the minute check raises nothing.
+    [Fact]
+    public async Task Page_At92_NextLicenseReadyOnEveryMachine_IsOneGreenCard_AndNothingLoud()
+    {
+        _aWeekly = 92;
+        _machineAHoldsB = true;
+        Report();
+
+        var page = Page();
+        var tick = await Tick();
+
+        var verdict = page.Verdict!;
+        Assert.Equal((LicenseVerdictStates.Covered, LicenseTones.Good), (verdict.State, verdict.Tone));
+        Assert.Equal("All 2 machines are covered.", verdict.Headline);
+        Assert.Equal($"{A} is at 92% of its weekly limit and switches to {B} at 97% in about 7 hours 49 minutes. That license is ready on every machine.",
+            verdict.Detail);
+        Assert.Null(verdict.Fix);
+        Assert.All(page.Machines, m => Assert.Equal((true, "Ready", LicenseTones.Good), (m.ReadyForNext, m.ReadyForNextText, m.ReadyForNextTone)));
+        Assert.Equal(
+            new[] { (A, LicenseRoles.InUse, "In use - 2 machines"), (B, LicenseRoles.Next, "Next - ready on all 2"), (C, LicenseRoles.Resting, "Resting") },
+            page.Accounts.Select(a => (a.AccountEmail, a.Role, a.RoleText)).ToArray());
+        AssertNothingLoud(page);
+        AssertNothingRaised(tick);
+    }
+
+    // Under 80% the card is green and says no machine needs a next license yet, whatever the machines hold.
+    [Fact]
+    public void Page_Under80_IsGreen_NoMachineNeedsANextLicenseYet()
+    {
+        _aWeekly = 50;
+        Report();
+
+        var verdict = Page().Verdict!;
+
+        Assert.Equal(LicenseVerdictStates.Covered, verdict.State);
+        Assert.Equal($"{A} is at 50% of its weekly limit, so no machine needs a next license yet. The next one is {B}.", verdict.Detail);
+        AssertNothingLoud(Page());
+    }
+
+    // The one red case: at 85% machine-a holds no sign-in for the next license. The card is NOT covered, names machine-a
+    // and nothing else, carries the alarm's own words and one fix button (a spare of B on machine-a); only machine-a's
+    // column is loud; and the minute check raises exactly one alarm, about the same machine. One rule, two readers.
+    [Fact]
+    public async Task Page_At85_AMachineWithNoNextLicense_IsExactlyOneNotReadyCard_NamingThatMachine_LikeTheAlarm()
+    {
+        _aWeekly = 85;
+        Report();
+
+        var page = Page();
+        var tick = await Tick();
+
+        var alarm = Assert.Single(Warnings());
+        Assert.Equal((1, 0, 0), (tick.Alarms!.Opened, tick.Alarms.StillOpen, tick.Alarms.Closed));
+        var verdict = page.Verdict!;
+        Assert.Equal((LicenseVerdictStates.NotReady, LicenseTones.Warning), (verdict.State, verdict.Tone));
+        Assert.Equal("machine-a has no next license ready.", verdict.Headline);
+        Assert.Equal(alarm.Problem, verdict.Detail);
+        Assert.Equal(alarm.Action, verdict.ActionText);
+        Assert.Equal(MachineA, verdict.Machine!.MachineName);
+        Assert.Equal(("Fix: sign machine-a in", LicenseNextLicenseActions.AddSpare, B, verdict.Machine.MachineId),
+            (verdict.Fix!.Label, verdict.Fix.Action, verdict.Fix.AccountEmail, verdict.Fix.MachineId));
+        var loud = Assert.Single(page.Machines, m => Loud.Contains(m.ReadyForNextTone));
+        Assert.Equal((MachineA, false, "Not signed in"), (loud.MachineName, loud.ReadyForNext, loud.ReadyForNextText));
+        Assert.DoesNotContain(page.Accounts, a => Loud.Contains(a.RoleTone));
+    }
+
+    // From the switching threshold the card is red, in the alarm's own tone.
+    [Fact]
+    public void Page_At98_AMachineWithNoNextLicense_IsRed()
+    {
+        _aWeekly = 98;
+        Report();
+
+        Assert.Equal((LicenseVerdictStates.NotReady, LicenseTones.Bad), (Page().Verdict!.State, Page().Verdict!.Tone));
+    }
+
+    // A grey to-do is never an alarm: machine-a stops reporting, which is a to-do on the page ("remove it if it is gone"),
+    // and the minute check raises nothing - the sidebar count, the phone and the email never hear of it.
+    [Fact]
+    public async Task Page_AMachineThatStoppedReporting_IsAToDo_AndRaisesNothing()
+    {
+        _aWeekly = 50;
+        Report();
+        _machineASilent = true;
+        _now = T0 + LicenseContract.MachineStaleAfter + TimeSpan.FromMinutes(1);
+        Report();
+
+        var page = Page();
+        var tick = await Tick();
+
+        var todo = Assert.Single(page.Todos);
+        Assert.Equal((LicenseTodoKinds.NotReporting, LicenseTodoOpens.Machine), (todo.Kind, todo.Opens));
+        Assert.StartsWith("machine-a is not reporting.", todo.Text);
+        Assert.Equal(page.Machines.Single(m => m.MachineName == MachineA).MachineId, todo.MachineId);
+        Assert.Equal(LicenseVerdictStates.Covered, page.Verdict!.State);
+        Assert.Equal("machine-b is covered.", page.Verdict.Headline);
+        AssertNothingLoud(page);
+        AssertNothingRaised(tick);
+    }
 }

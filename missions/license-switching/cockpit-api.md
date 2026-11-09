@@ -210,6 +210,39 @@ fresh sign-in for an account with room." (bad), "Not reporting since {time}, so 
 again; the cells show its last report." (warning), "Missing a fresh sign-in for 1 paid account." (warning), or "Could
 switch to any paid account now." (good).
 
+### The status card, the tiles, the Machines table and the to-dos (`verdict`, `todos`)
+
+The owner's redesign of 8 November 2026: the page is one status card, one tile per license, the Machines table and a
+short list of grey to-dos. All of it is folded once on the Gateway (`LicenseStatusFold`), and only ADDED to this answer:
+no field above changed or went away.
+
+**The card has one rule, and it is the alarm's.** `verdict` is judged by the same function as the one license alarm,
+`cannot-switch-at-80` (`LicenseCannotSwitchAlarm.Conditions`, on the same picture). It is `not-ready` exactly when that
+rule names a machine, and `covered` otherwise - never red while the alarm count is 0, never green while it is not.
+
+| Field | What it is |
+|---|---|
+| `verdict.state` | `covered` or `not-ready`. Null `verdict` only when `isEmpty`. |
+| `verdict.tone` | `good` when covered; when not ready, the alarm's own tone: `warning` below the switching threshold, `bad` from it. |
+| `verdict.headline` | "All 4 machines are covered.", "machine-a is covered." (one machine), "SORENLAPTOP has no next license ready.", "2 machines have no next license ready: a and b." |
+| `verdict.detail` | Covered: the license most machines are on and when it switches ("dev@mindzie.com is at 92% of its weekly limit and switches to soren.frederiksen@mindzie.com at 97% in about 1 hour 27 minutes. That license is ready on every machine."), or that nothing needs a next license yet. Not ready: the alarm's own problem sentence. |
+| `verdict.actionText` | Not ready: the alarm's one thing to do; else null. |
+| `verdict.machine` | Not ready: the first machine named (rule 9); else null. |
+| `verdict.fix` | Not ready, when a sign-in fixes it: `label` ("Fix: sign SORENLAPTOP in"), `action` (`add-spare` or `renew`), `accountEmail`, `machineId` - started through the existing sign-in routes. Else null. |
+| `verdict.switchNowAccountEmail` | The license most machines are on, when it can be switched now: the card's Switch now. Else null. |
+| `todos` | Grey to-dos, soonest first: `kind` (`approver`, `renewal-failed`, `not-reporting`), `text`, `mattersByUtc` (the earliest end of a sign-in it concerns, or null), `opens` (`approvers` - that tab; `machine` - that machine's drawer), `machineId`, `actionLabel`. All approvers on one machine are ONE item; all failed renewals on one machine are ONE item. A to-do is never an alarm: it reaches no count, no phone and no email. |
+
+Each account adds `role` (`in-use`, `next` - a machine on a license in use would switch to it - or `resting`),
+`roleText` ("In use - 4 machines", "Next - ready on all 4", "Next - ready on 3 of 4", "Resting"), `roleTone` (never
+`bad` or `warning`: red belongs to the card), `tileText` ("Switches at 97% in about 1 hour 27 minutes.", "Takes over in
+about 1 hour 27 minutes.", "Missing on SORENLAPTOP.", "Not needed now. Free again in 3 days 18 hours.") and `tileAtUtc`
+(the moment `tileText` speaks of, for the page to show as a local clock time, or null).
+
+Each machine adds `readyForNext` (true, false, or null when there is nothing to judge), `readyForNextText` ("Ready",
+"Not signed in", "Sign-in needs renewing", "Not ready", "No other license has room", "Not reporting", "On no license")
+and `readyForNextTone` - `bad` or `warning` ONLY for a machine the alarm names; a machine that is not ready but not
+running out is `neutral`.
+
 ### Example
 
 ```json
@@ -302,7 +335,12 @@ switch to any paid account now." (good).
       "barredText": null,
       "approver": null,
       "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
-      "approverTone": "neutral"
+      "approverTone": "neutral",
+      "role": "in-use",
+      "roleText": "In use - 2 machines",
+      "roleTone": "neutral",
+      "tileText": "Switches at 97% in about 7 hours 49 minutes.",
+      "tileAtUtc": "2026-10-11T11:01:00Z"
     },
     {
       "accountEmail": "account-b@example.com",
@@ -375,7 +413,12 @@ switch to any paid account now." (good).
       "barredText": null,
       "approver": null,
       "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
-      "approverTone": "neutral"
+      "approverTone": "neutral",
+      "role": "next",
+      "roleText": "Next - ready on all 2",
+      "roleTone": "good",
+      "tileText": "Takes over in about 7 hours 49 minutes.",
+      "tileAtUtc": "2026-10-11T11:01:00Z"
     },
     {
       "accountEmail": "account-c@example.com",
@@ -442,7 +485,12 @@ switch to any paid account now." (good).
       "barredText": null,
       "approver": null,
       "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
-      "approverTone": "neutral"
+      "approverTone": "neutral",
+      "role": "resting",
+      "roleText": "Resting",
+      "roleTone": "neutral",
+      "tileText": "Not needed now.",
+      "tileAtUtc": null
     }
   ],
   "machines": [
@@ -513,7 +561,10 @@ switch to any paid account now." (good).
       "readiness": "ready",
       "readinessTargetAccountEmail": "account-b@example.com",
       "readinessText": "Ready for account-b@example.com.",
-      "readinessTone": "good"
+      "readinessTone": "good",
+      "readyForNext": true,
+      "readyForNextText": "Ready",
+      "readyForNextTone": "good"
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -601,7 +652,10 @@ switch to any paid account now." (good).
       "readiness": "ready",
       "readinessTargetAccountEmail": "account-b@example.com",
       "readinessText": "Ready for account-b@example.com.",
-      "readinessTone": "good"
+      "readinessTone": "good",
+      "readyForNext": true,
+      "readyForNextText": "Ready",
+      "readyForNextTone": "good"
     }
   ],
   "coverage": {
@@ -694,7 +748,18 @@ switch to any paid account now." (good).
         ]
       }
     ]
-  }
+  },
+  "verdict": {
+    "state": "covered",
+    "tone": "good",
+    "headline": "All 2 machines are covered.",
+    "detail": "account-a@example.com is at 92% of its weekly limit and switches to account-b@example.com at 97% in about 7 hours 49 minutes. That license is ready on every machine.",
+    "actionText": null,
+    "machine": null,
+    "fix": null,
+    "switchNowAccountEmail": "account-a@example.com"
+  },
+  "todos": []
 }
 ```
 
@@ -2136,7 +2201,9 @@ holding itself still carries `renewalFailedText` (section 2), which is where the
     "gapCount": 0,
     "accounts": [],
     "rows": []
-  }
+  },
+  "verdict": null,
+  "todos": []
 }
 ```
 

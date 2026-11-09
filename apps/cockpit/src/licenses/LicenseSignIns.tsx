@@ -274,7 +274,8 @@ export interface LicenseSignInsProps {
   onRetryApprovers: () => void;
   /** The Gateway's sentence for the last approver set or removed here; null when there is none to show. */
   approverAnswer: string | null;
-  onAddSpare: (machine: LicenseMachine) => void;
+  /** Open one machine's drawer, where its spares are added and its sign-ins renewed. */
+  onOpenMachine: (machine: LicenseMachine) => void;
   /** Store an approver. Throws on a refusal. */
   onSetApprover: (approver: LicenseSetApprover) => Promise<void>;
   onRemoveApprover: (approver: LicenseApprover) => void;
@@ -284,14 +285,17 @@ export interface LicenseSignInsProps {
   onCloseEditor: () => void;
 }
 
-/** The Sign-ins part of the page: one row per machine, then who approves each account. */
-export function LicenseSignIns({
+/**
+ * The Approvers and spares tab: the spares each machine holds (one line per machine, its drawer one click away), then who
+ * approves each account's sign-ins. Adding a spare and renewing a sign-in happen in the machine's drawer.
+ */
+export function LicenseApproversPanel({
   overview,
   approvers,
   approversError,
   onRetryApprovers,
   approverAnswer,
-  onAddSpare,
+  onOpenMachine,
   onSetApprover,
   onRemoveApprover,
   editor,
@@ -300,39 +304,33 @@ export function LicenseSignIns({
 }: LicenseSignInsProps) {
   return (
     <>
+      <h3 className="lic-h3">Spares on each machine</h3>
       <div className="lic-table-wrap">
-        <table className="lic-table" data-testid="lic-sign-ins">
+        <table className="lic-table" data-testid="lic-spares">
           <thead>
             <tr>
               <th>Machine</th>
-              <th>Sign-ins in progress</th>
-              <th>Add a spare</th>
+              <th>Spares held</th>
+              <th>Sign-ins under way</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {overview.machines.map((machine) => (
-              <tr key={machine.machineId} data-testid="lic-sign-in-machine">
+              <tr key={machine.machineId} data-testid="lic-spares-machine">
                 <td className="lic-nowrap">
                   <span className="lic-strong">{machine.label}</span>
                 </td>
+                <td>{machine.spares.length === 0 ? "none" : machine.spares.map((spare) => spare.accountEmail).join(", ")}</td>
                 <td>
                   {machine.signInsInProgress.map((signIn) => (
-                    <div key={signIn.signInId} data-testid="lic-sign-in-progress">
-                      {signIn.text}
-                    </div>
+                    <div key={signIn.signInId}>{signIn.text}</div>
                   ))}
                 </td>
-                <td>
-                  <div className="lic-offer">
-                    {machine.canAddSpare && (
-                      <Button variant="secondary" onClick={() => onAddSpare(machine)}>
-                        Add a spare
-                      </Button>
-                    )}
-                    <span className="lic-dim" data-testid="lic-add-spare-text">
-                      {machine.addSpareText}
-                    </span>
-                  </div>
+                <td className="lic-nowrap">
+                  <Button variant="secondary" onClick={() => onOpenMachine(machine)}>
+                    Open
+                  </Button>
                 </td>
               </tr>
             ))}

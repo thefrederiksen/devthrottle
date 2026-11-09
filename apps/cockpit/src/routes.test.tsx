@@ -75,6 +75,14 @@ describe("Cockpit routes", () => {
     expect(screen.getByTestId("where").textContent).toBe("/fleet-manager");
   });
 
+  // The Cockpit used to live under /c; a link from then (/c/licenses) reaches the page, not "Page not found".
+  it("sends the old /c/licenses address to the Licenses page", async () => {
+    renderAt("/c/licenses?tab=history");
+
+    expect(await screen.findByText("licenses page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/licenses");
+  });
+
   it("serves the Licenses page at its own address", async () => {
     renderAt("/licenses");
 

@@ -141,20 +141,24 @@ public static partial class LicenseEndpoints
 
     // The overview as the page gets it, folded once for the overview route and for Forget this machine, so the route
     // refuses exactly what the page does not offer.
-    private static LicenseOverviewResponse FoldOverview(TenantId tenant, LicenseSnapshotSource snapshots, DateTime now,
+    internal static LicenseOverviewResponse FoldOverview(TenantId tenant, LicenseSnapshotSource snapshots, DateTime now,
         LicenseApproverStore approvers, LicenseSignInLog signIns, Func<TenantId, string, bool> isConnected,
         LicenseReadinessService readiness)
     {
         // The page does not judge the open "no account has room" events, so none are passed.
         var picture = snapshots.ReadPicture(tenant, now, NoExhaustions);
-        var response = LicenseDisplayFold.Overview(picture, readiness.NextLicenses(tenant, picture, now));
+        // One judgement for the whole page: the next licenses, the readiness, and the one license alarm's conditions.
+        var judgement = readiness.JudgePage(tenant, picture, now);
+        var response = LicenseDisplayFold.Overview(picture, judgement.Next);
         // Who approves each account's sign-ins, and where a sign-in can be started now (contract section 8).
         LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
             directorId => isConnected(tenant, directorId), now);
         // Whether each machine is ready for the account it would switch to next: what the minute check acts on.
-        LicenseReadinessFold.Apply(response, readiness.Judge(tenant, picture, now), approvers.ListFailedChecksQuietly(tenant), now);
+        LicenseReadinessFold.Apply(response, judgement.Judged, approvers.ListFailedChecksQuietly(tenant), now);
         // Whether each machine may be forgotten; after the sign-ins, because one under way is a reason it may not.
         LicenseDisplayFold.ApplyForget(response);
+        // The status card, the tiles, the Machines table's last column and the to-dos: last, because they read all of the above.
+        LicenseStatusFold.Apply(response, judgement.CannotSwitch, judgement.RunsOut, now);
         return response;
     }
 

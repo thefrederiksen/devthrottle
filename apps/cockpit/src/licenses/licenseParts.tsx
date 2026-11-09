@@ -40,6 +40,17 @@ export function LocalTime({ iso }: { iso: string }) {
   );
 }
 
+/** A day in the viewer's own time zone ("Nov 11"), with the exact value on hover. An unreadable value is shown as given. */
+export function LocalDate({ iso }: { iso: string }) {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return <span>{iso}</span>;
+  return (
+    <time dateTime={iso} title={iso}>
+      {parsed.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+    </time>
+  );
+}
+
 /**
  * One usage window as a labelled bar, drawn from the Gateway's level word alone. Only a level that says what the
  * window is NOW (`normal`, `at-limit`) is a filled meter. A window with no number, one whose reading is too old to

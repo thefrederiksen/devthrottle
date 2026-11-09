@@ -74,7 +74,20 @@ function RequireDeviceKey() {
   return <Navigate to={`/signin?next=${next}`} replace />;
 }
 
+// THE COCKPIT'S OLD ADDRESS PREFIX. Before the cutover to the site root (issue #979) the Cockpit lived under /c, and links
+// written then - /c/licenses among them - still arrive. The Gateway hands any such address the Cockpit's shell, so it is
+// this router that must answer it: the same page without the /c, query and fragment kept. Before this, /c/licenses was
+// "Page not found" (the Licenses redesign, 8 November 2026).
+function OldCockpitPrefix() {
+  const location = useLocation();
+  const rest = location.pathname.replace(/^\/c(?=\/|$)/i, "");
+  return <Navigate to={`${rest === "" ? "/" : rest}${location.search}${location.hash}`} replace />;
+}
+
 export const COCKPIT_ROUTES: RouteObject[] = [
+  // Outside the gate, so the redirect happens first and a signed-out browser is then sent to sign in for the real page.
+  { path: "/c", element: <OldCockpitPrefix /> },
+  { path: "/c/*", element: <OldCockpitPrefix /> },
   // Ungated: reachable before this browser has enrolled. /signin is also where the Gateway's
   // signed-out browser redirect lands (AuthMiddleware sends an unauthenticated HTML navigation to
   // /signin?next=<requested route>), and /device-callback is where devthrottle.com hands the

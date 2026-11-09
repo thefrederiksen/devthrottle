@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, within, fireEvent } from "@testing-library/react";
 
-// FORGET THIS MACHINE, AT THE WIRE (License Switching phase 6). Only the browser's fetch is replaced: what these tests
+// REMOVE THIS MACHINE (once "Forget this machine"), AT THE WIRE (License Switching phase 6; the drawer of the 8 November 2026
+// redesign). Only the browser's fetch is replaced: what these tests
 // see is what leaves the browser and what a person then reads. What they pin:
 //   - the button is drawn exactly where the Gateway says canForget, and nowhere else;
 //   - the confirmation shows the Gateway's own forgetText, and nothing is sent until it is confirmed;
@@ -77,30 +78,37 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function openForget(): Promise<HTMLElement> {
-  fireEvent.click(await screen.findByTestId("lic-machine-forget"));
-  return screen.getByRole("alertdialog", { name: "Forget the-windows-machine?" });
+/** The drawer of one machine, opened from its line in the Machines table. */
+async function openDrawer(label: string): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole("button", { name: `More about ${label}` }));
+  return screen.getByTestId("lic-drawer");
 }
 
-describe("LicensesView: Forget this machine", () => {
-  it("draws no button where the Gateway does not offer it", async () => {
+async function openRemove(): Promise<HTMLElement> {
+  fireEvent.click(within(await openDrawer("the-windows-machine")).getByRole("button", { name: "Remove this machine" }));
+  return screen.getByRole("alertdialog", { name: "Remove the-windows-machine?" });
+}
+
+describe("LicensesView: Remove this machine, in the machine's drawer", () => {
+  it("is a real button that cannot be pressed where the Gateway does not offer it, with the Gateway's reason beside it", async () => {
     render(<LicensesView />);
-    expect((await screen.findAllByTestId("lic-schedule-row")).length).toBe(2);
+    const drawer = await openDrawer("the-windows-machine");
     expect(overview.machines.every((m) => !m.canForget)).toBe(true);
-    expect(screen.queryByTestId("lic-machine-forget")).toBeNull();
+    const remove = within(drawer).getByRole("button", { name: "Remove this machine" }) as HTMLButtonElement;
+    expect(remove.disabled).toBe(true);
+    expect(within(drawer).getByTestId("lic-drawer-remove-text").textContent).toBe(overview.machines[1].forgetText);
   });
 
-  it("confirms in the Gateway's sentence, sends one application/json POST naming the machine, and shows the answer", async () => {
+  it("calls the existing forget route: confirms in the Gateway's sentence, sends one application/json POST naming the machine, and shows the answer", async () => {
     const machineId = silentWindowsMachine();
     answers[FORGET] = () => json(200, { text: FORGOTTEN, entry: { ...LOG_PAGE.entries[0], kind: "forgotten", kindText: "Machine forgotten", summary: FORGOTTEN } });
     render(<LicensesView />);
 
-    const dialog = await openForget();
-    expect(screen.getAllByTestId("lic-machine-forget").length).toBe(1);
+    const dialog = await openRemove();
     expect(within(dialog).getByText(FORGET_TEXT)).toBeTruthy();
     expect(forgets()).toEqual([]);
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Forget" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove this machine" }));
 
     expect((await screen.findByTestId("lic-forget-answer")).textContent).toBe(FORGOTTEN);
     expect(forgets()).toEqual([{ call: FORGET, contentType: "application/json", body: { machineId } }]);
@@ -113,8 +121,8 @@ describe("LicensesView: Forget this machine", () => {
     answers[FORGET] = () => json(409, { code: "sign_in_in_progress", error: why });
     render(<LicensesView />);
 
-    const dialog = await openForget();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Forget" }));
+    const dialog = await openRemove();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove this machine" }));
 
     expect(await within(dialog).findByText(why)).toBeTruthy();
     expect(screen.getByRole("alertdialog")).toBeTruthy();

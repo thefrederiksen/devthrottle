@@ -1,12 +1,11 @@
 import type {
   LicenseOutlook,
   LicenseOutlookSpanKind,
-  LicenseOutlookTile,
 } from "@devthrottle/client-core/licenses/licensesClient";
-import { LocalTime, toneClass } from "./licenseParts";
+import { toneClass } from "./licenseParts";
 
-// THE NEXT SEVEN DAYS ON THE LICENSES PAGE: the alert when the fleet is forecast to have no account with room, the
-// three tiles, and the timeline - one row of bars per account. Every span, gap, sentence and tone is the Gateway's
+// THE NEXT SEVEN DAYS ON THE LICENSES PAGE: the alert when the fleet is forecast to have no account with room,
+// and the timeline - one row of bars per account - on the Forecast tab. Every span, gap, sentence and tone is the Gateway's
 // (LicenseDisplayFold.Outlook.cs, CLAUDE.md rule 7). This file only places a time between the axis start and end the
 // Gateway sent, draws a day line at each midnight in the viewer's own time zone, and gives each kind its colour.
 
@@ -59,32 +58,6 @@ export function LicenseOutlookHeadline({ outlook }: { outlook: LicenseOutlook })
     <div className={`lic-outlook-alert ${toneClass(headline.tone)}`} role="alert" data-testid="lic-outlook-alert">
       <strong>{headline.text}</strong>
       {headline.detail !== null && <p className="lic-outlook-alert-detail">{headline.detail}</p>}
-    </div>
-  );
-}
-
-function Tile({ tile, testId }: { tile: LicenseOutlookTile; testId: string }) {
-  return (
-    <div className="lic-tile" data-testid={testId}>
-      <div className="lic-tile-label">{tile.label}</div>
-      <div className={`lic-tile-value ${toneClass(tile.tone)}`}>{tile.valueText}</div>
-      {tile.atUtc !== null && (
-        <div className="lic-tile-at">
-          <LocalTime iso={tile.atUtc} />
-        </div>
-      )}
-      <div className="lic-tile-detail">{tile.detailText}</div>
-    </div>
-  );
-}
-
-/** The three tiles: when the account in use runs out, the next account with room, the next renewal. */
-export function LicenseOutlookTiles({ outlook }: { outlook: LicenseOutlook }) {
-  return (
-    <div className="lic-tiles" data-testid="lic-outlook-tiles">
-      <Tile tile={outlook.runsOut} testId="lic-tile-runs-out" />
-      <Tile tile={outlook.nextRoom} testId="lic-tile-next-room" />
-      <Tile tile={outlook.nextRenewal} testId="lic-tile-next-renewal" />
     </div>
   );
 }

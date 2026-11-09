@@ -160,6 +160,132 @@ public sealed class LicenseOverviewResponse
 
     /// <summary>The coverage grid: every machine that reports against every paid account (<see cref="LicenseCoverageDto"/>).</summary>
     public LicenseCoverageDto Coverage { get; set; } = new();
+
+    /// <summary>
+    /// THE ONE STATUS CARD at the top of the Licenses page (the owner's redesign, 8 November 2026): whether every machine is
+    /// covered. Judged by the SAME rule as the one license alarm (<c>cannot-switch-at-80</c>), so the card is never red
+    /// while that rule raises nothing and never green while it raises something. Null when <see cref="IsEmpty"/>.
+    /// </summary>
+    public LicenseVerdictDto? Verdict { get; set; }
+
+    /// <summary>Things worth doing that stop no switch (an approver that needs a sign-in, a renewal that failed, a machine
+    /// that stopped reporting), grouped so one cause is one line. Never an alarm: they reach no count, no phone and no
+    /// email. Soonest first; empty when there is nothing to do.</summary>
+    public List<LicenseTodoDto> Todos { get; set; } = new();
+}
+
+/// <summary>The words of <see cref="LicenseVerdictDto.State"/>.</summary>
+public static class LicenseVerdictStates
+{
+    /// <summary>No machine is running out without a ready next license: the card is green.</summary>
+    public const string Covered = "covered";
+
+    /// <summary>At least one machine is running out with no ready next license - the one license alarm's rule.</summary>
+    public const string NotReady = "not-ready";
+}
+
+/// <summary>The status card of the Licenses page (<see cref="LicenseOverviewResponse.Verdict"/>). Every word is final.</summary>
+public sealed class LicenseVerdictDto
+{
+    /// <summary>One of <see cref="LicenseVerdictStates"/>.</summary>
+    public string State { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseTones"/>: good when covered; when not ready, the one license alarm's own tone -
+    /// warning below the switching threshold, bad from it.</summary>
+    public string Tone { get; set; } = "";
+
+    /// <summary>The card's first line, for example "All 4 machines are covered."</summary>
+    public string Headline { get; set; } = "";
+
+    /// <summary>The card's second line: the license in use and when it switches, or why the machine is not ready.</summary>
+    public string Detail { get; set; } = "";
+
+    /// <summary>When not ready: the one thing to do, as the alarm says it; else null.</summary>
+    public string? ActionText { get; set; }
+
+    /// <summary>When not ready: the first machine named; else null.</summary>
+    public LicenseMachineRefDto? Machine { get; set; }
+
+    /// <summary>When not ready and the Gateway knows the sign-in that fixes it: that sign-in, as a button; else null.</summary>
+    public LicenseVerdictFixDto? Fix { get; set; }
+
+    /// <summary>The license most machines are on, for the card's Switch now button; null when none can be switched now.</summary>
+    public string? SwitchNowAccountEmail { get; set; }
+}
+
+/// <summary>The one button that fixes a machine that is not ready: a sign-in on it, through the existing sign-in routes.</summary>
+public sealed class LicenseVerdictFixDto
+{
+    /// <summary>The button's words, for example "Fix: sign SORENLAPTOP in".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary><c>add-spare</c> or <c>renew</c> (<c>LicenseNextLicenseActions</c>): the sign-in the button starts.</summary>
+    public string Action { get; set; } = "";
+
+    /// <summary>The license to sign the machine in to.</summary>
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>The machine to sign in.</summary>
+    public string MachineId { get; set; } = "";
+}
+
+/// <summary>The words of <see cref="LicenseTodoDto.Kind"/>.</summary>
+public static class LicenseTodoKinds
+{
+    /// <summary>Approver browsers on one machine need a claude.ai sign-in.</summary>
+    public const string Approver = "approver";
+
+    /// <summary>Sign-ins on one machine could not be renewed.</summary>
+    public const string RenewalFailed = "renewal-failed";
+
+    /// <summary>A machine has stopped reporting, or its reports are refused.</summary>
+    public const string NotReporting = "not-reporting";
+}
+
+/// <summary>The words of <see cref="LicenseTodoDto.Opens"/>: what the to-do's button opens.</summary>
+public static class LicenseTodoOpens
+{
+    /// <summary>The Approvers and spares tab.</summary>
+    public const string Approvers = "approvers";
+
+    /// <summary>The drawer of <see cref="LicenseTodoDto.MachineId"/>.</summary>
+    public const string Machine = "machine";
+}
+
+/// <summary>One grey to-do on the Licenses page: not urgent, never an alarm.</summary>
+public sealed class LicenseTodoDto
+{
+    /// <summary>One of <see cref="LicenseTodoKinds"/>.</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>The finished sentence.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>When it starts to matter - the earliest end of a sign-in it concerns; null when no date applies. The page
+    /// shows it as a date in the viewer's own time zone.</summary>
+    public DateTime? MattersByUtc { get; set; }
+
+    /// <summary>One of <see cref="LicenseTodoOpens"/>.</summary>
+    public string Opens { get; set; } = "";
+
+    /// <summary>When <see cref="Opens"/> is <c>machine</c>: that machine's identifier; else null.</summary>
+    public string? MachineId { get; set; }
+
+    /// <summary>The button's words.</summary>
+    public string ActionLabel { get; set; } = "";
+}
+
+/// <summary>The words of <see cref="LicenseAccountDto.Role"/>.</summary>
+public static class LicenseRoles
+{
+    /// <summary>A machine is on it now.</summary>
+    public const string InUse = "in-use";
+
+    /// <summary>A machine on a license in use would switch to it next.</summary>
+    public const string Next = "next";
+
+    /// <summary>Neither: it rests until it is needed.</summary>
+    public const string Resting = "resting";
 }
 
 /// <summary>One machine, named the same way wherever a list or a sentence names a machine. A machine is a machine
@@ -297,6 +423,22 @@ public sealed class LicenseAccountDto
 
     /// <summary>One of <see cref="LicenseTones"/> for <see cref="ApproverText"/>.</summary>
     public string ApproverTone { get; set; } = "";
+
+    /// <summary>The license's part right now, for its tile: one of <see cref="LicenseRoles"/>.</summary>
+    public string Role { get; set; } = "";
+
+    /// <summary>The tile's label, for example "In use - 4 machines" or "Next - ready on 3 of 4".</summary>
+    public string RoleText { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseTones"/> for <see cref="RoleText"/>; never bad or warning - red belongs to the
+    /// status card alone.</summary>
+    public string RoleTone { get; set; } = "";
+
+    /// <summary>The tile's one sentence: when it switches, when it takes over, or that it is not needed now.</summary>
+    public string TileText { get; set; } = "";
+
+    /// <summary>The moment <see cref="TileText"/> speaks of, for the page to show as a local clock time; null when none.</summary>
+    public DateTime? TileAtUtc { get; set; }
 }
 
 /// <summary>One usage window of one account.</summary>
@@ -470,6 +612,17 @@ public sealed class LicenseMachineDto
     /// <summary>With <see cref="RecommendedAccountEmail"/>: the sign-in that gives it, <c>add-spare</c> (it holds no sign-in
     /// for it) or <c>renew</c> (its sign-in is refused or ends too soon). Else null.</summary>
     public string? RecommendedSignInAction { get; set; }
+
+    /// <summary>The Machines table's last column: true when the machine is ready for the license it would switch to next,
+    /// false when it is not, null when there is nothing to judge (no other license has room, it is on no license, or it
+    /// is not reporting).</summary>
+    public bool? ReadyForNext { get; set; }
+
+    /// <summary>The column's words: "Ready", "Not signed in", "No other license has room", "Not reporting".</summary>
+    public string ReadyForNextText { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseTones"/>: bad or warning ONLY for a machine the one license alarm names.</summary>
+    public string ReadyForNextTone { get; set; } = "";
 }
 
 /// <summary>Whether a machine is ready to move to the account it would switch to next.</summary>

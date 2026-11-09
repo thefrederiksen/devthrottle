@@ -108,7 +108,15 @@ public sealed class LicenseEndpointsTests : IDisposable
         var (status, _, json) = Overview(TenantOne);
 
         Assert.Equal(200, status);
-        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines", "isTestUsageOn", "testUsageText", "coverage" }, Names(json));
+        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "accounts", "machines", "isTestUsageOn", "testUsageText", "coverage", "verdict", "todos" }, Names(json));
+        // The status card (the owner's redesign, 8 November 2026): A is at 96% of its five-hour window and B is ready on the one
+        // machine, so it is covered, green, and offers Switch now for A.
+        var verdict = json.GetProperty("verdict");
+        Assert.Equal(new[] { "state", "tone", "headline", "detail", "actionText", "machine", "fix", "switchNowAccountEmail" }, Names(verdict));
+        Assert.Equal(("covered", "good", "the-windows-machine is covered.", A),
+            (verdict.GetProperty("state").GetString(), verdict.GetProperty("tone").GetString(), verdict.GetProperty("headline").GetString(),
+             verdict.GetProperty("switchNowAccountEmail").GetString()));
+        Assert.Equal(0, json.GetProperty("todos").GetArrayLength());
         Assert.False(json.GetProperty("isEmpty").GetBoolean());
         var coverage = json.GetProperty("coverage");
         Assert.Equal(new[] { "text", "tone", "gapCount", "accounts", "rows" }, Names(coverage));
@@ -126,7 +134,9 @@ public sealed class LicenseEndpointsTests : IDisposable
             "renewsOn", "renewsText", "signInExpiry", "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
             "barredUntilUtc", "barredText",
             "approver", "approverText", "approverTone",
+            "role", "roleText", "roleTone", "tileText", "tileAtUtc",
         }, Names(account));
+        Assert.Equal(("in-use", "In use - 1 machine"), (account.GetProperty("role").GetString(), account.GetProperty("roleText").GetString()));
         // Not barred from the automatic choice, so there is nothing to show beside it.
         Assert.Equal((JsonValueKind.Null, JsonValueKind.Null), (account.GetProperty("barredUntilUtc").ValueKind, account.GetProperty("barredText").ValueKind));
         Assert.Equal(new[] { "expiresAtUtc", "machine", "verdict", "text", "tone" }, Names(account.GetProperty("signInExpiry")));
@@ -160,7 +170,10 @@ public sealed class LicenseEndpointsTests : IDisposable
             "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
             "readiness", "readinessTargetAccountEmail", "readinessText", "readinessTone",
             "nextLicenseState", "nextLicenseText", "nextLicenseTone", "recommendedAccountEmail", "recommendedSignInAction",
+            "readyForNext", "readyForNextText", "readyForNextTone",
         }, Names(machine));
+        Assert.Equal((true, "Ready", "good"),
+            (machine.GetProperty("readyForNext").GetBoolean(), machine.GetProperty("readyForNextText").GetString(), machine.GetProperty("readyForNextTone").GetString()));
         Assert.Equal(("the-windows-machine", "owner", A), (machine.GetProperty("machineName").GetString(), machine.GetProperty("osUser").GetString(), machine.GetProperty("activeAccountEmail").GetString()));
         // It holds the sign-in for B, the account it would switch to next (phase 6, readiness).
         Assert.Equal(("ready", B, "Ready for account-b@example.com.", "good"),

@@ -112,6 +112,24 @@ public sealed class LicenseReadinessService
         return LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace, outlook.RunsOut);
     }
 
+    /// <summary>
+    /// Everything the Licenses page judges, from ONE read of the forecast, the open sign-ins and the open alarms: every
+    /// machine's next-license verdict, its readiness, and the one license alarm's conditions as <see cref="TickAsync"/>
+    /// raises them on the same picture. The page's status card is red exactly when <see cref="LicensePageJudgement.CannotSwitch"/>
+    /// is not empty - the same function, never a second copy of the rule.
+    /// </summary>
+    public LicensePageJudgement JudgePage(TenantId tenant, LicensePicture picture, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+        var openSignIns = _log.ListOpen(tenant);
+        var outlook = Outlook(tenant, picture, nowUtc);
+        var judged = Judge(tenant, picture, openSignIns, outlook.RunsOut, nowUtc);
+        var next = LicenseNextLicenseFold.Judge(picture, outlook.WeeklyPace, outlook.RunsOut);
+        var cannotSwitch = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, next, openSignIns,
+            _alarms.ListOpen(tenant), outlook.RunsOut);
+        return new LicensePageJudgement(next, judged, cannotSwitch, outlook.RunsOut);
+    }
+
     private IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture,
         IReadOnlyList<Data.Entities.LicenseSwitchLogEntity> openSignIns, Func<string, DateTime?> runsOut, DateTime nowUtc)
     {
@@ -298,6 +316,14 @@ public sealed class LicenseReadinessService
         }
     }
 }
+
+/// <summary>What the Licenses page judges on one picture (<see cref="LicenseReadinessService.JudgePage"/>).</summary>
+/// <param name="Next">Every machine's next-license verdict.</param>
+/// <param name="Judged">Every machine's readiness.</param>
+/// <param name="CannotSwitch">The one license alarm's conditions, exactly as the minute check raises them.</param>
+/// <param name="RunsOut">For a license: when the forecast expects it to reach the switching threshold, or null.</param>
+public sealed record LicensePageJudgement(IReadOnlyList<LicenseNextLicense> Next, IReadOnlyList<LicenseMachineReadiness> Judged,
+    IReadOnlyList<LicenseAlarmCondition> CannotSwitch, Func<string, DateTime?> RunsOut);
 
 /// <summary>One picture's machines and their next-license verdicts, read at <paramref name="NowUtc"/>.</summary>
 public sealed record LicenseNextLicenseReading(DateTime NowUtc, IReadOnlyList<LicenseMachineView> Machines,

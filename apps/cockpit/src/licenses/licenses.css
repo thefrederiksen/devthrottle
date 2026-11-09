@@ -446,41 +446,6 @@
   font-size: 13px;
 }
 
-.lic-tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0 0 14px;
-}
-.lic-tile {
-  flex: 1 1 220px;
-  min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
-}
-.lic-tile-label {
-  color: var(--text-dim);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.lic-tile-value {
-  font-size: 16px;
-  font-weight: 600;
-  margin-top: 3px;
-}
-.lic-tile-value.lic-tone-neutral {
-  color: var(--text);
-}
-.lic-tile-at,
-.lic-tile-detail {
-  color: var(--text-dim);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
 .lic-outlook {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -838,12 +803,419 @@
   }
 }
 
-/* The coverage grid: an account email heads each column; the header keeps its case, unlike the other tables. */
-.lic-coverage th {
-  text-transform: none;
-  letter-spacing: normal;
+/* ---- The Overview on one screen (the owner's redesign, 8 November 2026) ---- */
+.lic-tabs {
+  margin-bottom: 16px;
 }
-.lic-coverage-account {
-  font-weight: 600;
+
+/* The one status card. Its tone is the Gateway's: good when covered, the alarm's own tone when a machine is not ready. */
+.lic-status {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 22px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
   color: var(--text);
+}
+.lic-status.lic-tone-good {
+  background: color-mix(in srgb, var(--ok) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+.lic-status.lic-tone-warning {
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+}
+.lic-status.lic-tone-bad {
+  background: color-mix(in srgb, var(--attention) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--attention) 55%, transparent);
+}
+.lic-status-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--bg);
+  background: var(--text-dim);
+}
+.lic-status.lic-tone-good .lic-status-mark {
+  background: var(--ok);
+}
+.lic-status.lic-tone-warning .lic-status-mark {
+  background: var(--warn);
+}
+.lic-status.lic-tone-bad .lic-status-mark {
+  background: var(--attention);
+  color: var(--text);
+}
+.lic-status-body {
+  flex: 1;
+  min-width: 0;
+}
+.lic-status-headline {
+  margin: 0 0 4px;
+  font-size: 19px;
+  font-weight: 700;
+}
+.lic-status-detail,
+.lic-status-action {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.lic-status-action {
+  margin-top: 4px;
+  color: var(--text-dim);
+}
+.lic-status-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.lic-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 24px 0 8px;
+}
+.lic-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.lic-section-note {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* One tile per license: four across, two by two on a narrow screen, one column on a phone. */
+.lic-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.lic-tile {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  min-width: 0;
+}
+.lic-tile-in-use {
+  border-color: var(--accent);
+}
+.lic-tile-next {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+.lic-tile-email {
+  font-weight: 700;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.lic-role {
+  display: inline-block;
+  margin: 6px 0 12px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--surface-2);
+}
+.lic-tile-in-use .lic-role {
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.lic-tile-next .lic-role.lic-tone-good {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+}
+.lic-tile-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.lic-tile-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--text-dim);
+}
+.lic-tile-in-use .lic-tile-fill {
+  background: var(--warn);
+}
+/* The 80% line on every bar. */
+.lic-tile-line {
+  position: absolute;
+  left: 80%;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.7;
+}
+.lic-tile-figures {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lic-tile-text {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* The Machines table: one line per machine, ending in Ready for next? and the drawer button. */
+.lic-machines {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.lic-machine-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.1fr 1.5fr 1fr 48px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.lic-machine-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lic-machine-head {
+  border-top: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.lic-machine-more {
+  justify-self: end;
+}
+
+/* The grey to-dos: never red, never yellow. */
+.lic-todos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.lic-todo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.lic-todo:first-child {
+  border-top: none;
+}
+.lic-todo-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+.lic-todo-by {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.lic-tab-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+.lic-tab-link {
+  text-align: left;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lic-tab-link strong {
+  color: var(--text);
+}
+.lic-tab-link:hover,
+.lic-tab-link:focus-visible {
+  border-color: var(--accent);
+}
+
+/* One machine's drawer, from the right. */
+.lic-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  display: flex;
+  justify-content: flex-end;
+}
+.lic-drawer {
+  width: min(480px, 100%);
+  height: 100%;
+  overflow-y: auto;
+  padding: 20px 22px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.lic-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.lic-drawer-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.lic-drawer-close {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+.lic-drawer-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.lic-drawer-facts dt {
+  color: var(--text-dim);
+}
+.lic-drawer-facts dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.lic-drawer-note {
+  margin: 8px 0;
+  font-size: 13px;
+}
+.lic-drawer-section {
+  margin: 20px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.lic-drawer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lic-drawer-signin {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.lic-drawer-signin-line {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lic-drawer-actions {
+  display: grid;
+  gap: 6px;
+}
+.lic-drawer-actions p {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .lic-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Phone width: one column of tiles, the machine table as cards, the card's buttons under its words. */
+@media (max-width: 640px) {
+  .lic-status {
+    flex-wrap: wrap;
+    padding: 14px;
+    gap: 12px;
+  }
+  .lic-status-mark {
+    width: 34px;
+    height: 34px;
+    font-size: 12px;
+  }
+  .lic-status-body {
+    flex-basis: calc(100% - 48px);
+  }
+  .lic-status-actions {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+  .lic-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lic-machine-head {
+    display: none;
+  }
+  .lic-machine-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+  }
+  .lic-machine-row > span:not(:first-child)::before {
+    content: attr(data-label) ": ";
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  .lic-machine-row > span {
+    grid-column: 1;
+  }
+  .lic-machine-more {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .lic-todo {
+    flex-wrap: wrap;
+  }
+  .lic-tab-links {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lic-section-head {
+    flex-wrap: wrap;
+  }
 }

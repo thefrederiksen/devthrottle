@@ -148,7 +148,19 @@ export interface LicenseAccount {
   /** The sentence to show, whether or not one is set, and its tone. */
   approverText: string;
   approverTone: LicenseTone;
+  /** "in-use", "next" or "resting": the license's part right now, for its tile. */
+  role: LicenseRole;
+  /** The tile's label, for example "In use - 4 machines". Drawn as given. */
+  roleText: string;
+  /** Never bad or warning: red belongs to the status card alone. */
+  roleTone: LicenseTone;
+  /** The tile's one sentence. Drawn as given. */
+  tileText: string;
+  /** The moment tileText speaks of, shown beside it as a local clock time; null when none. */
+  tileAtUtc: string | null;
 }
+
+export type LicenseRole = "in-use" | "next" | "resting";
 
 /** One sign-in a machine holds: its active one, or a spare. */
 export interface LicenseHolding {
@@ -234,6 +246,12 @@ export interface LicenseMachine extends LicenseMachineRef {
   /** The Gateway's sentence, "Ready for ..." or "Not ready: ..." with what is being done about it. Drawn as given. */
   readinessText: string | null;
   readinessTone: LicenseTone | null;
+  /** The Machines table's "Ready for next?": true ready, false not ready, null nothing to judge. Never branched on for
+   *  meaning - the words and the tone beside it say it. */
+  readyForNext: boolean | null;
+  readyForNextText: string;
+  /** Bad or warning only for a machine the one license alarm names. */
+  readyForNextTone: LicenseTone;
 }
 
 /** GET /gateway/licenses. */
@@ -246,6 +264,50 @@ export interface LicenseOverview {
   machines: LicenseMachine[];
   /** Every machine that reports against every paid account: the Gateway's coverage grid, drawn as given. */
   coverage: LicenseCoverage;
+  /** The one status card: whether every machine is covered, by the same rule as the one license alarm. Null when
+   *  isEmpty. */
+  verdict: LicenseVerdict | null;
+  /** Grey to-dos, soonest first: never an alarm, never counted. */
+  todos: LicenseTodo[];
+}
+
+/** The status card of the Licenses page. Every word is the Gateway's; the page draws it in its tone. */
+export interface LicenseVerdict {
+  /** "covered" or "not-ready". */
+  state: string;
+  tone: LicenseTone;
+  headline: string;
+  detail: string;
+  /** When not ready: the one thing to do, as the alarm says it. */
+  actionText: string | null;
+  /** When not ready: the first machine named. */
+  machine: LicenseMachineRef | null;
+  /** When not ready and a sign-in fixes it: the button. */
+  fix: LicenseVerdictFix | null;
+  /** The license the card's Switch now moves machines off; null when none can be switched now. */
+  switchNowAccountEmail: string | null;
+}
+
+/** The status card's one fix: a sign-in on one machine, through the existing sign-in routes. */
+export interface LicenseVerdictFix {
+  label: string;
+  /** "add-spare" or "renew". */
+  action: string;
+  accountEmail: string;
+  machineId: string;
+}
+
+/** One grey to-do. */
+export interface LicenseTodo {
+  /** "approver", "renewal-failed" or "not-reporting". */
+  kind: string;
+  text: string;
+  /** When it starts to matter, shown as a local date; null when no date applies. */
+  mattersByUtc: string | null;
+  /** "approvers" (the Approvers and spares tab) or "machine" (that machine's drawer). */
+  opens: string;
+  machineId: string | null;
+  actionLabel: string;
 }
 
 /**
