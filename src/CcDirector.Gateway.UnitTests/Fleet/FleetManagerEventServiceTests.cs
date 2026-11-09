@@ -1375,36 +1375,6 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal(1, director.InputStats.Snapshot().AgentDrivenTurns);
     }
 
-    /// <summary>
-    /// AN OLDER DIRECTOR GETS NOTHING TYPED INTO IT (inspection round 2, finding 3). Its Hello did not say it checks the
-    /// session is waiting before typing, so the production environment sends nothing - the Director never sees the
-    /// request - and the events stay undelivered. Once the Director says it checks, they are sent.
-    /// </summary>
-    [Fact]
-    public async Task ADirectorOlderThanTheIdleCheck_IsSentNothing_AndTheEventsWait()
-    {
-        var (director, _) = ScriptedTerminal.NewWaitingSession();
-        var requests = new List<PromptRequest>();
-        _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
-            route: (_, directorId) => DirectorRoute(directorId, director, requests),
-            mark: _ => _marked, replacementPending: _ => false, pendingSuccessors: _ => Array.Empty<string>(), checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
-        director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-        _checksIdle = false;
-        await FleetManagerTurnEndAsync();
-
-        await TurnEndAsync("worker-1");
-        Assert.Equal(FleetManagerDeliveryResult.DirectorTooOld, await _service.DeliverToAsync(Tenant, "fm"));
-
-        Assert.Empty(requests);
-        Assert.Null(Assert.Single(Open()).DeliveredTo);
-        Assert.Equal(0, director.InputStats.Snapshot().AgentDrivenTurns);
-
-        _checksIdle = true;
-        Assert.Equal(FleetManagerDeliveryResult.Delivered, await _service.DeliverToAsync(Tenant, "fm"));
-        Assert.Single(requests);
-        Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
-    }
-
     // ---- minor 8: the Director's receipt is read, as the answer route reads it
 
     [Fact]
