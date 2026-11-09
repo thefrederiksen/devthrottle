@@ -410,3 +410,188 @@
 .team-report-row-questions {
   color: var(--accent-text);
 }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   A contributor's Factories and Inbox (Team implementation piece 4.1; mockup.html, the contributor's screens).
+   Layout only: every word, label and tone is the Gateway's.
+   --------------------------------------------------------------------------------------------------------------- */
+
+.contributor-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.contributor-factory-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  color: var(--text);
+  text-decoration: none;
+  border-left: 3px solid var(--ok);
+}
+
+.contributor-factory-card:hover {
+  border-color: var(--accent);
+}
+
+.contributor-card-head,
+.contributor-customer-head,
+.contributor-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.contributor-row {
+  padding: 4px 0;
+}
+
+.contributor-card-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.contributor-card-now {
+  margin-top: 4px;
+}
+
+.contributor-card-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.contributor-team-label {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.contributor-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.contributor-pill-waiting {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.contributor-pill-new {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.contributor-pill-done,
+.contributor-pill-message {
+  color: var(--text-dim);
+}
+
+.contributor-crumbs {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.contributor-customer-head {
+  margin-bottom: 18px;
+}
+
+.contributor-customer-title {
+  margin: 0 0 4px;
+}
+
+.contributor-stages {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.contributor-stage {
+  flex: 1 1 80px;
+  text-align: center;
+  font-size: 12px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.contributor-stage-done {
+  color: var(--ok-text);
+  border-color: var(--ok);
+}
+
+.contributor-stage-now {
+  color: var(--text);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.contributor-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.contributor-two-open {
+  grid-template-columns: minmax(260px, 2fr) minmax(0, 3fr);
+}
+
+.contributor-item-on {
+  border-color: var(--accent);
+}
+
+.contributor-write {
+  margin-top: 16px;
+}
+
+.contributor-write select {
+  margin-bottom: 8px;
+}
+
+.contributor-message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.contributor-trail {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 600px) {
+  .contributor-two-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* On a phone an open item takes the page; the list is one tap back. */
+  .contributor-two-open .contributor-list {
+    display: none;
+  }
+}

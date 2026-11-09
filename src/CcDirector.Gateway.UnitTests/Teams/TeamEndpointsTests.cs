@@ -81,9 +81,9 @@ public sealed class TeamEndpointsTests : IDisposable
         var byId = body.GetProperty("teams").EnumerateArray().ToDictionary(t => t.GetProperty("id").GetString()!, t => t.GetProperty("app"));
         var asCollaborator = byId[collab.TeamId];
         Assert.False(asCollaborator.GetProperty("full").GetBoolean());
-        Assert.Equal(new[] { "Questions|/questions", "Requests|/requests", "Reports|/reports" },
+        Assert.Equal(new[] { "Factories|/contributor/factories", "Inbox|/contributor/inbox" },
             asCollaborator.GetProperty("pages").EnumerateArray().Select(p => $"{p.GetProperty("label").GetString()}|{p.GetProperty("path").GetString()}"));
-        Assert.Equal("/questions", asCollaborator.GetProperty("landing").GetString());
+        Assert.Equal("/contributor/factories", asCollaborator.GetProperty("landing").GetString());
         Assert.Equal("This page is not available to contributors.", asCollaborator.GetProperty("elsewhere").GetString());
 
         var asDeveloper = byId[dev.TeamId];
@@ -93,7 +93,8 @@ public sealed class TeamEndpointsTests : IDisposable
     }
 
     /// <summary>S8's count beside Questions (devthrottle_internal#2307 review F8): the Gateway names, per team, where the
-    /// Cockpit reads it - the Questions route of THAT team - and no other page has one.</summary>
+    /// Cockpit reads it - the Questions route of THAT team - and no other page has one. A contributor's Factories and Inbox
+    /// carry no count: they show every team the person is on, and a count is read for one.</summary>
     [Fact]
     public async Task ListTeams_OnlyTheQuestionsPage_NamesWhereItsCountIsRead_InThatTeam()
     {
@@ -109,6 +110,11 @@ public sealed class TeamEndpointsTests : IDisposable
             var id = team.GetProperty("id").GetString()!;
             var counts = team.GetProperty("app").GetProperty("pages").EnumerateArray()
                 .ToDictionary(p => p.GetProperty("id").GetString()!, p => p.GetProperty("countPath"));
+            if (!team.GetProperty("app").GetProperty("full").GetBoolean())
+            {
+                Assert.All(counts.Values, c => Assert.Equal(JsonValueKind.Null, c.ValueKind));
+                continue;
+            }
             Assert.Equal($"/teams/{id}/questions", counts["questions"].GetString());
             Assert.Equal(JsonValueKind.Null, counts["requests"].ValueKind);
             Assert.Equal(JsonValueKind.Null, counts["reports"].ValueKind);

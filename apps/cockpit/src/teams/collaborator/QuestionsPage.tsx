@@ -87,7 +87,7 @@ function cardKey(q: TeamQuestion): string {
   return `${q.reportId}/${q.version}/${q.questionId}`;
 }
 
-function QuestionCard({ teamId, question, onAnswered }: { teamId: string; question: TeamQuestion; onAnswered: () => void }) {
+export function QuestionCard({ teamId, question, onAnswered }: { teamId: string; question: TeamQuestion; onAnswered: () => void }) {
   const recommended = question.options.find((o) => o.recommended)?.value ?? "";
   const [chosen, setChosen] = useState(recommended);
   const [comment, setComment] = useState("");

@@ -184,6 +184,8 @@ const TEAM_PAGE_ICONS: Readonly<Record<string, NavIconName>> = {
   questions: "questions",
   requests: "requests",
   reports: "reports",
+  factories: "factories",
+  inbox: "inbox",
 };
 
 /** The rail of a Cockpit that is only the Gateway's pages: those, in the Gateway's order, and nothing else - each with
