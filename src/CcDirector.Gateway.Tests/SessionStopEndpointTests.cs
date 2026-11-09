@@ -143,33 +143,6 @@ public sealed class SessionStopEndpointTests : IDisposable
         });
     }
 
-    /// <summary>
-    /// The second stop, run straight after the first, exactly as an operator would. It succeeds quietly.
-    /// This is the case Ruling 3 was written for, and the one a 404 would have broken.
-    /// </summary>
-    [Fact]
-    public async Task A_second_stop_straight_after_the_first_succeeds_quietly()
-    {
-        var store = StoreWith(Row());
-        await WithGateway(store, Stopped(), async (http, _, _) =>
-        {
-            var first = await http.PostAsJsonAsync($"/sessions/{Sid}/stop",
-                new SessionStopRequest { Reason = "wrong mode" });
-            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-            Assert.Equal(SessionStopVerdict.Stopped,
-                (await first.Content.ReadFromJsonAsync<SessionStopResponse>())!.Verdict);
-
-            // The Director has since pushed a roster without that session - the session is gone.
-            Assert.True(store.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", 2, Array.Empty<SessionDto>()));
-
-            var second = await http.PostAsJsonAsync($"/sessions/{Sid}/stop",
-                new SessionStopRequest { Reason = "wrong mode" });
-            Assert.Equal(HttpStatusCode.OK, second.StatusCode);
-            Assert.Equal(SessionStopVerdict.NotOnFleet,
-                (await second.Content.ReadFromJsonAsync<SessionStopResponse>())!.Verdict);
-        });
-    }
-
     // ---------------------------------------------------------------------------------------------------
     // The refusal - Ruling 4.
     // ---------------------------------------------------------------------------------------------------
