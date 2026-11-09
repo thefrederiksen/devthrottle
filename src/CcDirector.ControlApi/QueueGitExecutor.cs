@@ -248,12 +248,12 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
         if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
 
-        var item = session.PromptQueue.FindById(itemGuid);
-        if (item is null)
+        // TAKING THE ITEM IS THE CLAIM ON IT (found reviewing #4815). This used to find the item, read its
+        // text, call Remove and discard the answer, then send - so two callers who both found it both acted,
+        // and the prompt reached the agent twice. Only the caller TryTake answers true to sends.
+        if (!session.PromptQueue.TryTake(itemGuid, out var text))
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "queue item not found");
 
-        var text = item.Text;
-        session.PromptQueue.Remove(itemGuid);
         FileLog.Write($"[QueueGitExecutor] queue-send: session={guid} item={itemGuid}");
         var outcome = await session.SendTextAsync(text, SubmissionProvenance.FrameworkText(SubmissionRoutes.QueueDrain), SendSource.Framework);
         // A send that is still delivering (the agent took the Enter but has not recorded the prompt yet) is not a failure:

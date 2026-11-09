@@ -153,6 +153,36 @@ public sealed class PromptQueue
         OnQueueChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Take one item out of the queue and hand back the text it held, under ONE lock - so the removal IS the
+    /// claim on it (found reviewing #4815).
+    ///
+    /// WHY THIS EXISTS AND FindById-THEN-Remove DOES NOT DO. <c>queue-send</c> used to find the item, read
+    /// its text, call <see cref="Remove"/> and throw the answer away, then send. Two callers that are not
+    /// the same thread - the queue panel on the desktop and the <c>queue-send</c> verb from the Gateway -
+    /// could both find the same item and both act on it: the prompt typed into the agent twice, or sent once
+    /// and left sitting in the composer as well. One of the two <see cref="Remove"/> calls answered false
+    /// and nobody was listening. Only the caller this returns true to may act.
+    /// </summary>
+    public bool TryTake(Guid id, out string text)
+    {
+        lock (_gate)
+        {
+            var index = _items.FindIndex(i => i.Id == id);
+            if (index < 0)
+            {
+                text = "";
+                return false;
+            }
+            text = _items[index].Text;
+            _items.RemoveAt(index);
+        }
+
+        FileLog.Write($"[PromptQueue] TryTake: id={id}, length={text.Length}");
+        OnQueueChanged?.Invoke();
+        return true;
+    }
+
     /// <summary>Find an item by ID.</summary>
     public PromptQueueItem? FindById(Guid id)
     {

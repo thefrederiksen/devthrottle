@@ -406,4 +406,69 @@ public class PromptQueueTests
         Assert.Equal(0, queue.Count);
         Assert.False(queue.HasItems);
     }
+
+    // TAKING AN ITEM IS THE CLAIM ON IT (found reviewing #4815). queue-send used to find the item, read its
+    // text, call Remove and throw the answer away, then send - so the desktop's pop and the Gateway's
+    // queue-send could both find the same item and both act on it: typed into the agent twice, or sent once
+    // and left in the composer to be sent again by hand. One of the two Remove calls said false and nobody
+    // was listening.
+
+    [Fact]
+    public void TryTake_GivesTheTextAndRemovesTheItem()
+    {
+        var queue = new PromptQueue();
+        var item = queue.Enqueue("ship the release notes");
+
+        Assert.True(queue.TryTake(item.Id, out var text));
+
+        Assert.Equal("ship the release notes", text);
+        Assert.Empty(queue.Items);
+    }
+
+    [Fact]
+    public void TryTake_AnItemThatIsNotThere_GivesNothing()
+    {
+        var queue = new PromptQueue();
+        queue.Enqueue("still here");
+
+        Assert.False(queue.TryTake(Guid.NewGuid(), out var text));
+
+        Assert.Equal("", text);
+        Assert.Single(queue.Items);
+    }
+
+    [Fact]
+    public void TryTake_TheSameItemTwice_AnswersTrueExactlyOnce()
+    {
+        var queue = new PromptQueue();
+        var item = queue.Enqueue("send me once");
+
+        Assert.True(queue.TryTake(item.Id, out var first));
+        Assert.False(queue.TryTake(item.Id, out var second));
+
+        Assert.Equal("send me once", first);
+        Assert.Equal("", second);
+    }
+
+    [Fact]
+    public async Task TryTake_FromManyThreadsAtOnce_GivesEachItemToExactlyOneOfThem()
+    {
+        // The property that stops a queued prompt being sent twice: whatever the interleaving, one caller
+        // and only one is handed each item's text. Cannot fail on correct code.
+        var queue = new PromptQueue();
+        var ids = Enumerable.Range(0, 500).Select(i => queue.Enqueue($"prompt {i}").Id).ToList();
+
+        var taken = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
+        {
+            var mine = new List<string>();
+            foreach (var id in ids)
+                if (queue.TryTake(id, out var text)) mine.Add(text);
+            return mine;
+        })));
+
+        var all = taken.SelectMany(t => t).ToList();
+        Assert.Equal(ids.Count, all.Count);                 // every item taken
+        Assert.Equal(ids.Count, all.Distinct().Count());    // and none of them twice
+        Assert.Equal(0, queue.Count);
+    }
 }
