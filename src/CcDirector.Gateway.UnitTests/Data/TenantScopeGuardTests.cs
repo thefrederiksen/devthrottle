@@ -133,6 +133,10 @@ public sealed class TenantScopeGuardTests : IDisposable
         //    same reason as the team's bill: keyed by the team id, which IS a tenant id. Written only by TeamGovernanceStore,
         //    after the role table allowed the change, and served only to the team's Owner, Managers and Developers.
         //
+        //  - TeamMembershipEventEntity is the durable record of a team's membership changes (security review Risk 12).
+        //    Global like team_members, whose change it records: keyed by the team id, which IS a tenant id, and written
+        //    only by TeamRegistry in the same save as the change. Served to nobody yet.
+        //
         //  - DeviceCredentialEntity is the device registry (MTR-14) - an AUTH-RESOLUTION lookup, not tenant
         //    data. A presented key is resolved to its device by its SHA-256 hash BEFORE any tenant is known, and
         //    the tenant is then READ OFF the matched record (each row carries its own tenant binding as a
@@ -201,6 +205,7 @@ public sealed class TenantScopeGuardTests : IDisposable
             typeof(TeamGovernanceEntity),
             typeof(TeamGovernanceItemEntity),
             typeof(TeamGovernanceChangeEntity),
+            typeof(TeamMembershipEventEntity),
             typeof(AccountTrialEntity),
             typeof(TrialExtensionEntity),
             typeof(DeviceCredentialEntity),
