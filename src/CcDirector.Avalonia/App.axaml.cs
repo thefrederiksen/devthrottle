@@ -213,6 +213,13 @@ public partial class App : Application
     /// When multiple named instances exist and none was explicitly requested via
     /// <c>--instance</c>, show the selection box. Returns true when this process should
     /// abort because it relaunched a different instance; false to continue as the default.
+    ///
+    /// THE WINDOW CANNOT STOP THE START ANY MORE (issue #4552). It is given
+    /// <see cref="UnattendedStart.PickerBudget"/> to be answered; past that the start goes on as the
+    /// default instance, which is what cancelling it has always done. A machine that boots with nobody
+    /// at its screen used to stop here for ever - alive, behind a window, never reaching the Gateway, so
+    /// every scheduled run on it failed saying there was no Director. See <see cref="UnattendedStart"/>
+    /// for that night and for why going on as the default is not a guess.
     /// </summary>
     private static async Task<bool> MaybePickInstanceAsync(Window owner)
     {
@@ -226,7 +233,17 @@ public partial class App : Application
                 return false;
 
             var dlg = new SelectDirectorDialog("Which director do you want to launch?");
-            var ok = await dlg.ShowDialog<bool?>(owner);
+            var (answered, ok) = await UnattendedStart.AnswerOrNobodyThere(
+                dlg.ShowDialog<bool?>(owner), Task.Delay(UnattendedStart.PickerBudget));
+            if (!answered)
+            {
+                FileLog.Write($"[App] MaybePickInstance: nobody answered the instance picker in "
+                              + $"{UnattendedStart.PickerBudget.TotalSeconds:F0}s, so this start goes on as the "
+                              + $"default instance rather than waiting on a window (issue #4552). "
+                              + $"{instances.Count} instances are registered.");
+                dlg.Close();
+                return false;
+            }
             if (ok != true)
                 return false; // cancelled -> continue as the default instance
 
