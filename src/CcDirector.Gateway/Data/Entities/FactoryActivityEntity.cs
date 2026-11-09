@@ -53,4 +53,8 @@ public sealed class FactoryActivityEntity : GatewayMintedKeyEntity
 
     /// <summary>When the Gateway appended the row (server-stamped).</summary>
     public DateTime RecordedUtc { get; set; }
+
+    /// <summary>The step described for a team contributor (a customer, not a developer), at most 500
+    /// characters, stored exactly as written; null when the writer gave none.</summary>
+    public string? ForContributor { get; set; }
 }

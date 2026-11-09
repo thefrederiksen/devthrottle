@@ -1270,6 +1270,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ForContributor")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Link")
                         .HasMaxLength(2048)
                         .HasColumnType("TEXT");

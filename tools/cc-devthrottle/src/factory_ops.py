@@ -68,8 +68,13 @@ def record(
     version: Optional[str],
     corrects: Optional[str],
     json_output: bool,
+    for_contributor: Optional[str] = None,
 ) -> None:
-    """Append one row and print its id. Exits non-zero whenever the row was not written."""
+    """Append one row and print its id. Exits non-zero whenever the row was not written.
+
+    ``for_contributor`` is the step in one sentence for a team contributor; it is sent exactly as given, and
+    only when given.
+    """
     body: Dict[str, Any] = {
         "factory": factory,
         "factoryAgent": agent,
@@ -84,6 +89,8 @@ def record(
         body["factoryAgentVersion"] = version
     if corrects is not None:
         body["correctsId"] = corrects
+    if for_contributor is not None:
+        body["forContributor"] = for_contributor
 
     try:
         answer = gateway.post_json(ROUTE, body)

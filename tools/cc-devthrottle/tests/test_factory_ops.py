@@ -127,6 +127,41 @@ def test_record_TheTalkedLineOfATalk_SendsTheBriefVersionTheTalkWasGiven(gateway
     }
 
 
+def test_record_ForContributor_ReachesTheBodyExactlyAsGiven(gateway_answering):
+    # The sentence for a team contributor travels in the request body untouched: same characters, same spacing.
+    gw = gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
+    sentence = "We checked your site's contact form  - it now sends to you, and the old address is gone."
+
+    result = runner.invoke(app, RECORD + ["--for-contributor", sentence])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"]["forContributor"] == sentence
+
+
+def test_record_NoForContributor_SendsNoValue(gateway_answering):
+    # Omitting the flag sends no key at all, so the Gateway stores none - never an empty string.
+    gw = gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
+
+    result = runner.invoke(app, RECORD)
+
+    assert result.exit_code == 0, result.output
+    assert "forContributor" not in gw.calls[0]["body"]
+
+
+def test_record_ForContributorRefused_ExitsOneWithTheGatewaysSentence(gateway_answering):
+    # The Gateway refuses a contributor sentence that names a machine, holds a path or an address; the command
+    # exits 1 and shows the Gateway's own sentence, and prints no row id.
+    refusal = ("The sentence for a contributor names the machine 'SOREN_NORTH'. A contributor never sees a machine: "
+               "describe the step without naming it.")
+    gateway_answering(400, {"error": refusal})
+
+    result = runner.invoke(app, RECORD + ["--for-contributor", "Rebuilt on SOREN_NORTH."])
+
+    assert result.exit_code == 1
+    assert refusal in result.stderr
+    assert ROW_ID not in result.stdout
+
+
 def test_record_Json_PrintsTheGatewaysRow(gateway_answering):
     gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
 

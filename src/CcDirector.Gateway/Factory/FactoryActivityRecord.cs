@@ -52,6 +52,9 @@ public sealed class FactoryActivityRecord
     /// <summary>The longest actor.</summary>
     public const int MaxActorChars = 256;
 
+    /// <summary>The longest sentence for a team contributor.</summary>
+    public const int MaxForContributorChars = 500;
+
     /// <summary>The page size when the caller names none.</summary>
     public const int DefaultPageSize = 100;
 
@@ -126,7 +129,8 @@ public sealed class FactoryActivityRecord
             ctx.FactoryActivity.Add(entity);
             ctx.SaveChanges();
             FileLog.Write($"[FactoryActivityRecord] Append: id={entity.Id}, factory={entity.Factory}, agent={entity.FactoryAgent}, " +
-                          $"outcome={entity.Outcome}, actor={entity.Actor}, corrects={entity.CorrectsId?.ToString() ?? "-"}");
+                          $"outcome={entity.Outcome}, actor={entity.Actor}, corrects={entity.CorrectsId?.ToString() ?? "-"}, " +
+                          $"forContributor={(entity.ForContributor is null ? "-" : entity.ForContributor.Length + " chars")}");
             return ToDto(entity);
         }
     }
@@ -151,6 +155,10 @@ public sealed class FactoryActivityRecord
         var sessionId = Optional(request.SessionId, "session id", MaxSessionIdChars);
         var subject = Optional(request.Subject, "subject", MaxSubjectChars);
         var link = Optional(request.Link, "link", MaxLinkChars);
+        var forContributor = Optional(request.ForContributor, "sentence for a contributor", MaxForContributorChars);
+        if (forContributor is not null
+            && ContributorSentenceCheck.Refusal(forContributor, MachineNamesOf(ctx)) is { } contributorRefusal)
+            throw new FactoryActivityValidationException(contributorRefusal);
 
         var actor = Optional(request.Actor, "actor", MaxActorChars)
             ?? Optional(callingActor, "actor", MaxActorChars)
@@ -181,6 +189,7 @@ public sealed class FactoryActivityRecord
             CorrectsId = request.CorrectsId,
             OccurredUtc = occurred,
             RecordedUtc = now,
+            ForContributor = forContributor,
         };
     }
 
@@ -282,6 +291,23 @@ public sealed class FactoryActivityRecord
         }
     }
 
+    // The names of the machines on the row's account, for the contributor sentence's machine rule: every device the
+    // account ever enrolled, revoked ones included - a name that was once a machine of the account is still one. The
+    // device table is global (a key is resolved before any tenant is known), so the account is matched on its own
+    // column; the single-tenant local install binds no tenant, which there means the local account.
+    private static List<string> MachineNamesOf(GatewayDbContext ctx)
+    {
+        var tenant = ctx.ActiveTenant!;
+        var local = string.Equals(tenant, TenantId.Local.Value, StringComparison.Ordinal);
+        var names = ctx.DeviceCredentials.AsNoTracking()
+            .Where(d => d.TenantId == tenant || (local && d.TenantId == null))
+            .Select(d => d.MachineName)
+            .Distinct()
+            .ToList();
+        FileLog.Write($"[FactoryActivityRecord] MachineNamesOf: machines={names.Count}");
+        return names;
+    }
+
     private static string Required(string? value, string name, int max)
     {
         var trimmed = value?.Trim();
@@ -317,5 +343,6 @@ public sealed class FactoryActivityRecord
         CorrectsId = e.CorrectsId,
         OccurredUtc = DateTime.SpecifyKind(e.OccurredUtc, DateTimeKind.Utc),
         RecordedUtc = DateTime.SpecifyKind(e.RecordedUtc, DateTimeKind.Utc),
+        ForContributor = e.ForContributor,
     };
 }

@@ -1946,7 +1946,8 @@ USAGE: cc-devthrottle factory COMMAND [ARGS]...
 
 COMMANDS:
   record --factory ID --agent ID --outcome OUTCOME --what "SENTENCE"
-         [--subject TEXT] [--link URL] [--version V] [--corrects ROW-ID] [--json]
+         [--subject TEXT] [--link URL] [--version V] [--corrects ROW-ID]
+         [--for-contributor "SENTENCE"] [--json]
   activity [--factory ID] [--agent ID] [--outcome OUTCOME] [--from UTC] [--to UTC]
            [--oldest-first] [--offset N] [--count N | -n N] [--json]
 ```
@@ -1956,6 +1957,10 @@ COMMANDS:
 Gateway with the list. `skipped` is a trigger check that did not start a session because the one it started
 last is still running. `talked` is the line a talk with the owner leaves; the factory's page shows the
 newest as "Last talk with you". `screened` is a Mail Desk screening check the Gateway screened. `--what` is one plain sentence of at most 500 characters.
+`--for-contributor` is the same step in one sentence for a team contributor (a customer, not a developer), at most
+500 characters; it is stored exactly as written and nothing rewords it. A contributor never sees a machine, so the
+Gateway refuses the row (exit 1, with its sentence) when this sentence names one of the account's machines, holds a
+folder path (`C:\`, `D:/`, `\\server`, `/home/`, `/Users/`, `/mnt/`, `~/` and the like) or holds an email address.
 
 `record` prints the new row's id on its first line (`--json` prints the whole row) and exits 0 ONLY
 when the Gateway returned that id. It exits 1 with the reason whenever the row was not written: the
