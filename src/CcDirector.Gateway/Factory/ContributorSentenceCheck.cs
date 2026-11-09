@@ -26,6 +26,22 @@ public static class ContributorSentenceCheck
     // A network path: two backslashes followed by a server name ("\\server\share").
     private static readonly Regex NetworkPath = new(@"\\\\[^\s\\]", RegexOptions.CultureInvariant);
 
+    // A network path written with forward slashes ("//server/share"): two slashes, a server name and a slash. Not
+    // preceded by a colon, a word character or a slash, so a web address ("https://example.test/page") is not one.
+    private static readonly Regex ForwardSlashNetworkPath = new(
+        @"(?<![:\p{L}\p{Nd}_/])//[\p{L}\p{Nd}][\p{L}\p{Nd}_.\-]*/", RegexOptions.CultureInvariant);
+
+    // A path that starts at an environment variable: "%APPDATA%\", "$HOME/", "$env:USERPROFILE\". The name must
+    // start with a letter or an underscore, so "100% of it" and "costs $5" are not paths.
+    private static readonly Regex EnvironmentVariablePath = new(
+        @"(?:%[A-Za-z_][A-Za-z0-9_]*%|\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*)[\\/]",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    // The characters a machine name may be written with in its place: "SOREN_NORTH" is also "soren-north",
+    // "soren.north" and "soren north".
+    private static readonly char[] NameSeparators = { '_', '-', '.', ' ' };
+    private const string NameSeparatorPattern = @"[_\-. ]+";
+
     // A rooted Unix path under a well-known top folder, or a home-relative path ("~/"). Not preceded by a word
     // character or a dot, so "and/or", "km/h" and "1/2" are not paths.
     private static readonly Regex UnixPath = new(
@@ -39,7 +55,8 @@ public static class ContributorSentenceCheck
 
     /// <summary>
     /// The refusal for <paramref name="sentence"/>, or null when it meets every rule. A machine name is matched
-    /// without regard to case and only as a whole word. Blank machine names are ignored.
+    /// without regard to case, only as a whole word, and with its separators (underscore, hyphen, dot, space) treated
+    /// as one another. Blank machine names are ignored.
     /// </summary>
     public static string? Refusal(string sentence, IEnumerable<string> machineNames)
     {
@@ -52,7 +69,8 @@ public static class ContributorSentenceCheck
 
         foreach (var name in names)
         {
-            var wholeWord = new Regex($"(?<!{WordChar}){Regex.Escape(name)}(?!{WordChar})",
+            var parts = name.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries).Select(Regex.Escape);
+            var wholeWord = new Regex($"(?<!{WordChar}){string.Join(NameSeparatorPattern, parts)}(?!{WordChar})",
                 RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
             if (wholeWord.IsMatch(sentence))
             {
@@ -62,7 +80,8 @@ public static class ContributorSentenceCheck
             }
         }
 
-        if (DrivePath.IsMatch(sentence) || NetworkPath.IsMatch(sentence) || UnixPath.IsMatch(sentence))
+        if (DrivePath.IsMatch(sentence) || NetworkPath.IsMatch(sentence) || ForwardSlashNetworkPath.IsMatch(sentence)
+            || UnixPath.IsMatch(sentence) || EnvironmentVariablePath.IsMatch(sentence))
         {
             FileLog.Write($"[ContributorSentenceCheck] Refusal: holds a folder path, chars={sentence.Length}");
             return "The sentence for a contributor holds a folder path. A contributor never sees a machine: " +

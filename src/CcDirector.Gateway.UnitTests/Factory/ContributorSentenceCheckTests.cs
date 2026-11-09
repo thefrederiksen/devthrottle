@@ -21,6 +21,10 @@ public sealed class ContributorSentenceCheckTests
     [InlineData("The site was rebuilt on soren_north tonight.", "SOREN_NORTH")]
     [InlineData("Devlinux sent the new page.", "devlinux")]
     [InlineData("Built on dev-machine-1, then published.", "dev-machine-1")]
+    [InlineData("The site was rebuilt on SOREN-NORTH.", "SOREN_NORTH")]
+    [InlineData("The site was rebuilt on soren north.", "SOREN_NORTH")]
+    [InlineData("The site was rebuilt on soren.north.", "SOREN_NORTH")]
+    [InlineData("Built on dev machine 1, then published.", "dev-machine-1")]
     public void Refusal_SentenceNamesAMachine_RefusesNamingTheMachine(string sentence, string machine)
     {
         var refusal = ContributorSentenceCheck.Refusal(sentence, Machines);
@@ -33,6 +37,9 @@ public sealed class ContributorSentenceCheckTests
     [InlineData("We checked your devlinuxish theme and fixed the colours.")]
     [InlineData("The north entrance photo is now on the home page.")]
     [InlineData("Your dev-machine-10 order page is live.")]
+    [InlineData("Soren approved the new photos.")]
+    [InlineData("The north wall photo is new.")]
+    [InlineData("Soren walked the north side of the shop.")]
     public void Refusal_WordMerelyContainsAMachineName_Passes(string sentence)
     {
         Assert.Null(ContributorSentenceCheck.Refusal(sentence, Machines));
@@ -56,6 +63,12 @@ public sealed class ContributorSentenceCheckTests
     [InlineData("Saved under /Users/soren/sites.")]
     [InlineData("Saved under /mnt/data/sites.")]
     [InlineData("Saved under ~/sites.")]
+    [InlineData(@"Saved under %APPDATA%\sites.")]
+    [InlineData("Saved under %USERPROFILE%/sites.")]
+    [InlineData(@"Saved under C:\Users\soren/sites.")]
+    [InlineData("Saved under $HOME/sites.")]
+    [InlineData(@"Saved under $env:USERPROFILE\sites.")]
+    [InlineData("Copied to //fileserver/share/photos.")]
     public void Refusal_SentenceHoldsAFolderPath_RefusesWithThePathRule(string sentence)
     {
         var refusal = ContributorSentenceCheck.Refusal(sentence, Machines);
@@ -70,6 +83,10 @@ public sealed class ContributorSentenceCheckTests
     [InlineData("Delivery is free within 10 km/h of the shop, about 1/2 an hour.")]
     [InlineData("The home page and the Users guide were both updated.")]
     [InlineData(@"Prices now show as 5\10 on the sale page.")]
+    [InlineData("We finished 100% of it, and 50%/50% split the work.")]
+    [InlineData("The new plan costs $5/month, about $60 a year.")]
+    [InlineData("Your page is live at https://pinevalley.example/menu now.")]
+    [InlineData("The old address http://pinevalley.example/ now forwards to the new one.")]
     public void Refusal_SlashOrColonThatIsNotAPath_Passes(string sentence)
     {
         Assert.Null(ContributorSentenceCheck.Refusal(sentence, Machines));
