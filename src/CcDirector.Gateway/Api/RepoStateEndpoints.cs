@@ -29,10 +29,19 @@ internal static class RepoStateEndpoints
 {
     public const string Path = "/gateway/repostate";
 
+    /// <summary>What a team caller is told when a push names a Director that is not theirs.</summary>
+    internal const string TeamRefusal =
+        "Inside a team a Director pushes only its own repositories, and DevThrottle cannot show that the Director this " +
+        "push names is one of yours. Nothing was stored.";
+
     public static void Map(IEndpointRouteBuilder app, RepoStateStore store,
         // REQUIRED AND NON-NULLABLE (finding I1-01): a forgotten boundary must be a compile error, never a
         // silent default. Self-host callers construct it over the SingleTenantContext.
-        Tenancy.HostedTenantBoundary tenantBoundary, Func<DateTime>? utcNow = null)
+        Tenancy.HostedTenantBoundary tenantBoundary, Func<DateTime>? utcNow = null,
+        // Team implementation 3.1a (devthrottle_internal#2829): the caller inside a team's tenant, or null for a personal
+        // account. In a team the Director the push names must be one of the caller's own. Null as a delegate makes a team
+        // request fail loud rather than store a push for anyone's Director.
+        Func<HttpContext, TenantId, Teams.TeamCaller?>? teamCaller = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         var now = utcNow ?? (() => DateTime.UtcNow);
@@ -50,6 +59,13 @@ internal static class RepoStateEndpoints
                 return Results.BadRequest(new { error = "a repo-state push body is required" });
             if (string.IsNullOrWhiteSpace(request.DirectorId))
                 return Results.BadRequest(new { error = "directorId is required" });
+
+            if (GatewayEndpoints.RosterTeamCaller(ctx, tenant.Value, teamCaller) is { } team && !team.OwnsDirector(request.DirectorId))
+            {
+                FileLog.Write($"[RepoStateEndpoints] POST {Path}: REFUSED in a team, director={request.DirectorId} is not shown to be the caller's own");
+                return Results.Json(new { error = TeamRefusal, code = Teams.TeamEndpointGate.RefusalCode },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
 
             var receivedAtUtc = now();
             try

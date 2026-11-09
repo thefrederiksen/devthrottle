@@ -109,7 +109,7 @@ public sealed class TeamCallerOwnership
             return TeamOwnership.Callers;
         if (IsLauncherOwnMachineRoute(pattern, method))
             return TeamOwnership.Callers;
-        if (IsWorkspaceWriteOfOwnDirector(pattern, method))
+        if (IsRestartRecordRouteOfOwnDirector(pattern, method))
             return TeamOwnership.Callers;
         if (string.Equals(pattern, NumberPattern, StringComparison.Ordinal))
             return OwnerOfNumber(tenant, routeValue("sessionId"), callerSubject);
@@ -211,17 +211,32 @@ public sealed class TeamCallerOwnership
     }
 
     /// <summary>
-    /// THE TWO WRITES A DIRECTOR MAKES FOR THE RECORD OF ITS OWN SHUTDOWN (devthrottle_internal#2829): the capture
-    /// (<c>POST /gateway/workspaces</c>) names the Director in its body, and a save (<c>PUT /gateway/workspaces/{id}</c>)
-    /// keeps the Director stored on the record it updates - neither of which the gate can read. So the gate lets them
-    /// through and the endpoint refuses, inside a team, a capture of a Director that is not the caller's own
-    /// (<see cref="TeamCaller.OwnsDirector"/>) and a save of anything but an existing record captured from one: a new
-    /// workspace written by hand belongs to no Director, so it cannot be shown to be anyone's. Deleting a workspace, a
-    /// crash record and the restore routes are not these, and stay Unknown and refused.
+    /// THE ROUTES OF A DIRECTOR'S OWN RESTART RECORD, ON THE WAY DOWN AND BACK UP (devthrottle_internal#2829), and its
+    /// repository push. Each names a Director in its body (a capture, a crash record, the Director a restore runs on,
+    /// the Director that wrote a mark or passes dev reports, a repository push) or keeps one on the stored record it
+    /// reads or writes - neither of which the gate can read. So the gate lets them through and the endpoint refuses,
+    /// inside a team, any of them for a Director that is not the caller's own (<see cref="TeamCaller.OwnsDirector"/>),
+    /// and a record that names no Director - a workspace written by hand - because it cannot be shown to be anyone's.
+    /// Deleting a record is not one of these, and stays Unknown and refused.
     /// </summary>
-    internal static bool IsWorkspaceWriteOfOwnDirector(string pattern, string? method) =>
-        (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) && string.Equals(pattern, "/gateway/workspaces", StringComparison.Ordinal))
-        || (string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase) && string.Equals(pattern, "/gateway/workspaces/{id}", StringComparison.Ordinal));
+    internal static bool IsRestartRecordRouteOfOwnDirector(string pattern, string? method)
+    {
+        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(pattern, "/gateway/workspaces/{id}", StringComparison.Ordinal);
+        if (string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(pattern, "/gateway/workspaces/{id}", StringComparison.Ordinal);
+        return string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) && RestartRecordPosts.Contains(pattern);
+    }
+
+    private static readonly IReadOnlySet<string> RestartRecordPosts = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "/gateway/workspaces",
+        "/gateway/workspaces/crash-records",
+        "/gateway/workspaces/{id}/restore",
+        "/gateway/workspaces/{id}/restore/marks",
+        "/gateway/workspaces/{id}/restore/dev-reports",
+        Api.RepoStateEndpoints.Path,
+    };
 
     /// <summary>The launcher's command stream.</summary>
     internal const string LauncherStreamPath = "/launcher-stream";

@@ -271,13 +271,19 @@ public static class TeamEndpointRules
         // belongs to no Director, so it cannot be shown to be anyone's and is left out; every other workspace route stays
         // undeclared and refused.
         new TeamEndpointRule("/gateway/workspaces", TeamMethods.Read, Sessions, TeamTarget.ListCutToCallersOwn, Exact: true),
-        // A member's own Director writing the record of its own shutdown (devthrottle_internal#2829): the capture names
-        // the Director in its body and a save keeps the Director stored on the record, so the endpoint checks that it is
-        // the caller's own (TeamCallerOwnership.IsWorkspaceWriteOfOwnDirector). Only the capture (POST) and the save
-        // (PUT) are answered as the caller's; deleting a workspace, writing one by hand, a crash record and every restore
-        // route stay refused in a team.
+        // A member's own Director's restart record, on the way down and back up (devthrottle_internal#2829): the capture,
+        // the saves of its drain, reading the record, a crash record, the restore and what the restore did. Each names its
+        // Director in the body or keeps it on the stored record, so the endpoint checks that every one is the caller's own
+        // (TeamCallerOwnership.IsRestartRecordRouteOfOwnDirector). Deleting a record and writing one by hand stay refused.
         new TeamEndpointRule("/gateway/workspaces", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
-        new TeamEndpointRule("/gateway/workspaces/{id}", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/{id}", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/crash-records", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/{id}/restore", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/{id}/restore/marks", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/{id}/restore/dev-reports", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        // What a member's own Director pushes about its own repositories: the body names the Director, and the endpoint
+        // checks that it is the caller's own.
+        new TeamEndpointRule(Api.RepoStateEndpoints.Path, TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
         // The errors a member's own Director logged: filed under the calling key's own device, so what it writes can only
         // be the caller's. Reading them back (GET) stays undeclared: in a team it would read every member's.
         new TeamEndpointRule(Api.DirectorErrorEndpoints.Path, TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),

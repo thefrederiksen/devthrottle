@@ -7,6 +7,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Reports;
 using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tenancy;
@@ -48,6 +49,7 @@ public sealed class TeamShutdownRecordTests : IAsyncLifetime
     private readonly TeamCallerOwnership _ownership;
     private readonly TeamEndpointGate _gate;
     private readonly WorkspaceStore _store;
+    private readonly RepoStateStore _repoState;
     private readonly TenantId _teamA;
     private readonly TenantId _teamB;
     private readonly TenantId _alicePersonal;
@@ -70,6 +72,7 @@ public sealed class TeamShutdownRecordTests : IAsyncLifetime
             new SessionKeyRegistry(db, isHosted: true));
         _gate = new TeamEndpointGate(new TeamAccess(_teams), _teams, tenants, _boundary, _ownership);
         _store = new WorkspaceStore(db);
+        _repoState = new RepoStateStore(db);
 
         _teamA = new TenantId(_teams.CreateTeam(Owner, "A").Team!.TeamId);
         _teamB = new TenantId(_teams.CreateTeam(Owner, "B").Team!.TeamId);
@@ -114,15 +117,22 @@ public sealed class TeamShutdownRecordTests : IAsyncLifetime
             // Every Director here is connected and running nothing: a real, empty answer.
             connectedFleet: _ => (FleetObservation.Observed, Array.Empty<SessionDto>()),
             lookupDirector: id => new[] { _teamA, _teamB, _alicePersonal }.Select(t => _directors.Get(t, id)).FirstOrDefault(d => d is not null),
-            sendRestore: (_, _, _) => Task.FromResult<DirectorCommandResult?>(null),
-            callerIsDirector: (_, _) => false,
-            passDevReports: (_, _, _) => throw new InvalidOperationException("no dev reports in these tests"),
+            // The Director takes the restore; the seats it would start are not these tests' business.
+            sendRestore: (_, _, _) => Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success("{\"accepted\":true}")),
+            // The credential is the named Director's, so the team check is the only one that can refuse here.
+            callerIsDirector: (_, _) => true,
+            passDevReports: (_, req, _) => new WorkspaceDevReportPassResult { FromSessionId = req.SeatSessionId, ToSessionId = req.SeatSessionId },
             // As the Gateway host wires it (GatewayHost.TeamCallerFor): the caller in a team, as the gate allowed them.
             teamCaller: ctx => _boundary.ResolveRequestTenant(ctx) is { } tenant && _teams.IsTeam(tenant)
                 ? _ownership.CallerIn(tenant,
                     string.Equals(TeamEndpointGate.AllowedTeam(ctx), tenant.Value, StringComparison.Ordinal) ? TeamEndpointGate.AllowedCaller(ctx) : null,
                     AuthMiddleware.AuthenticatedDevice(ctx), AuthMiddleware.CallingSession(ctx))
                 : null);
+        RepoStateEndpoints.Map(_app, _repoState, _boundary, teamCaller: (ctx, tenant) => _teams.IsTeam(tenant)
+            ? _ownership.CallerIn(tenant,
+                string.Equals(TeamEndpointGate.AllowedTeam(ctx), tenant.Value, StringComparison.Ordinal) ? TeamEndpointGate.AllowedCaller(ctx) : null,
+                AuthMiddleware.AuthenticatedDevice(ctx), AuthMiddleware.CallingSession(ctx))
+            : null);
         await _app.StartAsync();
         _http = _app.GetTestClient();
     }
@@ -267,17 +277,133 @@ public sealed class TeamShutdownRecordTests : IAsyncLifetime
             _ => _ownership.Whose(_teamA, Alice, pattern, _ => null, method)).Outcome);
     }
 
-    // Shows: only the capture and the save are answered as the caller's own; every other workspace write stays Unknown.
+    // Shows: the restart record's routes, down and back up, are answered as the caller's for the endpoint to check;
+    // deleting a record and the link requests stay Unknown.
     [Theory]
     [InlineData("POST", "/gateway/workspaces", true)]
     [InlineData("PUT", "/gateway/workspaces/{id}", true)]
+    [InlineData("GET", "/gateway/workspaces/{id}", true)]
+    [InlineData("POST", "/gateway/workspaces/crash-records", true)]
+    [InlineData("POST", "/gateway/workspaces/{id}/restore", true)]
+    [InlineData("POST", "/gateway/workspaces/{id}/restore/marks", true)]
+    [InlineData("POST", "/gateway/workspaces/{id}/restore/dev-reports", true)]
+    [InlineData("POST", "/gateway/repostate", true)]
     [InlineData("DELETE", "/gateway/workspaces/{id}", false)]
-    [InlineData("POST", "/gateway/workspaces/crash-records", false)]
-    [InlineData("POST", "/gateway/workspaces/{id}/restore", false)]
-    public void Whose_OnlyTheTwoShutdownWrites_AreTheCallersForTheEndpointToCheck(string method, string pattern, bool callers)
+    [InlineData("GET", "/fleet/link-requests", false)]
+    public void Whose_TheRestartRecordRoutes_AreTheCallersForTheEndpointToCheck(string method, string pattern, bool callers)
     {
         Assert.Equal(callers ? TeamOwnership.Callers : TeamOwnership.Unknown,
             _ownership.Whose(_teamA, Alice, pattern, _ => "x", method));
+    }
+
+    // ---- the way back up ---------------------------------------------------------------------------------------------
+
+    private static CrashJournalDto Journal(string deadDirector) => new()
+    {
+        DirectorId = deadDirector,
+        Pid = 4242,
+        MachineName = "ALICE-PC",
+        User = "u",
+        StartedAtUtc = new DateTimeOffset(HelloAt.AddHours(-2)),
+        LastUpdatedUtc = new DateTimeOffset(HelloAt.AddHours(-1)),
+        Sessions = new List<CrashJournalSessionDto> { new() { SessionId = "33333333-3333-3333-3333-333333333333", Name = "Worker", RepoPath = "D:/repos/alice" } },
+    };
+
+    private Task<(HttpStatusCode Status, JsonElement Body)> CrashRecordAsync(string key, string directorId) =>
+        SendAsync(HttpMethod.Post, "/gateway/workspaces/crash-records", key, new WorkspaceCrashRecordRequest
+        {
+            Id = WorkspaceCrashRecords.IdFor(Journal(directorId)),
+            DirectorId = directorId,
+            Journal = Journal(directorId),
+        });
+
+    // Shows: after a restart, Alice's own team Director reads its record, asks for the restore, writes what the restore
+    // did and passes a seat's dev reports - the whole way back up a smart restart takes. Each was refused before as
+    // "not been opened to teams yet".
+    [Fact]
+    public async Task WayUp_TheTeamDirectorsOwnRecord_IsReadRestoredMarkedAndItsReportsPassed()
+    {
+        Assert.Equal(HttpStatusCode.Created, (await CaptureAsync(_aliceKey, "alice-up", "director-alice")).Status);
+
+        var read = await SendAsync(HttpMethod.Get, "/gateway/workspaces/alice-up", _aliceKey);
+        Assert.Equal(HttpStatusCode.OK, read.Status);
+        Assert.Equal("director-alice", read.Body.GetProperty("directorId").GetString());
+
+        var restored = await SendAsync(HttpMethod.Post, "/gateway/workspaces/alice-up/restore", _aliceKey,
+            new WorkspaceRestoreRequest { DirectorId = "director-alice" });
+        Assert.Equal(HttpStatusCode.Accepted, restored.Status);
+
+        var marked = await SendAsync(HttpMethod.Post, "/gateway/workspaces/alice-up/restore/marks", _aliceKey,
+            new WorkspaceRestoreMark { DirectorId = "director-alice", Kind = WorkspaceRestoreMarkKinds.Finished });
+        Assert.Equal(HttpStatusCode.OK, marked.Status);
+
+        var passed = await SendAsync(HttpMethod.Post, "/gateway/workspaces/alice-up/restore/dev-reports", _aliceKey,
+            new WorkspaceDevReportPassRequest { DirectorId = "director-alice", SeatSessionId = "seat-1" });
+        Assert.Equal(HttpStatusCode.OK, passed.Status);
+    }
+
+    // Shows: Alice's own team Director sends the crash journal of the Director that ran before it, and pushes its own
+    // repositories.
+    [Fact]
+    public async Task WayUp_TheOwnDirectorsCrashRecordAndRepositoryPush_AreAccepted()
+    {
+        var crash = await CrashRecordAsync(_aliceKey, "director-alice");
+        Assert.True(crash.Status == HttpStatusCode.Created, crash.Body.ToString());
+
+        var pushed = await SendAsync(HttpMethod.Post, RepoStateEndpoints.Path, _aliceKey,
+            new RepoStatePushRequest { DirectorId = "director-alice", MachineName = "ALICE-PC" });
+        Assert.Equal(HttpStatusCode.OK, pushed.Status);
+    }
+
+    // Shows: Alice cannot read, restore, mark or pass the reports of Bob's record - nor restore her own record onto
+    // Bob's Director - and a record that does not exist is refused the same way, so the answer never says which
+    // records a colleague has.
+    [Fact]
+    public async Task WayUp_AnotherMembersRecordOrDirector_IsRefused()
+    {
+        Assert.Equal(HttpStatusCode.Created, (await CaptureAsync(_bobKey, "bob-up", "director-bob")).Status);
+        Assert.Equal(HttpStatusCode.Created, (await CaptureAsync(_aliceKey, "alice-own-up", "director-alice")).Status);
+
+        AssertTeamRefusal(await SendAsync(HttpMethod.Get, "/gateway/workspaces/bob-up", _aliceKey));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Get, "/gateway/workspaces/no-such-record", _aliceKey));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Post, "/gateway/workspaces/bob-up/restore", _aliceKey,
+            new WorkspaceRestoreRequest { DirectorId = "director-alice" }));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Post, "/gateway/workspaces/alice-own-up/restore", _aliceKey,
+            new WorkspaceRestoreRequest { DirectorId = "director-bob" }));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Post, "/gateway/workspaces/bob-up/restore/marks", _aliceKey,
+            new WorkspaceRestoreMark { DirectorId = "director-alice", Kind = WorkspaceRestoreMarkKinds.Finished }));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Post, "/gateway/workspaces/alice-own-up/restore/marks", _aliceKey,
+            new WorkspaceRestoreMark { DirectorId = "director-bob", Kind = WorkspaceRestoreMarkKinds.Finished }));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Post, "/gateway/workspaces/bob-up/restore/dev-reports", _aliceKey,
+            new WorkspaceDevReportPassRequest { DirectorId = "director-alice", SeatSessionId = "seat-1" }));
+        Assert.Null(_store.Get("bob-up")!.RestoreLease);
+    }
+
+    // Shows: a crash record and a repository push for Bob's Director, or for a Director nobody has, are refused, and a
+    // key bound to another team cannot send one for this team's Director.
+    [Theory]
+    [InlineData("director-bob")]
+    [InlineData("director-nobody")]
+    public async Task WayUp_ACrashRecordOrPushForAnotherMembersOrAnUnknownDirector_IsRefused(string directorId)
+    {
+        AssertTeamRefusal(await CrashRecordAsync(_aliceKey, directorId));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Post, RepoStateEndpoints.Path, _aliceKey,
+            new RepoStatePushRequest { DirectorId = directorId, MachineName = "ALICE-PC" }));
+        AssertTeamRefusal(await CrashRecordAsync(_aliceTeamBKey, "director-alice"));
+    }
+
+    // Shows: a Contributor runs no sessions, so the gate refuses every way-up route before the endpoint is reached.
+    [Theory]
+    [InlineData("GET", "/gateway/workspaces/{id}")]
+    [InlineData("POST", "/gateway/workspaces/crash-records")]
+    [InlineData("POST", "/gateway/workspaces/{id}/restore")]
+    [InlineData("POST", "/gateway/workspaces/{id}/restore/marks")]
+    [InlineData("POST", "/gateway/workspaces/{id}/restore/dev-reports")]
+    [InlineData("POST", "/gateway/repostate")]
+    public void Check_AContributorsWayUpRequest_IsRefused(string method, string pattern)
+    {
+        Assert.Equal(TeamGateOutcome.Refused, _gate.Check(method, pattern, _ => null, _teamA, () => Carol,
+            _ => _ownership.Whose(_teamA, Carol, pattern, _ => null, method)).Outcome);
     }
 
     // ---- personal accounts unchanged ---------------------------------------------------------------------------------

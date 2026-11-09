@@ -7194,7 +7194,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // The repo-state feed (issue #2118): POST /gateway/repostate, where a Director pushes its
         // repositories' branches and worktrees. Device-authenticated and tenant-scoped from the caller's
         // own key; write-only, because the sole consumer (the morning report) reads the store in-process.
-        Api.RepoStateEndpoints.Map(_app, _repoState, _tenantBoundary);
+        // In a team, a push names only one of the caller's own Directors (devthrottle_internal#2829).
+        Api.RepoStateEndpoints.Map(_app, _repoState, _tenantBoundary, teamCaller: TeamCallerFor);
         Api.SkillPlacementEndpoints.Map(_app, _skillPlacement, _tenantBoundary, teamCaller: TeamCallerFor);
 
         Mobile.MobileApp.Map(_app, Token);
