@@ -4,6 +4,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Teams;
 using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.DevReports;
@@ -421,7 +422,7 @@ internal sealed class DevReportStore
     /// <exception cref="ArgumentException">The item is not an answer, carries words of the member's own, or the comment
     /// breaks the comment rules.</exception>
     public MemberAnswerOutcome AddMemberAnswer(TenantId team, DevReportEntity report, int sentVersion, DevReportItem item,
-        string answererSubject, string words, string toSubject, string senderKind, DateTime nowUtc)
+        string answererSubject, TeamRole answererRole, string words, string toSubject, string senderKind, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(report);
         ArgumentNullException.ThrowIfNull(item);
@@ -474,6 +475,7 @@ internal sealed class DevReportStore
                 SenderKind = senderKind,
                 SentAtUtc = nowUtc,
                 AnswererSubject = answererSubject,
+                AnswererRole = TeamRoles.ToStored(answererRole),
                 SourceVersion = sentVersion,
             });
             if (comment is not null)

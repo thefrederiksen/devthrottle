@@ -1541,6 +1541,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Status).HasMaxLength(32);
             b.Property(e => e.ActedOnSessionId).HasMaxLength(64);
             b.Property(e => e.ActionClaimedSessionId).HasMaxLength(64);
+            b.Property(e => e.AnswererRole).HasMaxLength(16);
             // The client item id is the idempotency key: an id already accepted is the same item.
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.ClientItemId }).IsUnique();
             // A turn end drains everything held for one session, across its reports.

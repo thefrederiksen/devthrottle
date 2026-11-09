@@ -15,7 +15,10 @@ internal sealed record DevReportQuestionOption(string Value, string Label, bool 
 /// <param name="Id">The question's id (<c>data-dev-report-question</c>).</param>
 /// <param name="Text">The question's words (CONTRACT.md section 2).</param>
 /// <param name="Options">Its options, in the report's order.</param>
-internal sealed record DevReportQuestion(string Id, string Text, IReadOnlyList<DevReportQuestionOption> Options)
+/// <param name="ForContributors">True when the question is marked <c>data-dev-report-for="contributors"</c>: it may be sent
+/// to, and answered by, a contributor (a member whose role is Collaborator). An unmarked question is for the owner's own
+/// people only - the safe default (security review M3).</param>
+internal sealed record DevReportQuestion(string Id, string Text, IReadOnlyList<DevReportQuestionOption> Options, bool ForContributors)
 {
     /// <summary>The option whose value is <paramref name="value"/>, or null when the question has none.</summary>
     public DevReportQuestionOption? Option(string value) =>
@@ -32,7 +35,8 @@ internal sealed record DevReportQuestion(string Id, string Text, IReadOnlyList<D
 /// It reads the markup exactly as the note-taking script does (CONTRACT.md section 2): the same parse as the shape check
 /// (<see cref="DevReportShapeCheck"/>, an HTML5 parser after the host's head, scripting on), the question text from
 /// <c>data-dev-report-question-text</c>, then the first heading, then the id; an option's label from its <c>&lt;label&gt;</c>
-/// (wrapping, or pointed at by <c>for=</c>), then its value; whitespace collapsed to single spaces.
+/// (wrapping, or pointed at by <c>for=</c>), then its value; whitespace collapsed to single spaces. Whether the question
+/// is for contributors is read from <c>data-dev-report-for="contributors"</c> on it (security review M3).
 ///
 /// A QUESTION IS NEVER DROPPED (review F5). A published version passed the shape check, which demands exactly one
 /// questions section, every question inside it, a valid id used once, no nesting, at least two options, exactly one
@@ -43,6 +47,28 @@ internal sealed record DevReportQuestion(string Id, string Text, IReadOnlyList<D
 /// </summary>
 internal static class DevReportQuestions
 {
+    /// <summary>The attribute on a question that says who it is for (security review M3).</summary>
+    public const string ForAttribute = "data-dev-report-for";
+
+    /// <summary>The one value of <see cref="ForAttribute"/>: the question may be sent to and answered by a contributor.</summary>
+    public const string ForContributorsValue = "contributors";
+
+    /// <summary>Whether <paramref name="question"/> is marked for contributors - the attribute present with exactly
+    /// <see cref="ForContributorsValue"/>. Anything else is unmarked, which keeps the question for the owner's own people.</summary>
+    public static bool IsForContributors(IElement question)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        return string.Equals(question.GetAttribute(ForAttribute), ForContributorsValue, StringComparison.Ordinal);
+    }
+
+    /// <summary>The questions in <paramref name="questions"/> NOT marked for contributors, by id, in order: the ones a
+    /// contributor may neither be sent nor answer.</summary>
+    public static IReadOnlyList<DevReportQuestion> NotForContributors(IReadOnlyList<DevReportQuestion> questions)
+    {
+        ArgumentNullException.ThrowIfNull(questions);
+        return questions.Where(q => !q.ForContributors).ToList();
+    }
+
     private static readonly Regex QuestionId = new("^[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant);
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.CultureInvariant);
     private const string HostHead = "<!doctype html><html><head></head>";
@@ -87,7 +113,7 @@ internal static class DevReportQuestions
             if (options.Any(o => o.Value.Trim().Length == 0)
                 || options.Select(o => o.Value).Distinct(StringComparer.Ordinal).Count() != options.Count)
                 throw Broken($"the question \"{id}\" has an option with no value, or two options with one value");
-            result.Add(new DevReportQuestion(id, QuestionText(q, id), options));
+            result.Add(new DevReportQuestion(id, QuestionText(q, id), options, IsForContributors(q)));
         }
         FileLog.Write($"[DevReportQuestions] Read: {result.Count} question(s)");
         return result;

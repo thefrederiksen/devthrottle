@@ -78,6 +78,14 @@ public sealed class DevReportItemEntity : GatewayMintedKeyEntity
     public string? AnswererSubject { get; set; }
 
     /// <summary>
+    /// For a team member's answer, the ROLE they held in the team when they gave it, as stored in <c>team_members.role</c>
+    /// (owner, manager, developer, collaborator). The prompt tells the session which role answered - "a contributor this
+    /// report was sent to" - and never who (security review M3). Null for the account owner's own items, and for a member's
+    /// answer stored before the role was recorded, which the prompt still calls "a person this report was sent to".
+    /// </summary>
+    public string? AnswererRole { get; set; }
+
+    /// <summary>
     /// For a team member's answer, the report VERSION it was given on - the version the member was sent and read the
     /// question from (devthrottle_internal#2307 review F1). The prompt names this version and its title, not the report's
     /// newest, so a session is never told an answer was given on a version its answerer never saw. Null for the account

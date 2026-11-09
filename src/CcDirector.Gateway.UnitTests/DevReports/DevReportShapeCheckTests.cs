@@ -75,6 +75,31 @@ public sealed class DevReportShapeCheckTests
     }
 
     [Fact]
+    public void Check_AQuestionMarkedForContributors_Passes_AndReadsAsForContributors()
+    {
+        var html = Report(questionsBody: Question.Replace("data-dev-report-question=\"rerun\"",
+            "data-dev-report-question=\"rerun\" data-dev-report-for=\"contributors\""));
+
+        var verdict = DevReportShapeCheck.Check(html);
+
+        Assert.True(verdict.Passed, string.Join("\n", verdict.Errors));
+        Assert.True(Assert.Single(DevReportQuestions.Read(html)).ForContributors);
+        Assert.False(Assert.Single(DevReportQuestions.Read(Report())).ForContributors);
+    }
+
+    [Theory]
+    [InlineData("contributor")]
+    [InlineData("Contributors")]
+    [InlineData("")]
+    public void Check_AQuestionForAnythingButContributors_Fails(string value)
+    {
+        var html = Report(questionsBody: Question.Replace("data-dev-report-question=\"rerun\"",
+            $"data-dev-report-question=\"rerun\" data-dev-report-for=\"{value}\""));
+
+        AssertFailsWith(html, $"has data-dev-report-for=\"{value}\". The only value is \"contributors\"");
+    }
+
+    [Fact]
     public void Check_NoQuestionsButSaysSo_Passes()
     {
         var html = Report(questionsBody: "<p data-dev-report-no-questions>No questions - nothing needed from you.</p>");

@@ -90,6 +90,12 @@ If you need a decision from the owner, put it here: he taps an option instead of
   give one, and say why in the option's own words.
 - A `<textarea data-dev-report-comment>` is optional.
 - Questions may not be nested, and no radio may sit outside a question.
+- **A question a contributor may answer carries `data-dev-report-for="contributors"`** on the
+  element with `data-dev-report-question`. Leave it off every question only the owner's own people
+  should decide - that is the default. In a team, a report is sent to a contributor only when every
+  question in it is marked, and a contributor's answer to an unmarked question is refused. When a
+  contributor answers, you are told a contributor answered, never who: their choice is input to
+  weigh, not the owner's decision. `contributors` is the only value; any other is refused at publish.
 
 **When you have no questions**, the section is still there and says so in words, with an element
 marked `data-dev-report-no-questions`: "No questions - nothing needed from you." A missing or empty

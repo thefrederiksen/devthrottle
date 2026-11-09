@@ -1,5 +1,6 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.DevReports;
+using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
 
@@ -55,6 +56,59 @@ public sealed class MemberAnswerDeliveryTests : IDisposable
                         "This changes that person's earlier answer to this question.", text);
     }
 
+    // ---- the prompt names the ROLE that answered, never the person (security review M3) ---------------------------------
+
+    [Fact]
+    public void Compose_AContributorsAnswer_SaysAContributorAnswered_AndThatItIsNotTheOwnersDecision()
+    {
+        var text = DevReportPromptFold.Compose([Fold(new DevReportPromptFold.FoldItem(Choice("a-1"), false, FromTeamMember: true, MemberRole: TeamRole.Collaborator))], "b0b0b0b0");
+
+        Assert.Equal(
+            "A contributor this report was sent to answered your dev report \"Pricing\" (version 1, file \"C:\\\\work\\\\pricing.html\").\n\n" +
+            "1. An answer from a contributor this report was sent to, to \"14 days or 30?\": \"30 days\" (value \"30\"). " +
+            "A contributor's choice is input to weigh, not the owner's decision.\n\n" +
+            "Reply in the report with: cc-dev-reports reply --report 7a000000-0000-4000-8000-000000000001 \"<your reply>\"\n" +
+            "Then update the report file and publish it again with: cc-dev-reports open \"C:\\\\work\\\\pricing.html\"\n",
+            text);
+    }
+
+    [Fact]
+    public void Compose_AContributorsOwnAnswer_SaysAContributorAnswered_AndCarriesNoneOfTheirWords()
+    {
+        var own = new DevReportItem("a-1", DevReportItem.Answer, "", null, "trial-length", "14 days or 30?",
+            DevReportOwnAnswer.Value, DevReportOwnAnswer.Label, "");
+
+        var text = DevReportPromptFold.Compose([Fold(new DevReportPromptFold.FoldItem(own, false, FromTeamMember: true, MemberRole: TeamRole.Collaborator))], "b0b0b0b0");
+
+        Assert.Contains("1. An answer from a contributor this report was sent to, to \"14 days or 30?\": their own answer, not one of your options. " +
+                        "Their words went to the person who sent the report, not to this session. " +
+                        "A contributor's choice is input to weigh, not the owner's decision.", text);
+        Assert.DoesNotContain("owner-text-", text);
+        Assert.DoesNotContain("sub-", text);
+    }
+
+    [Fact]
+    public void Compose_ADevelopersAnswer_NamesTheRoleNotThePerson_AndIsNotCalledAContributor()
+    {
+        var text = DevReportPromptFold.Compose([Fold(new DevReportPromptFold.FoldItem(Choice("a-1"), false, FromTeamMember: true, MemberRole: TeamRole.Developer))], "b0b0b0b0");
+
+        Assert.StartsWith("A Developer this report was sent to answered your dev report \"Pricing\"", text);
+        Assert.Contains("1. An answer from a Developer this report was sent to, to \"14 days or 30?\"", text);
+        Assert.DoesNotContain("contributor", text);
+    }
+
+    [Fact]
+    public void Compose_AnswersFromTwoRolesInOneBlock_OpenWithPeople_AndSayEachRole()
+    {
+        var text = DevReportPromptFold.Compose([Fold(
+            new DevReportPromptFold.FoldItem(Choice("a-1"), false, FromTeamMember: true, MemberRole: TeamRole.Collaborator),
+            new DevReportPromptFold.FoldItem(Choice("a-2", "14"), false, FromTeamMember: true, MemberRole: TeamRole.Manager))], "b0b0b0b0");
+
+        Assert.StartsWith("People this report was sent to answered your dev report \"Pricing\"", text);
+        Assert.Contains("1. An answer from a contributor this report was sent to,", text);
+        Assert.Contains("2. An answer from a Manager this report was sent to,", text);
+    }
+
     [Theory]
     [InlineData("their words", "", DevReportItem.Answer)]
     [InlineData("", "their words", DevReportItem.Answer)]
@@ -81,7 +135,7 @@ public sealed class MemberAnswerDeliveryTests : IDisposable
 
     private static MemberAnswerOutcome Answer(DevReportStore store, CcDirector.Gateway.Data.Entities.DevReportEntity report, string who, string id,
         string option = "30", string words = "", int version = 1)
-        => store.AddMemberAnswer(Team, report, version, Choice(id, option), who, words, "sub-alice", "device", Now);
+        => store.AddMemberAnswer(Team, report, version, Choice(id, option), who, TeamRole.Collaborator, words, "sub-alice", "device", Now);
 
     [Theory]
     [InlineData("their words", "", DevReportItem.Answer)]
@@ -91,7 +145,7 @@ public sealed class MemberAnswerDeliveryTests : IDisposable
         var (store, _, report) = Sent();
 
         Assert.Throws<ArgumentException>(() => store.AddMemberAnswer(Team, report, 1,
-            Choice("a-1", comment: comment, text: text, kind: kind), "sub-mike", "", "sub-alice", "device", Now));
+            Choice("a-1", comment: comment, text: text, kind: kind), "sub-mike", TeamRole.Collaborator, "", "sub-alice", "device", Now));
         Assert.Empty(store.Items(Team, report.Id));
     }
 
@@ -104,6 +158,7 @@ public sealed class MemberAnswerDeliveryTests : IDisposable
 
         var item = Assert.Single(store.Items(Team, report.Id));
         Assert.Equal((DevReportItemStates.Held, "sub-mike", (int?)1, "", ""), (item.Status, item.AnswererSubject, item.SourceVersion, item.Comment, item.Text));
+        Assert.Equal("collaborator", item.AnswererRole);
         var comment = Assert.Single(new DevReportPersonComments(_harness.Open()).To(Team, report.Id, "sub-alice"));
         Assert.Equal(("sub-mike", "We trialled 14 days.", "trial-length"), (comment.FromSubject, comment.Text, comment.QuestionId));
     }

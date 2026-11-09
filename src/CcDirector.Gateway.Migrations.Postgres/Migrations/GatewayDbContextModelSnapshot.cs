@@ -790,6 +790,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("AnchorJson")
                         .HasColumnType("text");
 
+                    b.Property<string>("AnswererRole")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<string>("AnswererSubject")
                         .HasColumnType("text")
                         .UseCollation("C");

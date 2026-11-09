@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using CcDirector.Gateway.Teams;
 
 namespace CcDirector.Gateway.DevReports;
 
@@ -26,16 +27,20 @@ namespace CcDirector.Gateway.DevReports;
 /// is left out of the sentence rather than written as <c>row ""</c>.
 ///
 /// A TEAM MEMBER'S ANSWER CARRIES THEIR CHOICE AND NOTHING ELSE (devthrottle_internal#2307). A person the report was sent
-/// to answers on their Questions page; the session gets the question and the option chosen, said to come from "a person
-/// this report was sent to". Not their name - a name is words a person chose - and never their comment, which goes to
-/// the report's author person. The fold refuses such an item if it holds any words of the person's own. When every item
+/// to answers on their Questions page; the session gets the question and the option chosen, said to come from the ROLE
+/// that answered - "a contributor this report was sent to", "a Developer this report was sent to" (security review M3) -
+/// and a contributor's choice is said to be input to weigh, not the owner's decision. Never their name - a name is words
+/// a person chose - and never their comment, which goes to the report's author person. An answer stored before the role
+/// was recorded is said to come from "a person this report was sent to". The fold refuses such an item if it holds any words of the person's own. When every item
 /// in a prompt is a member's answer there are no owner's words, so the line introducing them is left out.
 /// </summary>
 internal static class DevReportPromptFold
 {
-    /// <summary>One item as the fold reads it: the item, whether it changes an answer already delivered, and whether a
-    /// team member gave it on their Questions page rather than the account owner (devthrottle_internal#2307).</summary>
-    internal sealed record FoldItem(DevReportItem Item, bool ChangesDeliveredAnswer, bool FromTeamMember = false);
+    /// <summary>One item as the fold reads it: the item, whether it changes an answer already delivered, whether a
+    /// team member gave it on their Questions page rather than the account owner (devthrottle_internal#2307), and the role
+    /// that member held when they gave it - null for the owner's items and for a member's answer stored before the role
+    /// was recorded (security review M3).</summary>
+    internal sealed record FoldItem(DevReportItem Item, bool ChangesDeliveredAnswer, bool FromTeamMember = false, TeamRole? MemberRole = null);
 
     /// <summary>One report's block: its id, key (the file), the title and number of the version its items were given on
     /// (the newest for the owner's own items; for a team member's answer, the version they were sent), and its items in
@@ -112,7 +117,7 @@ internal static class DevReportPromptFold
     private static void AppendReport(StringBuilder sb, FoldReport report, string boundary)
     {
         sb.Append(report.Items.All(f => f.FromTeamMember)
-                ? "A person this report was sent to answered your dev report "
+                ? MembersWhoAnswered(report.Items) + " answered your dev report "
                 : "The owner answered your dev report ")
           .Append(Page(report.Title))
           .Append(" (version ").Append(report.Version).Append(", file ").Append(Page(report.Key)).Append(").\n\n");
@@ -123,12 +128,14 @@ internal static class DevReportPromptFold
             sb.Append(i + 1).Append(". ");
             if (report.Items[i].FromTeamMember)
             {
-                sb.Append("An answer from a person this report was sent to, to ").Append(Page(item.Question)).Append(": ");
+                var role = report.Items[i].MemberRole;
+                sb.Append("An answer from ").Append(Answerer(role, capital: false)).Append(", to ").Append(Page(item.Question)).Append(": ");
                 if (item.IsOwnAnswer)
                     sb.Append("their own answer, not one of your options. Their words went to the person who sent the report, not to this session.");
                 else
                     sb.Append(Page(item.OptionLabel)).Append(" (value ").Append(Page(item.OptionValue)).Append(").");
                 if (changes) sb.Append(" This changes that person's earlier answer to this question.");
+                if (role == TeamRole.Collaborator) sb.Append(" ").Append(ContributorChoice);
                 sb.Append('\n');
             }
             else if (item.Kind == DevReportItem.Note)
@@ -169,6 +176,31 @@ internal static class DevReportPromptFold
           .Append(" \"<your reply>\"\n");
         sb.Append("Then update the report file and publish it again with: cc-dev-reports open ")
           .Append(Page(report.Key)).Append('\n');
+    }
+
+    /// <summary>Said after every contributor's answer: whose decision it is not.</summary>
+    internal const string ContributorChoice = "A contributor's choice is input to weigh, not the owner's decision.";
+
+    /// <summary>Who answered, by role only: "a contributor this report was sent to" for a Collaborator, "a Developer this
+    /// report was sent to" for the others, and "a person this report was sent to" when the role was not recorded.</summary>
+    internal static string Answerer(TeamRole? role, bool capital)
+    {
+        var who = role switch
+        {
+            null => "a person",
+            TeamRole.Collaborator => "a contributor",
+            { } held => TeamAccessDecision.Article(TeamRoles.Label(held)) + " " + TeamRoles.Label(held),
+        };
+        who += " this report was sent to";
+        return capital ? char.ToUpperInvariant(who[0]) + who[1..] : who;
+    }
+
+    /// <summary>The opening of a block whose every item is a member's answer: one role when they share one, otherwise
+    /// "People this report was sent to".</summary>
+    private static string MembersWhoAnswered(IReadOnlyList<FoldItem> items)
+    {
+        var roles = items.Select(f => f.MemberRole).Distinct().ToList();
+        return roles.Count == 1 ? Answerer(roles[0], capital: true) : "People this report was sent to";
     }
 
     /// <summary>Where a note points, as a phrase that follows "A note".</summary>
