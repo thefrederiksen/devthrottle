@@ -296,3 +296,84 @@ def test_AskOutcome_AndTheExplanation_HaveNoSecretField():
     for cls in (AskOutcome, AskExplanation, AskingSession):
         names = {f.name for f in dataclasses.fields(cls)}
         assert not names & {"secret", "password", "value", "setting_value"}, cls
+
+
+# --- Review findings (separate review of the first version) -----------------------------------------------------
+
+def test_Ask_WithNoName_AStoredPasswordInTheReply_IsStillWithheld(store, window):
+    # The store was read only when a name was given, so with no name the scrubber knew no stored password and the
+    # reply guard and the command's output both let one through.
+    secret = add_entry(store, name="other", username="u")
+    window(AskOutcome(saved=False, reply=f"try {secret}"))
+
+    result = runner.invoke(cli.app, ["ask", *FULL])
+
+    assert result.exit_code == cli.EXIT_CANCELLED
+    assert secret not in _text(result)
+    assert secret not in paths.audit_path().read_text(encoding="utf-8")
+
+
+def test_Ask_WithNoName_TheWindowsGuardKnowsTheStoredPasswords(store, monkeypatch):
+    secret = add_entry(store, name="other", username="u")
+    seen = {}
+
+    def window(request, actions):
+        seen["problem"] = reply_problem(f"use {secret}", "")
+        return AskOutcome(saved=False)
+
+    monkeypatch.setattr(entry_window, "show_ask", window)
+    from src.redact import SCRUBBER
+    SCRUBBER.clear()
+
+    runner.invoke(cli.app, ["ask", *FULL])
+
+    assert seen["problem"] is not None and "stored password" in seen["problem"]
+
+
+@pytest.mark.parametrize("typed", ["two  spaces in it", "a\ttab in it", "a line\nbreak in it"])
+def test_ReplyProblem_APasswordWithWhitespaceRuns_IsCaughtEitherWay(typed):
+    assert reply_problem(f"here: {typed}", typed) is not None
+    assert reply_problem(f"here: {' '.join(typed.split())}", typed) is not None
+
+
+def _screen():
+    return entry_window.display_problem() is None
+
+
+@pytest.mark.skipif(not _screen(), reason="needs a screen for a real Tk window")
+def test_ReplyBox_RealWindow_EscapeGoesBack_AndATypedReplyCountsAsAChange(store):
+    from src.audit import OwnerApproval
+    from src.window_actions import ASK_RECORD, MODE_ASK, FormRequest, WindowActions
+
+    why = AskExplanation(reason="for", account=ACCOUNT_EXISTING, where_to_find="w", will_do="d", if_not_now="n",
+                         session=AskingSession(title="129 - email"))
+    request = FormRequest(mode=MODE_ASK, name="x", asked_by="Session 129", reason="for", why=why)
+    closed = []
+    root = entry_window.open_root("test")
+    try:
+        form = entry_window.EntryForm(root, request, lambda typed: "no", lambda *a: closed.append(a))
+        panel = entry_window.WhyPanel(root, panel_sections(why, False))
+        root.update_idletasks()
+        panel.fit_height(form.height())
+
+        assert "cancel" in root.bind("<Escape>")
+        form.not_now()
+        assert "_reply_back" in root.bind("<Escape>")
+        form._reply_box.insert("1.0", "I don't have that account")
+        assert form._changed()
+        form._reply_back()
+        assert "cancel" in root.bind("<Escape>")
+
+        form._secret.set("Typed-secret-1234")
+        form.not_now()
+        form._reply_box.delete("1.0", "end")
+        form._reply_box.insert("1.0", "it is Typed-secret-1234")
+        form._send_reply()
+        assert closed == [] and "password box" in form._reply_message.get()
+        form._reply_box.delete("1.0", "end")
+        form._reply_box.insert("1.0", "Not this\nweek")
+        form._send_reply()
+        assert closed == [(False, "Not this week")]
+        assert form._secret.get() == ""
+    finally:
+        root.destroy()

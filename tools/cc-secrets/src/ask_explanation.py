@@ -154,15 +154,21 @@ def panel_sections(why: AskExplanation, setting: bool) -> List[PanelSection]:
 
 def reply_problem(reply: str, typed_secret: str) -> Optional[str]:
     """Why the owner's "Not now" reply cannot be sent, or None when it can. A reply holding what is typed in the
-    password box, or any password this process has read from the store, never leaves the window."""
-    if len(reply) > REPLY_MAX_LENGTH:
-        return f"Keep the reply under {REPLY_MAX_LENGTH} characters; it is {len(reply)}."
-    if len(typed_secret) >= MIN_SECRET_LENGTH and typed_secret in reply:
-        return ("Not sent: the reply contains what is typed in the password box. The reply goes back to the "
-                "session, so it must never hold a password.")
-    if SCRUBBER.contains(reply):
-        return ("Not sent: the reply contains a stored password. The reply goes back to the session, so it must "
-                "never hold a password.")
+    password box, or any password this process has read from the store, never leaves the window. `reply` is the box's
+    text as typed; ask reads the whole store before the window opens, so the scrubber knows every stored password."""
+    collapsed = one_line(reply)
+    if len(collapsed) > REPLY_MAX_LENGTH:
+        return f"Keep the reply under {REPLY_MAX_LENGTH} characters; it is {len(collapsed)}."
+    # Checked as typed AND as the single line that is sent: a password holding a run of spaces, a tab or a line
+    # break matches the one but not the other.
+    for text in (reply, collapsed):
+        for typed in (typed_secret, one_line(typed_secret)):
+            if len(typed) >= MIN_SECRET_LENGTH and typed in text:
+                return ("Not sent: the reply contains what is typed in the password box. The reply goes back to the "
+                        "session, so it must never hold a password.")
+        if SCRUBBER.contains(text):
+            return ("Not sent: the reply contains a stored password. The reply goes back to the session, so it must "
+                    "never hold a password.")
     return None
 
 

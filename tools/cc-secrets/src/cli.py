@@ -473,7 +473,10 @@ def ask(
         use_list = _split_list(uses) if uses is not None else list(USES)
         _check_ask_details(name, domain_list, use_list, env_name or "")
         store = _store()
-        exists = bool(name) and store.get(name) is not None
+        # Read the whole store before the window opens, name or no name: that is what teaches the scrubber every
+        # stored password, and the Not now reply guard and this command's output both rely on it.
+        held = {entry.name for entry in store.entries()}
+        exists = bool(name) and name in held
     except Exception as exc:
         _log_failure("ask", exc)
         _say(f"ask failed: {_describe(exc)}", err=True)

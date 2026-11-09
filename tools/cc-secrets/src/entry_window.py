@@ -312,17 +312,21 @@ class EntryForm:
         self._buttons.grid_remove()
         self._reply_area.grid()
         self._reply_box.focus_set()
+        # Escape while replying goes back to the form; it must not close the window and lose what was typed.
+        self._win.bind("<Escape>", self._reply_back)
         return "break"
 
     def _reply_back(self, _event=None) -> str:
         self._reply_area.grid_remove()
         self._buttons.grid()
         self._cancel_button.focus_set()
+        self._win.bind("<Escape>", self.cancel)
         return "break"
 
     def _send_reply(self, _event=None) -> str:
-        reply = ask_explanation.one_line(self._reply_box.get("1.0", "end"))
-        problem = ask_explanation.reply_problem(reply, self._secret.get())
+        typed = self._reply_box.get("1.0", "end")
+        problem = ask_explanation.reply_problem(typed, self._secret.get())
+        reply = ask_explanation.one_line(typed)
         if problem is not None:
             self._reply_message.set(problem)
             self._reply_error.grid()
@@ -350,6 +354,8 @@ class EntryForm:
                 self._domains.get())
 
     def _changed(self) -> bool:
+        if self._reply_area is not None and self._reply_box.get("1.0", "end").strip():
+            return True  # a typed reply is a change, so closing the window over it asks first
         now = self._snapshot()
         if self._request.mode == MODE_EDIT and not self._opened_with[1] and self._shown_current:
             # Showing the stored password filled the box; that alone is not a change.
@@ -452,9 +458,10 @@ class WhyPanel:
         for index, section in enumerate(sections):
             self._section(inner, index, section)
         inner.bind("<Configure>", lambda _e: self._fit())
-        for widget in (canvas, inner):
-            widget.bind("<MouseWheel>", self._wheel)
+        canvas.bind("<Configure>", lambda _e: self._fit())  # the form grew (Not now) or shrank (Back)
         win.bind_all("<MouseWheel>", self._wheel, add="+")
+        win.bind_all("<Button-4>", lambda _e: self._scroll(-1), add="+")  # Linux Tk sends buttons 4 and 5
+        win.bind_all("<Button-5>", lambda _e: self._scroll(1), add="+")
         self.outer = outer
 
     def _section(self, inner, index: int, section: PanelSection) -> None:
@@ -503,15 +510,23 @@ class WhyPanel:
     def _fit(self) -> None:
         canvas = self._canvas
         canvas.configure(scrollregion=canvas.bbox("all"))
-        needs_bar = self._inner.winfo_reqheight() > int(canvas.cget("height"))
-        if needs_bar:
+        if self._overflows():
             self._bar.grid()
         else:
             self._bar.grid_remove()
+            canvas.yview_moveto(0)
+
+    def _overflows(self) -> bool:
+        shown = self._canvas.winfo_height()
+        return self._inner.winfo_reqheight() > (shown if shown > 1 else int(self._canvas.cget("height")))
 
     def _wheel(self, event) -> None:
-        if self._inner.winfo_reqheight() > int(self._canvas.cget("height")):
-            self._canvas.yview_scroll(int(-event.delta / 120), "units")
+        # Windows reports multiples of 120 and macOS Tk small deltas; the sign is what counts on both.
+        self._scroll(-1 if event.delta > 0 else 1 if event.delta < 0 else 0)
+
+    def _scroll(self, units: int) -> None:
+        if units and self._overflows():
+            self._canvas.yview_scroll(units, "units")
 
 
 def show_ask(request: FormRequest, actions: WindowActions) -> AskOutcome:
