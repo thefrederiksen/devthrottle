@@ -29,42 +29,36 @@ namespace CcDirector.ControlApi;
 /// including the chunked image upload - its chunks carry a zero-based <c>Seq</c>, the Director refuses an
 /// out-of-order chunk, and the Gateway awaits each chunk's reply before sending the next, so their order is
 /// kept by the protocol rather than by the loop.
+///
+/// AND WHAT THAT COSTS, SAID PLAINLY, because the first version of this comment got it wrong. Many of the
+/// moved verbs are fully synchronous - patch, hold, resize, the display and role writes, the settings pair,
+/// the repository writes, the screenshot and upload verbs, fs-list, path-status, facts - so the loop
+/// serialised them COMPLETELY, and they are newly concurrent with each other. Each one is written to be
+/// callable concurrently, as the REST surface it came from was, and the two shared writers were checked by
+/// hand: CcDirectorConfigService.MergePatch holds a process-wide write lock, so two settings-put calls
+/// cannot clobber one another; Session.PromptQueue does NOT, which is why the queue verbs stay on the loop
+/// until it does.
 /// </summary>
 internal static class DeliveryLoopOrder
 {
     /// <summary>
-    /// The verbs whose arrival order is the person's intent. Named one by one, deliberately: this is not
-    /// "the write area", because the write area also owns create, kill and patch - none of which a person
-    /// is typing - and keeping a whole area on the loop would keep the 430-second verb on it.
+    /// The ordered verbs, asked of the areas that own them rather than listed here (issue #4490). A list in
+    /// this file was wrong twice inside one day - it missed clear-context, compact-context and
+    /// history-picker, then "enter" and execute-action - and both times it was corrected by somebody reading
+    /// the write area's source, which is not a mechanism. See
+    /// <see cref="ISessionCommandArea.VerbsThatMustArriveInOrder"/>.
     /// </summary>
-    private static readonly HashSet<string> Keystrokes = new(StringComparer.Ordinal)
-    {
-        "prompt",
-        "interrupt",
-        "escape",
-        "terminal-input",
-        "terminal-keys",
-        "terminal-paste",
-        "terminal-mouse",
-        // THESE THREE TYPE TOO, and they were missing from the first version of this list. Each one reaches
-        // Session.TypeDriverInputAsync - /clear, /compact and the history picker's key - so each one puts
-        // characters into the same terminal a person is typing into, and ordering them against a prompt that
-        // may be in flight is the same question. They cost nothing to keep here: like the prompt, each hands
-        // its task back at the session's input gate rather than doing its work on the loop.
-        "clear-context",
-        "compact-context",
-        "history-picker",
-        Gateway.Contracts.FleetDoorbellVerbs.Ring,
-    };
+    private static readonly HashSet<string> InOrder =
+        new(SessionCommandExecutor.VerbsThatMustArriveInOrder, StringComparer.Ordinal);
 
-    /// <summary>The keystroke verbs, for the test that pins this list against the write area's own.</summary>
-    internal static IReadOnlyCollection<string> KeystrokeVerbs => Keystrokes;
+    /// <summary>The ordered verbs, for the tests that pin them.</summary>
+    internal static IReadOnlyCollection<string> OrderedVerbs => InOrder;
 
     /// <summary>True when <paramref name="verb"/> must run on the delivery loop itself. See the class comment.</summary>
     internal static bool MustStayOnTheLoop(string? verb)
     {
         if (string.IsNullOrEmpty(verb)) return true;   // a malformed command is refused in a microsecond
-        return Keystrokes.Contains(verb)
+        return InOrder.Contains(verb)
                || DirectorUpStreamHandler.IsStreamVerb(verb)
                || Boxes.DirectorDesktopRelayHandler.IsDesktopVerb(verb);
     }

@@ -156,6 +156,14 @@ internal static class SessionCommandExecutor
     /// </summary>
     private static readonly IReadOnlyDictionary<string, ISessionCommandArea> VerbMap = BuildVerbMap(Areas);
 
+    /// <summary>
+    /// Every verb any area declares as order-sensitive, built once from the same areas as the verb map
+    /// (issue #4490). <see cref="DeliveryLoopOrder"/> reads this: the connection layer asks the areas rather
+    /// than keeping a copy of their answer, because a copy drifts the moment a verb is added.
+    /// </summary>
+    internal static readonly IReadOnlyCollection<string> VerbsThatMustArriveInOrder =
+        Areas.SelectMany(a => a.VerbsThatMustArriveInOrder).Distinct(StringComparer.Ordinal).ToArray();
+
     /// <summary>The area that owns <paramref name="verb"/> in the production map, or null when no area does.</summary>
     internal static ISessionCommandArea? AreaFor(string verb) => VerbMap.TryGetValue(verb, out var area) ? area : null;
 

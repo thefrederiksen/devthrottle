@@ -33,6 +33,19 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
         "create-from-github",
     };
 
+    /// <summary>
+    /// The queue writes, ordered for a reason that is not typing (issue #4490): <c>Session.PromptQueue</c> is
+    /// a plain <c>List</c> with no lock, so two of these at once can tear it - lose an item, move the wrong
+    /// one, or throw mid-enumeration. The delivery loop serialised them before this change, because every one
+    /// of them is synchronous, and it keeps doing so until the queue itself is safe (#4815). queue-read and
+    /// queue-send are here too: a read enumerates the same list, and a send mutates it.
+    /// </summary>
+    public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[]
+    {
+        "queue-read", "queue-add", "queue-update", "queue-remove",
+        "queue-move-up", "queue-move-down", "queue-clear", "queue-send",
+    };
+
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
     {
         var sessionManager = context.SessionManager;

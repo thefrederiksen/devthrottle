@@ -12,7 +12,7 @@ internal enum DirectorReach
     Reachable,
 
     /// <summary>
-    /// A live stream, reports arriving, and NOTHING sent down it has been answered. This is the state that
+    /// A live stream and NOTHING sent down it has been answered. This is the state that
     /// had no name on 26 October 2026 (issue #4490): devthrottle-mac-mini held its connection open and
     /// reported all night while every command sent to it vanished, and the Gateway went on calling it
     /// healthy because health was judged on the reporting side alone.
@@ -119,8 +119,16 @@ internal static class DirectorReachability
         var since = facts.LastAnsweredUtc is { } answered
             ? $"since {answered:HH:mm} UTC"
             : "at any point since this Gateway started";
-        return $"This Director has not answered anything sent down its connection {since}, "
-               + $"though the connection is open and its reports are arriving ({facts.SilencesSinceAnAnswer} commands "
-               + "have expired with no answer). Commands are not reaching it; restarting it is what clears this.";
+
+        // IT SAYS ONLY WHAT WAS OBSERVED. The first version of this sentence also said "its reports are
+        // arriving", which this classifier never checked - it knows a connection existed when each send
+        // began, and nothing about the reporting side. A half-dead connection is detected only after the
+        // 30-second silence tolerance, which is also the command wait, so a Director whose machine lost
+        // power can produce two expiries - and that sentence would have told the reader a dead machine was
+        // reporting and only needed a restart. The reviewer of pull request 4813 caught it.
+        return $"This Director has not answered anything sent down its connection {since}: the connection "
+               + $"was open each time and {facts.SilencesSinceAnAnswer} commands expired with no answer. "
+               + "Either it is not receiving commands - a restart clears that - or the machine is gone; "
+               + "this cannot tell which.";
     }
 }

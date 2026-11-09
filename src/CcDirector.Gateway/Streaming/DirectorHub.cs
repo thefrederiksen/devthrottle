@@ -1526,7 +1526,13 @@ public sealed class DirectorHub : Hub
             // reconnects - and above all one that was restarted to clear exactly this - must not inherit the
             // silence count of the connection that would not answer, or it would read as deaf until its
             // first answer came back.
-            Api.DirectorDownlinkFacts.Forget(directorId);
+            //
+            // ONLY WHEN THIS CONNECTION IS STILL THE ACTIVE ONE, the same gate DirectorStopping uses above.
+            // A reconnect normally lands its Hello BEFORE the old connection's disconnect fires - up to
+            // thirty seconds later - so forgetting on the superseded one would wipe what the Gateway has
+            // learned about the LIVE connection (the reviewer of pull request 4813).
+            if (_store.IsActiveConnection(t, directorId, Context.ConnectionId))
+                Api.DirectorDownlinkFacts.Forget(directorId);
         }
         // MTR-15: drop this connection's abort entry (it is gone now). Keyed by connection id, so it is cleared
         // whether or not a tenant was bound.

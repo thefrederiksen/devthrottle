@@ -20,6 +20,13 @@ internal sealed class FleetDoorbellExecutor : ISessionCommandArea
         FleetDoorbellVerbs.Ring,
     };
 
+    /// <summary>
+    /// The doorbell types a line into the session when it is safe to, so it is ordered against whatever else
+    /// is being typed there. It is not a person's keystroke - the Gateway asks for it - and it costs the loop
+    /// nothing either way, because it awaits the facts it gathers before it types anything.
+    /// </summary>
+    public IReadOnlyCollection<string> VerbsThatMustArriveInOrder { get; } = new[] { FleetDoorbellVerbs.Ring };
+
     public Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
     {
         return command.Verb switch

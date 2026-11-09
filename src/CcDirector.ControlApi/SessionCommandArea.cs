@@ -35,6 +35,23 @@ internal interface ISessionCommandArea
     IReadOnlyCollection<string> Verbs { get; }
 
     /// <summary>
+    /// The verbs of this area that MUST RUN IN THE ORDER THEY ARRIVE, declared by the area that owns them
+    /// (issue #4490). Empty for an area that has none, which is almost all of them.
+    ///
+    /// WHY THE AREA DECLARES THIS AND NOT THE CONNECTION LAYER. These are the verbs that put characters into
+    /// a session's terminal, or that touch state no two of them may touch at once - and whether a verb does
+    /// that is knowable only where it is written. A list kept in the connection layer was wrong twice inside
+    /// one day: it missed clear-context, compact-context and history-picker (all three reach
+    /// Session.TypeDriverInputAsync), and then it missed "enter" - the phone's Enter key, a raw carriage
+    /// return written synchronously - and execute-action, which types on the Wingman's behalf. Both times the
+    /// list was corrected by somebody reading the write area's source, which is not a mechanism. Declared
+    /// here, a new typing verb carries its own answer in the file that adds it.
+    ///
+    /// <see cref="DeliveryLoopOrder"/> reads these and keeps exactly them on the delivery loop.
+    /// </summary>
+    IReadOnlyCollection<string> VerbsThatMustArriveInOrder => [];
+
+    /// <summary>
     /// Execute one command whose verb this area owns. The dispatcher has already looked the verb up, so an
     /// area only ever receives a verb from its own <see cref="Verbs"/>; a mismatch is a fail-loud BadRequest.
     /// </summary>

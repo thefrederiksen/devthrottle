@@ -632,11 +632,12 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // on its one delivery loop and moves to the next command only when the handler hands back its task - at its
         // first real wait. Everything a verb does before that holds the loop, and no other command is received
         // meanwhile: a create that waited synchronously on cc-worktrees for 430 seconds left the log with no
-        // "Command received" line from 08:06:49 to 08:14:04, then about forty arrived in one millisecond. So a verb
-        // that does slow work awaits it, or runs it on the thread pool and awaits that (the create verb starts its
-        // session on its own task). The handler itself does NOT push every command onto the thread pool: the terminal
-        // verbs are synchronous, so they run in the order they arrive and keystrokes reach the terminal in order; on
-        // the thread pool two of them could overtake each other.
+        // "Command received" line from 08:06:49 to 08:14:04, then about forty arrived in one millisecond.
+        //
+        // WHICH VERBS STILL RUN ON THE LOOP IS NOW A DECISION WITH A NAME: see DeliveryLoopOrder, and the areas
+        // that declare their own ordered verbs. This comment used to end "the handler itself does NOT push every
+        // command onto the thread pool", which stopped being true when a verb that holds the loop stopped being
+        // acceptable (issue #4490).
         _connection.On<DirectorCommand, DirectorCommandResult>("Command", DeliverAsync);
 
         while (!_disposed)

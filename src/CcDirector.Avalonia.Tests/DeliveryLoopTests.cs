@@ -57,13 +57,35 @@ public sealed class DeliveryLoopOrderTests
     }
 
     [Fact]
-    public void EveryKeystrokeVerb_IsAVerbTheProductActuallyHas()
+    public void EveryOrderedVerb_IsAVerbTheProductActuallyHas()
     {
-        // A list of hand-written strings rots: a verb renamed in its area would silently stop being
-        // ordered, and keystrokes would start overtaking each other with every test still green. So each
-        // one must be a verb some command area really owns.
-        foreach (var verb in DeliveryLoopOrder.KeystrokeVerbs)
+        // A verb renamed in its area would silently stop being ordered, and keystrokes would start
+        // overtaking each other with every test still green.
+        foreach (var verb in DeliveryLoopOrder.OrderedVerbs)
             Assert.NotNull(SessionCommandExecutor.AreaFor(verb));
+    }
+
+    [Fact]
+    public void TheOrderedVerbs_AreExactlyWhatTheAREASDeclare_AndNothingTheConnectionLayerRemembers()
+    {
+        // THE DIRECTION THAT WAS MISSING, and it is the one that rots (the reviewer of pull request 4813).
+        // The old test only checked that every listed verb exists; it could not notice a verb that TYPES and
+        // is not listed - which happened twice in one day, with clear-context, compact-context and
+        // history-picker, then "enter" and execute-action. The list now has one source, the areas
+        // themselves, and this holds the connection layer to it.
+        Assert.Equal(
+            SessionCommandExecutor.VerbsThatMustArriveInOrder.OrderBy(v => v, StringComparer.Ordinal),
+            DeliveryLoopOrder.OrderedVerbs.OrderBy(v => v, StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("enter")]            // the phone's Enter key: a raw carriage return, written synchronously
+    [InlineData("execute-action")]   // the Wingman's type / send_keys / submit
+    [InlineData("queue-add")]        // not typing: the queue behind it is a List no lock protects (#4815)
+    [InlineData("queue-send")]
+    public void TheVerbsTheREVIEWFound_AreOnTheLoopNow(string verb)
+    {
+        Assert.True(DeliveryLoopOrder.MustStayOnTheLoop(verb));
     }
 }
 
@@ -225,10 +247,13 @@ public sealed class DeliveryLoopIsWatchedByTheTickTests
         var jobs = new CcDirector.Core.Background.BackgroundJobs();
         using var wedged = new ManualResetEventSlim(false);
         var client = new GatewayStreamClient(
-            new GatewayConfig { Url = "http://127.0.0.1:1", Token = "t", StreamMode = true },   // never dialled
+            // Start() really dials this address and is refused, then waits in the redial delay - which is
+            // why the delay is replaced here. The dial decides nothing about the assertions below; what is
+            // needed from Start() is the registered tick.
+            new GatewayConfig { Url = "http://127.0.0.1:1", Token = "t", StreamMode = true },
             "dir-test", "0.0.0", () => new List<SessionDto>(),
             commandDispatcher: cmd => { if (cmd.Verb == "prompt") wedged.Wait(); return Task.FromResult(DirectorCommandResult.Success()); },
-            rePushInterval: TimeSpan.FromSeconds(30), jobs: jobs);
+            rePushInterval: TimeSpan.FromSeconds(30), jobs: jobs, redialDelay: () => Task.CompletedTask);
         client.Start();
 
         // A KEYSTROKE verb, because those keep the loop on purpose - so one that wedges is the case the
@@ -237,7 +262,8 @@ public sealed class DeliveryLoopIsWatchedByTheTickTests
         var held = await Waited(() => client.DeliveryLoop.Inside() is not null, TimeSpan.FromSeconds(5));
         Assert.True(held, "the keystroke verb never reached the delivery loop");
 
-        // THE JOIN, AND NO CLOCK IN IT. What must be true is that the tick ASKS - whether the answer is yes
+        // THE JOIN, AND NOTHING THE CLOCK DECIDES. (The Waited helper polls the real clock as a FAILURE
+        // bound; what the pass rests on is the counter, not a duration.) What must be true is that the tick ASKS - whether the answer is yes
         // depends on the budget, and that half is proved against a fake clock in DeliveryLoopWatchTests. A
         // test that slept past the budget to see the line would be a test the clock decides (the 11 October
         // ruling), and it would prove nothing this does not.

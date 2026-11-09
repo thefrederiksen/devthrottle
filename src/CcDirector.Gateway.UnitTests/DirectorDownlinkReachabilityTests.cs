@@ -49,8 +49,12 @@ public sealed class DirectorReachabilityTests
         var said = DirectorReachability.Describe(reach, facts);
         Assert.NotNull(said);
         Assert.Contains("has not answered anything sent down its connection since 22:02 UTC", said);
-        Assert.Contains("its reports are arriving", said);
-        Assert.Contains("restarting it", said);
+        Assert.Contains("the connection was open each time", said);
+        Assert.Contains("2 commands expired with no answer", said);
+        // IT DOES NOT CLAIM THE MACHINE IS ALIVE. This classifier never looked at the reporting side, and a
+        // machine that lost power produces exactly these facts.
+        Assert.DoesNotContain("reports are arriving", said);
+        Assert.Contains("this cannot tell which", said);
     }
 
     [Fact]
@@ -142,6 +146,6 @@ public sealed class DirectorCommandRouterDownlinkWordingTests
 
         Assert.StartsWith("The Director on devthrottle-mac-mini did not answer within 60 seconds.", said);
         Assert.Contains("since 22:02 UTC", said);
-        Assert.Contains("4 commands have expired with no answer", said);
+        Assert.Contains("4 commands expired with no answer", said);
     }
 }

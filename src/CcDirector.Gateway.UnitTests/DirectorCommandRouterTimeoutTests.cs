@@ -18,6 +18,16 @@ namespace CcDirector.Gateway.Tests;
 public sealed class DirectorCommandRouterTimeoutTests
 {
     /// <summary>A send delegate that never answers - the Director holds the tunnel open and says nothing.</summary>
+    /// <summary>
+    /// A Director id of its own for every send. These tests used to share "director-1" and "d", and once the
+    /// router began KEEPING what it knows about a Director's downlink (issue #4490) that sharing decided
+    /// their outcome: two tests in this class time out the same Director, so the second one saw a second
+    /// silence, got the "has not answered anything" sentence appended, and the exact-message assertion
+    /// failed - on correct code, depending only on the order xunit happened to run them in. Found by the
+    /// reviewer of pull request 4813, before it bit anyone.
+    /// </summary>
+    private static string NewDirector() => "director-" + Guid.NewGuid().ToString("N");
+
     private static DirectorCommandRouter.SendDirectorCommandAsync NeverAnswers() =>
         async (_, _, ct) =>
         {
@@ -56,7 +66,7 @@ public sealed class DirectorCommandRouterTimeoutTests
 
         // Act
         var result = await DirectorCommandRouter.TrySendAsync(
-            NeverAnswers(), "director-1", "prompt", "sid-1", null, CancellationToken.None, timeout);
+            NeverAnswers(), NewDirector(), "prompt", "sid-1", null, CancellationToken.None, timeout);
 
         // Assert - it returns instead of hanging, and the outcome names the timeout.
         Assert.NotNull(result);
@@ -124,7 +134,7 @@ public sealed class DirectorCommandRouterTimeoutTests
         var wait = TimeSpan.FromMilliseconds(200);
 
         var result = await DirectorCommandRouter.TrySendAsync(
-            NeverAnswers(), "director-1", "prompt", "sid-1", null, CancellationToken.None,
+            NeverAnswers(), NewDirector(), "prompt", "sid-1", null, CancellationToken.None,
             wait, machineName: "SOREN_NORTH");
 
         Assert.Equal(DirectorCommandStatus.Timeout, result!.Status);
@@ -136,9 +146,9 @@ public sealed class DirectorCommandRouterTimeoutTests
     {
         // Act
         var named = await DirectorCommandRouter.TrySendAsync(
-            NeverAnswers(), "d", "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150), "SOREN_NORTH");
+            NeverAnswers(), NewDirector(), "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150), "SOREN_NORTH");
         var anonymous = await DirectorCommandRouter.TrySendAsync(
-            NeverAnswers(), "d", "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150));
+            NeverAnswers(), NewDirector(), "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150));
 
         // Assert - the machine name must NEVER gate the typed status, or the outcome would stop being
         // distinguishable exactly where the caller knows least about the Director.
@@ -152,7 +162,7 @@ public sealed class DirectorCommandRouterTimeoutTests
         // Arrange - the REAL transport behaviour, not the tidy cancellation a hand-written delegate throws.
         // Act
         var result = await DirectorCommandRouter.TrySendAsync(
-            NeverAnswersLikeSignalR(), "director-1", "repos-overview", "", null, CancellationToken.None,
+            NeverAnswersLikeSignalR(), NewDirector(), "repos-overview", "", null, CancellationToken.None,
             TimeSpan.FromMilliseconds(200), machineName: "SOREN_NORTH");
 
         // Assert - a timeout must be reported as a TIMEOUT. This exact case shipped green under a type-filtered
@@ -173,7 +183,7 @@ public sealed class DirectorCommandRouterTimeoutTests
 
         // Act
         var result = await DirectorCommandRouter.TrySendAsync(
-            send, "director-1", "prompt", "sid-1", null, CancellationToken.None, machineName: "SOREN_NORTH");
+            send, NewDirector(), "prompt", "sid-1", null, CancellationToken.None, machineName: "SOREN_NORTH");
 
         // Assert - caught at the chokepoint and turned into an outcome that explains itself.
         Assert.NotNull(result);
@@ -187,7 +197,7 @@ public sealed class DirectorCommandRouterTimeoutTests
     {
         // Act
         var result = await DirectorCommandRouter.TrySendAsync(
-            Throws(new InvalidOperationException("boom")), "d", "kill", "s", null, CancellationToken.None);
+            Throws(new InvalidOperationException("boom")), NewDirector(), "kill", "s", null, CancellationToken.None);
 
         // Assert - the Director may have run the command before the connection died. Saying it did not happen
         // would be a guess stated as fact, and for a verb like kill that guess is dangerous.
@@ -199,9 +209,9 @@ public sealed class DirectorCommandRouterTimeoutTests
     {
         // Act
         var timedOut = await DirectorCommandRouter.TrySendAsync(
-            NeverAnswers(), "d", "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150));
+            NeverAnswers(), NewDirector(), "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150));
         var dropped = await DirectorCommandRouter.TrySendAsync(
-            Throws(new InvalidOperationException("boom")), "d", "prompt", "s", null, CancellationToken.None);
+            Throws(new InvalidOperationException("boom")), NewDirector(), "prompt", "s", null, CancellationToken.None);
 
         // Assert - the whole point of the item: these were indistinguishable before, and from everything else.
         Assert.NotEqual(timedOut!.Status, dropped!.Status);
@@ -214,7 +224,7 @@ public sealed class DirectorCommandRouterTimeoutTests
     {
         // Act - the pre-existing third outcome: no send delegate means the command is unroutable.
         var result = await DirectorCommandRouter.TrySendAsync(
-            null, "director-1", "prompt", "sid-1", null, CancellationToken.None);
+            null, NewDirector(), "prompt", "sid-1", null, CancellationToken.None);
 
         // Assert - unchanged by this work; the caller still surfaces null as a 502.
         Assert.Null(result);
@@ -227,7 +237,7 @@ public sealed class DirectorCommandRouterTimeoutTests
         using var caller = new CancellationTokenSource();
         var send = NeverAnswers();
         var task = DirectorCommandRouter.TrySendAsync(
-            send, "director-1", "prompt", "sid-1", null, caller.Token, TimeSpan.FromMinutes(5));
+            send, NewDirector(), "prompt", "sid-1", null, caller.Token, TimeSpan.FromMinutes(5));
 
         caller.Cancel();
 
@@ -245,7 +255,7 @@ public sealed class DirectorCommandRouterTimeoutTests
 
         // Act
         var result = await DirectorCommandRouter.TrySendAsync(
-            send, "director-1", "prompt", "sid-1", null, CancellationToken.None);
+            send, NewDirector(), "prompt", "sid-1", null, CancellationToken.None);
 
         // Assert - the happy path returns the Director's own result unchanged.
         Assert.Same(expected, result);
@@ -267,7 +277,7 @@ public sealed class DirectorCommandRouterTimeoutTests
         };
 
         // Act - no timeout argument.
-        await DirectorCommandRouter.TrySendAsync(send, "d", "prompt", "s", null, CancellationToken.None);
+        await DirectorCommandRouter.TrySendAsync(send, NewDirector(), "prompt", "s", null, CancellationToken.None);
 
         // Assert
         Assert.Equal(TimeSpan.FromSeconds(30), observed);
@@ -308,7 +318,7 @@ public sealed class DirectorCommandRouterTimeoutTests
     {
         // Arrange
         var timedOut = await DirectorCommandRouter.TrySendAsync(
-            NeverAnswers(), "d", "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150), "SOREN_NORTH");
+            NeverAnswers(), NewDirector(), "prompt", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(150), "SOREN_NORTH");
 
         // Act
         var described = DirectorCommandRouter.DescribeFailure(timedOut!);
