@@ -63,8 +63,14 @@ internal static class CronJobEndpoints
         // does not have it or it is in another system's shape, a warning when it could not be asked. REQUIRED for the
         // same reason as the five above: a wiring line that forgot it would save every folder unchecked and fail
         // nothing. A harness with no machines passes `(_, _, _, _) => Task.FromResult(ScheduleFolderVerdict.Fine)`.
-        Func<HttpContext, string, string, CancellationToken, Task<ScheduleFolderVerdict>> checkFolder)
+        Func<HttpContext, string, string, CancellationToken, Task<ScheduleFolderVerdict>> checkFolder,
+        // Team implementation 2.1 (review note N1): why this caller may not run a schedule on the computer it names, or
+        // null when it may - inside a team only the caller's own computers (Teams.TeamMachineGuard); a personal account
+        // is never refused. REQUIRED for the same reason as the six above. A harness with no teams passes
+        // `(_, _, _) => null`.
+        Func<HttpContext, string?, string, string?> refuseMachine)
     {
+        ArgumentNullException.ThrowIfNull(refuseMachine);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findFactory);
         ArgumentNullException.ThrowIfNull(runRecords);
@@ -116,6 +122,10 @@ internal static class CronJobEndpoints
             // THE SEAT, checked against the registry (issue #3650): factory work exists only as a registered seat.
             if (!TrySettleSeat(ctx, findFactory, job, storedFactory: null, storedSeat: null, "POST /cron/jobs", out var seatError))
                 return seatError!;
+
+            // THE COMPUTER, inside a team: only the caller's own (Team implementation 2.1, review note N1).
+            if (refuseMachine(ctx, job.Target.Machine, "POST /cron/jobs") is { } machineRefusal)
+                return Teams.TeamCallerChecks.Refused(machineRefusal);
 
             // THE FOLDER, checked on its machine before anything is stored (issue #4421).
             var (folderRefusal, folderWarning) = FolderApplies(job, defined: false)
@@ -445,6 +455,12 @@ internal static class CronJobEndpoints
             if (store.Get(id) is not { } storedJob)
                 return Results.NotFound(new { error = "no such cron job", id });
             incoming.Id = id;
+
+            // THE COMPUTER, inside a team: only the caller's own (Team implementation 2.1, review note N1) - except on a
+            // switch-off that leaves the computer as it is, which always lands, so a schedule can always be stopped.
+            if (!IsSwitchOffInPlace(storedJob, incoming)
+                && refuseMachine(ctx, incoming.Target.Machine, $"PUT /cron/jobs/{id}") is { } machineRefusal)
+                return Teams.TeamCallerChecks.Refused(machineRefusal);
 
             // THE FOLDER, checked on its machine (issue #4421) - except on a switch-off that leaves the machine and the
             // folder as they are, which always lands (as TrySettleSeat's switch-off does): a schedule whose folder went

@@ -62,6 +62,10 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     private FactoryBriefStore? _briefs;
     private FactoryBriefStore Briefs => _briefs ??= new FactoryBriefStore(Db, _registry ?? throw new InvalidOperationException("start the route first"));
 
+    /// <summary>The machine check of Team implementation 2.1 (review note N1). A personal account is never refused, which
+    /// is what every test here but the team ones runs as.</summary>
+    private Func<Microsoft.AspNetCore.Http.HttpContext, string?, string, string?> _refuseMachine = (_, _, _) => null;
+
     /// <summary>Every create the route dispatched to a Director, with the Director it went to.</summary>
     private readonly List<(string DirectorId, NewSessionRequest Request)> _sent = new();
 
@@ -233,7 +237,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
             // As the host wires it: from the definition for a defined factory, else from the brief store.
             publishedBrief: (tenant, factory, seat) => new FactoryDefinitionBriefs(new FactoryDefinitionStore(Db), Briefs).GivenTo(tenant, factory, seat),
             // As the host wires it: a defined factory's talk is built from its published definition.
-            definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(new FactoryDefinitionStore(Db), tenant, factory));
+            definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(new FactoryDefinitionStore(Db), tenant, factory), refuseMachine: _refuseMachine);
 
         await app.StartAsync();
         _app = app;
@@ -475,6 +479,50 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal("agent Codex, model gpt-6, machine SOREN_SOUTH, chosen by the person", sent.FactoryStartOverride);
         Assert.Equal("nora-hale", sent.FactorySeat);
         Assert.Equal("SOREN_SOUTH", (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Computer);
+    }
+
+    // ---- inside a team, only the caller's own computers (Team implementation 2.1, review note N1) -------------------
+
+    /// <summary>A real team in which the Owner's Director runs on SOREN_NORTH and a Developer's on SOREN_SOUTH; the talk
+    /// is asked about as the Owner, as the host asks it.</summary>
+    private CcDirector.Gateway.Tests.Teams.TeamMachineFixture TalkAsTheTeamOwner()
+    {
+        var team = new CcDirector.Gateway.Tests.Teams.TeamMachineFixture();
+        team.EnrolledDirector(CcDirector.Gateway.Tests.Teams.TeamMachineFixture.Owner, "team-north", "SOREN_NORTH");
+        team.EnrolledDirector(CcDirector.Gateway.Tests.Teams.TeamMachineFixture.Developer, "team-south", "SOREN_SOUTH");
+        _refuseMachine = (_, machine, what) => CcDirector.Gateway.Teams.TeamMachineGuard.Refuse(team.OwnerCaller, machine, team.Directors, what);
+        return team;
+    }
+
+    [Fact]
+    public async Task Talk_InATeam_TheOwnerOnTheirOwnComputer_IsStarted()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"machine":"SOREN_NORTH"}""");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(NorthDirector, Assert.Single(_sent).DirectorId);
+    }
+
+    [Fact]
+    public async Task Talk_InATeam_TheOwnerNamingADevelopersComputer_IsRefused_AndNothingIsSent()
+    {
+        using var team = TalkAsTheTeamOwner();
+        await StartAsync();
+        _directors!.RegisterFromStream("dir-south", "SOREN_SOUTH", "test", "2.16.0", pid: 3, startedAt: BriefAt, tenant: TenantId.Local);
+        _kit.Record(TenantId.Local, "dir-south", buildsFactoryKit: true);
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"machine":"SOREN_SOUTH"}""");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var error = await ErrorOf(response);
+        Assert.Equal(CcDirector.Gateway.Teams.TeamMachineGuard.Refusal, error);
+        Assert.DoesNotContain("SOREN_SOUTH", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(_sent);
     }
 
     [Fact]

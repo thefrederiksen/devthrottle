@@ -73,7 +73,7 @@ public sealed class BackupMachinesThroughTheRoutesTests : IDisposable
             nowUtc: () => _now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: _publish.Store.IsDefined,
             dueChecks: new DueCheckService(runs, (tenant, id) => jobs.Get(tenant, id), _triggers.CheckStates, new NoStarts(),
                 directorRunsDefinitionChecks: (_, _) => true, resultRecorded: (_, _) => { }, nowUtc: () => _now,
-                startLifetime: CancellationToken.None, mailDeskOn: _ => false));
+                startLifetime: CancellationToken.None, mailDeskOn: _ => false), refuseMachine: (_, _, _) => null);
     }
 
     public void Dispose()

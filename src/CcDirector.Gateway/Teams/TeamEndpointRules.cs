@@ -293,7 +293,9 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/factory-memory", TeamMethods.Any, Factories, TeamTarget.Team),
         new TeamEndpointRule("/factory-records", TeamMethods.Any, Factories, TeamTarget.Team),
         // The factory's schedules: its triggers, and the scheduled runs the floor reads and resolves. A plain schedule
-        // that is not a factory's uses /cron too; inside a team there is no other kind yet, so the family is the factory's.
+        // that is not a factory's uses /cron too, and is the same row. A schedule, a trigger and a talk name a computer
+        // in their body, which this table cannot read: Teams.TeamMachineGuard then lets the caller name only a computer
+        // their own Director runs on (review note N1), so the Owner never runs work on another member's computer.
         new TeamEndpointRule("/triggers", TeamMethods.Any, Factories, TeamTarget.Team),
         new TeamEndpointRule("/cron", TeamMethods.Any, Factories, TeamTarget.Team),
         // A Director's own pulls for the factories it runs. Narrower than the "/directors" rule above, so they are the

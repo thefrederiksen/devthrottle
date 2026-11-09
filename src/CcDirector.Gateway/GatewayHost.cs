@@ -1075,6 +1075,22 @@ public sealed class GatewayHost : IAsyncDisposable
             Util.AuthMiddleware.AuthenticatedDevice(ctx), Util.AuthMiddleware.CallingSession(ctx));
     }
 
+    /// <summary>
+    /// Why this request may not name <paramref name="machine"/>, or null when it may (Team implementation 2.1, review
+    /// note N1): inside a team, a schedule, a trigger, a factory talk and the folder choices run on or read only the
+    /// caller's own computers (<see cref="Teams.TeamMachineGuard"/>). A personal account, and a request that names no
+    /// computer, is never refused - and the team's Directors are read only for a team request.
+    /// </summary>
+    internal string? TeamMachineRefusal(HttpContext ctx, string? machine, string what)
+    {
+        if (string.IsNullOrWhiteSpace(machine) || GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is not { } tenant)
+            return null;
+        if (TeamCallerFor(ctx, tenant) is not { } caller)
+            return null;
+        return Teams.TeamMachineGuard.Refuse(caller, machine,
+            Registry.ListDirectors(tenant).Select(d => (d.DirectorId, (string?)d.MachineName)), what);
+    }
+
     /// <summary>The mobile Speak marks, for the doorbell's dictation-lock wiring test.</summary>
     internal Transcription.TranscribingSessions TranscribingSessionsForTests => _transcribingSessions;
 
@@ -6108,7 +6124,8 @@ public sealed class GatewayHost : IAsyncDisposable
             factoryManager: factoryManagerSources,
             publishedBrief: (tenant, factory, seat) => _factorySeatBriefs.GivenTo(tenant, factory, seat),
             // Factory Definition mission, phase 5: a defined factory's talk is built from its published definition.
-            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory));
+            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
+            refuseMachine: TeamMachineRefusal);
         // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
         Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
@@ -6748,12 +6765,14 @@ public sealed class GatewayHost : IAsyncDisposable
             checkFolder: (ctx, machine, path, ct) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
                 ? folderCheck.CheckAsync(tenant, machine, path, ct)
                 : Task.FromResult(Running.ScheduleFolderVerdict.Unchecked(
-                    $"The folder '{path}' could not be checked: this request has no account. It is checked again when the schedule first runs.")));
+                    $"The folder '{path}' could not be checked: this request has no account. It is checked again when the schedule first runs.")),
+            refuseMachine: TeamMachineRefusal);
         // The schedule editor's folder choices (issue #4421): the machine's known repositories and its system's shape.
         Api.CronFolderChoicesEndpoint.Map(_app, (ctx, machine) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? new Api.CronFolderChoicesEndpoint.MachineFolders(folderCheck.OsOf(tenant, machine), folderCheck.IsOnline(tenant, machine),
                 _knownRepositories.ReadForMachine(tenant, machine))
-            : null);
+            : null,
+            refuseMachine: TeamMachineRefusal);
         // The schedule editor's factory and seat picker (the owner, 2026-10-10): the same registry the write checks.
         Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? FactoryRegistry.List(tenant)
@@ -6887,6 +6906,7 @@ public sealed class GatewayHost : IAsyncDisposable
             isDefined: FactoryDefinitions.IsDefined,
             // Phase 5b: a timed start's due checks, handed out and reported on the same Director routes.
             dueChecks: DueChecks,
+            refuseMachine: TeamMachineRefusal,
             // Issue #4351: among a factory's seats, only its Boss changes its triggers.
             bossSeatOf: (tenant, factory) => FactoryRegistry.Find(tenant, factory)?.BossSeat);
 

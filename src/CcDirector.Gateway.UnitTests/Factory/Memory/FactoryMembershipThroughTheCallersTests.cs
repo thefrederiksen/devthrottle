@@ -185,7 +185,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
                 : null,
             runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, _) => false,
-            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null);
         CronRunEndpoints.Map(app, engine, new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf, accountZoneOf: _ => TimeZoneInfo.Utc, runLifetime: CancellationToken.None);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
@@ -196,7 +196,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         TriggerEndpoints.Map(app, _ => TenantId.Local, _triggers,
             directorMachine: (_, _) => Machine, nowUtc: () => DateTime.UtcNow, sessionFactoryOf: _history.FactoryOf,
             isDefined: (_, _) => false,
-            dueChecks: DueCheckTestParts.NoDueChecks(_db.Open(), Path.Combine(_dir, "due.runs.json")));
+            dueChecks: DueCheckTestParts.NoDueChecks(_db.Open(), Path.Combine(_dir, "due.runs.json")), refuseMachine: (_, _, _) => null);
 
         await app.StartAsync();
         _app = app;

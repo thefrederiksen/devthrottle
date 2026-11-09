@@ -579,7 +579,7 @@ public sealed class MailDeskSwitchTests : IDisposable
             directorMachine: (_, _) => Machine, nowUtc: () => _now,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             isDefined: (_, _) => true,
-            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
+            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")), refuseMachine: (_, _, _) => null);
         var report = Endpoints(app).Single(e => Describe(e) == "POST /directors/{directorId}/triggers/{id}/checks");
 
         // Act
@@ -612,7 +612,7 @@ public sealed class MailDeskSwitchTests : IDisposable
             directorMachine: (_, _) => "ELSEWHERE", nowUtc: () => _now,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             isDefined: (_, _) => true,
-            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
+            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")), refuseMachine: (_, _, _) => null);
         var report = Endpoints(app).Single(e => Describe(e) == "POST /directors/{directorId}/triggers/{id}/checks");
         var route = new Dictionary<string, string> { ["directorId"] = Director, ["id"] = trigger.ToString("D") };
         var body = JsonSerializer.Serialize(Report(count: 3));

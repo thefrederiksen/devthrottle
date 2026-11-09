@@ -50,7 +50,7 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
             runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(new CronRunHistoryStore(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json")),
                 new CcDirector.Gateway.History.SessionHistoryStore(_db).EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, _) => false,
-            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null);
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First() + "/") };
     }

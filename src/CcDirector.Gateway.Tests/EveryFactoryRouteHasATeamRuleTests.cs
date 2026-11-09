@@ -53,7 +53,7 @@ public sealed class EveryFactoryRouteHasATeamRuleTests
                 .Select(e => (Pattern: "/" + (e.RoutePattern.RawText ?? "").TrimStart('/'),
                     Methods: e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? Array.Empty<string>()))
                 .Where(r => IsFactoryRoute(r.Pattern))
-                .SelectMany(r => r.Methods.DefaultIfEmpty("GET"), (r, m) => (Method: m, r.Pattern))
+                .SelectMany(r => r.Methods.DefaultIfEmpty("ANY"), (r, m) => (Method: m, r.Pattern))
                 .Where(r => !NoTeamRuleOnPurpose.ContainsKey($"{r.Method} {r.Pattern}"))
                 .Distinct()
                 .OrderBy(r => r.Pattern, StringComparer.Ordinal).ThenBy(r => r.Method, StringComparer.Ordinal)

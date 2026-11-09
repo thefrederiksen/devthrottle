@@ -77,11 +77,17 @@ internal static class TriggerEndpoints
         // Factory Definition, phase 5b: a timed start's due checks ride the same pull and the same report as a
         // trigger's (design 3.3). REQUIRED for the same reason as the two above.
         DueCheckService dueChecks,
+        // Team implementation 2.1 (review note N1): why this caller may not put a trigger on the computer it names, or
+        // null when it may - inside a team only the caller's own computers (Teams.TeamMachineGuard); a personal account
+        // is never refused. REQUIRED for the same reason as the three above. A harness with no teams passes
+        // `(_, _, _) => null`.
+        Func<HttpContext, string?, string, string?> refuseMachine,
         // Issue #4351: the Boss seat of one of the account's factories, or null when it names none. Only the Boss, among
         // a factory's seats, changes its triggers (FactoryNaming.TryActAsTheBoss). Null (a harness) refuses every seat.
         Func<TenantId, string, string?>? bossSeatOf = null)
     {
         ArgumentNullException.ThrowIfNull(dueChecks);
+        ArgumentNullException.ThrowIfNull(refuseMachine);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(isDefined);
@@ -113,6 +119,10 @@ internal static class TriggerEndpoints
             // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a defined factory's triggers come from its definition.
             if (isDefined(tenant, req.Factory))
                 return Factory.Definition.DefinedByDefinition.Refusal("POST /triggers", req.Factory!);
+
+            // THE COMPUTER, inside a team: only the caller's own (Team implementation 2.1, review note N1).
+            if (refuseMachine(ctx, req.Machine, "POST /triggers") is { } machineRefusal)
+                return Teams.TeamCallerChecks.Refused(machineRefusal);
 
             var (created, refused) = store.Create(tenant, req!, CallerOf(ctx), nowUtc());
             if (created is null)
@@ -174,6 +184,11 @@ internal static class TriggerEndpoints
                 : null;
             if (definedFactory is not null)
                 return Factory.Definition.DefinedByDefinition.Refusal($"PUT /triggers/{id}", definedFactory);
+
+            // THE COMPUTER, inside a team: only the caller's own (Team implementation 2.1, review note N1). A body that
+            // names no computer keeps the stored one, which was checked when it was written.
+            if (refuseMachine(ctx, req.Machine, $"PUT /triggers/{id}") is { } machineRefusal)
+                return Teams.TeamCallerChecks.Refused(machineRefusal);
 
             var (updated, refused) = store.Update(tenant, id, req!);
             if (refused is not null) return Refuse(StatusCodes.Status409Conflict, "trigger_name_taken", refused);

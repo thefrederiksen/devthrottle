@@ -47,7 +47,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         CronJobEndpoints.Map(_app, _store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, _) => false,
-            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null);
         var engine = new CronEngine(_store, _history, new RecordingStarter(), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,

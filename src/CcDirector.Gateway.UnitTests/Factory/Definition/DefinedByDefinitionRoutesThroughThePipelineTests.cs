@@ -91,7 +91,7 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
             runRecords: runRecords,
             accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, factory) => _definitions.IsDefined(T, factory),
-            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null);
         var engine = new CronEngine(_schedules, runs, new CountingStarter(() => _starts++), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FixedClock(Now));
         CronRunEndpoints.Map(_routes, engine, runRecords, jobById: id => _schedules.Get(id),
@@ -105,7 +105,7 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         TriggerEndpoints.Map(_routes, _ => T, service, directorMachine: (_, _) => "SOREN_NORTH", nowUtc: () => Now,
             sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
             isDefined: _definitions.IsDefined,
-            dueChecks: DueCheckTestParts.NoDueChecks(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
+            dueChecks: DueCheckTestParts.NoDueChecks(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")), refuseMachine: (_, _, _) => null);
 
         FactoryRegistryEndpoints.Map(_routes, _ => T, _registry, sessionStart: (_, _) => null, nowUtc: () => Now,
             isDefined: _definitions.IsDefined);
