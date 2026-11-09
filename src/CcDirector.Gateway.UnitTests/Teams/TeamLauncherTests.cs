@@ -121,7 +121,8 @@ public sealed class TeamLauncherTests : IAsyncLifetime
                 (DirectorCommandRouter.SendDirectorCommandAsync)((_, _, _) => Task.FromResult<DirectorCommandResult?>(null))),
             boundary: _boundary,
             teamLaunchers: _check,
-            sessionFactoryOf: _ => SessionFactoryLookup.NotKnown);
+            sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
+            launcherConnections: _connections);
         await _app.StartAsync();
         _http = _app.GetTestClient();
     }
@@ -355,6 +356,64 @@ public sealed class TeamLauncherTests : IAsyncLifetime
 
         Assert.Equal(RestartVerdict.CanRestart, answer.Verdict);
         Assert.Null(DirectorRestartGate.Refusal(answer));
+    }
+
+    private static LauncherCapabilityDeclaration GuardedRestart() => new()
+    {
+        Commands = new List<string>
+        {
+            LauncherCapabilities.DirectorStart, LauncherCapabilities.DirectorStop,
+            LauncherCapabilities.DirectorRestart, LauncherCapabilities.DirectorRestartOnlyIfEmpty,
+        },
+        RestartSignalArmed = true,
+        ServingRootIsInstanceHome = false,
+        ServingRootKey = "b1706c7af60c",
+    };
+
+    // ---- the computer: the restart check Smart Restart asks -------------------------------------------------------
+
+    // Shows: the restart check a team Director's Smart Restart asks before it closes anything -
+    // GET /machines/{machine}/restart-capability - is answered for its own computer, through the team gate, and says it
+    // can be restarted once its own launcher is registered and streaming. Before, the gate had no answer for any
+    // /machines route in a team and refused it.
+    [Fact]
+    public async Task RestartCapability_OverTheGate_ForTheTeamDirectorsOwnComputer_IsAnswered()
+    {
+        Assert.Equal(HttpStatusCode.Created, (await RegisterAsync(_aliceKey, AlicePc)).Status);
+        Assert.False(StreamHello(_aliceKey, AlicePc, GuardedRestart()).Aborted);
+
+        var answer = await SendAsync(HttpMethod.Get, $"/machines/{AlicePc}/restart-capability", _aliceKey);
+
+        Assert.Equal(HttpStatusCode.OK, answer.Status);
+        Assert.Equal("CanRestart", answer.Body.GetProperty("verdict").GetString());
+    }
+
+    // Shows: another member's computer, and a computer no Director of the team is on, are refused at the gate - the
+    // check and the restart relay alike - so a member can neither read nor restart a colleague's Director.
+    [Theory]
+    [InlineData(BobPc)]
+    [InlineData("NOBODYS-PC")]
+    public async Task Machines_AnotherMembersComputerOrAnUnknownOne_IsRefused(string machine)
+    {
+        AssertTeamRefusal(await SendAsync(HttpMethod.Get, $"/machines/{machine}/restart-capability", _aliceKey));
+        AssertTeamRefusal(await SendAsync(HttpMethod.Post, $"/machines/{machine}/director/restart", _aliceKey, new { }));
+    }
+
+    // Shows: whose a computer is, by the machine guard's rule: the caller's when every team Director on it is theirs,
+    // someone else's when one is another person's, Unknown when none is known there - and the list names no computer.
+    [Fact]
+    public void Whose_AComputer_IsAnsweredByTheDirectorsOnIt()
+    {
+        Assert.Equal(TeamOwnership.Callers, _ownership.Whose(_teamA, Alice, "/machines/{machine}/restart-capability", _ => AlicePc, "GET"));
+        Assert.Equal(TeamOwnership.Callers, _ownership.Whose(_teamA, Alice, "/machines/{machine}/director/restart", _ => " alice-pc ", "POST"));
+        Assert.Equal(TeamOwnership.SomeoneElses, _ownership.Whose(_teamA, Alice, "/machines/{machine}/restart-capability", _ => BobPc, "GET"));
+        Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_teamA, Alice, "/machines/{machine}/restart-capability", _ => "NOBODYS-PC", "GET"));
+        Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_teamA, Alice, "/machines", _ => null, "GET"));
+
+        // A colleague's Director also on Alice's computer makes it not hers alone.
+        _directors.RegisterFromStream("director-bob-2", AlicePc, "u", "1.0", 1, HelloAt, _teamA, "director-bob-2",
+            "device:" + HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA.Value, Bob, "director-bob"));
+        Assert.Equal(TeamOwnership.SomeoneElses, _ownership.Whose(_teamA, Alice, "/machines/{machine}/restart-capability", _ => AlicePc, "GET"));
     }
 
     private FakeHubCtx StreamHello(string key, string machine, LauncherCapabilityDeclaration? capability = null)

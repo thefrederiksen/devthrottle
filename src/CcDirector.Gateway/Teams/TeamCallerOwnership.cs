@@ -122,6 +122,15 @@ public sealed class TeamCallerOwnership
                 : OwnerOfDirector(tenant, directorId, callerSubject, "director");
         }
 
+        // A route that names a computer (/machines/{machine}/...): the restart check and the restart relay a Director's
+        // Smart Restart asks, and every other relay to a computer (devthrottle_internal#2829). The list of the team's
+        // computers names none, and stays Unknown.
+        if (IsUnder(pattern, "/machines"))
+        {
+            var machine = routeValue("machine");
+            return string.IsNullOrWhiteSpace(machine) ? TeamOwnership.Unknown : OwnerOfMachine(tenant, machine, callerSubject);
+        }
+
         if (IsUnder(pattern, Api.TeamReportEndpoints.MineReportPattern))
             return OwnerOfReport(tenant, routeValue("reportId"), callerSubject);
 
@@ -271,6 +280,34 @@ public sealed class TeamCallerOwnership
         }
         FileLog.Write($"[TeamCallerOwnership] LauncherMachineRefusal: {what} for machine={machine} in tenant {tenant.ToLogString()} - REFUSED, {why}");
         return TeamLauncherCheck.Refusal;
+    }
+
+    /// <summary>
+    /// WHOSE A COMPUTER IS inside a team (devthrottle_internal#2829), by the rule <see cref="TeamMachineGuard"/> keeps:
+    /// the caller's own when at least one Director of the team is known on it and every one of them is the caller's;
+    /// someone else's when one of them is another person's; Unknown when no Director of the team is known on it, or one
+    /// on it is nobody's.
+    /// </summary>
+    private TeamOwnership OwnerOfMachine(TenantId tenant, string machine, string callerSubject)
+    {
+        var onIt = _directors.ListDirectors(tenant).Where(d => SameMachine(d.MachineName, machine)).ToList();
+        if (onIt.Count == 0)
+        {
+            FileLog.Write($"[TeamCallerOwnership] Whose: machine={machine} in tenant {tenant.ToLogString()} - no Director of the team is known on it, unknown");
+            return TeamOwnership.Unknown;
+        }
+
+        var answer = TeamOwnership.Callers;
+        foreach (var director in onIt)
+        {
+            var owner = OwnerOf(tenant, director.DirectorId);
+            if (owner is null)
+                return TeamOwnership.Unknown;
+            if (!string.Equals(owner, callerSubject, StringComparison.Ordinal))
+                answer = TeamOwnership.SomeoneElses;
+        }
+        FileLog.Write($"[TeamCallerOwnership] Whose: machine={machine} in tenant {tenant.ToLogString()} - {(answer == TeamOwnership.Callers ? "the caller's own" : "someone else's")}");
+        return answer;
     }
 
     /// <summary>Two computer names are one computer when they match trimmed, ignoring letter case.</summary>
