@@ -73,6 +73,13 @@ public sealed class DeliveryLoopOrderTests
         // is not listed - which happened twice in one day, with clear-context, compact-context and
         // history-picker, then "enter" and execute-action. The list now has one source, the areas
         // themselves, and this holds the connection layer to it.
+        // NOT EMPTY FIRST, because two empty sets are equal and that is the failure this join can have: the
+        // union is a static field initialised from Areas, and if it were ever declared ABOVE Areas in that
+        // file it would read null-then-empty and every verb would silently run on the loop again. The
+        // theories above would catch it too; this says so where the join is asserted.
+        Assert.NotEmpty(DeliveryLoopOrder.OrderedVerbs);
+        Assert.Contains("prompt", DeliveryLoopOrder.OrderedVerbs);
+
         Assert.Equal(
             SessionCommandExecutor.VerbsThatMustArriveInOrder.OrderBy(v => v, StringComparer.Ordinal),
             DeliveryLoopOrder.OrderedVerbs.OrderBy(v => v, StringComparer.Ordinal));
