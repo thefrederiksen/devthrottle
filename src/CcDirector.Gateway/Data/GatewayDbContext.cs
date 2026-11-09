@@ -545,6 +545,10 @@ public sealed class GatewayDbContext : DbContext
     /// Written only through <see cref="DevReports.DevReportRecipients"/>.</summary>
     public DbSet<DevReportRecipientEntity> DevReportRecipients => Set<DevReportRecipientEntity>();
 
+    /// <summary>The factories sent by name to a contributor of their team (<c>factory_contributors</c>, Team implementation
+    /// piece 4.1). Written only through <see cref="Teams.FactoryContributors"/>.</summary>
+    public DbSet<FactoryContributorEntity> FactoryContributors => Set<FactoryContributorEntity>();
+
     /// <summary>A person's comments on a dev report sent to them, for the report's author person only
     /// (<c>dev_report_comments</c>, devthrottle_internal#2309). Written only through
     /// <see cref="DevReports.DevReportPersonComments"/>; never read by dev report delivery.</summary>
@@ -1580,6 +1584,17 @@ public sealed class GatewayDbContext : DbContext
             // A recipient's Reports page: what was sent to them, newest first.
             b.HasIndex(e => new { e.TenantId, e.RecipientSubject, e.SentAtUtc });
             b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
+        });
+
+        modelBuilder.Entity<FactoryContributorEntity>(b =>
+        {
+            b.ToTable("factory_contributors");
+            b.HasKey(e => e.Id);
+            // Sending the same factory to the same contributor again is the same row.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.ContributorSubject }).IsUnique();
+            // A contributor's Factories page: what was sent to them in the team.
+            b.HasIndex(e => new { e.TenantId, e.ContributorSubject });
+            b.Property(e => e.Factory).HasMaxLength(64);
         });
 
         modelBuilder.Entity<DevReportCommentEntity>(b =>
@@ -2891,6 +2906,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<DevReportItemEntity>(modelBuilder);
         ApplyTenantScope<DevReportReplyEntity>(modelBuilder);
         ApplyTenantScope<DevReportRecipientEntity>(modelBuilder);
+        ApplyTenantScope<FactoryContributorEntity>(modelBuilder);
         ApplyTenantScope<DevReportCommentEntity>(modelBuilder);
         ApplyTenantScope<FleetMessageEntity>(modelBuilder);
         ApplyTenantScope<FleetOutcomeEntity>(modelBuilder);

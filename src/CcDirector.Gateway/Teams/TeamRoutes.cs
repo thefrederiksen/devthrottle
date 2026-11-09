@@ -31,7 +31,11 @@ internal sealed record TeamRouteServices(
     DevReportStore Reports,
     DevReportRecipients Recipients,
     DevReportPersonComments Comments,
-    DevReportDelivery Delivery);
+    DevReportDelivery Delivery,
+    Factory.Registry.FactoryRegistryStore Factories,
+    Factory.FactoryActivityRecord Activity,
+    FactoryContributors FactoryContributors,
+    Func<DateTime>? UtcNow = null);
 
 /// <summary>
 /// EVERY TEAM ROUTE IS MAPPED HERE, IN ONE PLACE: everything under <c>/teams</c> and <c>/team-invitations</c>, and the
@@ -72,6 +76,13 @@ internal static class TeamRoutes
         var questions = new TeamQuestions(s.Reports, s.Recipients, s.Comments, s.Teams, s.Access, s.Delivery);
         TeamReportEndpoints.Map(app, s.Reports, s.Recipients, s.Comments, s.Teams, s.Access, s.Boundary, s.Tenants, questions);
         TeamQuestionEndpoints.Map(app, questions, s.Boundary, s.Tenants);
+        // A contributor's Factories and Inbox (Team implementation piece 4.1): the factories sent to them by name as customer
+        // pages, through the one check (ContributorFactoryAccess), and only what was sent to them; and the Owner's share of
+        // a whole factory with a contributor.
+        var customerAccess = new ContributorFactoryAccess(s.Teams, s.Factories, s.FactoryContributors);
+        ContributorEndpoints.Map(app, new ContributorPages(customerAccess, s.Activity, s.Reports, s.Recipients, questions,
+            s.Requests, s.Teams, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants);
+        FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.UtcNow), s.Boundary, s.Tenants);
 
         FileLog.Write("[TeamRoutes] mapped every route under /teams and /team-invitations, and /account/mentor");
     }

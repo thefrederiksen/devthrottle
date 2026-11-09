@@ -6297,7 +6297,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 InvitationMailer: TeamInvitationMailer, PublicBase: () => GatewayPublicUrl.ResolveBase(Hosted),
                 Requests: TeamRequests, Skills: _skills, Workflows: _workflows,
                 MentorStore: TeamMentorStore, TimeZoneOf: _tenantSettingsResolver.TimeZone, MentorRunning: TeamMentorWriter is not null,
-                Reports: _devReports, Recipients: _devReportRecipients, Comments: _devReportComments, Delivery: _devReportDelivery));
+                Reports: _devReports, Recipients: _devReportRecipients, Comments: _devReportComments, Delivery: _devReportDelivery,
+                Factories: FactoryRegistry, Activity: FactoryActivity, FactoryContributors: new Teams.FactoryContributors(_gatewayDb)));
             // The administrator routes that fill one team so it can be shown as it is, and empty it again by one tag
             // (owner, 8 Oct 2026). Same admin service token as the factory switch; exact-match public in AuthMiddleware.
             AdminTeamShowcaseEndpoint.Map(_app, Hosted, new Teams.TeamShowcase(_gatewayDb, TeamRegistry, TenantRegistry,

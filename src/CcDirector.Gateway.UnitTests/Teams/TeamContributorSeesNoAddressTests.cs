@@ -154,7 +154,10 @@ public sealed class TeamContributorSeesNoAddressTests : IAsyncLifetime
             Reports: reports, Recipients: recipients, Comments: comments,
             // The session that wrote the report is busy, so an answer is held for it and nothing is typed anywhere.
             Delivery: new DevReportDelivery(reports, (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, "director-developer", "test roster"),
-                (_, _) => throw new InvalidOperationException("no session is asked in this test"), CancellationToken.None)));
+                (_, _) => throw new InvalidOperationException("no session is asked in this test"), CancellationToken.None),
+            Factories: new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(_db),
+            Activity: new CcDirector.Gateway.Factory.FactoryActivityRecord(_db),
+            FactoryContributors: new FactoryContributors(_db)));
 
         _teamRoutes = ((IEndpointRouteBuilder)_app).DataSources
             .SelectMany(d => d.Endpoints)
