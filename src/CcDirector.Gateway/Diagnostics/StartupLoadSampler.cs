@@ -54,14 +54,33 @@ public sealed class StartupLoadSampler : IDisposable
     // which is right because the listener starts before the Gateway opens any connection.
     private readonly ConcurrentDictionary<(string Instrument, string Pool, string State), double> _summed = new();
     private readonly MeterListener _listener = new();
+    private readonly ConcurrentDictionary<string, byte> _listened = new(StringComparer.Ordinal);
+
+    /// <summary>The Npgsql instruments this sampler is listening to, by name. A name the line reads that is not
+    /// here would print "-" forever, so the database test checks every one is.</summary>
+    internal IReadOnlyCollection<string> ListenedInstruments => _listened.Keys.ToList();
 
     /// <summary>Start listening to Npgsql's meter. Construct before the Gateway opens a database connection.</summary>
-    public StartupLoadSampler()
+    public StartupLoadSampler() : this(listenToNpgsql: true)
     {
+    }
+
+    /// <summary>
+    /// TEST seam: <paramref name="listenToNpgsql"/> false builds a sampler that hears only what a test feeds it
+    /// through <see cref="Record(string, bool, double, ReadOnlySpan{KeyValuePair{string, object?}})"/>. The Npgsql
+    /// meter is process-wide, so a listening sampler in a test would also see every pool another test created.
+    /// </summary>
+    internal StartupLoadSampler(bool listenToNpgsql)
+    {
+        if (!listenToNpgsql)
+            return;
         _listener.InstrumentPublished = (instrument, listener) =>
         {
             if (instrument.Meter.Name == NpgsqlMeterName && instrument.Name.StartsWith("db.client.", StringComparison.Ordinal))
+            {
+                _listened[instrument.Name] = 0;
                 listener.EnableMeasurementEvents(instrument);
+            }
         };
         _listener.SetMeasurementEventCallback<int>((i, v, tags, _) => Record(i, v, tags));
         _listener.SetMeasurementEventCallback<long>((i, v, tags, _) => Record(i, v, tags));
@@ -143,7 +162,9 @@ public sealed class StartupLoadSampler : IDisposable
 
     /// <summary>
     /// The database pools, one group per pool: <c>db[label] used= idle= max= waiting= timeouts= executing=</c>.
-    /// "No database pool yet" is said out loud, so an empty group is never mistaken for a dead instrument.
+    /// "No database pool yet" is said out loud, so an empty group is never mistaken for a dead instrument. A value
+    /// is "-" when that instrument has reported nothing for the pool yet: Npgsql reports waiting requests,
+    /// timeouts and executing commands only as they change, so "-" there means none since the process started.
     /// </summary>
     internal void AppendDatabasePools(StringBuilder sb)
     {

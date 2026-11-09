@@ -7,7 +7,9 @@ namespace CcDirector.Gateway.Tests;
 /// <summary>
 /// The deploy outage measurement: a load line every two seconds for the first ten minutes after start, then
 /// nothing. The loop is driven by a fake clock that the fake wait advances, so these tests take no real time
-/// and do not depend on the machine.
+/// and do not depend on the machine. None of them listens to the real Npgsql meter: it is process-wide, so a pool
+/// another test created would show up here. The real meter is proved against real PostgreSQL in
+/// CcDirector.Gateway.DatabaseTests (StartupLoadSamplerPostgresTests).
 /// </summary>
 public sealed class StartupLoadSamplerTests
 {
@@ -16,7 +18,7 @@ public sealed class StartupLoadSamplerTests
     [Fact]
     public void Run_TenMinuteWindow_WritesThreeHundredSamplesThenStops()
     {
-        using var sampler = new StartupLoadSampler();
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
         var clock = TimeSpan.Zero;
         var lines = new List<string>();
         var waits = 0;
@@ -39,7 +41,7 @@ public sealed class StartupLoadSamplerTests
     [Fact]
     public void Run_SampleLinesCarryUtcTimestampsTwoSecondsApart()
     {
-        using var sampler = new StartupLoadSampler();
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
         var clock = TimeSpan.Zero;
         var lines = new List<string>();
 
@@ -54,7 +56,7 @@ public sealed class StartupLoadSamplerTests
     [Fact]
     public void Run_SlowSample_DoesNotPushTheScheduleBack()
     {
-        using var sampler = new StartupLoadSampler();
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
         var clock = TimeSpan.Zero;
         var waited = new List<TimeSpan>();
         var lines = new List<string>();
@@ -73,7 +75,7 @@ public sealed class StartupLoadSamplerTests
     [Fact]
     public void Run_StartedPastTheWindow_WritesNoSample()
     {
-        using var sampler = new StartupLoadSampler();
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
         var lines = new List<string>();
 
         var samples = sampler.Run(() => StartupLoadSampler.Window, _ => true, Bounded(lines), () => Start);
@@ -85,7 +87,7 @@ public sealed class StartupLoadSamplerTests
     [Fact]
     public void Run_WaitRefuses_StopsEarly()
     {
-        using var sampler = new StartupLoadSampler();
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
         var lines = new List<string>();
 
         var samples = sampler.Run(() => TimeSpan.Zero, _ => false, Bounded(lines), () => Start);
@@ -96,7 +98,7 @@ public sealed class StartupLoadSamplerTests
     [Fact]
     public void FormatLine_NoDatabaseYet_SaysSoAndCarriesTheThreadPool()
     {
-        using var sampler = new StartupLoadSampler();
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
 
         var line = sampler.FormatLine(TimeSpan.FromSeconds(4), Start);
 
@@ -110,7 +112,7 @@ public sealed class StartupLoadSamplerTests
     [Fact]
     public void Record_PoolMeasurements_AppearPerPoolUnderAHashedLabel()
     {
-        using var sampler = new StartupLoadSampler();
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
         const string pool = "Host=db.example.internal;Username=gateway;Database=gw";
 
         sampler.Record("db.client.connections.usage", observable: true, 15, Tags(pool, "used"));
@@ -135,22 +137,6 @@ public sealed class StartupLoadSamplerTests
             text);
         Assert.DoesNotContain("db.example.internal", text);
         Assert.DoesNotContain("1234", text);
-    }
-
-    [Fact]
-    public void FormatLine_RealNpgsqlPool_IsReadFromNpgsqlsOwnMeter()
-    {
-        // The real library, with no server: creating a pooled data source publishes its pool instruments, and
-        // nothing here opens a connection. This proves the instrument names and tags the sampler listens for
-        // are the ones Npgsql actually emits.
-        using var sampler = new StartupLoadSampler();
-        using var dataSource = Npgsql.NpgsqlDataSource.Create(
-            "Host=sampler-test.invalid;Username=u;Password=p;Database=d;Maximum Pool Size=7");
-
-        var line = sampler.FormatLine(TimeSpan.Zero, Start);
-
-        Assert.Matches(@" db\[[0-9a-f]{6}\] used=0 idle=0 max=7 ", line);
-        Assert.DoesNotContain("sampler-test.invalid", line);
     }
 
     [Fact]
