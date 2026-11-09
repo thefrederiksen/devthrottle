@@ -23,6 +23,7 @@ store. Typer's own pretty tracebacks, which print local variables, are switched 
 from __future__ import annotations
 
 import getpass
+import platform
 import json
 import os
 import re
@@ -41,7 +42,7 @@ from rich.measure import Measurement
 from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
-from . import __version__, entry_window, filelog, gateway_link, known_machines, machine_key, machines, paths, sealing, transfer, transfers
+from . import __version__, ask_explanation, entry_window, filelog, gateway_link, known_machines, machine_key, machines, paths, sealing, transfer, transfers
 from .audit import AuditLog, OwnerApproval
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
 from .errors import CcSecretsError, InputError, describe
@@ -363,6 +364,41 @@ def _window_approval(text: str) -> Tuple[OwnerApproval, str]:
     return OwnerApproval(text=text, session_name=name), f'Session {number + " " if number else ""}"{name}"'
 
 
+def _asking_session() -> Tuple[OwnerApproval, str, ask_explanation.AskingSession]:
+    """Who opened the ask window, read once from the Gateway's fleet list: the audit record, the line the form's
+    heading names, and the panel's "Who is asking" - the session's number and name, its machine and mission, and the
+    Gateway's own address for it (the Gateway rules what that address is; the window only opens it). Never an id."""
+    session_id = os.environ.get("CC_SESSION_ID", "")
+    machine = platform.node()
+    on_machine = f"On {machine}" if machine else ""
+    if not session_id:
+        return (OwnerApproval(text=ASK_RECORD, session_name=""), "A command in a terminal",
+                ask_explanation.AskingSession(title="A command in a terminal, not a session", where=on_machine))
+    from cc_shared import gateway
+
+    try:
+        sessions = gateway.get_fleet()[0]
+    except Exception as exc:  # the panel and the record say the name is unknown, and why
+        unknown = f"(name not known: {type(exc).__name__})"
+        return (OwnerApproval(text=ASK_RECORD, session_name=unknown), f'Session "{unknown}"',
+                ask_explanation.AskingSession(title=f"A session the Gateway could not name {unknown}",
+                                              where=on_machine))
+    me = next((s for s in sessions if gateway.field(s, "sessionId", "SessionId").lower() == session_id.lower()), None)
+    if me is None:
+        unknown = "(name not known: not in the fleet list)"
+        return (OwnerApproval(text=ASK_RECORD, session_name=unknown), f'Session "{unknown}"',
+                ask_explanation.AskingSession(title=f"A session not in the fleet list {unknown}", where=on_machine))
+    name = gateway.field(me, "name", "Name") or "(unnamed)"
+    number = gateway.field(me, "number", "Number")
+    on = gateway.field(me, "machineName", "MachineName") or machine
+    mission = gateway.field(me, "missionName", "MissionName")
+    where = " - ".join(part for part in (on, f"Mission: {mission}" if mission else "") if part)
+    url = gateway.field(me, "viewUrl", "ViewUrl")
+    return (OwnerApproval(text=ASK_RECORD, session_name=name), f'Session {number + " " if number else ""}"{name}"',
+            ask_explanation.AskingSession(title=f"{number} - {name}" if number else name, where=where,
+                                          view_url=url if url.startswith(("https://", "http://")) else ""))
+
+
 def _check_ask_details(name: Optional[str], domains: List[str], uses: List[str], env_name: str) -> None:
     """Refuse what the agent pre-filled wrongly BEFORE the window opens, so the owner is never shown a form
     that cannot be saved whatever they type."""
@@ -381,54 +417,102 @@ def ask(
     name: Optional[str] = typer.Argument(None, help="Entry name to pre-fill, for example devlinux. Leave it out for an empty form."),
     username: Optional[str] = typer.Option(None, "--username", help="The user name to pre-fill."),
     notes: Optional[str] = typer.Option(None, "--notes", help="A note to pre-fill. Agents see it in list."),
-    reason: Optional[str] = typer.Option(None, "--reason", help="Why the secret is needed, shown in the window so the owner knows what they are typing into."),
+    reason: Optional[str] = typer.Option(None, "--reason", help="REQUIRED. What it is for: the job it unblocks, in words the owner recognises."),
+    account: Optional[str] = typer.Option(None, "--account", help="REQUIRED for a password. 'existing' (the owner already has this account) or 'new' (they must create it first)."),
+    account_detail: Optional[str] = typer.Option(None, "--account-detail", help="Which account this is, for example 'The mailbox info@example.com in Microsoft 365'."),
+    where_to_find: Optional[str] = typer.Option(None, "--where-to-find", help="REQUIRED with --account existing. Where the owner finds the password."),
+    create_step: Optional[List[str]] = typer.Option(None, "--create-step", help="REQUIRED with --account new. One step the owner follows to create the account; repeat it, in order."),
+    will_do: Optional[str] = typer.Option(None, "--will-do", help="REQUIRED for a password. Exactly what the session will do with it, and what it will not."),
+    if_not_now: Optional[str] = typer.Option(None, "--if-not-now", help="REQUIRED for a password. What happens if the owner says not now."),
     domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill (as for add)."),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run. Default both."),
     agents: Optional[bool] = _agents_option(),
-    setting: bool = typer.Option(False, "--setting", help="Ask for a setting that is not secret (a host, an email address)."),
+    setting: bool = typer.Option(False, "--setting", help="Ask for a setting that is not secret (a host, an email address). Only --reason is required."),
     env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in. Default CC_SECRET."),
 ):
-    """Open a window on the owner's screen to type a secret. The agent pre-fills the name, username and notes;
-    the owner types ONLY the secret and presses Save. There is no way to pass the secret to this command - not as
-    an argument, not in a variable, not on standard input. Prints 'saved NAME' (exit 0) or 'cancelled' (exit 3).
+    """Open a window on the owner's screen to type a secret. The agent pre-fills the name, username and notes, and
+    says why it is asking; the window shows that in a panel beside the form. The owner types ONLY the secret and
+    presses Save. There is no way to pass the secret to this command - not as an argument, not in a variable, not on
+    standard input.
 
-    Example: cc-secrets ask devlinux --username soren --reason "sudo over SSH on devlinux" --uses run"""
+    A request for a password without --reason, --account (with --where-to-find or --create-step), --will-do and
+    --if-not-now is refused before the window opens (exit 2), naming each missing part. A setting needs --reason.
+
+    Prints 'saved NAME' (exit 0). Otherwise 'cancelled' and, on the next line, 'reply: ' with the owner's Not now
+    words (exit 3) - "I don't have that account" is an answer to act on.
+
+    Example: cc-secrets ask devlinux --username soren --uses run --reason "sudo over SSH on devlinux"
+    --account existing --where-to-find "Your devlinux login" --will-do "Run sudo apt upgrade, nothing else"
+    --if-not-now "The upgrade waits until you are back"
+    """
     label = name or "(new)"
     _refuse_removed_agents("ask", agents)
+    steps = list(create_step or [])
     try:
-        _refuse_swallowed_options(username=username, notes=notes, reason=reason, domains=domains, uses=uses,
-                                  env_name=env_name)
+        _refuse_swallowed_options(username=username, notes=notes, reason=reason, account=account,
+                                  account_detail=account_detail, where_to_find=where_to_find, will_do=will_do,
+                                  if_not_now=if_not_now, domains=domains, uses=uses, env_name=env_name)
+        for step in steps:
+            _refuse_swallowed_options(create_step=step)
+        ask_explanation.check_account(account)
+    except Exception as exc:
+        _log_failure("ask", exc)
+        _say(f"ask failed: {_describe(exc)}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+    missing = ask_explanation.missing_parts(setting, reason, account, where_to_find, steps, will_do, if_not_now)
+    if missing:
+        try:
+            _audit().record(label, "ask", "refused", "the request did not say why: missing "
+                            + ", ".join(line.split()[0] for line in missing))
+        except Exception as exc:  # the refusal stands whether or not it could be recorded
+            _log_failure("ask", exc)
+        _say(ask_explanation.refusal_message(missing, setting), err=True)
+        raise typer.Exit(EXIT_REFUSED)
+    try:
         domain_list = _split_list(domains or "")
         use_list = _split_list(uses) if uses is not None else list(USES)
         _check_ask_details(name, domain_list, use_list, env_name or "")
         store = _store()
-        exists = bool(name) and store.get(name) is not None
+        # Read the whole store before the window opens, name or no name: that is what teaches the scrubber every
+        # stored password, and the Not now reply guard and this command's output both rely on it.
+        held = {entry.name for entry in store.entries()}
+        exists = bool(name) and name in held
     except Exception as exc:
         _log_failure("ask", exc)
         _say(f"ask failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
 
-    approval, asked_by = _window_approval(ASK_RECORD)
+    approval, asked_by, asking = _asking_session()
+    why = ask_explanation.AskExplanation(
+        reason=reason.strip(), account=(account or "").strip(), account_detail=(account_detail or "").strip(),
+        where_to_find=(where_to_find or "").strip(), create_steps=tuple(s.strip() for s in steps if s.strip()),
+        will_do=(will_do or "").strip(), if_not_now=(if_not_now or "").strip(), session=asking)
     actions = WindowActions(store, _audit(), approval, env_name=env_name or "",
-                            detail=ASK_RECORD + (f"; reason: {reason}" if reason else ""))
+                            detail=ASK_RECORD + f"; reason: {why.reason}")
     if exists:
         actions.told_about(name)  # the window says so from the start
     request = FormRequest(mode=MODE_ASK, name=name or "", kind_setting=setting, username=username or "",
                           notes=notes or "", uses=use_list, domains=", ".join(domain_list),
-                          asked_by=asked_by, reason=reason or "", exists=exists)
+                          asked_by=asked_by, reason=why.reason, exists=exists, why=why)
     try:
-        saved = entry_window.show_ask(request, actions)
+        outcome = entry_window.show_ask(request, actions)
     except Exception as exc:
         _fail("ask", label, "ask", exc)
-    if saved:
+    if outcome.saved:
         _say(f"saved {actions.saved_name}")
         return
+    reply = ask_explanation.one_line(outcome.reply)
+    if reply and ask_explanation.reply_problem(reply, "") is not None:
+        # The window refuses such a reply before it closes; this is the last door, and it says what it held back.
+        reply = "(withheld by cc-secrets: the reply could not be sent safely)"
+    detail = f"the owner said not now: {reply}" if reply else "the owner closed the window without saving"
     try:
-        _audit().record(label, "ask", "cancelled", "the owner closed the window without saving", approval)
+        _audit().record(label, "ask", "cancelled", detail, approval)
     except Exception as exc:
         _log_failure("ask", exc)
         _say(f"The cancellation could not be written to the audit log: {_describe(exc)}", err=True)
     _say("cancelled")
+    _say(f"reply: {reply or ask_explanation.NO_REPLY}")
     raise typer.Exit(EXIT_CANCELLED)
 
 

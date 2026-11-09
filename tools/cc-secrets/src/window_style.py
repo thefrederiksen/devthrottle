@@ -27,6 +27,8 @@ RED = "#b42318"
 RED_HOVER = "#fdecea"
 ASK_BACKGROUND = "#eef4ff"
 ASK_BORDER = "#c7d7fb"
+GREEN = "#166534"
+GREEN_BACKGROUND = "#dcfce7"
 
 BASE_SIZE = 10
 
@@ -98,6 +100,19 @@ def apply(root) -> dict:
     style.configure("Ask.TLabel", background=ASK_BACKGROUND)
     style.configure("AskTitle.TLabel", background=ASK_BACKGROUND, font=fonts["bold"])
     style.configure("AskWarning.TLabel", background=ASK_BACKGROUND, foreground=AMBER, font=fonts["bold"])
+    style.configure("AskError.TLabel", background=ASK_BACKGROUND, foreground=RED)
+    # The ask window's "Why you are being asked" panel, beside the form.
+    style.configure("Why.TFrame", background=ASK_BACKGROUND)
+    style.configure("Why.TLabel", background=ASK_BACKGROUND, foreground=TEXT)
+    style.configure("WhyBold.TLabel", background=ASK_BACKGROUND, foreground=TEXT, font=fonts["bold"])
+    style.configure("WhyMuted.TLabel", background=ASK_BACKGROUND, foreground=MUTED)
+    style.configure("WhyTitle.TLabel", background=ASK_BACKGROUND, foreground=TEXT, font=(family, BASE_SIZE + 3, "bold"))
+    style.configure("WhyHeading.TLabel", background=ASK_BACKGROUND, foreground=MUTED, font=(family, BASE_SIZE - 1, "bold"))
+    style.configure("BadgeExisting.TLabel", background=GREEN_BACKGROUND, foreground=GREEN, font=fonts["bold"],
+                    padding=(10, 3))
+    style.configure("BadgeNew.TLabel", background=AMBER_BACKGROUND, foreground=AMBER, font=fonts["bold"],
+                    padding=(10, 3))
+    style.configure("Link.TLabel", background=ASK_BACKGROUND, foreground=ACCENT, font=(family, BASE_SIZE, "underline"))
 
     pad = (14, 6)
     style.configure("TButton", background=SURFACE, foreground=TEXT, padding=pad, relief="flat", borderwidth=1,

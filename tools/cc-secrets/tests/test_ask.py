@@ -17,12 +17,20 @@ from conftest import add_entry, new_secret
 from src import cli, entry_window, paths
 from src.audit import AuditLog
 from src.store import KIND_SETTING, make_entry
+from src.ask_explanation import NO_REPLY, AskOutcome
 from src.window_actions import ASK_RECORD, MODE_ASK, FormInput, FormRequest
 
 runner = CliRunner()
 
 SESSION = "ask-test-session"
 SESSION_NAME = "Fleet - Developer - machine setup"
+
+# Every password request says why (owner ruling, 9 November 2026); these tests are about something else, so they
+# give the explanation once, here. test_ask_explanation.py is where a missing part is refused.
+EXPLAINED = ["--account", "existing", "--where-to-find", "the devlinux login card",
+             "--will-do", "run sudo apt upgrade, nothing else", "--if-not-now", "the upgrade waits"]
+WHY = ["--reason", "sudo over SSH"] + EXPLAINED
+SETTING_WHY = ["--reason", "the host the tunnel connects to"]
 
 
 def _text(result):
@@ -36,16 +44,17 @@ def _audit_lines():
 class Owner:
     """Stands in for the window: records the request, then presses Save once per typed form (or Cancel)."""
 
-    def __init__(self, *forms, cancel=False):
+    def __init__(self, *forms, cancel=False, reply=""):
         self.forms = list(forms)
         self.cancel = cancel
+        self.reply = reply
         self.request = None
         self.answers = []
 
     def __call__(self, request, actions):
         self.request = request
         if self.cancel:
-            return False
+            return AskOutcome(saved=False, reply=self.reply)
         for form in self.forms:
             typed = FormInput(
                 name=form.get("name", request.name), kind_setting=form.get("setting", request.kind_setting),
@@ -55,14 +64,24 @@ class Owner:
             answer = actions.submit(typed, MODE_ASK)
             self.answers.append(answer)
             if answer is None:
-                return True
-        return False
+                return AskOutcome(saved=True)
+        return AskOutcome(saved=False)
+
+
+def _fleet(monkeypatch, session_id, **row):
+    """The Gateway's fleet list, holding this session as the owner sees it."""
+    from cc_shared import gateway
+
+    fleet_row = {"sessionId": session_id, "name": SESSION_NAME, "number": "104", "machineName": "SOREN_NORTH",
+                 "missionName": "Fleet", "viewUrl": "https://gateway.example.com/sessions/" + session_id}
+    fleet_row.update(row)
+    monkeypatch.setattr(gateway, "get_fleet", lambda: ([fleet_row], True, None, None))
 
 
 @pytest.fixture
 def owner(monkeypatch):
-    def install(*forms, cancel=False):
-        stand_in = Owner(*forms, cancel=cancel)
+    def install(*forms, cancel=False, reply=""):
+        stand_in = Owner(*forms, cancel=cancel, reply=reply)
         monkeypatch.setattr(entry_window, "show_ask", stand_in)
         return stand_in
     return install
@@ -73,7 +92,7 @@ def test_Ask_OwnerTypesTheSecret_SavesItThroughTheAddPath_PrintsOnlySaved(store,
     stand_in = owner({"secret": secret})
 
     result = runner.invoke(cli.app, ["ask", "devlinux", "--username", "soren", "--notes", "desktop login",
-                                     "--reason", "sudo over SSH", "--uses", "run"])
+                                     "--reason", "sudo over SSH", "--uses", "run", *EXPLAINED])
 
     assert result.exit_code == 0, _text(result)
     assert result.output.strip() == "saved devlinux"
@@ -88,7 +107,7 @@ def test_Ask_AuditLine_SaysTheOwnerTypedIt_WithTheReason_AndNeverTheSecret(store
     secret = new_secret()
     owner({"secret": secret})
 
-    runner.invoke(cli.app, ["ask", "devlinux", "--reason", "sudo over SSH"])
+    runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     line = _audit_lines()[-1]
     assert (line["entry"], line["command"], line["outcome"]) == ("devlinux", "ask", "ok")
@@ -100,11 +119,10 @@ def test_Ask_AuditLine_SaysTheOwnerTypedIt_WithTheReason_AndNeverTheSecret(store
 
 def test_Ask_InsideASession_NeedsNoOwnerApproved_AndRecordsTheSession(store, owner, monkeypatch):
     monkeypatch.setenv("CC_SESSION_ID", SESSION)
-    monkeypatch.setattr(cli, "_session_name", lambda session_id: SESSION_NAME)
-    monkeypatch.setattr(cli, "_session_number", lambda session_id: "104")
+    _fleet(monkeypatch, SESSION)
     stand_in = owner({"secret": new_secret()})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux", "--reason", "sudo over SSH"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == 0, _text(result)
     assert stand_in.request.asked_by == f'Session 104 "{SESSION_NAME}"'
@@ -115,10 +133,10 @@ def test_Ask_InsideASession_NeedsNoOwnerApproved_AndRecordsTheSession(store, own
 def test_Ask_Cancelled_ChangesNothing_ExitsCancelled_AndIsAudited(store, owner):
     owner(cancel=True)
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == cli.EXIT_CANCELLED
-    assert result.output.strip() == "cancelled"
+    assert result.output.splitlines() == ["cancelled", "reply: " + NO_REPLY]
     assert store.get("devlinux") is None
     line = _audit_lines()[-1]
     assert (line["entry"], line["command"], line["outcome"]) == ("devlinux", "ask", "cancelled")
@@ -129,7 +147,7 @@ def test_Ask_ExistingEntry_WindowSaysSaveReplaces_AndSaveReplacesIt(store, owner
     secret = new_secret()
     stand_in = owner({"secret": secret, "username": "soren"})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == 0, _text(result)
     assert stand_in.request.exists is True
@@ -142,7 +160,7 @@ def test_Ask_OwnerRenamesToAnExistingEntry_IsToldOnce_ThenSaveReplaces(store, ow
     secret = new_secret()
     stand_in = owner({"name": "other", "secret": secret}, {"name": "other", "secret": secret})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == 0, _text(result)
     assert "already exists" in stand_in.answers[0] and stand_in.answers[1] is None
@@ -154,7 +172,7 @@ def test_Ask_SecretTooShort_StaysOpenWithTheReason_ThenSavesTheCorrection(store,
     secret = new_secret()
     stand_in = owner({"secret": "abc"}, {"secret": secret})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == 0, _text(result)
     assert stand_in.answers[0].startswith("Not saved:") and "at least" in stand_in.answers[0]
@@ -167,7 +185,7 @@ def test_Ask_ARefusedSecret_DoesNotBlockTheNextSave_EvenWhenTheNameContainsIt(st
     secret = new_secret()
     stand_in = owner({"name": "soren-laptop", "secret": "sor"}, {"name": "soren-laptop", "secret": secret})
 
-    result = runner.invoke(cli.app, ["ask", "soren-laptop"])
+    result = runner.invoke(cli.app, ["ask", "soren-laptop", *WHY])
 
     assert result.exit_code == 0, _text(result)
     assert stand_in.answers[1] is None
@@ -177,7 +195,7 @@ def test_Ask_ARefusedSecret_DoesNotBlockTheNextSave_EvenWhenTheNameContainsIt(st
 def test_Ask_EmptySecret_IsReportedAsTooShort_NotAsAnUnexpectedError(store, owner):
     stand_in = owner({"secret": ""}, {"secret": new_secret()})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == 0, _text(result)
     assert "at least" in stand_in.answers[0] and "unexpected" not in stand_in.answers[0]
@@ -190,7 +208,7 @@ def test_Ask_CancelWhoseAuditLineFails_StillExitsCancelled_WithoutATraceback(sto
         raise OSError("disk full")
     monkeypatch.setattr(AuditLog, "record", broken_record)
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == cli.EXIT_CANCELLED
     assert "cancelled" in result.output
@@ -201,7 +219,7 @@ def test_Ask_CancelWhoseAuditLineFails_StillExitsCancelled_WithoutATraceback(sto
 def test_Ask_WithNoName_OpensAnEmptyForm_AndSavesUnderTheTypedName(store, owner):
     stand_in = owner({"name": "github-work", "username": "me", "secret": new_secret()})
 
-    result = runner.invoke(cli.app, ["ask"])
+    result = runner.invoke(cli.app, ["ask", *WHY])
 
     assert result.exit_code == 0, _text(result)
     assert stand_in.request.name == ""
@@ -212,7 +230,7 @@ def test_Ask_WithNoName_OpensAnEmptyForm_AndSavesUnderTheTypedName(store, owner)
 def test_Ask_Setting_IsStoredAsASetting(store, owner):
     owner({"secret": "devlinux.local"})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux-host", "--setting"])
+    result = runner.invoke(cli.app, ["ask", "devlinux-host", "--setting", *SETTING_WHY])
 
     assert result.exit_code == 0, _text(result)
     assert store.get("devlinux-host").kind == KIND_SETTING
@@ -222,7 +240,8 @@ def test_Ask_Setting_IsStoredAsASetting(store, owner):
 
 def test_Ask_HasNoParameterThatCouldCarryASecret():
     parameters = set(inspect.signature(cli.ask).parameters)
-    assert parameters == {"name", "username", "notes", "reason", "domains", "uses", "agents", "setting", "env_name"}
+    assert parameters == {"name", "username", "notes", "reason", "account", "account_detail", "where_to_find",
+                          "create_step", "will_do", "if_not_now", "domains", "uses", "agents", "setting", "env_name"}
 
 
 def test_Ask_ForASettingThatExists_DoesNotPreFillItsValue(store, owner):
@@ -231,7 +250,7 @@ def test_Ask_ForASettingThatExists_DoesNotPreFillItsValue(store, owner):
     store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", ["run"], kind=KIND_SETTING))
     stand_in = owner(cancel=True)
 
-    runner.invoke(cli.app, ["ask", "posthog-host", "--setting"])
+    runner.invoke(cli.app, ["ask", "posthog-host", "--setting", *SETTING_WHY])
 
     assert stand_in.request.kind_setting and stand_in.request.exists
     assert stand_in.request.setting_value == ""
@@ -252,7 +271,7 @@ def test_FormRequest_HasNoSecretField():
 def test_Ask_RefusesASecretOption(store, owner, option):
     stand_in = owner({"secret": new_secret()})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux", option, new_secret()])
+    result = runner.invoke(cli.app, ["ask", "devlinux", option, new_secret(), *WHY])
 
     assert result.exit_code != 0
     assert stand_in.request is None
@@ -265,7 +284,7 @@ def test_Ask_IgnoresStandardInput_TheSecretIsWhatTheOwnerTyped(store, owner, mon
     monkeypatch.setenv("CC_SECRET", piped)
     stand_in = owner({"secret": typed})
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"], input=piped + "\n")
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY], input=piped + "\n")
 
     assert result.exit_code == 0, _text(result)
     assert store.get("devlinux").secret.reveal() == typed
@@ -275,11 +294,11 @@ def test_Ask_IgnoresStandardInput_TheSecretIsWhatTheOwnerTyped(store, owner, mon
 # --- What the agent pre-filled is checked before the window opens ---------------------------------------------
 
 @pytest.mark.parametrize("args", [
-    ["ask", "Not A Name"],
-    ["ask", "devlinux", "--domains", "ftp://example.com"],
-    ["ask", "devlinux", "--uses", "everything"],
-    ["ask", "devlinux", "--env-name", "1BAD"],
-    ["ask", "devlinux", "--username", "--setting"],
+    ["ask", "Not A Name", *WHY],
+    ["ask", "devlinux", "--domains", "ftp://example.com", *WHY],
+    ["ask", "devlinux", "--uses", "everything", *WHY],
+    ["ask", "devlinux", "--env-name", "1BAD", *WHY],
+    ["ask", "devlinux", "--username", "--setting", *WHY],
 ])
 def test_Ask_BadPreFill_FailsBeforeTheWindowOpens(store, owner, args):
     stand_in = owner({"secret": new_secret()})
@@ -296,7 +315,7 @@ def test_Ask_BadPreFill_FailsBeforeTheWindowOpens(store, owner, args):
 def test_Ask_NoDisplay_FailsWithWhatToDo(store, monkeypatch):
     monkeypatch.setattr(entry_window, "display_problem", lambda: "neither DISPLAY nor WAYLAND_DISPLAY is set")
 
-    result = runner.invoke(cli.app, ["ask", "devlinux"])
+    result = runner.invoke(cli.app, ["ask", "devlinux", *WHY])
 
     assert result.exit_code == cli.EXIT_FAILED
     assert "needs a screen" in _text(result) and "cc-secrets add" in _text(result)
@@ -339,14 +358,13 @@ def test_Ask_LeaksTheTypedSecretNowhere(store, owner, monkeypatch, tmp_path):
 
     marker = "asktest-" + new_secret()
     monkeypatch.setenv("CC_SESSION_ID", marker)
-    monkeypatch.setattr(cli, "_session_name", lambda session_id: SESSION_NAME)
-    monkeypatch.setattr(cli, "_session_number", lambda session_id: "104")
+    _fleet(monkeypatch, marker)
     secret = new_secret()
     transcript = []
     for forms, args in (
-        ([{"secret": "abc"}, {"secret": secret}], ["ask", "devlinux", "--username", "leak-user"]),  # short, then saved
-        ([{"name": "devlinux", "secret": secret}], ["ask"]),          # typed over an existing name: told, not saved
-        ([{"secret": secret}], ["ask", "devlinux", "--reason", "replace it"]),                       # replaced
+        ([{"secret": "abc"}, {"secret": secret}], ["ask", "devlinux", "--username", "leak-user", *WHY]),  # short, then saved
+        ([{"name": "devlinux", "secret": secret}], ["ask", *WHY]),          # typed over an existing name: told, not saved
+        ([{"secret": secret}], ["ask", "devlinux", "--reason", "replace it", *EXPLAINED]),                       # replaced
     ):
         owner(*forms)
         result = runner.invoke(cli.app, args)
