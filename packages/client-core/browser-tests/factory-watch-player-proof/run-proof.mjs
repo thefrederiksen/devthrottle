@@ -162,6 +162,21 @@ async function capture(browser, url, width, height, tag, evidence) {
   await wait(400);
   await shot("empty");
 
+  // ---- the contributor shape: waiting its turn, and someone else's step as a plain crate.
+  await page.goto(`${url}?contributor#contributor`);
+  await page.locator(".fwp-svg").waitFor();
+  await page.locator(".fwp-step[data-kind='waiting'] .fwp-step-main").click();
+  await wait(1500);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  check(`${tag}: contributor waiting draws its hourglass`, (await page.locator("[data-glyph='hourglass']").count()) === 1, "hourglass");
+  await shot("contributor-step-waiting");
+  await page.locator(".fwp-step").nth(3).locator(".fwp-step-main").click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await wait(1200);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  check(`${tag}: someone else's step is a plain crate`, (await page.locator("[data-glyph='plain-crate']").count()) === 1, "plain crate");
+  await shot("contributor-not-mine-plain-crate");
+
   evidence[tag] = shots;
   await page.close();
 }

@@ -15,7 +15,8 @@ export interface WatchMonsterProps {
   crown: boolean;
   busy?: boolean;
   wires?: boolean;
-  carry?: boolean;
+  carry?: "crate" | "plain" | null;
+  hourglass?: boolean;
   bob?: number;
   squash?: number;
 }
@@ -101,6 +102,13 @@ function Face({ expression, t }: { expression: Expression; t: number }) {
         <>
           <Eyes white={4.2} dx={-1.5} dy={-1.5} />
           <path d="M-2 -10 h4" stroke={INK} strokeWidth={1.5} />
+        </>
+      );
+    case "waiting":
+      return (
+        <>
+          <Eyes white={4} dx={Math.sin(t * 1.5) * 1.5} />
+          <path d="M-4 -10 h8" stroke={INK} strokeWidth={1.6} />
         </>
       );
     case "shrug":
@@ -206,19 +214,31 @@ function Tool({ busy, wires, t }: { busy?: boolean; wires?: boolean; t: number }
   return null;
 }
 
-/** A crate, the mockup's delivery: an isometric box with a star on it. */
-export function Crate() {
+/** A crate, the mockup's delivery: an isometric box with a star on it - or, plain, a grey box with nothing on it,
+ * for a step the view says is not the contributor's own. */
+export function Crate({ plain = false }: { plain?: boolean }) {
   return (
-    <g data-glyph="crate">
-      <polygon points="0,-6 9,-11 18,-6 9,-1" fill="#ffb35c" />
-      <polygon points="0,-6 9,-1 9,8 0,3" fill="#e8792b" />
-      <polygon points="9,-1 18,-6 18,3 9,8" fill="#b85a17" />
-      <path d="M9 -9 l1.4 2.6 2.8 .3 -2.1 1.9 .6 2.8 -2.7 -1.4 -2.7 1.4 .6 -2.8 -2.1 -1.9 2.8 -.3z" fill="#fff" />
+    <g data-glyph={plain ? "plain-crate" : "crate"}>
+      <polygon points="0,-6 9,-11 18,-6 9,-1" fill={plain ? "#b9bfcc" : "#ffb35c"} />
+      <polygon points="0,-6 9,-1 9,8 0,3" fill={plain ? "#8f96a6" : "#e8792b"} />
+      <polygon points="9,-1 18,-6 18,3 9,8" fill={plain ? "#6c7384" : "#b85a17"} />
+      {!plain && <path d="M9 -9 l1.4 2.6 2.8 .3 -2.1 1.9 .6 2.8 -2.7 -1.4 -2.7 1.4 .6 -2.8 -2.1 -1.9 2.8 -.3z" fill="#fff" />}
     </g>
   );
 }
 
-export function WatchMonster({ colour, expression, t, crown, busy, wires, carry, bob = 0, squash = 1 }: WatchMonsterProps) {
+/** A small hourglass that turns over slowly, for a character that is waiting its turn. */
+function Hourglass({ t }: { t: number }) {
+  const turn = (Math.floor(t / 2) % 2) * 180;
+  return (
+    <g data-glyph="hourglass" transform={`translate(22,-18) scale(1.3) rotate(${turn})`}>
+      <path d="M-5 -7 h10 l-5 7 5 7 h-10 l5 -7z" fill="#e6e9f2" stroke="#8d9cff" strokeWidth={1.2} />
+      <path d="M-2.5 4.5 h5 l-2.5 -3z" fill="#ffd166" />
+    </g>
+  );
+}
+
+export function WatchMonster({ colour, expression, t, crown, busy, wires, carry = null, hourglass = false, bob = 0, squash = 1 }: WatchMonsterProps) {
   return (
     <>
       <ellipse cx={0} cy={1} rx={12} ry={4} fill="#000" opacity={0.3} />
@@ -235,13 +255,14 @@ export function WatchMonster({ colour, expression, t, crown, busy, wires, carry,
             <line x1={-10} y1={-14} x2={-6} y2={-29} stroke={colour} strokeWidth={3} strokeLinecap="round" />
             <line x1={10} y1={-14} x2={6} y2={-29} stroke={colour} strokeWidth={3} strokeLinecap="round" />
             <g transform="translate(-9,-38)">
-              <Crate />
+              <Crate plain={carry === "plain"} />
             </g>
           </>
         )}
         <Tool busy={busy} wires={wires} t={t} />
       </g>
       <Extra expression={expression} t={t} colour={colour} />
+      {hourglass && <Hourglass t={t} />}
     </>
   );
 }

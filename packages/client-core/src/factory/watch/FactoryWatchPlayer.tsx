@@ -196,7 +196,7 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
           </span>
         )}
       </header>
-      {view.truncatedText !== null && <p className="fwp-truncated">{view.truncatedText}</p>}
+      {typeof view.truncatedText === "string" && <p className="fwp-truncated">{view.truncatedText}</p>}
 
       <div className="fwp-body">
         <div
@@ -263,7 +263,7 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
           <p className="fwp-caption" data-kind={current.step.kind}>
             <span className="fwp-step-time">{current.step.time}</span>{" "}
             <b style={{ color: colourOf.get(current.step.seat) }}>{nameOf.get(current.step.seat)}</b>{" "}
-            <span>{current.step.words}</span>
+            {current.step.words !== "" && <span>{current.step.words}</span>}
           </p>
         )}
 
@@ -338,7 +338,7 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
                       <i style={{ background: colourOf.get(ts.step.seat) }} aria-hidden="true" />
                       {nameOf.get(ts.step.seat)}
                     </span>
-                    <span className="fwp-step-words">{ts.step.words}</span>
+                    {ts.step.words !== "" && <span className="fwp-step-words">{ts.step.words}</span>}
                   </button>
                   <button
                     type="button"
@@ -352,7 +352,7 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
               );
             })}
           </ol>
-          {view.notes.length > 0 && (
+          {view.notes !== undefined && view.notes.length > 0 && (
             <ul className="fwp-notes">
               {view.notes.map((n) => (
                 <li key={n}>{n}</li>
@@ -479,6 +479,7 @@ function Character({ pose, t, followed, onClick }: { pose: Pose; t: number; foll
         busy={pose.busy}
         wires={pose.wires}
         carry={pose.carry}
+        hourglass={pose.hourglass}
         bob={pose.bob}
         squash={pose.squash}
       />

@@ -9,6 +9,11 @@
 //   talked           the lamp goes blue and the step's own words appear in a speech bubble
 //   checked-nothing  a magnifier peeks at the station with the count of checks, the character peeks, shrugs, dozes
 //   hiccup           the lamp blinks red, wires spark out of the character and it goes dizzy, then worried
+//   waiting          a calm lamp pulses, an hourglass turns and the character waits, looking about - never a failure
+//
+// And one drawing that is not a kind: a step the view marks as NOT the contributor's own (mine === false) carries no
+// words and is drawn as a plain crate lifted at the seat's bench, whatever its kind - the Gateway decided it, and the
+// player draws nothing more of it.
 //
 // Every number here is in world pixels of an isometric drawing: a floor tile is 64 by 32.
 
@@ -52,22 +57,33 @@ export function stationLift(station: FactoryWatchStation): number {
 export const LEAD_IN = 0.6;
 export const STEP_GAP = 0.5;
 
-/** How long one step plays at normal speed, in seconds. One entry per kind; a kind not listed is a contract break. */
+/** How long one step of each kind plays at normal speed, in seconds. EVERY KIND IS IN THIS ONE MAP (and in LAMP and
+ * ANIMATIONS below); a kind the view sends that is not here fails loudly instead of drawing nothing. */
+export const STEP_SECONDS: Record<FactoryWatchStepKind, (step: FactoryWatchStep) => number> = {
+  woke: () => 4,
+  delivered: () => 5,
+  talked: (step) => Math.min(6.5, Math.max(2.8, 1.6 + step.words.length * 0.05)),
+  "checked-nothing": (step) => 2.8 + Math.min(2.4, step.emptyChecks * 0.15),
+  hiccup: () => 4.2,
+  waiting: () => 3.6,
+};
+
+/** A step that is not the contributor's own: a plain crate, the same length whatever its kind. */
+export const PLAIN_CRATE_SECONDS = 3;
+
+/** Whether the view marks this step as someone else's work (contributor audience only; absent for the owner). */
+export const isPlainCrate = (step: FactoryWatchStep) => step.mine === false;
+
+function kindEntry<T>(map: Record<FactoryWatchStepKind, T>, step: FactoryWatchStep): T {
+  if (!Object.prototype.hasOwnProperty.call(map, step.kind))
+    throw new Error(`The watch view sent a step of kind '${step.kind}', which the player has no animation for. Add it to watchScene.ts.`);
+  return map[step.kind];
+}
+
+/** How long one step plays at normal speed, in seconds. */
 export function stepDuration(step: FactoryWatchStep): number {
-  switch (step.kind) {
-    case "woke":
-      return 4;
-    case "delivered":
-      return 5;
-    case "talked":
-      return Math.min(6.5, Math.max(2.8, 1.6 + step.words.length * 0.05));
-    case "checked-nothing":
-      return 2.8 + Math.min(2.4, step.emptyChecks * 0.15);
-    case "hiccup":
-      return 4.2;
-    default:
-      throw new Error(`The watch view sent a step of kind '${(step as FactoryWatchStep).kind}', which the player has no animation for. Add it to watchScene.ts.`);
-  }
+  const seconds = kindEntry(STEP_SECONDS, step);
+  return isPlainCrate(step) ? PLAIN_CRATE_SECONDS : seconds(step);
 }
 
 export interface TimedStep {
@@ -121,7 +137,8 @@ export type Expression =
   | "cool"
   | "worried"
   | "peek"
-  | "shrug";
+  | "shrug"
+  | "waiting";
 
 export const IDLE_LAMP = "#5b6480";
 export const LAMP: Record<FactoryWatchStepKind, string> = {
@@ -130,7 +147,11 @@ export const LAMP: Record<FactoryWatchStepKind, string> = {
   talked: "#5aa0ff",
   "checked-nothing": IDLE_LAMP,
   hiccup: "#ff4d4d",
+  waiting: "#8d9cff",
 };
+
+/** What a character is drawn doing: the animation of a step kind, or the plain crate of someone else's step. */
+export type Animation = FactoryWatchStepKind | "plain-crate";
 
 export interface Pose {
   seat: string;
@@ -141,11 +162,14 @@ export interface Pose {
   x: number;
   y: number;
   expression: Expression;
-  /** The step kind this character is animating right now, or null. */
-  animation: FactoryWatchStepKind | null;
+  /** What this character is animating right now, or null. */
+  animation: Animation | null;
   busy: boolean;
   wires: boolean;
-  carry: boolean;
+  /** The crate it holds: the starred crate of a delivery, a plain one for someone else's step, or none. */
+  carry: "crate" | "plain" | null;
+  /** An hourglass over its head, while it waits. */
+  hourglass: boolean;
   walking: boolean;
   bob: number;
   squash: number;
@@ -208,7 +232,8 @@ export function sceneAt(view: FactoryWatchView, timeline: Timeline, t: number): 
       animation: null,
       busy: false,
       wires: false,
-      carry: false,
+      carry: null,
+      hourglass: false,
       walking: false,
       bob: Math.sin(t * 2 + x * 0.01) * 1,
       squash: 1,
@@ -237,11 +262,17 @@ export function sceneAt(view: FactoryWatchView, timeline: Timeline, t: number): 
   if (!pose || !character || !station) {
     throw new Error(`The watch view has a step for seat '${active.step.seat}' but no character or station for it.`);
   }
-  pose.animation = active.step.kind;
-  lamps[station.id] = LAMP[active.step.kind];
   const u = t - active.start;
   const length = active.end - active.start;
-  ANIMATIONS[active.step.kind]({ view, scene, pose, character, station, step: active.step, u, length, t });
+  const context = { view, scene, pose, character, station, step: active.step, u, length, t };
+  if (isPlainCrate(active.step)) {
+    pose.animation = "plain-crate";
+    plainCrate(context);
+    return scene;
+  }
+  pose.animation = active.step.kind;
+  lamps[station.id] = kindEntry(LAMP, active.step);
+  kindEntry(ANIMATIONS, active.step)(context);
   return scene;
 }
 
@@ -289,7 +320,7 @@ export const ANIMATIONS: Record<FactoryWatchStepKind, (c: AnimationContext) => v
       const k = ease(clamp01((u - 0.4) / 1.6));
       pose.x = lerp(hx, tx, k);
       pose.y = lerp(hy, ty, k);
-      pose.carry = true;
+      pose.carry = "crate";
       pose.walking = walks;
       pose.bob = walks ? -Math.abs(Math.sin(u * 9)) * 4 : pose.bob;
     } else if (u < 2.9) {
@@ -335,7 +366,22 @@ export const ANIMATIONS: Record<FactoryWatchStepKind, (c: AnimationContext) => v
       pose.expression = "worried";
     }
   },
+
+  waiting: ({ scene, pose, station, u, t }) => {
+    // Calm: the lamp breathes slowly, the character looks about and taps its foot under a turning hourglass.
+    scene.lamps[station.id] = Math.sin(u * 2.4) > -0.3 ? LAMP.waiting : IDLE_LAMP;
+    pose.expression = "waiting";
+    pose.hourglass = true;
+    pose.bob = Math.sin(t * 8) > 0 ? -1 : 0;
+  },
 };
+
+/** Someone else's step, for a contributor: no words, no lamp, a plain crate lifted at the bench. */
+function plainCrate({ pose, u }: AnimationContext) {
+  pose.carry = u > 0.3 && u < 2.6 ? "plain" : null;
+  pose.expression = "idle";
+  jump(pose, u - 0.3);
+}
 
 /** Text of a bubble, broken into lines of at most `width` characters, never splitting a word. */
 export function wrapWords(words: string, width: number): string[] {

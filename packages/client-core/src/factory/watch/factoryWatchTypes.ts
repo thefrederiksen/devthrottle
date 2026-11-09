@@ -14,14 +14,16 @@ import type { FactoryWindow } from "../factoryAgentsClient";
 /** How the floor is laid out (FactoryWatchLayout). */
 export type FactoryWatchLayout = "workshop" | "hub" | "lines";
 
-/** What a step is (FactoryWatchStepKind). A closed list; the player has one animation per kind. */
-export type FactoryWatchStepKind = "woke" | "delivered" | "talked" | "checked-nothing" | "hiccup";
+/** What a step is (FactoryWatchStepKind). A closed list; the player has one animation per kind. "waiting" comes only in
+ * the contributor audience (piece 3): the request is waiting its turn - never drawn as a failure. */
+export type FactoryWatchStepKind = "woke" | "delivered" | "talked" | "checked-nothing" | "hiccup" | "waiting";
 
-export const FACTORY_WATCH_STEP_KINDS: readonly FactoryWatchStepKind[] = ["woke", "delivered", "talked", "checked-nothing", "hiccup"];
+export const FACTORY_WATCH_STEP_KINDS: readonly FactoryWatchStepKind[] = ["woke", "delivered", "talked", "checked-nothing", "hiccup", "waiting"];
 
 /** FactoryWatchViewDto. */
 export interface FactoryWatchView {
-  factoryId: string;
+  /** Absent in the contributor audience. */
+  factoryId?: string;
   title: string;
   layout: FactoryWatchLayout;
   /** The floor's size in tiles. */
@@ -37,10 +39,10 @@ export interface FactoryWatchView {
   window: FactoryWindow;
   /** Set only when there are no steps. */
   emptyText: string | null;
-  /** Set when the window held more rows than one read returns. */
-  truncatedText: string | null;
-  /** What the view rests on, in plain sentences. */
-  notes: string[];
+  /** Set when the window held more rows than one read returns. Absent in the contributor audience. */
+  truncatedText?: string | null;
+  /** What the view rests on, in plain sentences. Absent in the contributor audience. */
+  notes?: string[];
 }
 
 /** FactoryWatchStationDto: one seat's station; position and size in floor tiles. */
@@ -95,31 +97,35 @@ export interface FactoryWatchStep {
   words: string;
   /** How many empty checks the step stands for: at least 1 for "checked-nothing", 0 otherwise. */
   emptyChecks: number;
+  /** Contributor audience only: true when the step is the contributor's own crate. A step that is not theirs carries
+   * no words and is drawn as a plain crate. Absent in the owner audience. */
+  mine?: boolean;
 }
 
-// The exact key list of each type, for the contract test. `satisfies` keeps every listed key a real field, and
-// the Exhaustive check below makes leaving a field out a compile error, so these lists ARE the types.
-type Exhaustive<T, K extends readonly (keyof T)[]> = Exclude<keyof T, K[number]> extends never ? K : never;
+// The exact key list of each type, for the contract test: the fields every audience sends, and the ones only some
+// do. A field missing from both lists is a compile error naming it (the `true` below stops type-checking), so these
+// lists ARE the types.
+type Keys<T> = { required: readonly (keyof T)[]; optional: readonly (keyof T)[] };
+function keys<T>() {
+  return <R extends readonly (keyof T)[], O extends readonly (keyof T)[]>(
+    required: R,
+    optional: O,
+    complete: Exclude<keyof T, R[number] | O[number]> extends never ? true : { missing: Exclude<keyof T, R[number] | O[number]> },
+  ): Keys<T> => {
+    void complete;
+    return { required, optional };
+  };
+}
 
-const viewKeys = ["factoryId", "title", "layout", "floorWidth", "floorHeight", "stations", "lines", "characters", "steps", "window", "emptyText", "truncatedText", "notes"] as const;
-const stationKeys = ["id", "label", "sub", "isBoss", "gx", "gy", "width", "height", "line"] as const;
-const lineKeys = ["name", "index", "gx", "gy", "width", "height"] as const;
-const characterKeys = ["seat", "name", "colour", "station", "homeGx", "homeGy"] as const;
-const stepKeys = ["key", "kind", "seat", "utc", "toUtc", "time", "words", "emptyChecks"] as const;
-const windowKeys = ["key", "label", "fromUtc", "toUtc", "fromLocal", "toLocal", "choices"] as const;
-
-export const FACTORY_WATCH_KEYS: {
-  view: Exhaustive<FactoryWatchView, typeof viewKeys>;
-  station: Exhaustive<FactoryWatchStation, typeof stationKeys>;
-  line: Exhaustive<FactoryWatchLine, typeof lineKeys>;
-  character: Exhaustive<FactoryWatchCharacter, typeof characterKeys>;
-  step: Exhaustive<FactoryWatchStep, typeof stepKeys>;
-  window: Exhaustive<FactoryWindow, typeof windowKeys>;
-} = {
-  view: viewKeys,
-  station: stationKeys,
-  line: lineKeys,
-  character: characterKeys,
-  step: stepKeys,
-  window: windowKeys,
+export const FACTORY_WATCH_KEYS = {
+  view: keys<FactoryWatchView>()(
+    ["title", "layout", "floorWidth", "floorHeight", "stations", "lines", "characters", "steps", "window", "emptyText"] as const,
+    ["factoryId", "truncatedText", "notes"] as const,
+    true,
+  ),
+  station: keys<FactoryWatchStation>()(["id", "label", "sub", "isBoss", "gx", "gy", "width", "height", "line"] as const, [] as const, true),
+  line: keys<FactoryWatchLine>()(["name", "index", "gx", "gy", "width", "height"] as const, [] as const, true),
+  character: keys<FactoryWatchCharacter>()(["seat", "name", "colour", "station", "homeGx", "homeGy"] as const, [] as const, true),
+  step: keys<FactoryWatchStep>()(["key", "kind", "seat", "utc", "toUtc", "time", "words", "emptyChecks"] as const, ["mine"] as const, true),
+  window: keys<FactoryWindow>()(["key", "label", "fromUtc", "toUtc", "fromLocal", "toLocal", "choices"] as const, [] as const, true),
 };

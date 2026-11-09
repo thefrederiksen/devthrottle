@@ -2,11 +2,14 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FactoryWatchPlayer } from "./FactoryWatchPlayer";
 import fixture from "./factoryWatchView.fixture.json";
+import contributorFixture from "./factoryWatchView.contributor.fixture.json";
 import { FACTORY_WATCH_STEP_KINDS, type FactoryWatchView } from "./factoryWatchTypes";
 import { iso } from "./watchScene";
 
 const samples = fixture as unknown as Record<string, FactoryWatchView>;
 const hub = samples.hub;
+const contributor = contributorFixture as unknown as FactoryWatchView;
+const allViews: Record<string, FactoryWatchView> = { ...samples, contributor };
 
 // The player's clock is requestAnimationFrame. Here a frame runs only when a test asks for one, so every assertion
 // sees an exact playback time and nothing depends on the machine's speed.
@@ -73,20 +76,27 @@ describe("FactoryWatchPlayer", () => {
   for (const kind of FACTORY_WATCH_STEP_KINDS) {
     it(`a ${kind} step plays its animation on the seat it names`, () => {
       // Arrange
-      const view = Object.values(samples).find((v) => v.steps.some((s) => s.kind === kind))!;
-      const step = view.steps.find((s) => s.kind === kind)!;
+      const view = Object.values(allViews).find((v) => v.steps.some((s) => s.kind === kind && s.mine !== false))!;
+      const index = view.steps.findIndex((s) => s.kind === kind && s.mine !== false);
+      const step = view.steps[index];
       const { container } = render(<FactoryWatchPlayer view={view} />);
 
       // Act: jump to the step in the list, and let a moment of it play.
-      fireEvent.click(container.querySelector(`.fwp-step[data-kind="${kind}"] .fwp-step-main`)!);
+      fireEvent.click(container.querySelectorAll(".fwp-step .fwp-step-main")[index]);
       runFrame(16);
       runFrame(100);
 
       // Assert
       const animating = [...container.querySelectorAll(".fwp-character")].filter((g) => g.getAttribute("data-animation") !== "");
       expect(animating.map((g) => [g.getAttribute("data-seat"), g.getAttribute("data-animation")])).toEqual([[step.seat, kind]]);
-      const effect = { talked: "bubble", "checked-nothing": "magnifier", hiccup: "smoke" } as Record<string, string>;
-      if (effect[kind]) expect(container.querySelector(`[data-effect="${effect[kind]}"]`)).not.toBeNull();
+      const effect: Record<string, string> = {
+        woke: '[data-glyph="exclamation"]',
+        talked: '[data-effect="bubble"]',
+        "checked-nothing": '[data-effect="magnifier"]',
+        hiccup: '[data-effect="smoke"]',
+        waiting: '[data-glyph="hourglass"]',
+      };
+      if (effect[kind]) expect(container.querySelector(effect[kind])).not.toBeNull();
     });
   }
 
@@ -142,6 +152,28 @@ describe("FactoryWatchPlayer", () => {
     expect(container.querySelectorAll(".fwp-step")).toHaveLength(hub.steps.length);
   });
 
+  it("contributor: a step that is not theirs is a plain crate with no words, in the list and on the floor", () => {
+    const { container } = render(<FactoryWatchPlayer view={contributor} />);
+    const index = contributor.steps.findIndex((s) => s.mine === false && s.kind === "talked");
+
+    fireEvent.click(container.querySelectorAll(".fwp-step .fwp-step-main")[index]);
+    // A frame advances playback by at most a tenth of a second; eight of them bring the crate up.
+    for (let i = 0; i < 8; i++) runFrame(100);
+
+    const row = container.querySelectorAll(".fwp-step")[index];
+    expect(row.querySelector(".fwp-step-words")).toBeNull();
+    const g = container.querySelector(`.fwp-character[data-seat="${contributor.steps[index].seat}"]`)!;
+    expect(g.getAttribute("data-animation")).toBe("plain-crate");
+    expect(g.querySelector('[data-glyph="plain-crate"]')).not.toBeNull();
+    expect(container.querySelector('[data-effect="bubble"]')).toBeNull();
+  });
+
+  it("contributor: no notes and no truncated sentence are drawn when the view has none", () => {
+    const { container } = render(<FactoryWatchPlayer view={contributor} />);
+    expect(container.querySelector(".fwp-notes")).toBeNull();
+    expect(container.querySelector(".fwp-truncated")).toBeNull();
+  });
+
   it("an empty view shows the view's own empty sentence", () => {
     const empty = samples.empty;
     render(<FactoryWatchPlayer view={empty} />);
@@ -154,9 +186,9 @@ describe("FactoryWatchPlayer", () => {
     expect(container.querySelector(".fwp-truncated")!.textContent).toBe(samples.lines.truncatedText);
   });
 
-  for (const name of Object.keys(samples)) {
+  for (const name of Object.keys(allViews)) {
     it(`${name}: draws no word that is not in the view (only the controls are the player's own)`, () => {
-      const view = samples[name];
+      const view = allViews[name];
       const { container } = render(<FactoryWatchPlayer view={view} />);
       // Play a talked step, so a bubble is on the floor too.
       const talked = container.querySelector('.fwp-step[data-kind="talked"] .fwp-step-main');
@@ -169,7 +201,7 @@ describe("FactoryWatchPlayer", () => {
         view.window.label,
         view.emptyText ?? "",
         view.truncatedText ?? "",
-        ...view.notes,
+        ...(view.notes ?? []),
         ...view.stations.flatMap((s) => [s.label, s.sub]),
         ...view.lines.map((l) => l.name),
         ...view.characters.map((c) => c.name),

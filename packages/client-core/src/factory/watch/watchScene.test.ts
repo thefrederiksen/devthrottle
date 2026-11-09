@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./factoryWatchView.fixture.json";
-import type { FactoryWatchStep, FactoryWatchStepKind, FactoryWatchView } from "./factoryWatchTypes";
-import { IDLE_LAMP, LAMP, LEAD_IN, STEP_GAP, buildTimeline, iso, sceneAt, worldBox, wrapWords } from "./watchScene";
+import contributorFixture from "./factoryWatchView.contributor.fixture.json";
+import { FACTORY_WATCH_STEP_KINDS, type FactoryWatchStep, type FactoryWatchStepKind, type FactoryWatchView } from "./factoryWatchTypes";
+import { ANIMATIONS, IDLE_LAMP, LAMP, LEAD_IN, STEP_GAP, STEP_SECONDS, buildTimeline, iso, sceneAt, worldBox, wrapWords } from "./watchScene";
 
 const samples = fixture as unknown as Record<string, FactoryWatchView>;
 const hub = samples.hub;
 const lines = samples.lines;
+const contributor = contributorFixture as unknown as FactoryWatchView;
 
-/** The scene in the middle of the first step of this kind in the hub sample. */
-function midStep(view: FactoryWatchView, kind: FactoryWatchStepKind, at = 0.5) {
+/** The scene part-way through the first step of this kind (and, when given, this mine flag). */
+function midStep(view: FactoryWatchView, kind: FactoryWatchStepKind, at = 0.5, mine?: boolean) {
   const timeline = buildTimeline(view);
-  const ts = timeline.steps.find((s) => s.step.kind === kind)!;
+  const ts = timeline.steps.find((s) => s.step.kind === kind && (mine === undefined || s.step.mine === mine))!;
   const t = ts.start + (ts.end - ts.start) * at;
   return { scene: sceneAt(view, timeline, t), ts };
 }
@@ -42,6 +44,17 @@ describe("buildTimeline", () => {
   it("throws on a step kind it has no animation for, instead of drawing nothing", () => {
     const odd = { ...hub.steps[0], kind: "teleported" } as unknown as FactoryWatchStep;
     expect(() => buildTimeline({ steps: [odd] })).toThrow(/no animation/);
+    expect(() => buildTimeline({ steps: [{ ...odd, mine: false }] })).toThrow(/no animation/);
+  });
+
+  it("every step kind has its length, its lamp and its animation - one map each, no kind left out", () => {
+    for (const kind of FACTORY_WATCH_STEP_KINDS) {
+      expect(STEP_SECONDS[kind], kind).toBeTypeOf("function");
+      expect(LAMP[kind], kind).toMatch(/^#/);
+      expect(ANIMATIONS[kind], kind).toBeTypeOf("function");
+    }
+    expect(Object.keys(STEP_SECONDS).sort()).toEqual([...FACTORY_WATCH_STEP_KINDS].sort());
+    expect(Object.keys(ANIMATIONS).sort()).toEqual([...FACTORY_WATCH_STEP_KINDS].sort());
   });
 });
 
@@ -66,7 +79,7 @@ describe("sceneAt: each step kind has its one animation", () => {
 
     const pose = walking.scene.poses.find((p) => p.seat === seat)!;
     expect(walking.scene.lamps[station]).toBe(LAMP.delivered);
-    expect(pose).toMatchObject({ animation: "delivered", carry: true, walking: true });
+    expect(pose).toMatchObject({ animation: "delivered", carry: "crate", walking: true });
     expect([pose.x, pose.y]).not.toEqual(iso(home.homeGx, home.homeGy));
     expect(landed.scene.confetti).not.toBeNull();
   });
@@ -104,6 +117,35 @@ describe("sceneAt: each step kind has its one animation", () => {
     const station = hub.characters.find((c) => c.seat === seat)!.station;
     const colours = new Set(Array.from({ length: 20 }, (_, i) => sceneAt(hub, timeline, early.ts.start + i * 0.05).lamps[station]));
     expect(colours).toEqual(new Set([LAMP.hiccup, IDLE_LAMP]));
+  });
+
+  it("waiting (contributor): a calm lamp, an hourglass and a waiting face - never red, never dizzy", () => {
+    const { scene, ts } = midStep(contributor, "waiting");
+    const station = contributor.characters.find((c) => c.seat === ts.step.seat)!.station;
+    const pose = scene.poses.find((p) => p.seat === ts.step.seat)!;
+
+    expect(pose).toMatchObject({ animation: "waiting", expression: "waiting", hourglass: true, wires: false });
+    expect([LAMP.waiting, IDLE_LAMP]).toContain(scene.lamps[station]);
+    expect(Object.values(scene.lamps)).not.toContain(LAMP.hiccup);
+  });
+
+  it("a step that is not the contributor's: a plain crate at the bench, no words, no lamp, whatever its kind", () => {
+    for (const kind of ["delivered", "talked"] as const) {
+      const { scene, ts } = midStep(contributor, kind, 0.4, false);
+      const pose = scene.poses.find((p) => p.seat === ts.step.seat)!;
+      const home = contributor.characters.find((c) => c.seat === ts.step.seat)!;
+
+      expect(pose).toMatchObject({ animation: "plain-crate", carry: "plain" });
+      expect(pose.x).toBeCloseTo(iso(home.homeGx, home.homeGy)[0]);
+      expect(scene.bubble).toBeNull();
+      expect(scene.confetti).toBeNull();
+      expect(scene.lamps[home.station]).toBe(IDLE_LAMP);
+    }
+  });
+
+  it("the contributor's own delivery is drawn as any delivery: the starred crate", () => {
+    const { scene, ts } = midStep(contributor, "delivered", 0.25, true);
+    expect(scene.poses.find((p) => p.seat === ts.step.seat)).toMatchObject({ animation: "delivered", carry: "crate" });
   });
 
   it("only the seat named by the step moves; every other character rests at its home", () => {
