@@ -133,6 +133,20 @@ public sealed class FactoryWatchFoldTests
     }
 
     [Fact]
+    public void View_OneToSixtySeatsWithAndWithoutABoss_NoStationOverlapsOrLeavesTheFloor()
+    {
+        foreach (var boss in new[] { true, false })
+            for (var seats = 1; seats <= 60; seats++)
+            {
+                var view = View(Factory(seats, boss));
+
+                Assert.Equal(seats, view.Stations.Count);
+                Assert.Equal(seats <= FactoryWatchFold.WorkshopMaxSeats ? FactoryWatchLayout.Workshop : FactoryWatchLayout.Hub, view.Layout);
+                AssertOnFloorWithoutOverlap(view);
+            }
+    }
+
+    [Fact]
     public void View_FactoryWithLines_HasOneHallPerLineInSeatOrderAndOtherLast()
     {
         var f = Factory(1);
@@ -196,6 +210,17 @@ public sealed class FactoryWatchFoldTests
             .Characters.ToDictionary(c => c.Seat, c => c.Colour);
 
         Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Colours_AnotherSeatAddedBeforeItInIdOrder_SeatKeepsItsColour()
+    {
+        // Colouring by sorted position would give seat-1 the first colour alone and the second beside seat-0.
+        var alone = FactoryWatchFold.Colours(new[] { "seat-1" })["seat-1"];
+        var withAnEarlierSeat = FactoryWatchFold.Colours(new[] { "seat-0", "seat-1" })["seat-1"];
+
+        Assert.Equal(alone, withAnEarlierSeat);
+        Assert.NotEqual(FactoryWatchFold.Colours(new[] { "seat-0", "seat-1" })["seat-0"], withAnEarlierSeat);
     }
 
     [Fact]

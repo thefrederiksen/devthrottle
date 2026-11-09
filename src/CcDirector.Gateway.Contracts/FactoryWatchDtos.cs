@@ -17,8 +17,8 @@ public static class FactoryWatchLayout
     /// <summary>Up to 3 seats and no lines: the benches stand in one row, the Boss first.</summary>
     public const string Workshop = "workshop";
 
-    /// <summary>4 or more seats and no lines: the Boss in the middle, the others on a ring around it (a second ring
-    /// beyond 12 seats).</summary>
+    /// <summary>4 or more seats and no lines: the Boss in the middle, the others on rings around it (as many rings
+    /// as the seats need, so no station overlaps another).</summary>
     public const string Hub = "hub";
 
     /// <summary>Any seat names a production line: one hall per line, the Boss's office above them.</summary>

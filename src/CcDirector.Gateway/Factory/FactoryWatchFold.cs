@@ -11,7 +11,8 @@ namespace CcDirector.Gateway.Factory;
 ///
 /// The rules it owns, each tested:
 ///  - The layout comes from the factory's shape: any named line gives line halls; otherwise up to 3 seats is a
-///    workshop and 4 or more is the Boss in the middle with the others on a ring (a second ring beyond 12).
+///    workshop and 4 or more is the Boss in the middle with the others on rings (a further ring beyond 12, and as many
+///    as the seats need, so no station ever overlaps another).
 ///  - A seat's colour is picked from its own id, never from its place in the list or from the activity, so it does
 ///    not change between windows or when the seats are reordered.
 ///  - Every activity outcome maps to exactly one step kind (<see cref="StepKind"/>), and a new outcome fails a test.
@@ -35,7 +36,14 @@ public static class FactoryWatchFold
     internal const double RingStationWidth = 1.8;
     internal const double RingStationHeight = 1.3;
     internal const double InnerRadius = 4.5;
-    internal const double OuterRadius = 8;
+    internal const double RingStep = 3.5;
+
+    /// <summary>
+    /// The least distance between the centres of two neighbouring stations on a ring, and between two rings. Two ring
+    /// stations whose centres are further apart than the station's diagonal (2.22 tiles) can never overlap, whatever
+    /// the angle between them; this keeps a little air on top.
+    /// </summary>
+    internal const double MinCentreGap = 2.5;
     internal const double HallPad = 0.6;
     internal const double HallGap = 0.8;
     internal const double RowGap = 1.2;
@@ -185,19 +193,32 @@ public static class FactoryWatchFold
     private static void LayOutHub(RegisteredFactorySeatDto? boss, List<RegisteredFactorySeatDto> workers, FactoryWatchViewDto view)
     {
         view.Layout = FactoryWatchLayout.Hub;
-        var innerCapacity = RingMaxSeats - (boss is null ? 0 : 1);
-        var inner = workers.Take(innerCapacity).ToList();
-        var outer = workers.Skip(innerCapacity).ToList();
-        var radius = outer.Count == 0 ? InnerRadius : OuterRadius;
-        var centre = radius + RingStationWidth / 2 + Margin + HomeOffset;
+        // The first ring holds the rest of a 12-seat factory; each further ring, 3.5 tiles out, holds as many as fit
+        // with MinCentreGap between neighbours. As many rings as the seats need, so nothing ever overlaps.
+        var rings = new List<(double Radius, List<RegisteredFactorySeatDto> Seats)>();
+        var left = workers;
+        var radius = InnerRadius;
+        var capacity = RingMaxSeats - (boss is null ? 0 : 1);
+        while (left.Count > 0)
+        {
+            rings.Add((radius, left.Take(capacity).ToList()));
+            left = left.Skip(capacity).ToList();
+            radius += RingStep;
+            capacity = RingCapacity(radius);
+        }
+        var outermost = rings.Count == 0 ? InnerRadius : rings[^1].Radius;
+        var centre = outermost + RingStationWidth / 2 + Margin + HomeOffset;
         view.FloorWidth = Round(centre * 2);
         view.FloorHeight = Round(centre * 2);
 
         if (boss is not null)
             view.Stations.Add(Station(boss, true, centre - BossSize / 2, centre - BossSize / 2, BossSize, BossSize, null));
-        Ring(inner, InnerRadius, centre, view);
-        Ring(outer, OuterRadius, centre, view);
+        foreach (var (r, seats) in rings)
+            Ring(seats, r, centre, view);
     }
+
+    /// <summary>How many stations fit on a ring of this radius with <see cref="MinCentreGap"/> between neighbours.</summary>
+    internal static int RingCapacity(double radius) => (int)Math.Floor(Math.PI / Math.Asin(MinCentreGap / (2 * radius)));
 
     // The seats around a ring, in the factory's own seat order, the first at the top and on clockwise.
     private static void Ring(List<RegisteredFactorySeatDto> seats, double radius, double centre, FactoryWatchViewDto view)
