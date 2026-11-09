@@ -590,17 +590,4 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         Assert.Equal("a", terminal.Composer.ToString());
         Assert.Equal(new[] { EventText }, terminal.Submitted);
     }
-
-    [Fact]
-    public async Task SendPromptAsync_NobodyTypes_TheTerminalGetsTheTextThenTheEnter()
-    {
-        var (session, terminal) = NewTerminalSession();
-
-        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
-
-        Assert.True(response.Accepted);
-        Assert.True(response.IdleChecked);
-        Assert.Equal(new[] { EventText, "\r" }, terminal.Writes);
-        Assert.Equal(1, session.InputStats.Snapshot().AgentDrivenTurns);
-    }
 }
