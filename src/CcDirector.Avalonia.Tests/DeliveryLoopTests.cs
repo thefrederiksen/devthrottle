@@ -174,7 +174,7 @@ public sealed class DeliveryLoopWatchTests
 public sealed class DeliveryLoopDoesNotStopOnAHungVerbTests
 {
     private static GatewayStreamClient Client(Func<DirectorCommand, Task<DirectorCommandResult>> dispatcher) =>
-        new(new GatewayConfig { Url = "http://127.0.0.1:1", Token = "t", StreamMode = true },   // never dialled
+        new(new GatewayConfig { Url = "http://gateway.test", Token = "t", StreamMode = true },   // never dialled
             "dir-test", "0.0.0", () => new List<SessionDto>(), commandDispatcher: dispatcher);
 
     [Fact]
@@ -196,8 +196,9 @@ public sealed class DeliveryLoopDoesNotStopOnAHungVerbTests
         // BACK, not that the verb finished.
         Task<DirectorCommandResult>? handedBack = null;
         var handedItBack = Task.Run(() => { handedBack = client.DeliverAsync(new DirectorCommand { Verb = "create", CommandId = "c1" }); });
-        Assert.True(await Finished(handedItBack, TimeSpan.FromSeconds(5)),
-            "the handler never handed its task back, so the delivery loop is still held and no further command can arrive");
+        // A watchdog, not a verdict: on the old code this never finishes and the timeout names the hang. On the
+        // new code it finishes as soon as the handler hands its task back, whatever the machine's speed.
+        await handedItBack.WaitAsync(TimeSpan.FromSeconds(30));
 
         var next = await client.DeliverAsync(new DirectorCommand { Verb = "hold", CommandId = "c2" }).WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -209,10 +210,6 @@ public sealed class DeliveryLoopDoesNotStopOnAHungVerbTests
         wedged.Set();
         await handedBack.WaitAsync(TimeSpan.FromSeconds(5));
     }
-
-    /// <summary>True when <paramref name="task"/> finished inside <paramref name="budget"/>, with no blocking wait.</summary>
-    private static async Task<bool> Finished(Task task, TimeSpan budget) =>
-        await Task.WhenAny(task, Task.Delay(budget)) == task;
 
     [Fact]
     public async Task AKeystrokeVerb_IsStillAnsweredOnTheLoopItself_InArrivalOrder()
@@ -243,26 +240,29 @@ public sealed class DeliveryLoopIsWatchedByTheTickTests
     [Fact]
     public async Task TheRePushTick_AsksWhetherTheLoopIsHeld_AndSaysSoWhenItIs()
     {
-        var jobs = new CcDirector.Core.Background.BackgroundJobs();
         using var wedged = new ManualResetEventSlim(false);
+        // Raised by the verb itself once it is running. DeliverAsync enters the watch BEFORE it dispatches, so
+        // when this is set the loop is held - a signal the code raises, not a poll of the clock.
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Start() is NOT called: it would dial the Gateway and arm the real re-push timer, and either would let
+        // the machine into this test. The tick is the production method, driven by its own name below.
         var client = new GatewayStreamClient(
-            // Start() really dials this address and is refused, then waits in the redial delay - which is
-            // why the delay is replaced here. The dial decides nothing about the assertions below; what is
-            // needed from Start() is the registered tick.
-            new GatewayConfig { Url = "http://127.0.0.1:1", Token = "t", StreamMode = true },
+            new GatewayConfig { Url = "http://gateway.test", Token = "t", StreamMode = true },   // never dialled
             "dir-test", "0.0.0", () => new List<SessionDto>(),
-            commandDispatcher: cmd => { if (cmd.Verb == "prompt") wedged.Wait(); return Task.FromResult(DirectorCommandResult.Success()); },
-            rePushInterval: TimeSpan.FromSeconds(30), jobs: jobs, redialDelay: () => Task.CompletedTask);
-        client.Start();
+            commandDispatcher: cmd =>
+            {
+                if (cmd.Verb == "prompt") { entered.TrySetResult(); wedged.Wait(); }
+                return Task.FromResult(DirectorCommandResult.Success());
+            },
+            rePushInterval: TimeSpan.FromSeconds(30));
 
         // A KEYSTROKE verb, because those keep the loop on purpose - so one that wedges is the case the
         // watchdog has to catch. It is held from another thread; this one drives the tick.
         _ = Task.Run(() => client.DeliverAsync(new DirectorCommand { Verb = "prompt", CommandId = "wedged" }));
-        var held = await Waited(() => client.DeliveryLoop.Inside() is not null, TimeSpan.FromSeconds(5));
-        Assert.True(held, "the keystroke verb never reached the delivery loop");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));   // a watchdog on a hang, never the verdict
+        Assert.NotNull(client.DeliveryLoop.Inside());
 
-        // THE JOIN, AND NOTHING THE CLOCK DECIDES. (The Waited helper polls the real clock as a FAILURE
-        // bound; what the pass rests on is the counter, not a duration.) What must be true is that the tick ASKS - whether the answer is yes
+        // THE JOIN, AND NOTHING THE CLOCK DECIDES. What must be true is that the tick ASKS - whether the answer is yes
         // depends on the budget, and that half is proved against a fake clock in DeliveryLoopWatchTests. A
         // test that slept past the budget to see the line would be a test the clock decides (the 11 October
         // ruling), and it would prove nothing this does not.
@@ -274,16 +274,5 @@ public sealed class DeliveryLoopIsWatchedByTheTickTests
 
         wedged.Set();
         await client.StopAsync();
-    }
-
-    private static async Task<bool> Waited(Func<bool> until, TimeSpan budget)
-    {
-        var deadline = DateTime.UtcNow + budget;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (until()) return true;
-            await Task.Delay(25);
-        }
-        return until();
     }
 }
