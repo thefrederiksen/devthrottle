@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { acceptRequest, declineRequest, listMyRequests, listTeamRequests, markRequestDone, sendRequest } from "./requestsClient";
+import { acceptRequest, declineRequest, forwardRequest, getTeamRequestList, listMyRequests, listTeamRequests, markRequestDone, sendRequest } from "./requestsClient";
 import { gatewayErrorMessage } from "../api/client";
 
 // The requests client (devthrottle_internal#2308): each call reaches its route with the right body, the Gateway's own
@@ -50,6 +50,25 @@ describe("the requests client", () => {
     const calls = fetchMock.mock.calls as [string, RequestInit][];
     expect(calls.map((c) => c[0])).toEqual(["/teams/t/requests/r%201/accept", "/teams/t/requests/r%201/decline", "/teams/t/requests/r%201/done"]);
     expect(JSON.parse(calls[1][1].body as string)).toEqual({ reason: "Not this quarter" });
+  });
+
+  it("posts the Owner's forward to its route with the factory and the note, and reads the whole team list", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+      url.endsWith("/forward") ? json({ request: { id: "r1", state: "forwarded" } }) : json({ teamId: "t", teamLabel: "Acme", count: 0, requests: [], forward: { factories: [] } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const forwarded = await forwardRequest("t", "r 1", "website", "Worth doing.");
+    const whole = await getTeamRequestList("t");
+
+    const calls = fetchMock.mock.calls as [string, RequestInit][];
+    expect(calls.map((c) => [c[0], c[1].method])).toEqual([
+      ["/teams/t/requests/r%201/forward", "POST"],
+      ["/teams/t/requests", "GET"],
+    ]);
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({ factory: "website", note: "Worth doing." });
+    expect(forwarded.state).toBe("forwarded");
+    expect(whole.teamLabel).toBe("Acme");
   });
 
   it("carries the Gateway's own refusal sentence to the page", async () => {

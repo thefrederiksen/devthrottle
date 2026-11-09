@@ -123,6 +123,8 @@ public sealed class TeamRequestStore
     /// </summary>
     public TeamRequestResult Decide(string teamId, string requestId, string callerSubject, TeamRequestDecision decision, string? reason)
     {
+        if (decision == TeamRequestDecision.Forward)
+            throw new ArgumentException("A forward also leaves a message in a factory inbox; it is made through RecordForward, never Decide.", nameof(decision));
         var caller = RequireSubject(callerSubject);
         FileLog.Write($"[TeamRequestStore] Decide: team {LogTeam(teamId)} decision={decision}");
         var access = _access.Decide(teamId, caller, TeamAction.ReadAndDecideTeamRequests);
@@ -171,6 +173,86 @@ public sealed class TeamRequestStore
         return TeamRequestResult.Done(View(teamId, caller, id));
     }
 
+    /// <summary>
+    /// THE FIRST HALF OF A FORWARD (Team implementation piece 4.3): may <paramref name="callerSubject"/> forward this
+    /// request, and what does it say. The team's Owner alone may - the row "open, run and talk to the team's factories"
+    /// (<see cref="TeamAction.OpenRunAndTalkToTeamFactories"/>), asked here as the team gate asked it at the route - and
+    /// only a request that is sent or accepted. Nothing is written: the caller leaves the message in the factory inbox and
+    /// then records the forward with <see cref="RecordForward"/>.
+    /// </summary>
+    public TeamRequestForwardPlan PrepareForward(string teamId, string requestId, string callerSubject)
+    {
+        var caller = RequireSubject(callerSubject);
+        FileLog.Write($"[TeamRequestStore] PrepareForward: team {LogTeam(teamId)}");
+        var access = _access.Decide(teamId, caller, TeamAction.OpenRunAndTalkToTeamFactories);
+        if (Denied(access, "PrepareForward") is { } denied)
+            return TeamRequestForwardPlan.No(denied);
+        if (!Guid.TryParse(requestId, out var id))
+        {
+            FileLog.Write("[TeamRequestStore] PrepareForward: the request id is not one the Gateway mints - no such request");
+            return TeamRequestForwardPlan.No(TeamRequestResult.NoSuchRequest());
+        }
+
+        TeamRequestEntity? request;
+        using (var ctx = _db.CreateContext(new TenantId(teamId)))
+            request = ctx.TeamRequests.AsNoTracking().FirstOrDefault(r => r.Id == id);
+        if (request is null)
+        {
+            FileLog.Write("[TeamRequestStore] PrepareForward: no such request in this team");
+            return TeamRequestForwardPlan.No(TeamRequestResult.NoSuchRequest());
+        }
+        if (!TeamRequestStates.MayMove(request.State, TeamRequestDecision.Forward))
+        {
+            FileLog.Write($"[TeamRequestStore] PrepareForward: REFUSED - a request in state {request.State} cannot be forwarded");
+            return TeamRequestForwardPlan.No(TeamRequestResult.Conflict(TeamRequestStates.MoveRefusal(request.State, TeamRequestDecision.Forward)));
+        }
+
+        // Named as the Owner reads the members - never "You", because the factory reads the quote, not the Owner.
+        var member = Members(teamId, caller).FirstOrDefault(m => string.Equals(m.AccountSubject, request.SenderSubject, StringComparison.Ordinal));
+        var sender = member is null ? FormerMemberName : MemberName(member);
+        FileLog.Write($"[TeamRequestStore] PrepareForward: request {id} may be forwarded");
+        return new TeamRequestForwardPlan(null, new TeamRequestForwardSource(id, request.Text, sender, member?.Role, request.SentAtUtc));
+    }
+
+    /// <summary>
+    /// THE SECOND HALF OF A FORWARD: record on the request's trail that the Owner forwarded it to
+    /// <paramref name="factory"/>. The trail step keeps the factory's name in its <c>reason</c> column, which no reader is
+    /// ever shown as a reason: <see cref="Read"/> gives it only to a reader who may open the team's factories, as
+    /// <see cref="TeamRequestStep.ForwardedTo"/>, so the sender never learns which factory took it. The state is checked
+    /// again under the write lock, so two forwards of one request cannot both be recorded.
+    /// </summary>
+    public TeamRequestResult RecordForward(string teamId, Guid requestId, string callerSubject, string factory)
+    {
+        var caller = RequireSubject(callerSubject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        FileLog.Write($"[TeamRequestStore] RecordForward: team {LogTeam(teamId)} factory={factory}");
+        var access = _access.Decide(teamId, caller, TeamAction.OpenRunAndTalkToTeamFactories);
+        if (Denied(access, "RecordForward") is { } denied)
+            return denied;
+
+        lock (_writeLock)
+        {
+            using var ctx = _db.CreateContext(new TenantId(teamId));
+            var request = ctx.TeamRequests.FirstOrDefault(r => r.Id == requestId);
+            if (request is null)
+                return TeamRequestResult.NoSuchRequest();
+            if (!TeamRequestStates.MayMove(request.State, TeamRequestDecision.Forward))
+            {
+                FileLog.Write($"[TeamRequestStore] RecordForward: REFUSED - a request in state {request.State} cannot be forwarded");
+                return TeamRequestResult.Conflict(TeamRequestStates.MoveRefusal(request.State, TeamRequestDecision.Forward));
+            }
+
+            var now = _utcNow();
+            request.State = TeamRequestStates.Forwarded;
+            request.UpdatedAtUtc = now;
+            ctx.TeamRequestChanges.Add(Step(teamId, request.Id, TeamRequestStates.Forwarded, caller, now, factory.Trim()));
+            ctx.SaveChanges();
+        }
+
+        FileLog.Write($"[TeamRequestStore] RecordForward: request {requestId} is now forwarded");
+        return TeamRequestResult.Done(View(teamId, caller, requestId));
+    }
+
     private TeamRequestView View(string teamId, string callerSubject, Guid requestId) =>
         Read(teamId, callerSubject.Trim(), r => r.Id == requestId).Single();
 
@@ -195,7 +277,12 @@ public sealed class TeamRequestStore
         // What the caller may do is the role table's answer, read once, and given to every request as a finished
         // verdict so no screen re-derives it from the role (CLAUDE.md rule 7).
         var mayDecide = _access.Decide(teamId, caller, TeamAction.ReadAndDecideTeamRequests).Allowed;
-        var names = Names(teamId, caller);
+        // Forwarding is the Owner's alone (the row that talks to the team's factories), and so is knowing WHICH factory a
+        // forwarded request went to: the sender and the Managers read only that it was forwarded.
+        var mayForward = _access.Decide(teamId, caller, TeamAction.OpenRunAndTalkToTeamFactories).Allowed;
+        var members = Members(teamId, caller);
+        var names = members.ToDictionary(m => m.AccountSubject, MemberName, StringComparer.Ordinal);
+        var roles = members.ToDictionary(m => m.AccountSubject, m => m.Role, StringComparer.Ordinal);
         var trails = steps.GroupBy(s => s.RequestId).ToDictionary(g => g.Key,
             g => g.OrderBy(s => s.AtUtc).ThenBy(s => StateOrder(s.State)).ToList());
 
@@ -212,22 +299,32 @@ public sealed class TeamRequestStore
                 r.SentAtUtc,
                 r.UpdatedAtUtc,
                 trail.Select(s => new TeamRequestStep(s.State, TeamRequestStates.Label(s.State), NameOf(names, caller, s.BySubject),
-                    s.AtUtc, s.Reason, Sentence(s.State, NameOf(names, caller, s.BySubject)))).ToList(),
+                    s.AtUtc,
+                    // Only a "Not doing this" step carries a reason a person wrote. A forwarded step's column holds the
+                    // factory's name, which is never shown as a reason.
+                    s.State == TeamRequestStates.Declined ? s.Reason : null,
+                    Sentence(s.State, NameOf(names, caller, s.BySubject)),
+                    ForwardedTo: s.State == TeamRequestStates.Forwarded && mayForward ? s.Reason : null)).ToList(),
                 CanAccept: mayDecide && TeamRequestStates.MayMove(r.State, TeamRequestDecision.Accept),
                 CanDecline: mayDecide && TeamRequestStates.MayMove(r.State, TeamRequestDecision.Decline),
-                CanMarkDone: mayDecide && TeamRequestStates.MayMove(r.State, TeamRequestDecision.MarkDone));
+                CanMarkDone: mayDecide && TeamRequestStates.MayMove(r.State, TeamRequestDecision.MarkDone),
+                CanForward: mayForward && TeamRequestStates.MayMove(r.State, TeamRequestDecision.Forward),
+                SenderRole: roles.TryGetValue(r.SenderSubject, out var role) ? role : null);
         }).ToList();
     }
 
-    /// <summary>The team's members by account subject, as they are named on a trail: their email (or a made-up showcase
-    /// member's display name).</summary>
-    private Dictionary<string, string> Names(string teamId, string caller)
+    /// <summary>The team's members as the caller may read them (a contributor reads every other member by role, with no
+    /// address - piece 1.3).</summary>
+    private IReadOnlyList<TeamMember> Members(string teamId, string caller)
     {
         var members = _teams.ListMembers(teamId, caller);
         if (members.Outcome != TeamMembersOutcome.Found)
             throw new InvalidOperationException("The caller was a member of the team a moment ago and its member list could not be read now.");
-        return members.Members.ToDictionary(m => m.AccountSubject, m => m.Name ?? m.Email ?? "A member with no email recorded", StringComparer.Ordinal);
+        return members.Members;
     }
+
+    /// <summary>How a member is named on a trail: their email (or a made-up showcase member's display name).</summary>
+    private static string MemberName(TeamMember m) => m.Name ?? m.Email ?? "A member with no email recorded";
 
     private static string NameOf(IReadOnlyDictionary<string, string> names, string caller, string subject)
     {
@@ -243,7 +340,8 @@ public sealed class TeamRequestStore
         TeamRequestStates.Accepted => $"Accepted by {by}",
         TeamRequestStates.Declined => $"Not doing this - {by}",
         TeamRequestStates.Done => $"Marked Done by {by}",
-        _ => throw new InvalidOperationException($"team_request_changes.state holds '{state}', which is not one of sent, accepted, declined or done."),
+        TeamRequestStates.Forwarded => $"Forwarded to the factory by {by}",
+        _ => throw new InvalidOperationException($"team_request_changes.state holds '{state}', which is not one of sent, accepted, forwarded, declined or done."),
     };
 
     // Two steps recorded in the same instant keep the order a request moves in.
@@ -251,7 +349,8 @@ public sealed class TeamRequestStore
     {
         TeamRequestStates.Sent => 0,
         TeamRequestStates.Accepted => 1,
-        _ => 2,
+        TeamRequestStates.Forwarded => 2,
+        _ => 3,
     };
 
     private static TeamRequestChangeEntity Step(string teamId, Guid requestId, string state, string by, DateTime at, string? reason) => new()
@@ -313,20 +412,36 @@ public enum TeamRequestOutcome
 
     /// <summary>The request's state does not allow the change (it is already final, or already accepted).</summary>
     Conflict,
+
+    /// <summary>The answer cannot be given now - the team's factory area could not be read. Nothing was done.</summary>
+    Unavailable,
 }
 
 /// <summary>One trail step as the reader sees it. <see cref="Sentence"/> is the finished line; <see cref="Reason"/> is
-/// set on "Not doing this" only.</summary>
-public sealed record TeamRequestStep(string State, string Label, string By, DateTime AtUtc, string? Reason, string Sentence);
+/// set on "Not doing this" only. <see cref="ForwardedTo"/> is the factory a forwarded step went to, given only to a reader
+/// who may open the team's factories (the Owner); null for everyone else and on every other step.</summary>
+public sealed record TeamRequestStep(string State, string Label, string By, DateTime AtUtc, string? Reason, string Sentence,
+    string? ForwardedTo = null);
 
 /// <summary>
 /// One request as the caller sees it. <see cref="CanAccept"/>, <see cref="CanDecline"/> and <see cref="CanMarkDone"/>
 /// are finished verdicts - the caller's role and the request's state, ruled here - so a screen shows a button exactly
-/// when it is true and never works it out for itself.
+/// when it is true and never works it out for itself. <see cref="CanForward"/> is the Owner's alone.
+/// <see cref="SenderRole"/> is the sender's role in the team now, or null when they have left it.
 /// </summary>
 public sealed record TeamRequestView(string Id, string Text, string State, string StateLabel, string SentBy, bool IsYours,
     DateTime SentAtUtc, DateTime UpdatedAtUtc, IReadOnlyList<TeamRequestStep> Trail,
-    bool CanAccept, bool CanDecline, bool CanMarkDone);
+    bool CanAccept, bool CanDecline, bool CanMarkDone, bool CanForward = false, TeamRole? SenderRole = null);
+
+/// <summary>What a forward quotes: the request's words, who wrote them as the Owner names them, their role in the team
+/// now (null when they have left it), and when they were written.</summary>
+public sealed record TeamRequestForwardSource(Guid RequestId, string Text, string SenderName, TeamRole? SenderRole, DateTime WrittenAtUtc);
+
+/// <summary>The first half of a forward: the source to quote, or the refusal.</summary>
+public sealed record TeamRequestForwardPlan(TeamRequestResult? Refusal, TeamRequestForwardSource? Source)
+{
+    public static TeamRequestForwardPlan No(TeamRequestResult refusal) => new(refusal, null);
+}
 
 /// <summary>The answer to a send or a decision: the request as it now stands, or the refusal.</summary>
 public sealed record TeamRequestResult(TeamRequestOutcome Outcome, string? Refusal, TeamRequestView? Request)
@@ -337,6 +452,7 @@ public sealed record TeamRequestResult(TeamRequestOutcome Outcome, string? Refus
     public static TeamRequestResult Invalid(string refusal) => new(TeamRequestOutcome.Invalid, refusal, null);
     public static TeamRequestResult NoSuchRequest() => new(TeamRequestOutcome.NoSuchRequest, TeamRequestStore.NoSuchRequestRefusal, null);
     public static TeamRequestResult Conflict(string refusal) => new(TeamRequestOutcome.Conflict, refusal, null);
+    public static TeamRequestResult Unavailable(string refusal) => new(TeamRequestOutcome.Unavailable, refusal, null);
 }
 
 /// <summary>The answer to a list: the requests, or the refusal.</summary>

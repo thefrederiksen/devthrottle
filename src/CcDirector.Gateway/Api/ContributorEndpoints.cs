@@ -129,6 +129,10 @@ internal sealed class ContributorPages
     internal const string StageNotSet = "Where your project is has not been set yet.";
     internal const string AnswerLabel = "Answer";
 
+    /// <summary>What a contributor reads on a message the team's Owner forwarded (piece 4.3). It says that it happened and
+    /// nothing about the factory: not which one, not who in it, not what it did.</summary>
+    internal const string ForwardedNotice = "The team's Owner read this and forwarded it to the factory, in their name.";
+
     /// <summary>The five steps of a customer's project, in order (design.html: idea, plan, building, checking, live).</summary>
     internal static readonly IReadOnlyList<string> Stages = new[] { "Idea", "Plan", "Building", "Checking", "Live" };
 
@@ -284,6 +288,7 @@ internal sealed class ContributorPages
                 StateLabel: label,
                 Tone: tone,
                 Trail: Array.Empty<object>(),
+                Notice: null,
                 Questions: asked is null ? Array.Empty<object>() : asked.Cards,
                 Order: Order(isWaiting, r.Row.SentAtUtc, r.Title, teamId));
         });
@@ -301,6 +306,7 @@ internal sealed class ContributorPages
             StateLabel: q.StateLabel,
             Tone: "message",
             Trail: q.Trail.Select(s => (object)new { label = s.Label, by = s.By, atUtc = s.AtUtc, reason = s.Reason, sentence = s.Sentence }).ToList(),
+            Notice: q.State == TeamRequestStates.Forwarded ? ForwardedNotice : null,
             Questions: Array.Empty<object>(),
             Order: Order(false, q.UpdatedAtUtc, q.Text, teamId)));
 
@@ -317,6 +323,7 @@ internal sealed class ContributorPages
             stateLabel = i.StateLabel,
             tone = i.Tone,
             trail = i.Trail,
+            notice = i.Notice,
             questions = i.Questions,
             order = i.Order,
         }).ToList();
@@ -334,7 +341,7 @@ internal sealed class ContributorPages
     }
 
     private sealed record InboxItem(string Kind, string Id, string Title, string? Text, string FromLabel, DateTime AtUtc,
-        string StateLabel, string Tone, IReadOnlyList<object> Trail, IReadOnlyList<object> Questions, string Order);
+        string StateLabel, string Tone, IReadOnlyList<object> Trail, string? Notice, IReadOnlyList<object> Questions, string Order);
 
     // ---------------------------------------------------------------- helpers
 

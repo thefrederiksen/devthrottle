@@ -36,6 +36,8 @@ internal sealed record TeamRouteServices(
     Factory.FactoryActivityRecord Activity,
     FactoryContributors FactoryContributors,
     Factory.FactoryAgentsSwitch FactorySwitch,
+    Factory.Inbox.FactoryInboxStore FactoryInbox,
+    Action<TenantId, string, DateTime> FactoryInboxMessageSent,
     Func<DateTime>? UtcNow = null);
 
 /// <summary>
@@ -60,7 +62,11 @@ internal static class TeamRoutes
         TeamInvitationEndpoints.Map(app, s.Teams, s.Boundary, s.Tenants, s.InvitationMailer, s.PublicBase);
         // Requests to the Owner and Managers (devthrottle_internal#2308). People only - a request is never readable
         // with a session key or a Director's key.
-        TeamRequestEndpoints.Map(app, s.Requests, s.Boundary, s.Tenants);
+        // The Owner's "Forward to the factory" (piece 4.3) is the one way those words reach a factory: quoted, marked, in
+        // the Owner's name, into a factory of the same team.
+        var forwarding = new TeamRequestForwarding(s.Requests, s.Teams, s.Factories, s.FactorySwitch,
+            (tenant, input, ct) => s.FactoryInbox.SendAsync(tenant, input, ct), s.FactoryInboxMessageSent, s.UtcNow);
+        TeamRequestEndpoints.Map(app, s.Requests, forwarding, s.Teams, s.Boundary, s.Tenants);
         // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow routes
         // mounted again under /teams/{teamId}, answering for the team's tenant, plus the Skills and workflows page's read.
         TeamLibraryEndpoints.Map(app, s.Skills, s.Workflows, s.Teams, s.Access, s.Boundary, s.Tenants);

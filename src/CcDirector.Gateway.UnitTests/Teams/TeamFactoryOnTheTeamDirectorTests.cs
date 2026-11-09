@@ -214,7 +214,9 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
             MentorStore: new TeamMentorStore(_db), TimeZoneOf: _ => "UTC", MentorRunning: false,
             Reports: _reports, Recipients: new DevReportRecipients(_db), Comments: new DevReportPersonComments(_db),
             Delivery: delivery, Factories: _factories, Activity: _activity, FactoryContributors: new FactoryContributors(_db),
-            FactorySwitch: factorySwitch, UtcNow: () => Now));
+            FactorySwitch: factorySwitch,
+            FactoryInbox: new CcDirector.Gateway.Factory.Inbox.FactoryInboxStore(_db, _ => CcDirector.Core.Dictation.Models.DictationDictionary.Empty),
+            FactoryInboxMessageSent: (_, _, _) => { }, UtcNow: () => Now));
 
         // What a Director pulls while it runs a factory, and the Boss's own factory inbox: reached or not.
         foreach (var (method, pattern) in DirectorAndBossRoutes)

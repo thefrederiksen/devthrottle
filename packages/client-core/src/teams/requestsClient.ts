@@ -21,6 +21,8 @@ export interface TeamRequestStep {
   reason: string | null;
   /** The finished line, for example "Accepted by priya@acme.com". */
   sentence: string;
+  /** On a "forwarded" step, the factory it went to - sent only to the team's Owner; null for every other reader. */
+  forwardedTo?: string | null;
 }
 
 /** One request as the Gateway describes it to the reader. */
@@ -32,6 +34,10 @@ export interface TeamRequest {
   stateLabel: string;
   /** Who sent it, as named on screen ("You" for the sender). */
   sentBy: string;
+  /** The list row's "From ..." line, for example "From carla@client.example, a contributor". */
+  fromLabel?: string;
+  /** The Owner's reminder on an item still in their hands: "Not seen by any agent until you forward it." Null otherwise. */
+  privacyNote?: string | null;
   isYours: boolean;
   sentAtUtc: string;
   updatedAtUtc: string;
@@ -42,6 +48,33 @@ export interface TeamRequest {
   canDecline: boolean;
   /** Whether the reader may mark it Done now. */
   canMarkDone: boolean;
+  /** Whether the reader may forward it to a factory of the team now - the team's Owner alone (Team piece 4.3). */
+  canForward?: boolean;
+}
+
+/** One factory the Owner may forward to. */
+export interface TeamForwardTarget {
+  factory: string;
+  name: string;
+}
+
+/** The forward control's words and choices, all the Gateway's. `factories` is empty, and `emptyText` says why, whenever
+ *  the reader cannot forward in this team. */
+export interface TeamForwardControl {
+  label: string;
+  noteLabel: string;
+  hint: string;
+  factories: TeamForwardTarget[];
+  emptyText: string | null;
+}
+
+/** GET /teams/{teamId}/requests whole: the team's label, its requests, and the forward control. */
+export interface TeamRequestList {
+  teamId: string;
+  teamLabel: string;
+  count: number;
+  requests: TeamRequest[];
+  forward: TeamForwardControl;
 }
 
 // `what` names the action in the reader's words; the Gateway's own sentence wins over it whenever the Gateway sent one.
@@ -81,6 +114,30 @@ export async function listMyRequests(teamId: string, signal?: AbortSignal): Prom
 export async function listTeamRequests(teamId: string, signal?: AbortSignal): Promise<TeamRequest[]> {
   const body = await call<{ requests: TeamRequest[] }>("GET", root(teamId), "load the team's requests", undefined, signal);
   return body.requests;
+}
+
+/** GET /teams/{teamId}/requests, the whole answer - what the Owner's inbox shows for one team. */
+export function getTeamRequestList(teamId: string, signal?: AbortSignal): Promise<TeamRequestList> {
+  return call<TeamRequestList>("GET", root(teamId), "load the messages from this team", undefined, signal);
+}
+
+/** POST /teams/{teamId}/requests/{id}/forward - the Owner's "Forward to the factory", with an optional note above the
+ *  quote. The Gateway answers the request as it now stands. */
+export async function forwardRequest(
+  teamId: string,
+  requestId: string,
+  factory: string,
+  note: string,
+  signal?: AbortSignal,
+): Promise<TeamRequest> {
+  const body = await call<{ request: TeamRequest }>(
+    "POST",
+    `${one(teamId, requestId)}/forward`,
+    "forward the message to the factory",
+    { factory, note },
+    signal,
+  );
+  return body.request;
 }
 
 /** POST /teams/{teamId}/requests - send a request in the person's own words. */

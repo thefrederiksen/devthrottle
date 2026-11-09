@@ -158,7 +158,9 @@ public sealed class TeamContributorSeesNoAddressTests : IAsyncLifetime
             Factories: new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(_db),
             Activity: new CcDirector.Gateway.Factory.FactoryActivityRecord(_db),
             FactoryContributors: new FactoryContributors(_db),
-            FactorySwitch: new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: true, new CcDirector.Gateway.Settings.TenantSettingsStore(_db))));
+            FactorySwitch: new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: true, new CcDirector.Gateway.Settings.TenantSettingsStore(_db)),
+            FactoryInbox: new CcDirector.Gateway.Factory.Inbox.FactoryInboxStore(_db, _ => CcDirector.Core.Dictation.Models.DictationDictionary.Empty),
+            FactoryInboxMessageSent: (_, _, _) => { }));
 
         _teamRoutes = ((IEndpointRouteBuilder)_app).DataSources
             .SelectMany(d => d.Endpoints)

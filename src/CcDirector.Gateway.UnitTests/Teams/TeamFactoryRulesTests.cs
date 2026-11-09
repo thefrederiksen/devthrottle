@@ -225,11 +225,15 @@ public sealed class TeamFactoryRulesTests : IDisposable
 
         // A Director runs a team's factory with its own key, so no factory route a Director calls may be person-only. The
         // one factory row under the team's own address is the Owner sending a factory to a contributor (Team
-        // implementation 4.1): a person's click, never a Director's, and person-only like everything under /teams (M1).
+        // implementation 4.1): a person's click, never a Director's, and person-only like everything under /teams (M1). The
+        // other is the Owner forwarding a contributor's message to a factory (piece 4.3) - a person's click too.
         var shareRoute = CcDirector.Gateway.Api.FactoryShareEndpoints.Pattern;
+        const string forwardRoute = "/teams/{teamId}/requests/{requestId}/forward";
         Assert.Contains(TeamEndpointRules.FactoryRules, r => r.Prefix == shareRoute);
+        Assert.Contains(TeamEndpointRules.FactoryRules, r => r.Prefix == forwardRoute);
         Assert.True(TeamPersonOnlyRoutes.IsPersonOnly("POST", shareRoute));
-        foreach (var rule in TeamEndpointRules.FactoryRules.Where(r => r.Prefix != shareRoute))
+        Assert.True(TeamPersonOnlyRoutes.IsPersonOnly("POST", forwardRoute));
+        foreach (var rule in TeamEndpointRules.FactoryRules.Where(r => r.Prefix != shareRoute && r.Prefix != forwardRoute))
             Assert.False(TeamPersonOnlyRoutes.IsPersonOnly("GET", rule.Prefix), $"{rule.Prefix} is person-only");
     }
 }

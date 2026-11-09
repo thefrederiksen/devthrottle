@@ -85,6 +85,8 @@ export interface ContributorInboxItem {
   /** How the state is drawn: "waiting", "new", "done" or "message". */
   tone: string;
   trail: ContributorTrailStep[];
+  /** The Gateway's sentence on a message the team's Owner forwarded to the factory; null otherwise. */
+  notice: string | null;
   /** A report's questions for this person, waiting first, in the order to draw them; empty for a message. */
   questions: TeamQuestion[];
   order: string;

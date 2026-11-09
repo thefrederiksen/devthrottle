@@ -11,6 +11,11 @@ public enum TeamRequestDecision
 
     /// <summary>Mark it Done.</summary>
     MarkDone,
+
+    /// <summary>Forward it to a factory of the team, quoted as the sender's words, in the Owner's name (Team
+    /// implementation piece 4.3). The Owner alone, and only through <see cref="TeamRequestStore.RecordForward"/> - never
+    /// through <see cref="TeamRequestStore.Decide"/>, because a forward also leaves a message in a factory inbox.</summary>
+    Forward,
 }
 
 /// <summary>
@@ -18,6 +23,10 @@ public enum TeamRequestDecision
 /// <c>sent</c>; the Owner or a Manager accepts it, marks it Not doing this (<c>declined</c>, with a reason), or marks
 /// it Done. Accepted may still become Not doing this or Done. Not doing this and Done are final: a request that needs
 /// doing again is a new request, so the sender's trail never changes under them.
+///
+/// FORWARDED (Team implementation piece 4.3): the team's Owner read it and forwarded it to one of the team's factories.
+/// A sent or accepted request may be forwarded, once; a forwarded one may still be marked Not doing this or Done, and
+/// is never accepted afterwards (forwarding is further along than accepting) or forwarded a second time.
 ///
 /// Who may make a change is not here - that is the role table (<see cref="TeamAction.ReadAndDecideTeamRequests"/>),
 /// asked through <see cref="TeamAccess"/>.
@@ -36,6 +45,12 @@ public static class TeamRequestStates
     /// <summary>Stored state: done.</summary>
     public const string Done = "done";
 
+    /// <summary>Stored state: forwarded to a factory of the team by its Owner.</summary>
+    public const string Forwarded = "forwarded";
+
+    /// <summary>The longest note the Owner may add above a forwarded message, in characters.</summary>
+    public const int MaxNoteLength = 2000;
+
     /// <summary>The longest request accepted, in characters.</summary>
     public const int MaxTextLength = 4000;
 
@@ -49,7 +64,8 @@ public static class TeamRequestStates
         Accepted => "Accepted",
         Declined => "Not doing this",
         Done => "Done",
-        _ => throw new InvalidOperationException($"team_requests.state holds '{state}', which is not one of sent, accepted, declined or done."),
+        Forwarded => "Forwarded to the factory",
+        _ => throw new InvalidOperationException($"team_requests.state holds '{state}', which is not one of sent, accepted, forwarded, declined or done."),
     };
 
     /// <summary>The state a decision moves a request to.</summary>
@@ -58,6 +74,7 @@ public static class TeamRequestStates
         TeamRequestDecision.Accept => Accepted,
         TeamRequestDecision.Decline => Declined,
         TeamRequestDecision.MarkDone => Done,
+        TeamRequestDecision.Forward => Forwarded,
         _ => throw new ArgumentOutOfRangeException(nameof(decision), decision, "Not a decision about a request."),
     };
 
@@ -69,8 +86,9 @@ public static class TeamRequestStates
         {
             Sent => true,
             Accepted => after != Accepted,
+            Forwarded => after is Declined or Done,
             Declined or Done => false,
-            _ => throw new InvalidOperationException($"team_requests.state holds '{state}', which is not one of sent, accepted, declined or done."),
+            _ => throw new InvalidOperationException($"team_requests.state holds '{state}', which is not one of sent, accepted, forwarded, declined or done."),
         };
     }
 
@@ -78,6 +96,8 @@ public static class TeamRequestStates
     public static string MoveRefusal(string state, TeamRequestDecision decision) => state switch
     {
         Accepted when decision == TeamRequestDecision.Accept => "This request has already been accepted.",
+        Forwarded when decision == TeamRequestDecision.Forward => "This message has already been forwarded to the factory.",
+        Forwarded => "This message was forwarded to the factory, which is further along than accepting it.",
         Declined => "This request is marked Not doing this, which is final. If it needs doing after all, ask for it as a new request.",
         Done => "This request is already Done, which is final. If more is needed, ask for it as a new request.",
         _ => throw new InvalidOperationException($"A request in state '{state}' may be moved by {decision}; there is no refusal to give."),
@@ -91,6 +111,16 @@ public static class TeamRequestStates
             return "Write your request before sending it.";
         if (trimmed.Length > MaxTextLength)
             return $"A request can be at most {MaxTextLength} characters. This one is {trimmed.Length}.";
+        return null;
+    }
+
+    /// <summary>Why the Owner's note above a forwarded message cannot be used, or null when it can. The note is optional;
+    /// it is trimmed before it is measured.</summary>
+    public static string? NoteRefusal(string? note)
+    {
+        var trimmed = note?.Trim() ?? "";
+        if (trimmed.Length > MaxNoteLength)
+            return $"A note can be at most {MaxNoteLength} characters. This one is {trimmed.Length}.";
         return null;
     }
 

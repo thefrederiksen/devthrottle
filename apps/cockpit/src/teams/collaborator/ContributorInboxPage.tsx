@@ -155,6 +155,11 @@ function MessageItem({ item, backLabel }: { item: ContributorInboxItem; backLabe
       </div>
       <h2 className="contributor-card-title">{item.title}</h2>
       <p className="contributor-message-text">{item.text}</p>
+      {item.notice !== null && (
+        <p className="team-ok" role="status" data-testid="contributor-message-notice">
+          {item.notice}
+        </p>
+      )}
       <ol className="contributor-trail">
         {item.trail.map((s) => (
           <li key={`${s.atUtc}/${s.label}`}>

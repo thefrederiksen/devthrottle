@@ -110,6 +110,7 @@ public sealed class TeamRequestEndpointsTests : IDisposable
     [InlineData("POST", "/teams/{teamId}/requests/{requestId}/accept", TeamAction.ReadAndDecideTeamRequests)]
     [InlineData("POST", "/teams/{teamId}/requests/{requestId}/decline", TeamAction.ReadAndDecideTeamRequests)]
     [InlineData("POST", "/teams/{teamId}/requests/{requestId}/done", TeamAction.ReadAndDecideTeamRequests)]
+    [InlineData("POST", "/teams/{teamId}/requests/{requestId}/forward", TeamAction.OpenRunAndTalkToTeamFactories)]
     public void Find_EveryRequestRoute_StatesItsAction(string method, string pattern, TeamAction action)
     {
         var rule = TeamEndpointRules.Find(method, pattern);
@@ -126,6 +127,28 @@ public sealed class TeamRequestEndpointsTests : IDisposable
     {
         foreach (var verb in new[] { "accept", "decline", "done" })
             Assert.Equal(expected, ByRoute("POST", "/teams/{teamId}/requests/{requestId}/" + verb, caller).Outcome);
+    }
+
+    [Theory]
+    [InlineData(Owner, TeamGateOutcome.Allowed)]
+    [InlineData(Manager, TeamGateOutcome.Refused)]
+    [InlineData(Developer, TeamGateOutcome.Refused)]
+    [InlineData(Collaborator, TeamGateOutcome.Refused)]
+    public void Check_ForwardingAMessageToTheFactory_OnlyTheOwnerPasses(string caller, TeamGateOutcome expected)
+    {
+        // Piece 4.3: a Manager may decide a request but never forward it - the forward talks to the team's factory.
+        Assert.Equal(expected, ByRoute("POST", "/teams/{teamId}/requests/{requestId}/forward", caller).Outcome);
+    }
+
+    [Theory]
+    [InlineData("POST", "/teams/3f1d2c9e-0000-4000-8000-000000000001/requests/3f1d2c9e-0000-4000-8000-000000000002/forward")]
+    [InlineData("GET", "/teams/3f1d2c9e-0000-4000-8000-000000000001/requests")]
+    [InlineData("POST", "/teams/3f1d2c9e-0000-4000-8000-000000000001/requests")]
+    public void SessionKeyGuard_TheMessageAndForwardRoutes_AreRefusedToAnAgentSessionKey(string method, string path)
+    {
+        // A contributor's words, and the Owner's forward of them, are people's acts only: no session key, raised or not.
+        Assert.False(SessionKeyGuard.Check(method, path).Allowed);
+        Assert.False(SessionKeyGuard.Check(method, path, raised: true).Allowed);
     }
 
     [Theory]
