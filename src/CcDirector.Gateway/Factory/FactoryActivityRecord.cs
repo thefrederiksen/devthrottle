@@ -156,6 +156,9 @@ public sealed class FactoryActivityRecord
         var subject = Optional(request.Subject, "subject", MaxSubjectChars);
         var link = Optional(request.Link, "link", MaxLinkChars);
         var forContributor = Optional(request.ForContributor, "sentence for a contributor", MaxForContributorChars);
+        if (forContributor is not null
+            && ContributorSentenceCheck.Refusal(forContributor, MachineNamesOf(ctx)) is { } contributorRefusal)
+            throw new FactoryActivityValidationException(contributorRefusal);
 
         var actor = Optional(request.Actor, "actor", MaxActorChars)
             ?? Optional(callingActor, "actor", MaxActorChars)
@@ -286,6 +289,23 @@ public sealed class FactoryActivityRecord
             FileLog.Write($"[FactoryActivityRecord] Query: returned {page.Rows.Count}, hasMore={page.HasMore}");
             return page;
         }
+    }
+
+    // The names of the machines on the row's account, for the contributor sentence's machine rule: every device the
+    // account ever enrolled, revoked ones included - a name that was once a machine of the account is still one. The
+    // device table is global (a key is resolved before any tenant is known), so the account is matched on its own
+    // column; the single-tenant local install binds no tenant, which there means the local account.
+    private static List<string> MachineNamesOf(GatewayDbContext ctx)
+    {
+        var tenant = ctx.ActiveTenant!;
+        var local = string.Equals(tenant, TenantId.Local.Value, StringComparison.Ordinal);
+        var names = ctx.DeviceCredentials.AsNoTracking()
+            .Where(d => d.TenantId == tenant || (local && d.TenantId == null))
+            .Select(d => d.MachineName)
+            .Distinct()
+            .ToList();
+        FileLog.Write($"[FactoryActivityRecord] MachineNamesOf: machines={names.Count}");
+        return names;
     }
 
     private static string Required(string? value, string name, int max)

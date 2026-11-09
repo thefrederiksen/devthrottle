@@ -5050,7 +5050,8 @@ def factory_record(
     for_contributor: Optional[str] = typer.Option(
         None, "--for-contributor",
         help="The step in one sentence for a team contributor (a customer, not a developer), at most 500 characters. "
-             "Stored exactly as written.",
+             "Stored exactly as written. Refused when it names one of the account's machines, holds a folder path "
+             "or holds an email address.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the recorded row as JSON."),
 ) -> None:

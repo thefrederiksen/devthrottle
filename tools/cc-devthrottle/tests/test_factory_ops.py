@@ -148,6 +148,20 @@ def test_record_NoForContributor_SendsNoValue(gateway_answering):
     assert "forContributor" not in gw.calls[0]["body"]
 
 
+def test_record_ForContributorRefused_ExitsOneWithTheGatewaysSentence(gateway_answering):
+    # The Gateway refuses a contributor sentence that names a machine, holds a path or an address; the command
+    # exits 1 and shows the Gateway's own sentence, and prints no row id.
+    refusal = ("The sentence for a contributor names the machine 'SOREN_NORTH'. A contributor never sees a machine: "
+               "describe the step without naming it.")
+    gateway_answering(400, {"error": refusal})
+
+    result = runner.invoke(app, RECORD + ["--for-contributor", "Rebuilt on SOREN_NORTH."])
+
+    assert result.exit_code == 1
+    assert refusal in result.stderr
+    assert ROW_ID not in result.stdout
+
+
 def test_record_Json_PrintsTheGatewaysRow(gateway_answering):
     gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
 

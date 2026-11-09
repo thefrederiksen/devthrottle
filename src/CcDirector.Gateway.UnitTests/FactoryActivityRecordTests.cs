@@ -284,6 +284,68 @@ public sealed class FactoryActivityRecordTests : IDisposable
         Assert.Equal(500, record.Query().Rows.Single().ForContributor!.Length);
     }
 
+    private void SeedMachine(string machineName, string? tenantId)
+    {
+        using var ctx = _h.Open().CreateUnscopedContext();
+        ctx.DeviceCredentials.Add(new CcDirector.Gateway.Data.Entities.DeviceCredentialEntity
+        {
+            DeviceId = Guid.NewGuid().ToString(),
+            MachineName = machineName,
+            DeviceKeyHash = Guid.NewGuid().ToString("N"),
+            KeyPrefix = "dt_",
+            KeyLast4 = "abcd",
+            IssuedAtUtc = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc),
+            Status = "active",
+            Platform = "windows",
+            DeviceType = "workstation",
+            TenantId = tenantId,
+        });
+        ctx.SaveChanges();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("local")]
+    public void Append_ForContributorNamesAMachineOfTheAccount_IsRefusedAndWritesNothing(string? deviceTenant)
+    {
+        SeedMachine("SOREN_NORTH", deviceTenant);
+        var record = NewRecord();
+        var req = Row();
+        req.ForContributor = "The site was rebuilt on soren_north.";
+
+        var refused = Assert.Throws<FactoryActivityValidationException>(() => record.Append(req, "session:abc"));
+
+        Assert.Contains("names the machine 'SOREN_NORTH'", refused.Message);
+        Assert.Equal(0, CountAll(record));
+    }
+
+    [Fact]
+    public void Append_ForContributorNamesAnotherAccountsMachine_IsKept()
+    {
+        SeedMachine("OTHER_BOX", "tenant-someone-else");
+        var record = NewRecord();
+        var req = Row();
+        req.ForContributor = "The site was rebuilt on OTHER_BOX.";
+
+        record.Append(req, "session:abc");
+
+        Assert.Equal("The site was rebuilt on OTHER_BOX.", record.Query().Rows.Single().ForContributor);
+    }
+
+    [Theory]
+    [InlineData(@"The photos are in C:\Sites\pine-valley now.")]
+    [InlineData("Replies now go to orders@pinevalley.example.")]
+    public void Append_ForContributorHoldsAPathOrAnAddress_IsRefusedAndWritesNothing(string sentence)
+    {
+        var record = NewRecord();
+        var req = Row();
+        req.ForContributor = sentence;
+
+        Assert.Throws<FactoryActivityValidationException>(() => record.Append(req, "session:abc"));
+
+        Assert.Equal(0, CountAll(record));
+    }
+
     [Fact]
     public void AppendRequest_BodyTheCommandLineSends_BindsForContributor()
     {

@@ -81,7 +81,9 @@ public sealed class AppendFactoryActivityRequest
     public DateTime? OccurredUtc { get; set; }
 
     /// <summary>The step described for a team contributor (a customer, not a developer), in one sentence.
-    /// Optional, at most 500 characters. Stored exactly as written; nothing rewords it.</summary>
+    /// Optional, at most 500 characters. Stored exactly as written; nothing rewords it. A contributor never sees a
+    /// machine, so the row is refused when the sentence names one of the account's machines, holds a folder path or
+    /// holds an email address.</summary>
     public string? ForContributor { get; set; }
 }
 
