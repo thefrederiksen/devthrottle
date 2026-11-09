@@ -101,28 +101,24 @@ public sealed class TeamShowcase
             var teamWeek = MentorWeek.LastClosed(now, teamZone);
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);
 
-            using (var ctx = _db.CreateUnscopedContext())
+            if (!string.IsNullOrWhiteSpace(content.TeamName))
             {
-                if (!string.IsNullOrWhiteSpace(content.TeamName))
-                {
-                    var row = ctx.Teams.Single(t => t.Id == teamId);
-                    row.Name = content.TeamName.Trim();
-                }
-                foreach (var m in content.Members)
-                {
-                    ctx.TeamMembers.Add(new TeamMemberEntity
-                    {
-                        TeamId = teamId,
-                        AccountSubject = who[m.Key],
-                        Role = RoleNamed(m.Role)!.Value,
-                        JoinedAtUtc = now.AddDays(-m.JoinedDaysAgo),
-                        DisplayName = m.Name.Trim(),
-                        DisplayEmail = m.Email.Trim(),
-                        ShowcaseTag = tag,
-                    });
-                }
+                using var ctx = _db.CreateUnscopedContext();
+                var row = ctx.Teams.Single(t => t.Id == teamId);
+                row.Name = content.TeamName.Trim();
                 ctx.SaveChanges();
             }
+            // Through the team registry, which writes every team_members row and its membership record together.
+            _teams.AddShowcaseMembers(teamId, content.Members.Select(m => new TeamMemberEntity
+            {
+                TeamId = teamId,
+                AccountSubject = who[m.Key],
+                Role = RoleNamed(m.Role)!.Value,
+                JoinedAtUtc = now.AddDays(-m.JoinedDaysAgo),
+                DisplayName = m.Name.Trim(),
+                DisplayEmail = m.Email.Trim(),
+                ShowcaseTag = tag,
+            }).ToList(), owner.AccountSubject, now);
             counts["members"] = content.Members.Count;
 
             using (var ctx = _db.CreateContext(team))
@@ -185,13 +181,8 @@ public sealed class TeamShowcase
                 RemoveTagged(ctx, tag, counts);
                 ctx.SaveChanges();
             }
-            using (var ctx = _db.CreateUnscopedContext())
-            {
-                var members = ctx.TeamMembers.Where(m => m.TeamId == teamId && m.ShowcaseTag == tag).ToList();
-                ctx.TeamMembers.RemoveRange(members);
-                Add(counts, "members", members.Count);
-                ctx.SaveChanges();
-            }
+            // Through the team registry, which removes the tagged members and records each removal in one save.
+            Add(counts, "members", _teams.RemoveShowcaseMembers(teamId, tag, owner.AccountSubject, _utcNow()));
         }
 
         FileLog.Write($"[TeamShowcase] Remove: team {LogTeam(teamId)} tag={tag} removed " +

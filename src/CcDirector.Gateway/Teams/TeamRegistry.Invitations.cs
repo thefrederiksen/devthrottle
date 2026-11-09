@@ -139,7 +139,8 @@ public sealed partial class TeamRegistry
                 });
                 // A membership change: the member row and the accepted invitation are written in ONE save, so the seat
                 // count follows exactly as for an accepted invitation.
-                CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded, account, role);
+                CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded, account, role,
+                    TeamMembershipEvents.AddedAtOnce, fromRole: null, bySubject: inviter);
                 FileLog.Write($"[TeamRegistry] CreateInvitation: invitation {row.Id} - the address has exactly one account, added it to team {LogTeam(team.Id)} as {role} at once");
                 return TeamInvitationResult.Done(Describe(ctx, team, row, now)) with { AcceptToken = token, AddedAtOnce = true };
             }
@@ -316,7 +317,8 @@ public sealed partial class TeamRegistry
                 Role = row.Role,
                 JoinedAtUtc = now,
             });
-            CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded, caller, row.Role);
+            CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded, caller, row.Role,
+                TeamMembershipEvents.JoinedByInvitation, fromRole: null, bySubject: caller);
 
             FileLog.Write($"[TeamRegistry] AcceptInvitation: invitation {row.Id} accepted - joined team {LogTeam(team.Id)} as {row.Role}");
             return TeamInvitationResult.Done(DescribeForInvitee(ctx, team, row, now) with { SignedInAs = DisplayFor(ctx, caller, role: null) });

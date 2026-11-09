@@ -136,7 +136,7 @@ public sealed partial class TeamRegistry
                         joinRefused.Kind, joinRefused.Text);
             }
 
-            var written = ChangeRole(teamId!, target.Value.Subject, newRole);
+            var written = ChangeRole(teamId!, target.Value.Subject, newRole, caller);
             return written.IsDone
                 ? TeamMemberChangeResult.Done
                 : MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.Refused, "team-invariant", written.Refusal!);
@@ -172,7 +172,7 @@ public sealed partial class TeamRegistry
             if (RemoveRefusal(teamId!, caller, target.Value.Role) is { } refusal)
                 return MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Forbidden, "role-table", refusal);
 
-            var written = RemoveMember(teamId!, target.Value.Subject);
+            var written = RemoveMember(teamId!, target.Value.Subject, caller);
             return written.IsDone
                 ? TeamMemberChangeResult.Done
                 : MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Refused, "team-invariant", written.Refusal!);

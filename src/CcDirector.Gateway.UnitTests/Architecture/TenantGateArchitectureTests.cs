@@ -73,6 +73,9 @@ public sealed class TenantGateArchitectureTests
         nameof(TeamGovernanceEntity),
         nameof(TeamGovernanceItemEntity),
         nameof(TeamGovernanceChangeEntity),
+        // The durable record of a team's membership changes (security review Risk 12), keyed by the team id like
+        // team_members, whose changes it records, and written only by TeamRegistry in the same save as the change.
+        nameof(TeamMembershipEventEntity),
         nameof(AccountTrialEntity),       // free-trial ledger, keyed by account subject and read pre-tenant (#2117)
         // Teams and their members (devthrottle_internal#2300). A team IS a tenant, and these two tables are what say
         // which tenants a person may act in - read by the verified account subject BEFORE a tenant is chosen, so

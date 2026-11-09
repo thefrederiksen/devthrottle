@@ -173,6 +173,41 @@ public sealed class TeamShowcaseTests : IDisposable
     }
 
     [Fact]
+    public void WriteAndRemove_EachMadeUpMember_LeavesOneMembershipRecordPerChange_ByTheOwner_AtTheShowcasesClock()
+    {
+        var written = _rig.Now;
+        Assert.Null(Showcase().Write(_rig.Team.Value, Tag, Content()).Refusal);
+        // A REAL report (no tag) the Owner sends to a made-up member: removing the showcase must clear it too (M4).
+        var lisa = TeamShowcase.SubjectFor(Tag, "lisa");
+        var recipients = new DevReportRecipients(_rig.Db);
+        var real = new DevReportStore(_rig.Db).Publish(_rig.Team, Guid.NewGuid().ToString("D"), @"C:\work\real.html",
+            "<header data-dev-report=\"header\" data-dev-report-status=\"waiting-on-you\"><h1>T</h1></header>" +
+            "<section data-dev-report=\"summary\"><p>S</p></section>" +
+            "<section data-dev-report=\"questions\"><p data-dev-report-no-questions>No questions.</p></section>" +
+            "<section data-dev-report=\"detail\"><p>D</p></section>",
+            "waiting-on-you", "Real", written, MentorRig.Owner).Report;
+        Assert.True(recipients.Send(_rig.Team, real.Id, MentorRig.Owner, new[] { lisa, MentorRig.Rob }, 1, written).Sent);
+        _rig.Now = written.AddHours(1);
+
+        Assert.Null(Showcase().Remove(_rig.Team.Value, Tag).Refusal);
+
+        Assert.Null(recipients.RowFor(_rig.Team, real.Id, lisa));
+        Assert.NotNull(recipients.RowFor(_rig.Team, real.Id, MentorRig.Rob));
+        using var ctx = _rig.Db.CreateUnscopedContext();
+        var records = ctx.TeamMembershipEvents
+            .Where(e => e.TeamId == _rig.Team.Value && e.AccountSubject.StartsWith(TeamShowcase.SubjectPrefix))
+            .ToList();
+        Assert.Equal(6, records.Count);
+        Assert.All(records, r => Assert.Equal(MentorRig.Owner, r.BySubject));
+        var peter = records.Where(r => r.AccountSubject == TeamShowcase.SubjectFor(Tag, "peter")).OrderBy(r => r.AtUtc).ToList();
+        Assert.Equal((TeamMembershipEvents.Added, (TeamRole?)null, (TeamRole?)TeamRole.Manager, written),
+            (peter[0].Event, peter[0].FromRole, peter[0].ToRole, peter[0].AtUtc));
+        Assert.Equal((TeamMembershipEvents.Removed, (TeamRole?)TeamRole.Manager, (TeamRole?)null, written.AddHours(1)),
+            (peter[1].Event, peter[1].FromRole, peter[1].ToRole, peter[1].AtUtc));
+        Assert.Empty(ctx.TeamMembers.Where(m => m.TeamId == _rig.Team.Value && m.ShowcaseTag == Tag));
+    }
+
+    [Fact]
     public void Remove_WithNoTag_IsRefusedAndDeletesNothing()
     {
         Assert.Null(Showcase().Write(_rig.Team.Value, Tag, Content()).Refusal);
