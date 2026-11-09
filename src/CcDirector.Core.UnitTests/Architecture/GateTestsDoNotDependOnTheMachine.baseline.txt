@@ -196,7 +196,7 @@ real-clock | src/CcDirector.Gateway.Tests/LauncherRefusalNamesItsCauseTests.cs |
 real-clock | src/CcDirector.Gateway.Tests/MissionAttachRouteTenantScopingTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/NullBoundaryHostedGateFailClosedTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/NullBoundaryHostedGateFailClosedTests.cs | 1
-real-clock | src/CcDirector.Gateway.Tests/OmittedTenantBoundaryFailClosedTests.cs | 10
+real-clock | src/CcDirector.Gateway.Tests/OmittedTenantBoundaryFailClosedTests.cs | 8
 real-clock | src/CcDirector.Gateway.Tests/OutcomeLedgerReporterTests.cs | 12
 real-clock | src/CcDirector.Gateway.Tests/PromptLogTenantIsolationTests.cs | 5
 real-clock | src/CcDirector.Gateway.Tests/Prompts/PromptEndpointsTests.cs | 6
