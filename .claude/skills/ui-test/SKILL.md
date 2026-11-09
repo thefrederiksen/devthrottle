@@ -7,7 +7,7 @@ argument-hint: [action or test description]
 
 # CC Director UI Automation
 
-Interact with the CC Director WPF application using the `cc-click` CLI tool (located at `src/CcClick`). Use this skill to test UI interactions, take screenshots, and verify app behavior.
+Interact with the CC Director WPF application using the `cc-click` CLI tool (located at `tools/cc-click/src/CcClick`). Use this skill to test UI interactions, take screenshots, and verify app behavior.
 
 ## Input: $ARGUMENTS
 
@@ -15,7 +15,7 @@ Interact with the CC Director WPF application using the `cc-click` CLI tool (loc
 
 Run all commands from the repo root via:
 ```
-dotnet run --project src/CcClick -- <command> [options]
+dotnet run --project tools/cc-click/src/CcClick -- <command> [options]
 ```
 
 ### Available Commands
@@ -98,7 +98,7 @@ The dialog is a **modal child** of CC Director (not a separate top-level window)
 
 2. **Ensure CC Director is running:**
    ```
-   dotnet run --project src/CcClick -- list-windows --filter "CC Director"
+   dotnet run --project tools/cc-click/src/CcClick -- list-windows --filter "CC Director"
    ```
    If not found, tell the user to launch it first.
 
@@ -106,58 +106,58 @@ The dialog is a **modal child** of CC Director (not a separate top-level window)
 
    **Click a button:**
    ```
-   dotnet run --project src/CcClick -- click --window "CC Director" --id "BtnNewSession"
+   dotnet run --project tools/cc-click/src/CcClick -- click --window "CC Director" --id "BtnNewSession"
    ```
 
    **Right-click a session tab** (use coordinates from list-elements):
    ```
-   dotnet run --project src/CcClick -- list-elements --window "CC Director" --type ListItem
+   dotnet run --project tools/cc-click/src/CcClick -- list-elements --window "CC Director" --type ListItem
    # Then right-click using the center of the bounding rect:
-   dotnet run --project src/CcClick -- click --xy "130,80" --right
+   dotnet run --project tools/cc-click/src/CcClick -- click --xy "130,80" --right
    ```
 
    **Click a context menu item** (after right-clicking):
    ```
-   dotnet run --project src/CcClick -- click --window "CC Director" --name "Rename"
+   dotnet run --project tools/cc-click/src/CcClick -- click --window "CC Director" --name "Rename"
    ```
 
    **Type into the prompt input:**
    ```
-   dotnet run --project src/CcClick -- type --window "CC Director" --id "PromptInput" --text "hello world"
+   dotnet run --project tools/cc-click/src/CcClick -- type --window "CC Director" --id "PromptInput" --text "hello world"
    ```
 
    **Switch tabs:**
    ```
-   dotnet run --project src/CcClick -- click --window "CC Director" --name "Source Control"
+   dotnet run --project tools/cc-click/src/CcClick -- click --window "CC Director" --name "Source Control"
    ```
 
    **Read element text:**
    ```
-   dotnet run --project src/CcClick -- read-text --window "CC Director" --name "SESSIONS"
+   dotnet run --project tools/cc-click/src/CcClick -- read-text --window "CC Director" --name "SESSIONS"
    ```
 
    **Take a screenshot:**
    ```
-   dotnet run --project src/CcClick -- screenshot --window "CC Director" --output tmp_build_output/shot.png
+   dotnet run --project tools/cc-click/src/CcClick -- screenshot --window "CC Director" --output tmp_build_output/shot.png
    ```
    For context menus or popups, use a **fullscreen** screenshot (omit `--window`):
    ```
-   dotnet run --project src/CcClick -- screenshot --output tmp_build_output/shot.png
+   dotnet run --project tools/cc-click/src/CcClick -- screenshot --output tmp_build_output/shot.png
    ```
 
    **Discover elements dynamically:**
    ```
-   dotnet run --project src/CcClick -- list-elements --window "CC Director" --type Button
-   dotnet run --project src/CcClick -- list-elements --window "CC Director" --depth 4
+   dotnet run --project tools/cc-click/src/CcClick -- list-elements --window "CC Director" --type Button
+   dotnet run --project tools/cc-click/src/CcClick -- list-elements --window "CC Director" --depth 4
    ```
 
    **Close CC Director gracefully** (click the window Close button):
    ```
-   dotnet run --project src/CcClick -- click --window "CC Director" --id "Close"
+   dotnet run --project tools/cc-click/src/CcClick -- click --window "CC Director" --id "Close"
    ```
    Verify it's gone:
    ```
-   dotnet run --project src/CcClick -- list-windows --filter "CC Director"
+   dotnet run --project tools/cc-click/src/CcClick -- list-windows --filter "CC Director"
    ```
 
    **Build and start CC Director:**
@@ -168,17 +168,17 @@ The dialog is a **modal child** of CC Director (not a separate top-level window)
    Wait for startup then verify:
    ```
    sleep 2
-   dotnet run --project src/CcClick -- list-windows --filter "CC Director"
+   dotnet run --project tools/cc-click/src/CcClick -- list-windows --filter "CC Director"
    ```
 
    **Full restart cycle** (close, build, launch, verify):
    ```
-   dotnet run --project src/CcClick -- click --window "CC Director" --id "Close"
+   dotnet run --project tools/cc-click/src/CcClick -- click --window "CC Director" --id "Close"
    sleep 1
    dotnet build src/CcDirector.Wpf -c Debug
    cmd.exe //c start "" "src\CcDirector.Wpf\bin\Debug\net10.0-windows\win-x64\cc-director.exe"
    sleep 2
-   dotnet run --project src/CcClick -- list-windows --filter "CC Director"
+   dotnet run --project tools/cc-click/src/CcClick -- list-windows --filter "CC Director"
    ```
 
 4. **Take a screenshot** after the action to show the result. Use the Read tool on the PNG to display it to the user.

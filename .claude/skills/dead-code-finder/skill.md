@@ -12,7 +12,7 @@ Find and identify dead code in the CC Director application to simplify maintenan
 **INCLUDED directories:**
 - `src/CcDirector.Core/` - Core business logic
 - `src/CcDirector.Wpf/` - WPF application
-- `src/CcClick/` - CLI tool for UI automation
+- `tools/cc-click/` - command-line tool for UI automation
 
 **EXCLUDED directories:**
 - `src/CcDirector.Core.Tests/` - Test projects (don't flag as dead code)
