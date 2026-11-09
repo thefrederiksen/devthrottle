@@ -446,6 +446,71 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, page.Status);
     }
 
+    // ---------------------------------------------------------------- the routes the path uses
+
+    /// <summary>EVERY ROUTE A TEAM FACTORY'S BOSS SESSION WRITES OR READS while it runs, as the Boss's commands send them
+    /// (cc-devthrottle factory ..., cc-dev-reports ...): the concrete path a session key sends, the route pattern the
+    /// team gate matches, and the row it states. The pull request lists the same routes.</summary>
+    public static TheoryData<string, string, string, TeamAction, TeamTarget> BossRoutes => new()
+    {
+        { "GET", "/sessions/S/factory-inbox", "/sessions/{sid}/factory-inbox", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn },
+        { "POST", "/sessions/S/factory-inbox/m-1/decide", "/sessions/{sid}/factory-inbox/{messageId}/decide", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn },
+        { "POST", "/sessions/S/dev-reports", "/sessions/{sid}/dev-reports", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "GET", "/sessions/S/dev-reports", "/sessions/{sid}/dev-reports", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "POST", "/sessions/S/dev-reports/r-1/replies", "/sessions/{sid}/dev-reports/{reportId}/replies", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "GET", "/sessions/S/dev-report-answers", "/sessions/{sid}/dev-report-answers", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "POST", "/sessions/S/dev-report-answers/r-1/claim", "/sessions/{sid}/dev-report-answers/{reportId}/claim", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "POST", "/sessions/S/dev-report-answers/r-1/ack", "/sessions/{sid}/dev-report-answers/{reportId}/ack", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "POST", "/gateway/factory/activity", "/gateway/factory/activity", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "GET", "/gateway/factory/activity", "/gateway/factory/activity", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "PUT", "/gateway/factory/registry", "/gateway/factory/registry", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "GET", "/gateway/factory/registry", "/gateway/factory/registry", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "POST", "/gateway/factory/goal-numbers", "/gateway/factory/goal-numbers", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "POST", "/gateway/factory/seats/writer/start", "/gateway/factory/seats/{seat}/start", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "GET", "/gateway/factories", "/gateway/factories", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "GET", "/gateway/factories/demo-website", "/gateway/factories/{factory}", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "POST", "/factory-records/demo-website/journal", "/factory-records/{factory}/journal", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+        { "GET", "/factory-memory/notes", "/factory-memory/notes", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.Team },
+    };
+
+    [Theory]
+    [MemberData(nameof(BossRoutes))]
+    public void BossRoute_PassesTheSessionKeyGuard_AndStatesItsTeamRule(string method, string path, string pattern,
+        TeamAction action, TeamTarget target)
+    {
+        var guard = SessionKeyGuard.Check(method, path);
+        var rule = TeamEndpointRules.Find(method, pattern);
+
+        Assert.True(guard.Allowed, $"{method} {path}: {guard.Reason}");
+        Assert.NotNull(rule);
+        Assert.Equal((action, target), (rule!.Action, rule.Target));
+    }
+
+    /// <summary>EVERY ROUTE THE TEAM'S DIRECTOR WRITES OR READS for the factory and its sessions, with its device key.</summary>
+    public static TheoryData<string, string, TeamAction, TeamTarget> DirectorRoutes => new()
+    {
+        { "GET", "/director-stream", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "GET", "/directors/{directorId}/triggers", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn },
+        { "POST", "/directors/{directorId}/triggers/{id}/checks", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn },
+        { "GET", "/directors/{directorId}/factory-checks/{factory}/{version:int}", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn },
+        { "GET", "/directors/{directorId}/factory-check-inputs/{factory}/{version:int}", TeamAction.OpenRunAndTalkToTeamFactories, TeamTarget.CallersOwn },
+        { "GET", "/sessions", TeamAction.RunSessionsOnOwnComputers, TeamTarget.ListCutToCallersOwn },
+        { "POST", "/session-numbers/allocate", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "POST", "/activity-events/batch", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "POST", "/gateway/director-errors", TeamAction.RunSessionsOnOwnComputers, TeamTarget.CallersOwn },
+        { "GET", "/gateway/skills", TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team },
+    };
+
+    [Theory]
+    [MemberData(nameof(DirectorRoutes))]
+    public void DirectorRoute_StatesItsTeamRule(string method, string pattern, TeamAction action, TeamTarget target)
+    {
+        var rule = TeamEndpointRules.Find(method, pattern);
+
+        Assert.NotNull(rule);
+        Assert.Equal((action, target), (rule!.Action, rule.Target));
+    }
+
     // ---------------------------------------------------------------- Your inbox is not a team's yet
 
     [Theory]
