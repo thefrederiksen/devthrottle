@@ -79,6 +79,10 @@ public sealed class AppendFactoryActivityRequest
 
     /// <summary>When it happened. Defaults to the time the Gateway recorded it.</summary>
     public DateTime? OccurredUtc { get; set; }
+
+    /// <summary>The step described for a team contributor (a customer, not a developer), in one sentence.
+    /// Optional, at most 500 characters. Stored exactly as written; nothing rewords it.</summary>
+    public string? ForContributor { get; set; }
 }
 
 /// <summary>One recorded factory activity row, as the Gateway returns it.</summary>
@@ -97,6 +101,8 @@ public sealed class FactoryActivityDto
     public Guid? CorrectsId { get; set; }
     public DateTime OccurredUtc { get; set; }
     public DateTime RecordedUtc { get; set; }
+    /// <summary>The step described for a team contributor, exactly as written; null when none was given.</summary>
+    public string? ForContributor { get; set; }
 }
 
 /// <summary>One page of <c>GET /gateway/factory/activity</c>.</summary>

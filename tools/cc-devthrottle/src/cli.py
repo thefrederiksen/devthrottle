@@ -1234,6 +1234,7 @@ _ACTIONS = [
             {"name": "link", "required": False},
             {"name": "version", "required": False},
             {"name": "corrects", "required": False},
+            {"name": "for-contributor", "required": False},
         ],
     },
     {
@@ -5046,6 +5047,11 @@ def factory_record(
     link: Optional[str] = typer.Option(None, "--link", help="A link to the evidence."),
     version: Optional[str] = typer.Option(None, "--version", help="The factory agent definition's version."),
     corrects: Optional[str] = typer.Option(None, "--corrects", help="The id of the row this one corrects."),
+    for_contributor: Optional[str] = typer.Option(
+        None, "--for-contributor",
+        help="The step in one sentence for a team contributor (a customer, not a developer), at most 500 characters. "
+             "Stored exactly as written.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the recorded row as JSON."),
 ) -> None:
     """Record one factory activity row and print its id; non-zero exit if not recorded.
@@ -5053,7 +5059,7 @@ def factory_record(
     A business tool calls this BEFORE it acts and obeys the exit code: whenever the row was not written -
     factory agents switched off, the row refused, the Gateway unreachable - it exits non-zero with the reason.
     """
-    factory_ops.record(factory, agent, outcome, what, subject, link, version, corrects, json_output)
+    factory_ops.record(factory, agent, outcome, what, subject, link, version, corrects, json_output, for_contributor)
 
 
 @factory_seat_app.command("start")

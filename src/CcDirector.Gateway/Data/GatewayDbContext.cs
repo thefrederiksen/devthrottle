@@ -2393,6 +2393,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Subject).HasMaxLength(256);
             b.Property(e => e.Link).HasMaxLength(2048);
             b.Property(e => e.Actor).HasMaxLength(256);
+            b.Property(e => e.ForContributor).HasMaxLength(500);
             // The read paths: one factory over time, one factory agent over time, and one outcome over time
             // (every "blocked", every "failed"). Tenant-leading for the global filter. CorrectsId is a value
             // reference, never a foreign key - the record never cascades.

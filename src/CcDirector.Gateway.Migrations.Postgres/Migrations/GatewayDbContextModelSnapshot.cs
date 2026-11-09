@@ -1306,6 +1306,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("ForContributor")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("Link")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");

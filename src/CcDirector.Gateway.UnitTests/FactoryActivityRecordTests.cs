@@ -210,6 +210,94 @@ public sealed class FactoryActivityRecordTests : IDisposable
         Assert.Equal(500, record.Query().Rows.Single().What.Length);
     }
 
+    // ---------------------------------------------------------------------------------------------------
+    // The sentence for a team contributor (Watch your factory, piece 1): optional, kept exactly as written.
+    // ---------------------------------------------------------------------------------------------------
+
+    // Characters a rewording pass would be likely to touch: a non-ASCII letter, a double space, an apostrophe.
+    private const string ContributorSentence =
+        "We checked S\u00f8ren's contact form  - it now reaches you, and the old address is gone.";
+
+    [Fact]
+    public void Append_ForContributorGiven_ComesBackByteForByteThroughAppendAndQuery()
+    {
+        var record = NewRecord();
+        var req = Row();
+        req.ForContributor = ContributorSentence;
+
+        var written = record.Append(req, "session:abc");
+        var read = record.Query().Rows.Single();
+
+        Assert.Equal(ContributorSentence, written.ForContributor);
+        Assert.Equal(ContributorSentence, read.ForContributor);
+        Assert.Equal(System.Text.Encoding.UTF8.GetBytes(ContributorSentence), System.Text.Encoding.UTF8.GetBytes(read.ForContributor!));
+    }
+
+    [Fact]
+    public void Append_ForContributorAbsent_StaysNull()
+    {
+        var record = NewRecord();
+
+        var written = record.Append(Row(), "session:abc");
+
+        Assert.Null(written.ForContributor);
+        Assert.Null(record.Query().Rows.Single().ForContributor);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(" \t\r\n ")]
+    public void Append_ForContributorWhitespaceOnly_StaysNull(string blank)
+    {
+        var record = NewRecord();
+        var req = Row();
+        req.ForContributor = blank;
+
+        record.Append(req, "session:abc");
+
+        Assert.Null(record.Query().Rows.Single().ForContributor);
+    }
+
+    [Fact]
+    public void Append_ForContributorTooLong_IsRefusedAndWritesNothing()
+    {
+        var record = NewRecord();
+        var req = Row();
+        req.ForContributor = new string('a', FactoryActivityRecord.MaxForContributorChars + 1);
+
+        var refused = Assert.Throws<FactoryActivityValidationException>(() => record.Append(req, "session:abc"));
+
+        Assert.Equal("The sentence for a contributor is too long (limit 500 characters).", refused.Message);
+        Assert.Equal(0, CountAll(record));
+    }
+
+    [Fact]
+    public void Append_ForContributorOfExactlyTheLimit_IsKept()
+    {
+        var record = NewRecord();
+        var req = Row();
+        req.ForContributor = new string('a', FactoryActivityRecord.MaxForContributorChars);
+
+        record.Append(req, "session:abc");
+
+        Assert.Equal(500, record.Query().Rows.Single().ForContributor!.Length);
+    }
+
+    [Fact]
+    public void AppendRequest_BodyTheCommandLineSends_BindsForContributor()
+    {
+        // The command line sends camelCase keys ("forContributor"), as it does for every other field; the route
+        // binds with the web defaults. This pins the name the two sides agree on.
+        var json = "{\"factory\":\"website-business\",\"factoryAgent\":\"front-desk\",\"outcome\":\"done\"," +
+                   "\"what\":\"Fixed it.\",\"forContributor\":\"We fixed your form.\"}";
+
+        var req = System.Text.Json.JsonSerializer.Deserialize<AppendFactoryActivityRequest>(
+            json, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.Equal("We fixed your form.", req!.ForContributor);
+    }
+
     [Theory]
     [InlineData("factory")]
     [InlineData("agent")]

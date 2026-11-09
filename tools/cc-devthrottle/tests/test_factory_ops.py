@@ -127,6 +127,27 @@ def test_record_TheTalkedLineOfATalk_SendsTheBriefVersionTheTalkWasGiven(gateway
     }
 
 
+def test_record_ForContributor_ReachesTheBodyExactlyAsGiven(gateway_answering):
+    # The sentence for a team contributor travels in the request body untouched: same characters, same spacing.
+    gw = gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
+    sentence = "We checked your site's contact form  - it now sends to you, and the old address is gone."
+
+    result = runner.invoke(app, RECORD + ["--for-contributor", sentence])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"]["forContributor"] == sentence
+
+
+def test_record_NoForContributor_SendsNoValue(gateway_answering):
+    # Omitting the flag sends no key at all, so the Gateway stores none - never an empty string.
+    gw = gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
+
+    result = runner.invoke(app, RECORD)
+
+    assert result.exit_code == 0, result.output
+    assert "forContributor" not in gw.calls[0]["body"]
+
+
 def test_record_Json_PrintsTheGatewaysRow(gateway_answering):
     gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
 
