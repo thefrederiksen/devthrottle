@@ -23,6 +23,9 @@ public sealed class DeliveryLoopOrderTests
     [InlineData("terminal-keys")]
     [InlineData("terminal-paste")]
     [InlineData("terminal-mouse")]
+    [InlineData("clear-context")]
+    [InlineData("compact-context")]
+    [InlineData("history-picker")]
     public void AKeystrokeVerb_StaysOnTheLoop_BecauseItsORDERIsThePersonsIntent(string verb)
     {
         // Typing a line and then pressing Escape must reach the terminal in that order. On the thread pool

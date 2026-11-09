@@ -46,6 +46,14 @@ internal static class DeliveryLoopOrder
         "terminal-keys",
         "terminal-paste",
         "terminal-mouse",
+        // THESE THREE TYPE TOO, and they were missing from the first version of this list. Each one reaches
+        // Session.TypeDriverInputAsync - /clear, /compact and the history picker's key - so each one puts
+        // characters into the same terminal a person is typing into, and ordering them against a prompt that
+        // may be in flight is the same question. They cost nothing to keep here: like the prompt, each hands
+        // its task back at the session's input gate rather than doing its work on the loop.
+        "clear-context",
+        "compact-context",
+        "history-picker",
         Gateway.Contracts.FleetDoorbellVerbs.Ring,
     };
 
