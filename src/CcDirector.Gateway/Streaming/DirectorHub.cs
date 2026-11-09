@@ -1520,6 +1520,13 @@ public sealed class DirectorHub : Hub
             // Unlike the repositories, a Director's desktops go with its connection: they can only be reached through it.
             _hostedDesktops?.UnregisterConnection(t, directorId, Context.ConnectionId);
             _licenseUsage?.UnregisterConnection(t, directorId, Context.ConnectionId);
+
+            // THE DOWNLINK EVIDENCE GOES WITH THE CONNECTION (issue #4490). What the Gateway knows about
+            // whether commands are being received is knowledge about THIS connection: a Director that
+            // reconnects - and above all one that was restarted to clear exactly this - must not inherit the
+            // silence count of the connection that would not answer, or it would read as deaf until its
+            // first answer came back.
+            Api.DirectorDownlinkFacts.Forget(directorId);
         }
         // MTR-15: drop this connection's abort entry (it is gone now). Keyed by connection id, so it is cleared
         // whether or not a tenant was bound.
