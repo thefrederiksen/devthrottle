@@ -86,9 +86,9 @@ const RECEIVED: ReceivedReports = {
   emptyText: "Odd empty words 7",
   showYourReports: false,
   reports: [
-    { id: "r-new", title: "Signup page rewrite", status: "waiting-on-you", version: 1, from: "soren@odd.example",
+    { id: "r-new", title: "Signup page rewrite", status: "waiting-on-you", statusLabel: "Waits~odd", version: 1, from: "soren@odd.example",
       sentAtUtc: "2026-10-02T09:00:00", read: false, readLabel: "Fresh~odd", questionsLabel: "Odd 1 question waits~q", questionsPath: "/questions" },
-    { id: "r-old", title: "September conversion numbers", status: "done", version: 2, from: "priya@odd.example",
+    { id: "r-old", title: "September conversion numbers", status: "done", statusLabel: "Finished~odd", version: 2, from: "priya@odd.example",
       sentAtUtc: "2026-09-30T09:00:00", read: true, readLabel: "Seen~odd", questionsLabel: null, questionsPath: null },
   ],
 };
@@ -103,7 +103,7 @@ const RECEIVED_DETAIL: ReceivedReportDetail = {
 };
 
 const OWN_DETAIL: OwnReportDetail = {
-  report: { id: "y1", title: "My report", status: "done", version: 3, publishedAtUtc: "2026-10-01T09:00:00", updatedAtUtc: "2026-10-02T09:00:00" },
+  report: { id: "y1", title: "My report", status: "done", statusLabel: "Finished~odd", version: 3, publishedAtUtc: "2026-10-01T09:00:00", updatedAtUtc: "2026-10-02T09:00:00" },
   recipients: [{ memberId: "m-mike", name: "mike@odd.example", sentAtUtc: "2026-10-02T09:00:00", sentVersion: 2,
     versionLabel: "Odd holds 2 of 3", read: true, readLabel: "Opened~odd" }],
   recipientsEmptyText: "Odd nobody yet 4",

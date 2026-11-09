@@ -53,6 +53,7 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
     private readonly FactoryShares _owner;
     private readonly CcDirector.Gateway.Factory.FactoryAgentsSwitch _factorySwitch;
     private readonly TeamRequestStore _requests;
+    private readonly TeamQuestions _questions;
     private readonly TeamEndpointGate _gate;
     private readonly string _acme;
     private readonly string _beta;
@@ -79,7 +80,7 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         var delivery = new DevReportDelivery(_store,
             (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session in these tests"),
             (_, _) => null, CancellationToken.None, () => Now);
-        var questions = new TeamQuestions(_store, _recipients, comments, _teams, _access, delivery, () => Now);
+        var questions = _questions = new TeamQuestions(_store, _recipients, comments, _teams, _access, delivery, () => Now);
         _requests = new TeamRequestStore(_db, _teams);
         _pages = new ContributorPages(_check, _activity, _store, _recipients, questions, _requests, _teams, _ => "UTC", () => Now);
         // The factory area is off unless switched on per account, as on a Gateway that does not grant it to every one.
@@ -143,6 +144,19 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         "<section data-dev-report=\"summary\"><p>S</p></section>" +
         "<section data-dev-report=\"questions\"><p data-dev-report-no-questions>No questions.</p></section>" +
         "<section data-dev-report=\"detail\"><p>D</p></section>";
+
+    /// <summary>A report with two questions for contributors, "first" then "second", in that order.</summary>
+    private static string TwoQuestions() =>
+        "<header data-dev-report=\"header\" data-dev-report-status=\"agent-working\"><h1>Two</h1></header>" +
+        "<section data-dev-report=\"summary\"><p>S</p></section><section data-dev-report=\"questions\">" +
+        Question("first", "Which colour?") + Question("second", "Which font?") +
+        "</section><section data-dev-report=\"detail\"><p>D</p></section>";
+
+    private static string Question(string id, string text) =>
+        $"<div data-dev-report-question=\"{id}\" data-dev-report-question-text=\"{text}\" data-dev-report-for=\"contributors\">" +
+        $"<label><input type=\"radio\" name=\"{id}\" value=\"14\" data-recommended> 14 days</label>" +
+        $"<label><input type=\"radio\" name=\"{id}\" value=\"30\"> 30 days</label>" +
+        "<textarea data-dev-report-comment placeholder=\"Anything to add (optional)\"></textarea></div>";
 
     private TenantId PersonalTenant(string subject) => _tenants.MintOrLookupBySubject(subject, null);
 
@@ -250,6 +264,37 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
         // The combined order is the Gateway's key: what waits first.
         var ordered = inbox.OrderBy(i => i.GetProperty("order").GetString(), StringComparer.Ordinal).ToList();
         Assert.Equal("Menu page: which layout?", ordered[0].GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void Factories_CarriesTheLineUnderThePagesTitle()
+    {
+        Assert.Equal(ContributorPages.FactoriesIntro, Json(_pages.Factories(_acme, Mike)).GetProperty("intro").GetString());
+    }
+
+    [Fact]
+    public async Task Inbox_AReportCarriesItsQuestionsForThem_WaitingFirst_ThenAnswered_AndAMessageNone()
+    {
+        // Arrange: a report with two questions, "first" then "second"; Mike answers "first".
+        var report = _store.Publish(new TenantId(_acme), SessionId, @"C:\work\two.html", TwoQuestions(), "agent-working",
+            "Two questions", Now, OwnerA, new DevReportFactorySeatIdentity("website", SeatId)).Report;
+        Assert.True(_recipients.Send(new TenantId(_acme), report.Id, OwnerA, new[] { Mike }, 1, Now).Sent);
+        Assert.Equal(TeamRequestOutcome.Done, _requests.Send(_acme, Mike, "A message").Outcome);
+        var (status, _) = await Render(await _questions.AnswerAsync(_acme, Mike, report.Id.ToString("D"), "first", 1, "14", "",
+            "device", CancellationToken.None));
+        Assert.Equal(200, status);
+
+        // Act
+        var items = Json(_pages.Inbox(_acme, Mike)).GetProperty("items").EnumerateArray().ToList();
+
+        // Assert: the Gateway picks this report's questions and orders them - what waits on him, then what he answered.
+        var asked = items.Single(i => i.GetProperty("kind").GetString() == "report").GetProperty("questions").EnumerateArray().ToList();
+        Assert.Equal(new[] { ("second", true), ("first", false) },
+            asked.Select(q => (q.GetProperty("questionId").GetString()!, q.GetProperty("canAnswer").GetBoolean())));
+        Assert.All(asked, q => Assert.Equal(report.Id.ToString("D"), q.GetProperty("reportId").GetString()));
+        Assert.Empty(items.Single(i => i.GetProperty("kind").GetString() == "message").GetProperty("questions").EnumerateArray());
+        // A contributor reads no word about agents in what the card says about their words.
+        Assert.DoesNotContain("agent", asked[0].GetProperty("commentNote").GetString()!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

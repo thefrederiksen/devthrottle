@@ -38,36 +38,41 @@ interface ViewProps {
   teamId: string;
   reportId: string;
   onBack: () => void;
+  /** What the way back says: the Reports page's own words unless the page that opened the report names itself - a
+   *  contributor's Inbox passes its label from the Gateway's page list. */
+  backLabel?: string;
 }
 
-function Missing({ onBack }: { onBack: () => void }) {
+const ALL_REPORTS = "All reports";
+
+function Missing({ onBack, backLabel }: { onBack: () => void; backLabel: string }) {
   return (
     <section className="pane team-page" data-testid="team-report-missing">
       <p>This report is not here. It may not have been sent to you, or the address may be wrong.</p>
-      <Button onClick={onBack}>All reports</Button>
+      <Button onClick={onBack}>{backLabel}</Button>
     </section>
   );
 }
 
 /** Until the Gateway has answered for this report: a back button and the loading line, or the failure in its words. */
-function ReportLoading({ error, onBack }: { error: string | null; onBack: () => void }) {
+function ReportLoading({ error, onBack, backLabel }: { error: string | null; onBack: () => void; backLabel: string }) {
   return (
     <section className="pane team-page" data-testid="team-report-loading">
-      <BackButton onBack={onBack} />
+      <BackButton onBack={onBack} label={backLabel} />
       {error ? <ErrorBanner message={error} /> : <LoadingState message="Loading the report..." />}
     </section>
   );
 }
 
-function BackButton({ onBack }: { onBack: () => void }) {
+function BackButton({ onBack, label }: { onBack: () => void; label: string }) {
   return (
     <button type="button" className="dev-report-action dev-report-back" data-testid="team-report-back" onClick={onBack}>
-      All reports
+      {label}
     </button>
   );
 }
 
-export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
+export function ReceivedReportView({ teamId, reportId, onBack, backLabel = ALL_REPORTS }: ViewProps) {
   const api = useMemo(() => receivedReportApi(teamId), [teamId]);
   const [detail, setDetail] = useState<ReceivedReportDetail | null>(null);
   const [missing, setMissing] = useState(false);
@@ -140,8 +145,8 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
     }
   }, [teamId, reportId, draft]);
 
-  if (missing) return <Missing onBack={onBack} />;
-  if (detail === null) return <ReportLoading error={error} onBack={onBack} />;
+  if (missing) return <Missing onBack={onBack} backLabel={backLabel} />;
+  if (detail === null) return <ReportLoading error={error} onBack={onBack} backLabel={backLabel} />;
 
   return (
     <div className="team-report-open" data-testid="team-report-open">
@@ -151,7 +156,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
         notes={detail.notesOpen === true}
         answers={detail.answersOpen === true}
         onNotFound={() => setMissing(true)}
-        leading={<BackButton onBack={onBack} />}
+        leading={<BackButton onBack={onBack} label={backLabel} />}
         renderConversation={() => (
           <aside className="reports-conversation team-report-side" aria-label="Comments" data-testid="team-report-comments">
             <h2 className="reports-conversation-title">Comments</h2>
@@ -267,8 +272,8 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
     }
   }, [teamId, reportId, chosen, shownVersion]);
 
-  if (missing) return <Missing onBack={onBack} />;
-  if (detail === null) return <ReportLoading error={error} onBack={onBack} />;
+  if (missing) return <Missing onBack={onBack} backLabel={ALL_REPORTS} />;
+  if (detail === null) return <ReportLoading error={error} onBack={onBack} backLabel={ALL_REPORTS} />;
 
   return (
     <div className="team-report-open" data-testid="team-report-own-open">
@@ -278,7 +283,7 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
         notes={detail.notesOpen === true}
         answers={detail.answersOpen === true}
         onNotFound={() => setMissing(true)}
-        leading={<BackButton onBack={onBack} />}
+        leading={<BackButton onBack={onBack} label={ALL_REPORTS} />}
         renderConversation={() => (
           <aside className="reports-conversation team-report-side" aria-label="Sharing and comments" data-testid="team-report-sharing">
             <div className="team-report-side-body">

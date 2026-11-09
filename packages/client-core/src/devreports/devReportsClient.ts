@@ -15,6 +15,12 @@ export interface DevReportSummary {
   key: string;
   title: string;
   status: string;
+  /**
+   * The status in words, for the reader - e.g. `Waiting on you`. The Gateway decides it; the viewer renders it
+   * verbatim and never the code in `status` (repository rule 7). A Gateway too old to send it leaves it undefined,
+   * and the viewer then shows no status rather than the code.
+   */
+  statusLabel?: string;
   version: number;
   publishedAtUtc: string;
   updatedAtUtc: string;

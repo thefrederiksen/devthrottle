@@ -43,6 +43,7 @@ export function ContributorFactoriesPage() {
 
 function FactoriesList() {
   const mine = useTeamsWithPage("factories");
+  const label = pageLabel(mine, "factories");
   const [cards, setCards] = useState<ContributorFactoryCard[] | null>(null);
   const [answers, setAnswers] = useState<ContributorFactories[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +67,7 @@ function FactoriesList() {
 
   return (
     <section className="pane team-page contributor-factories" data-testid="contributor-factories">
-      <PageHeader title="Factories" subtitle="The factories building something for you." />
+      {label !== null && <PageHeader title={label} subtitle={answers[0]?.intro} />}
       {error && <ErrorBanner message={error} />}
       {cards === null && !error && <LoadingState message="Loading your factories..." />}
       {cards !== null && cards.length === 0 && answers.length > 0 && <EmptyState message={answers[0].emptyText} />}
@@ -99,6 +100,7 @@ function FactoriesList() {
 }
 
 function CustomerPageView({ teamId, factory }: { teamId: string; factory: string }) {
+  const label = pageLabel(useTeamsWithPage("factories"), "factories");
   const [page, setPage] = useState<CustomerPage | CustomerPageRefused | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,7 +121,7 @@ function CustomerPageView({ teamId, factory }: { teamId: string; factory: string
 
   const back = (
     <div className="contributor-crumbs">
-      <Link to={CONTRIBUTOR_FACTORIES_PATH}>Factories</Link>
+      {label !== null && <Link to={CONTRIBUTOR_FACTORIES_PATH}>{label}</Link>}
       {page !== null && "name" in page && <span> / {page.name}</span>}
     </div>
   );
@@ -145,7 +147,7 @@ function CustomerPageView({ teamId, factory }: { teamId: string; factory: string
               <h1 className="pane-title contributor-customer-title">{page.name}</h1>
               <span className="contributor-team-label">{page.teamLabel}</span>
             </div>
-            <Link className="ui-btn ui-btn-secondary" to={CONTRIBUTOR_INBOX_PATH} data-testid="contributor-write">
+            <Link className="ui-btn ui-btn-secondary" to={writeToOwner(page.teamId)} data-testid="contributor-write">
               {page.writeLabel}
             </Link>
           </div>
@@ -230,6 +232,17 @@ export function useTeamsWithPage(pageId: string): TeamSummary[] {
 }
 
 /** Where one Inbox item opens. */
+/** The Inbox with its write box on one team's Owner: where "Write to the team's Owner" on that team's factory goes. */
+export function writeToOwner(teamId: string): string {
+  return `${CONTRIBUTOR_INBOX_PATH}?team=${encodeURIComponent(teamId)}`;
+}
+
+/** What the Gateway's page list calls one of the contributor's pages, or null before a team naming it has been read. */
+export function pageLabel(teams: TeamSummary[], pageId: string): string | null {
+  const page = teams[0]?.app.pages.find((p) => p.id === pageId);
+  return page === undefined ? null : page.label;
+}
+
 export function inboxItem(teamId: string, itemId: string): string {
   return `${CONTRIBUTOR_INBOX_PATH}?team=${encodeURIComponent(teamId)}&item=${encodeURIComponent(itemId)}`;
 }

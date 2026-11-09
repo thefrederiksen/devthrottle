@@ -14,8 +14,8 @@ function team(id: string, name: string): TeamSummary {
     app: {
       full: false,
       pages: [
-        { id: "factories", label: "Factories", path: "/contributor/factories", countPath: null },
-        { id: "inbox", label: "Inbox", path: "/contributor/inbox", countPath: null },
+        { id: "factories", label: "Factories~page", path: "/contributor/factories", countPath: null },
+        { id: "inbox", label: "Inbox~page", path: "/contributor/inbox", countPath: null },
       ],
       landing: "/contributor/factories",
       elsewhere: "Not for you.",
@@ -46,11 +46,19 @@ vi.mock("@devthrottle/client-core/teams/requestsClient", () => ({
     return { stateLabel: "Sent~odd" };
   }),
 }));
-vi.mock("@devthrottle/client-core/teams/teamQuestionsClient", () => ({
-  getMyQuestions: vi.fn(async () => ({ waiting: [], answered: [] })),
-  answerQuestion: vi.fn(),
+// The questions above a report are the ones the Gateway sent with the Inbox item; the page never reads them itself.
+const getMyQuestions = vi.hoisted(() => vi.fn());
+vi.mock("@devthrottle/client-core/teams/teamQuestionsClient", () => ({ getMyQuestions, answerQuestion: vi.fn() }));
+vi.mock("./QuestionsPage", () => ({
+  QuestionCard: ({ question }: { question: { questionId: string } }) => <div data-testid="question-card">{question.questionId}</div>,
 }));
-vi.mock("./TeamReportViews", () => ({ ReceivedReportView: ({ reportId }: { reportId: string }) => <div>report view {reportId}</div> }));
+vi.mock("./TeamReportViews", () => ({
+  ReceivedReportView: ({ reportId, backLabel }: { reportId: string; backLabel?: string }) => (
+    <div>
+      report view {reportId} back {backLabel}
+    </div>
+  ),
+}));
 
 import { ContributorFactoriesPage } from "./ContributorFactoriesPage";
 import { ContributorInboxPage } from "./ContributorInboxPage";
@@ -62,7 +70,7 @@ function card(teamId: string, teamLabel: string, factory: string, name: string, 
 function item(teamId: string, teamLabel: string, id: string, title: string, order: string, kind = "report") {
   return {
     kind, id, teamId, teamLabel, title, text: kind === "message" ? `words~${id}` : null, fromLabel: `from~${id}`,
-    atUtc: "2026-11-09T10:00:00Z", stateLabel: `state~${id}`, tone: "waiting", trail: [], order,
+    atUtc: "2026-11-09T10:00:00Z", stateLabel: `state~${id}`, tone: "waiting", trail: [], questions: [] as unknown[], order,
   };
 }
 
@@ -86,8 +94,8 @@ afterEach(() => cleanup());
 describe("Factories", () => {
   it("ContributorFactoriesPage_TwoTeams_ShowsBothTogetherInTheGatewaysOrder_WithEachTeamsLabel", async () => {
     state.factories = {
-      acme: { teamId: "acme", teamLabel: "Acme~label", count: 1, emptyText: "x", factories: [card("acme", "Acme~label", "website", "Website~odd", "1|b")] },
-      beta: { teamId: "beta", teamLabel: "Beta~label", count: 1, emptyText: "x", factories: [card("beta", "Beta~label", "shop", "Shop~odd", "0|a", "2 things~odd")] },
+      acme: { teamId: "acme", teamLabel: "Acme~label", count: 1, intro: "Intro~factories", emptyText: "x", factories: [card("acme", "Acme~label", "website", "Website~odd", "1|b")] },
+      beta: { teamId: "beta", teamLabel: "Beta~label", count: 1, intro: "Intro~factories", emptyText: "x", factories: [card("beta", "Beta~label", "shop", "Shop~odd", "0|a", "2 things~odd")] },
     };
 
     at("/contributor/factories", <ContributorFactoriesPage />);
@@ -97,6 +105,9 @@ describe("Factories", () => {
     expect(cards[0].textContent).toContain("Shop~odd");
     expect(within(cards[0]).getByTestId("contributor-needs-you").textContent).toBe("2 things~odd");
     expect(cards[1].textContent).toContain("now~website");
+    // The title is the Gateway's page label and the line under it the Gateway's intro.
+    expect(screen.getByText("Factories~page")).toBeTruthy();
+    expect(screen.getByText("Intro~factories")).toBeTruthy();
   });
 
   it("ContributorFactoriesPage_NothingSent_ShowsTheGatewaysEmptySentence", async () => {
@@ -129,6 +140,8 @@ describe("Factories", () => {
       expect(page.textContent).toContain(words);
     }
     expect(screen.getByTestId("contributor-answer").getAttribute("href")).toBe("/contributor/inbox?team=acme&item=r1");
+    // "Write to the team's Owner" carries this factory's team, so the box opens on THIS team's Owner.
+    expect(screen.getByTestId("contributor-write").getAttribute("href")).toBe("/contributor/inbox?team=acme");
   });
 
   it("CustomerPage_NotTheirsToSee_ShowsTheGatewaysOneSentence", async () => {
@@ -167,12 +180,38 @@ describe("Inbox", () => {
     expect((await screen.findByTestId("contributor-message")).textContent).toContain("words~m1");
   });
 
-  it("ContributorInboxPage_OpenAReport_ShowsTheReportSentToThem", async () => {
+  it("ContributorInboxPage_OpenAReport_ShowsTheReportSentToThem_WithTheInboxsOwnWayBack", async () => {
     state.inbox = { acme: inbox("acme", "Acme", [item("acme", "Acme", "r9", "Report~odd", "1")]), beta: inbox("beta", "Beta", []) };
 
     at("/contributor/inbox?team=acme&item=r9", <ContributorInboxPage />);
 
-    expect(await screen.findByText("report view r9")).toBeTruthy();
+    expect(await screen.findByText("report view r9 back Inbox~page")).toBeTruthy();
+  });
+
+  it("ContributorInboxPage_OpenAReport_DrawsTheQuestionsTheGatewaySentWithIt_InItsOrder", async () => {
+    const report = { ...item("acme", "Acme", "r9", "Report~odd", "1"),
+      questions: [{ reportId: "r9", version: 1, questionId: "second~odd" }, { reportId: "r9", version: 1, questionId: "first~odd" }] };
+    state.inbox = { acme: inbox("acme", "Acme", [report]), beta: inbox("beta", "Beta", []) };
+
+    at("/contributor/inbox?team=acme&item=r9", <ContributorInboxPage />);
+
+    const cards = await screen.findAllByTestId("question-card");
+    expect(cards.map((c) => c.textContent)).toEqual(["second~odd", "first~odd"]);
+    expect(getMyQuestions).not.toHaveBeenCalled();
+  });
+
+  it("WriteBox_TwoTeams_ArrivingFromBetasFactory_StartsOnBetasOwner_AndSendsThere", async () => {
+    state.inbox = { acme: inbox("acme", "Acme", []), beta: inbox("beta", "Beta", []) };
+
+    at("/contributor/inbox?team=beta", <ContributorInboxPage />);
+
+    const box = await screen.findByTestId("contributor-write-box");
+    expect((within(box).getByTestId("contributor-write-team") as HTMLSelectElement).value).toBe("beta");
+    expect(box.textContent).toContain("Write~Beta");
+    fireEvent.change(within(box).getByTestId("contributor-write-text"), { target: { value: "Prices on the menu?" } });
+    fireEvent.click(within(box).getByTestId("contributor-write-send"));
+
+    await waitFor(() => expect(state.sent).toEqual([{ teamId: "beta", text: "Prices on the menu?" }]));
   });
 
   it("WriteBox_TwoTeams_SendsToTheChosenTeamsOwner_InTheGatewaysWords", async () => {

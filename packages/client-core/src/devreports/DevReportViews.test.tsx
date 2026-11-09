@@ -363,6 +363,20 @@ describe("DevReportViewer - the session it came from, and the way back", () => {
     expect(screen.getByTestId("dev-report-back").textContent).toBe(GATEWAY_BACK_LABEL);
   });
 
+  it("shows the status in the Gateway's words beside the title, never the status code", () => {
+    const { container } = renderViewer(detailWith({ status: "waiting-on-you", statusLabel: "Waits on you~odd" }));
+
+    expect(screen.getByTestId("dev-report-status").textContent).toBe("Waits on you~odd");
+    expect(container.textContent ?? "").not.toContain("waiting-on-you");
+  });
+
+  it("shows no status at all when the Gateway sent no words for it", () => {
+    const { container } = renderViewer(detailWith({ status: "waiting-on-you" }));
+
+    expect(screen.queryByTestId("dev-report-status")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("waiting-on-you");
+  });
+
   it("shows NO back link and no session identifier when the Gateway sent no words for one", () => {
     const { container } = renderViewer(detailWith({}), vi.fn());
 

@@ -7,13 +7,12 @@ import {
   type ContributorInbox,
   type ContributorInboxItem,
 } from "@devthrottle/client-core/teams/contributorClient";
-import { getMyQuestions, type TeamQuestion } from "@devthrottle/client-core/teams/teamQuestionsClient";
 import { sendRequest } from "@devthrottle/client-core/teams/requestsClient";
 import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import { Button, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../../components";
 import { QuestionCard } from "./QuestionsPage";
 import { ReceivedReportView } from "./TeamReportViews";
-import { CONTRIBUTOR_INBOX_PATH, inboxItem, useTeamsWithPage } from "./ContributorFactoriesPage";
+import { CONTRIBUTOR_INBOX_PATH, inboxItem, pageLabel, useTeamsWithPage } from "./ContributorFactoriesPage";
 import { dateAndTime, shortDate, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import "../../team/team.css";
@@ -24,12 +23,16 @@ const SURFACE = "cockpit-contributor-inbox";
 // A CONTRIBUTOR'S INBOX (Team implementation piece 4.1; mockup.html, the contributor's Inbox): only what was sent to this
 // person, and their own conversation with the team's Owner - on every team they are a contributor on, together, each
 // item with its team's name, in the Gateway's order. The first version's Questions, Requests and Reports fold in here: a
-// report opens with its questions to answer above it, and "Write to the team's Owner" sends a request. Every word, label
-// and tone is the Gateway's (rule 7).
+// report opens with its questions to answer above it - the ones the Gateway sent with the item, in its order - and "Write
+// to the team's Owner" sends a request. Every word, label, tone and order is the Gateway's (rule 7).
+//
+// ?team=<id> alone opens the Inbox with the write box on that team's Owner: a factory page's "Write to the team's Owner"
+// carries its team, so the words never go to another team's Owner.
 //
 // THE ADDRESS STAYS /contributor/inbox; an item opens in place (?team=<id>&item=<id>).
 export function ContributorInboxPage() {
   const mine = useTeamsWithPage("inbox");
+  const label = pageLabel(mine, "inbox");
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [items, setItems] = useState<ContributorInboxItem[] | null>(null);
@@ -61,7 +64,7 @@ export function ContributorInboxPage() {
 
   return (
     <section className="pane team-page contributor-inbox" data-testid="contributor-inbox">
-      <PageHeader title="Inbox" subtitle={first?.intro} />
+      {label !== null && <PageHeader title={label} subtitle={first?.intro} />}
       {error && <ErrorBanner message={error} />}
       {items === null && !error && <LoadingState message="Loading your inbox..." />}
       {items !== null && (
@@ -93,14 +96,22 @@ export function ContributorInboxPage() {
                 ))}
               </ul>
             )}
-            {first !== undefined && <WriteBox teams={mine} answers={answers} onSent={reload} />}
+            {first !== undefined && (
+              <WriteBox key={openTeam ?? ""} teams={mine} startOn={openTeam} answers={answers} onSent={reload} />
+            )}
           </div>
           {open !== null && (
             <div className="contributor-detail" data-testid="contributor-inbox-detail">
               {open.kind === "report" ? (
-                <ReportItem key={`${open.teamId}/${open.id}`} item={open} onBack={() => navigate(CONTRIBUTOR_INBOX_PATH)} onAnswered={reload} />
+                <ReportItem
+                  key={`${open.teamId}/${open.id}`}
+                  item={open}
+                  backLabel={label}
+                  onBack={() => navigate(CONTRIBUTOR_INBOX_PATH)}
+                  onAnswered={reload}
+                />
               ) : (
-                <MessageItem item={open} />
+                <MessageItem item={open} backLabel={label} />
               )}
             </div>
           )}
@@ -110,50 +121,35 @@ export function ContributorInboxPage() {
   );
 }
 
-/** A report sent to the person: its questions to answer, then the report itself. */
-function ReportItem({ item, onBack, onAnswered }: { item: ContributorInboxItem; onBack: () => void; onAnswered: () => void }) {
-  const [questions, setQuestions] = useState<TeamQuestion[]>([]);
-  const refresh = useCallback(
-    async (signal: AbortSignal) => {
-      try {
-        const all = await getMyQuestions(item.teamId, signal);
-        setQuestions([...all.waiting, ...all.answered].filter((q) => q.reportId === item.id));
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        describeAndReport(SURFACE, "load the questions in this report", err, { background: true });
-      }
-    },
-    [item.teamId, item.id],
-  );
-  useVisiblePolling(refresh, TEAM_REPORTS_POLL_MS);
-  const answered = useCallback(() => {
-    void refresh(new AbortController().signal);
-    onAnswered();
-  }, [refresh, onAnswered]);
-
+/** A report sent to the person: its questions to answer, as the Gateway sent them with the item, then the report itself.
+ *  An answer reads the Inbox again, which brings the questions as they now stand. */
+function ReportItem({ item, backLabel, onBack, onAnswered }: {
+  item: ContributorInboxItem;
+  backLabel: string | null;
+  onBack: () => void;
+  onAnswered: () => void;
+}) {
   return (
     <>
-      {questions.length > 0 && (
+      {item.questions.length > 0 && (
         <ul className="team-question-list" data-testid="contributor-report-questions">
-          {questions.map((q) => (
+          {item.questions.map((q) => (
             <li key={`${q.reportId}/${q.version}/${q.questionId}`}>
-              <QuestionCard teamId={item.teamId} question={q} onAnswered={answered} />
+              <QuestionCard teamId={item.teamId} question={q} onAnswered={onAnswered} />
             </li>
           ))}
         </ul>
       )}
-      <ReceivedReportView teamId={item.teamId} reportId={item.id} onBack={onBack} />
+      <ReceivedReportView teamId={item.teamId} reportId={item.id} onBack={onBack} backLabel={backLabel ?? undefined} />
     </>
   );
 }
 
 /** Something the person wrote to the team's Owner, and what became of it. */
-function MessageItem({ item }: { item: ContributorInboxItem }) {
+function MessageItem({ item, backLabel }: { item: ContributorInboxItem; backLabel: string | null }) {
   return (
     <article className="team-card" data-testid="contributor-message">
-      <div className="contributor-crumbs">
-        <Link to={CONTRIBUTOR_INBOX_PATH}>Inbox</Link>
-      </div>
+      <div className="contributor-crumbs">{backLabel !== null && <Link to={CONTRIBUTOR_INBOX_PATH}>{backLabel}</Link>}</div>
       <div className="team-hint">
         <span className="contributor-team-label">{item.teamLabel}</span> {item.fromLabel}
       </div>
@@ -171,9 +167,16 @@ function MessageItem({ item }: { item: ContributorInboxItem }) {
   );
 }
 
-/** The box for writing to the team's Owner. With more than one team, the person picks which team's Owner it goes to. */
-function WriteBox({ teams, answers, onSent }: { teams: TeamSummary[]; answers: ContributorInbox[]; onSent: () => void }) {
-  const [teamId, setTeamId] = useState(teams[0]?.id ?? "");
+/** The box for writing to the team's Owner. With more than one team, the person picks which team's Owner it goes to; it
+ *  starts on the team the address names (a factory page's write link), and otherwise on the first of their teams. */
+function WriteBox({ teams, startOn, answers, onSent }: {
+  teams: TeamSummary[];
+  startOn: string | null;
+  answers: ContributorInbox[];
+  onSent: () => void;
+}) {
+  const named = teams.find((t) => t.id === startOn);
+  const [teamId, setTeamId] = useState(named !== undefined ? named.id : teams[0]?.id ?? "");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);

@@ -9,6 +9,7 @@
 // (repository rule 7).
 
 import type { TeamSummary } from "./teamsClient";
+import type { TeamQuestion } from "./teamQuestionsClient";
 import { call } from "./invitationsClient";
 import { authHeaders, GatewayError, gatewayFetch, POLL_TIMEOUT_MS } from "../api/client";
 
@@ -32,6 +33,8 @@ export interface ContributorFactories {
   teamId: string;
   teamLabel: string;
   count: number;
+  /** The line under the page's title. */
+  intro: string;
   emptyText: string;
   factories: ContributorFactoryCard[];
 }
@@ -82,6 +85,8 @@ export interface ContributorInboxItem {
   /** How the state is drawn: "waiting", "new", "done" or "message". */
   tone: string;
   trail: ContributorTrailStep[];
+  /** A report's questions for this person, waiting first, in the order to draw them; empty for a message. */
+  questions: TeamQuestion[];
   order: string;
 }
 

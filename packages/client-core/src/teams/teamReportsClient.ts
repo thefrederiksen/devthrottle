@@ -23,6 +23,8 @@ export interface ReceivedReport {
   id: string;
   title: string;
   status: string;
+  /** The status in words, for this reader. */
+  statusLabel: string;
   /** The version this person was sent - the only one they read. A later one reaches them only when it is sent again. */
   version: number;
   /** Who sent it, as the Team page names them. */
@@ -74,6 +76,8 @@ export interface OwnReport {
   id: string;
   title: string;
   status: string;
+  /** The status in words. */
+  statusLabel: string;
   version: number;
   updatedAtUtc: string;
   /** "Not sent to anyone yet", "Sent to 2 people". */
@@ -119,7 +123,7 @@ export interface CommentFromPerson {
 }
 
 export interface OwnReportDetail {
-  report: { id: string; title: string; status: string; version: number; publishedAtUtc: string; updatedAtUtc: string };
+  report: { id: string; title: string; status: string; statusLabel: string; version: number; publishedAtUtc: string; updatedAtUtc: string };
   recipients: ReportRecipient[];
   /** What the page says when it was sent to nobody. */
   recipientsEmptyText: string;
@@ -221,7 +225,7 @@ export function sendMyTeamReport(
 
 /** The viewer's record for a report read here: the Gateway's title, status and version, and no session - a report
  *  shared in a team never shows which session wrote it, or the agent's conversation. */
-function asDetail(report: { id: string; title: string; status: string; version: number }, publishedAtUtc = "", updatedAtUtc = ""): DevReportDetail {
+function asDetail(report: { id: string; title: string; status: string; statusLabel: string; version: number }, publishedAtUtc = "", updatedAtUtc = ""): DevReportDetail {
   return {
     report: {
       id: report.id,
@@ -229,6 +233,7 @@ function asDetail(report: { id: string; title: string; status: string; version: 
       key: "",
       title: report.title,
       status: report.status,
+      statusLabel: report.statusLabel,
       version: report.version,
       publishedAtUtc,
       updatedAtUtc,
