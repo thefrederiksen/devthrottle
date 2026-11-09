@@ -60,7 +60,16 @@ export function LicenseOverviewTab({ overview, onSwitchNow, onFix, onOpenMachine
       </div>
       <div className="lic-tiles" data-testid="lic-tiles">
         {overview.accounts.map((account) => (
-          <LicenseTile key={account.accountEmail} account={account} />
+          <LicenseTile
+            key={account.accountEmail}
+            account={account}
+            // Every license the Gateway says can switch now offers it; the status card already carries the main one.
+            onSwitchNow={
+              account.canSwitchNow && account.accountEmail !== overview.verdict?.switchNowAccountEmail
+                ? () => onSwitchNow(account)
+                : null
+            }
+          />
         ))}
       </div>
 
@@ -164,7 +173,7 @@ function StatusCard({
 }
 
 /** One license: who it is, its part now, its week as a bar with the 80% line, and one sentence. */
-function LicenseTile({ account }: { account: LicenseAccount }) {
+function LicenseTile({ account, onSwitchNow }: { account: LicenseAccount; onSwitchNow: (() => void) | null }) {
   const week = account.sevenDay;
   const known = week.utilization !== null && (week.level === "normal" || week.level === "at-limit");
   const width = known ? Math.min(100, Math.max(0, week.utilization as number)) : 0;
@@ -199,6 +208,11 @@ function LicenseTile({ account }: { account: LicenseAccount }) {
           </span>
         )}
       </p>
+      {onSwitchNow !== null && (
+        <Button variant="secondary" onClick={onSwitchNow} data-testid="lic-tile-switch">
+          Switch now
+        </Button>
+      )}
     </article>
   );
 }

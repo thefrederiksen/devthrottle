@@ -373,6 +373,23 @@ describe("LicensesView: Switch now, on the status card", () => {
     expect(await within(dialog).findByText("account-b@example.com is at its limit until its 5-hour window resets.")).toBeTruthy();
     expect(screen.queryByTestId("lic-switch-answer")).toBeNull();
   });
+
+  it("is offered on the tile of every other license the Gateway says can switch now, and only there", async () => {
+    const overview = copyOf(OVERVIEW);
+    overview.accounts.find((a) => a.accountEmail === ACCOUNT_B)!.canSwitchNow = true;
+    getLicenseOverview.mockResolvedValue(overview);
+    render(<InShell />);
+    await statusCard();
+
+    const tiles = screen.getAllByTestId("lic-tile");
+    const tileOf = (email: string) => tiles.find((t) => within(t).queryByText(email) !== null)!;
+    // The card already carries account A's; its tile does not repeat it, and a license that cannot switch has none.
+    expect(within(tileOf(ACCOUNT_A)).queryByRole("button", { name: "Switch now" })).toBeNull();
+    expect(within(tileOf(ACCOUNT_C)).queryByRole("button", { name: "Switch now" })).toBeNull();
+
+    fireEvent.click(within(tileOf(ACCOUNT_B)).getByRole("button", { name: "Switch now" }));
+    expect(screen.getByRole("alertdialog", { name: `Switch ${ACCOUNT_B} now?` })).toBeTruthy();
+  });
 });
 
 describe("LicensesView: opened in a background tab", () => {

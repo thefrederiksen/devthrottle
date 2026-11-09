@@ -299,8 +299,9 @@ export function LicensesView({ initialTab = "overview" }: { initialTab?: License
     const machine = overview.data?.machines.find((m) => m.machineId === fix?.machineId);
     if (fix === null || machine === undefined) return;
     const holding = [machine.active, ...machine.spares].find((h) => h !== null && h.accountEmail === fix.accountEmail);
-    if (fix.action === "renew" && holding !== undefined && holding !== null) {
-      setRenewing({ machine, holding });
+    if (fix.action === "renew") {
+      // The Gateway names renew only for a sign-in the machine holds; without it there is nothing to renew.
+      if (holding !== undefined && holding !== null) setRenewing({ machine, holding });
       return;
     }
     setSpareAccount(fix.accountEmail);
