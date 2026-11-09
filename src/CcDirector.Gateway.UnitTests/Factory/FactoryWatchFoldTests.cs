@@ -377,9 +377,9 @@ public sealed class FactoryWatchFoldTests
     }
 
     [Fact]
-    public void View_ContributorAudience_IsNotBuiltYetAndThrows()
+    public void View_ContributorAudienceWithoutAScope_Throws()
     {
-        Assert.Throws<NotSupportedException>(() =>
+        Assert.Throws<ArgumentException>(() =>
             FactoryWatchFold.View(Factory(3), Array.Empty<FactoryActivityDto>(), false, Day, Utc, FactoryWatchAudience.Contributor));
     }
 

@@ -1,5 +1,7 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Factory.Triggers;
+using CcDirector.Gateway.Running;
 
 namespace CcDirector.Gateway.Factory;
 
@@ -18,8 +20,14 @@ namespace CcDirector.Gateway.Factory;
 ///  - Every activity outcome maps to exactly one step kind (<see cref="StepKind"/>), and a new outcome fails a test.
 ///  - Runs of empty checks are grouped by the Activity tab's own grouping (<see cref="FactoryAgentsFold.EmptyCheckRuns"/>),
 ///    so the two views can never disagree on what a quiet stretch is.
-///  - The words of a step come from ONE place (<see cref="FactoryWatchWords"/>), which the contributor audience
-///    replaces with an allow-list. No field this fold builds reads a computer, a folder, a session, an actor or a link.
+///  - The words of a step come from ONE place (<see cref="FactoryWatchWords"/>). No field this fold builds reads a
+///    computer, a folder, a session, an actor or a link.
+///  - THE CONTRIBUTOR VIEW IS ASSEMBLED FROM AN ALLOW-LIST, never by cleaning the owner's view: the title, the floor's
+///    positions, the stations' and characters' labels (each checked against the account's machine names, a refused one
+///    replaced by a fixed neutral word, never edited), the colours, the step kinds and times, the contributor sentence
+///    when it passes the check again, and whether a step is the contributor's own. Seats and steps get opaque keys. A
+///    hiccup has no words; a machine problem is only "Your request is waiting its turn."; work that is not the
+///    contributor's own carries no words. Notes, counts, owner acts and every internal field are absent.
 /// </summary>
 public static class FactoryWatchFold
 {
@@ -55,19 +63,37 @@ public static class FactoryWatchFold
         "#f06fa8", "#c7d23a", "#8d9cff", "#e0904a", "#6fd1ff", "#b58b6a",
     };
 
+    /// <summary>
+    /// The watch view of <paramref name="factory"/> for <paramref name="audience"/>. The contributor audience needs
+    /// <paramref name="contributor"/> (what is theirs, and the account's machine names); the owner audience takes none.
+    /// </summary>
     public static FactoryWatchViewDto View(RegisteredFactoryDto factory, IReadOnlyList<FactoryActivityDto> windowRows,
-        bool windowTruncated, FactoryWindow window, TimeZoneInfo zone, FactoryWatchAudience audience)
+        bool windowTruncated, FactoryWindow window, TimeZoneInfo zone, FactoryWatchAudience audience,
+        FactoryWatchContributorScope? contributor = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(windowRows);
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(zone);
         FileLog.Write($"[FactoryWatchFold] View: factory={factory.Factory}, audience={audience}, seats={factory.Seats.Count}, rows={windowRows.Count}");
-        if (audience != FactoryWatchAudience.Owner)
-            throw new NotSupportedException($"The watch view for the {audience} audience is not built yet: it comes with the contributor filter (Watch your factory, piece 3).");
+        switch (audience)
+        {
+            case FactoryWatchAudience.Owner when contributor is not null:
+                throw new ArgumentException("The owner's watch view takes no contributor scope.", nameof(contributor));
+            case FactoryWatchAudience.Contributor when contributor is null:
+                throw new ArgumentException("A contributor's watch view needs the contributor's scope: what is theirs, and the account's machine names.", nameof(contributor));
+            case FactoryWatchAudience.Owner:
+            case FactoryWatchAudience.Contributor:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(audience), audience, "Unknown watch audience.");
+        }
         var stranger = windowRows.FirstOrDefault(r => !string.Equals(r.Factory, factory.Factory, StringComparison.OrdinalIgnoreCase));
         if (stranger is not null)
             throw new ArgumentException($"The watch view of '{factory.Factory}' was handed a row of '{stranger.Factory}' ({stranger.Id}); only the factory's own rows may be folded.", nameof(windowRows));
+
+        if (contributor is not null)
+            return ContributorView(factory, windowRows, window, zone, contributor);
 
         var view = new FactoryWatchViewDto
         {
@@ -80,14 +106,9 @@ public static class FactoryWatchFold
 
         // ---------- the timeline
         var seatIds = factory.Seats.ToDictionary(s => s.Id, s => s.Id, StringComparer.OrdinalIgnoreCase);
-        var ordered = windowRows.OrderBy(r => r.OccurredUtc).ThenBy(r => r.RecordedUtc).ThenBy(r => r.Id).ToList();
-        var ownerActs = ordered.Count(IsOwnerAct);
-        var seatRows = ordered.Where(r => !IsOwnerAct(r)).ToList();
-        var unregistered = seatRows.Count(r => !seatIds.ContainsKey(r.FactoryAgent));
-        seatRows = seatRows.Where(r => seatIds.ContainsKey(r.FactoryAgent)).ToList();
-
-        foreach (var run in FactoryAgentsFold.EmptyCheckRuns(seatRows))
-            view.Steps.Add(Step(run, seatIds[run[0].FactoryAgent], window, zone, audience));
+        var (runs, ownerActs, unregistered) = Runs(factory, windowRows);
+        foreach (var run in runs)
+            view.Steps.Add(Step(run, seatIds[run[0].FactoryAgent], window, zone));
 
         view.EmptyText = view.Steps.Count == 0 ? $"Nothing happened in this factory {FactoryAgentsFold.WindowPhrase(window, zone)}." : null;
         view.TruncatedText = windowTruncated
@@ -140,26 +161,135 @@ public static class FactoryWatchFold
     /// <summary>The worker an owner's act on the whole factory names (archive, restore).</summary>
     internal const string OwnerAgent = "owner";
 
-    private static FactoryWatchStepDto Step(IReadOnlyList<FactoryActivityDto> run, string seat, FactoryWindow window,
-        TimeZoneInfo zone, FactoryWatchAudience audience)
+    // The seats' rows of the window, oldest first, as runs (a run of empty checks is one), with what was left out.
+    private static (List<IReadOnlyList<FactoryActivityDto>> Runs, int OwnerActs, int Unregistered) Runs(
+        RegisteredFactoryDto factory, IReadOnlyList<FactoryActivityDto> windowRows)
     {
-        var first = run[0];
-        var last = run[^1];
-        var kind = run.Count > 1 ? FactoryWatchStepKind.CheckedNothing : StepKind(first.Outcome);
+        var seatIds = factory.Seats.Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ordered = windowRows.OrderBy(r => r.OccurredUtc).ThenBy(r => r.RecordedUtc).ThenBy(r => r.Id).ToList();
+        var ownerActs = ordered.Count(IsOwnerAct);
+        var seatRows = ordered.Where(r => !IsOwnerAct(r)).ToList();
+        var unregistered = seatRows.Count(r => !seatIds.Contains(r.FactoryAgent));
+        seatRows = seatRows.Where(r => seatIds.Contains(r.FactoryAgent)).ToList();
+        return (FactoryAgentsFold.EmptyCheckRuns(seatRows), ownerActs, unregistered);
+    }
+
+    private static string RunKind(IReadOnlyList<FactoryActivityDto> run) =>
+        run.Count > 1 ? FactoryWatchStepKind.CheckedNothing : StepKind(run[0].Outcome);
+
+    private static string RunTime(IReadOnlyList<FactoryActivityDto> run, FactoryWindow window, TimeZoneInfo zone) =>
+        run.Count > 1
+            ? $"{FactoryAgentsFold.ClockText(run[0].OccurredUtc, window, zone)}-{FactoryAgentsFold.ClockText(run[^1].OccurredUtc, window, zone)}"
+            : FactoryAgentsFold.ClockText(run[0].OccurredUtc, window, zone);
+
+    private static FactoryWatchStepDto Step(IReadOnlyList<FactoryActivityDto> run, string seat, FactoryWindow window, TimeZoneInfo zone)
+    {
+        var kind = RunKind(run);
         return new FactoryWatchStepDto
         {
-            Key = first.Id.ToString(),
+            Key = run[0].Id.ToString(),
             Kind = kind,
             Seat = seat,
-            Utc = first.OccurredUtc,
-            ToUtc = run.Count > 1 ? last.OccurredUtc : null,
-            Time = run.Count > 1
-                ? $"{FactoryAgentsFold.ClockText(first.OccurredUtc, window, zone)}-{FactoryAgentsFold.ClockText(last.OccurredUtc, window, zone)}"
-                : FactoryAgentsFold.ClockText(first.OccurredUtc, window, zone),
-            Words = FactoryWatchWords.For(run, audience),
+            Utc = run[0].OccurredUtc,
+            ToUtc = run.Count > 1 ? run[^1].OccurredUtc : null,
+            Time = RunTime(run, window, zone),
+            Words = FactoryWatchWords.ForOwner(run),
             EmptyChecks = kind == FactoryWatchStepKind.CheckedNothing ? run.Count : 0,
         };
     }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // The contributor's view: assembled from the allow-list, field by field. Nothing from a row or a seat reaches it
+    // except through ContributorSentenceCheck, or as a fixed word, or as a number.
+
+    private static FactoryWatchViewDto ContributorView(RegisteredFactoryDto factory, IReadOnlyList<FactoryActivityDto> windowRows,
+        FactoryWindow window, TimeZoneInfo zone, FactoryWatchContributorScope scope)
+    {
+        var machines = scope.MachineNames;
+
+        // The floor is laid out exactly as the owner's (positions are numbers decided from the seats' shape); then each
+        // station is rebuilt with an opaque key and checked words. The scratch layout never leaves this method.
+        var floor = new FactoryWatchViewDto();
+        LayOut(factory, floor);
+        var keyOf = factory.Seats.Select((s, i) => (s.Id, Key: $"seat-{i + 1}"))
+            .ToDictionary(x => x.Id, x => x.Key, StringComparer.OrdinalIgnoreCase);
+        var colours = Colours(factory.Seats.Select(s => s.Id));
+        var lineName = floor.Lines.ToDictionary(l => l.Name, l => FactoryWatchWords.LineName(l.Name, l.Index, machines), StringComparer.Ordinal);
+
+        var view = new FactoryWatchViewDto
+        {
+            FactoryId = "",
+            Title = FactoryWatchWords.Title(factory.Title, machines),
+            Layout = floor.Layout,
+            FloorWidth = floor.FloorWidth,
+            FloorHeight = floor.FloorHeight,
+            Window = FactoryAgentsFold.WindowDto(window, zone),
+        };
+        view.Lines = floor.Lines.Select(l => new FactoryWatchLineDto
+        {
+            Name = lineName[l.Name], Index = l.Index, Gx = l.Gx, Gy = l.Gy, Width = l.Width, Height = l.Height,
+        }).ToList();
+        foreach (var st in floor.Stations)
+        {
+            var seat = factory.Seats.First(s => string.Equals(s.Id, st.Id, StringComparison.OrdinalIgnoreCase));
+            var label = Clip(FactoryWatchWords.SeatLabel(seat.Name, st.IsBoss, machines), 22);
+            view.Stations.Add(new FactoryWatchStationDto
+            {
+                Id = keyOf[seat.Id],
+                Label = label,
+                Sub = Clip(FactoryWatchWords.SeatLabel(seat.Role, st.IsBoss, machines), 30),
+                IsBoss = st.IsBoss,
+                Gx = st.Gx, Gy = st.Gy, Width = st.Width, Height = st.Height,
+                Line = st.Line is null ? null : lineName[st.Line],
+            });
+            view.Characters.Add(new FactoryWatchCharacterDto
+            {
+                Seat = keyOf[seat.Id],
+                Name = label,
+                Colour = colours[seat.Id],
+                Station = keyOf[seat.Id],
+                HomeGx = Round(st.Gx + st.Width / 2),
+                HomeGy = Round(st.Gy + st.Height + HomeOffset / 2),
+            });
+        }
+
+        var (runs, ownerActs, unregistered) = Runs(factory, windowRows);
+        foreach (var run in runs)
+        {
+            var mine = scope.IsMine(run[0]);
+            var kind = run.Count == 1 && IsMachineProblem(run[0]) ? FactoryWatchStepKind.Waiting : RunKind(run);
+            view.Steps.Add(new FactoryWatchStepDto
+            {
+                Key = $"step-{view.Steps.Count + 1}",
+                Kind = kind,
+                Seat = keyOf[run[0].FactoryAgent],
+                Utc = run[0].OccurredUtc,
+                ToUtc = run.Count > 1 ? run[^1].OccurredUtc : null,
+                Time = RunTime(run, window, zone),
+                Words = FactoryWatchWords.ForContributor(run, kind, mine, machines),
+                EmptyChecks = kind == FactoryWatchStepKind.CheckedNothing ? run.Count : 0,
+                Mine = mine,
+            });
+        }
+        view.EmptyText = view.Steps.Count == 0 ? $"Nothing happened in your factory {FactoryAgentsFold.WindowPhrase(window, zone)}." : null;
+
+        FileLog.Write($"[FactoryWatchFold] ContributorView: factory={factory.Factory}, wholeFactory={scope.WholeFactory}, steps={view.Steps.Count}, " +
+                      $"mine={view.Steps.Count(s => s.Mine)}, waiting={view.Steps.Count(s => s.Kind == FactoryWatchStepKind.Waiting)}, " +
+                      $"left out: ownerActs={ownerActs}, unregistered={unregistered}");
+        return view;
+    }
+
+    /// <summary>
+    /// A MACHINE PROBLEM, decided from who wrote the row, never from its text: a failure written by the Gateway's own
+    /// machinery - a trigger or a schedule - means the seat could not start or did not finish as scheduled (no
+    /// Director, no free workbench, a start the Gateway gave up on, did not run, did not report). A failure the seat's
+    /// own session wrote is the seat's hiccup. Known gap: a schedule's "reported" problem (the seat's session itself
+    /// reported a problem) is written by the schedule too, so it reads as waiting; telling it apart needs the text.
+    /// </summary>
+    internal static bool IsMachineProblem(FactoryActivityDto r) =>
+        string.Equals(r.Outcome, FactoryActivityOutcome.Failed, StringComparison.Ordinal)
+        && (r.Actor.StartsWith(TriggerService.ActorPrefix, StringComparison.Ordinal)
+            || r.Actor.StartsWith(CronRunResultService.ActorPrefix, StringComparison.Ordinal));
 
     // ---------------------------------------------------------------------------------------------------------
     // The floor
@@ -335,15 +465,72 @@ public static class FactoryWatchFold
 }
 
 /// <summary>
+/// What a contributor's watch view may count as theirs, and the account's machine names its words are checked against.
+/// Built by the endpoint, never by a client. FAILS SAFE: a row is the contributor's own only when the scope says so;
+/// anything else is a plain crate with no words.
+///
+/// Version one decides at the factory level: <see cref="WholeFactory"/> is true when the factory was sent to this
+/// contributor by name and serves only them, and then every row is theirs. The request level comes later, when the
+/// record carries the request a row was done for: the scope then gains the contributor's request ids, and
+/// <see cref="IsMine"/> - the one place the rule lives - matches on them.
+/// </summary>
+public sealed record FactoryWatchContributorScope(bool WholeFactory, IReadOnlyList<string> MachineNames)
+{
+    /// <summary>True when <paramref name="row"/> is the contributor's own work.</summary>
+    public bool IsMine(FactoryActivityDto row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return WholeFactory;
+    }
+}
+
+/// <summary>
 /// THE ONE PLACE A WATCH STEP'S WORDS COME FROM. The owner sees the factory's own sentence, exactly as the Activity
-/// tab shows it. The contributor audience (piece 3) replaces this method with an allow-list: a step it does not allow
-/// carries no words at all. Never reads a computer, a folder, a session, an actor or a link.
+/// tab shows it. A contributor sees only the allow-list: the seat's contributor sentence when it passes
+/// <see cref="ContributorSentenceCheck"/> again at read time (a row may predate a machine being registered), otherwise
+/// a fixed sentence from <see cref="Fixed"/> - never the row's own text. Never reads a computer, a folder, a session,
+/// an actor or a link.
 /// </summary>
 internal static class FactoryWatchWords
 {
-    internal static string For(IReadOnlyList<FactoryActivityDto> run, FactoryWatchAudience audience) => audience switch
+    internal const string WaitingTurn = "Your request is waiting its turn.";
+    internal const string NeutralBoss = "Boss";
+    internal const string NeutralWorker = "Worker";
+    internal const string NeutralTitle = "Your factory";
+
+    /// <summary>The fixed sentence for each step kind a contributor may see words for. A hiccup has none.</summary>
+    internal static readonly IReadOnlyDictionary<string, string> Fixed = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        FactoryWatchAudience.Owner => run.Count > 1 ? FactoryAgentsFold.CollapsedWhat(run) : run[0].What,
-        _ => throw new NotSupportedException($"No words are decided for the {audience} audience yet (Watch your factory, piece 3)."),
+        [FactoryWatchStepKind.Woke] = "Started work.",
+        [FactoryWatchStepKind.Delivered] = "Finished a piece of work.",
+        [FactoryWatchStepKind.Talked] = "Talked it over.",
+        [FactoryWatchStepKind.CheckedNothing] = "Checked for new work. Nothing yet.",
+        [FactoryWatchStepKind.Waiting] = WaitingTurn,
     };
+
+    internal static string ForOwner(IReadOnlyList<FactoryActivityDto> run) =>
+        run.Count > 1 ? FactoryAgentsFold.CollapsedWhat(run) : run[0].What;
+
+    internal static string ForContributor(IReadOnlyList<FactoryActivityDto> run, string kind, bool mine, IReadOnlyList<string> machines)
+    {
+        if (!mine) return "";                                           // other people's work: a plain crate
+        if (kind == FactoryWatchStepKind.Hiccup) return "";             // a hiccup: no red, no words
+        if (kind == FactoryWatchStepKind.Waiting) return WaitingTurn;   // a machine problem, whatever the seat wrote
+        if (run.Count == 1 && run[0].ForContributor is { } sentence && Passes(sentence, machines))
+            return sentence;
+        return Fixed[kind];
+    }
+
+    /// <summary>A seat's name or role, or the fixed neutral word for its place when the check refuses it.</summary>
+    internal static string SeatLabel(string text, bool isBoss, IReadOnlyList<string> machines) =>
+        Passes(text, machines) ? text : isBoss ? NeutralBoss : NeutralWorker;
+
+    internal static string Title(string title, IReadOnlyList<string> machines) =>
+        Passes(title, machines) ? title : NeutralTitle;
+
+    internal static string LineName(string name, int index, IReadOnlyList<string> machines) =>
+        Passes(name, machines) ? name : $"Line {index + 1}";
+
+    private static bool Passes(string text, IReadOnlyList<string> machines) =>
+        !string.IsNullOrWhiteSpace(text) && ContributorSentenceCheck.Refusal(text, machines) is null;
 }
