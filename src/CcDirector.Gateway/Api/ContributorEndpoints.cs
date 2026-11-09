@@ -114,6 +114,10 @@ internal sealed class ContributorPages
 
     internal const string FactoriesEmpty = "No factory is building something for you yet. Work sent to you arrives in your Inbox.";
     internal const string InboxEmpty = "Nothing has been sent to you yet.";
+    internal const string InboxIntro = "Only yours: what was sent to you, and your conversation with the team's Owner.";
+    internal const string WriteLabel = "Write to the team's Owner";
+    internal const string WritePlaceholder = "An idea, a change, a problem...";
+    internal const string WriteNote = "Goes to the team's Owner only. They decide what reaches the factory.";
     internal const string NeedsYouEmpty = "Nothing right now.";
     internal const string TodayEmpty = "Nothing recorded today yet.";
     internal const string SoFarEmpty = "Nothing to show yet. Previews and the live site appear here once they are ready for you.";
@@ -220,7 +224,7 @@ internal sealed class ContributorPages
             teamLabel = verdict.TeamName,
             factory = f.Factory,
             name = f.Title,
-            writeLabel = "Write to the team's Owner",
+            writeLabel = WriteLabel,
             needsYou = new
             {
                 title = "Needs you",
@@ -318,6 +322,8 @@ internal sealed class ContributorPages
             teamLabel,
             count = items.Count,
             emptyText = InboxEmpty,
+            intro = InboxIntro,
+            write = new { label = WriteLabel, placeholder = WritePlaceholder, sendLabel = "Send", note = WriteNote },
             items,
         };
     }
