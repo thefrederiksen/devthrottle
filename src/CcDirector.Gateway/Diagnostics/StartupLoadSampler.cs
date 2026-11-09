@@ -101,7 +101,7 @@ public sealed class StartupLoadSampler : IDisposable
         ArgumentNullException.ThrowIfNull(write);
         var sampler = new StartupLoadSampler();
         var clock = Stopwatch.StartNew();
-        var thread = new Thread(() => RunThread(sampler, clock, write, firstOnThread))
+        var thread = new Thread(() => RunThread(sampler, () => clock.Elapsed, write, firstOnThread))
         {
             IsBackground = true,
             Name = "StartupLoadSampler",
@@ -115,14 +115,14 @@ public sealed class StartupLoadSampler : IDisposable
     /// never take the Gateway down mid-deploy, so anything thrown here is written as one line and the sampler
     /// stops. Internal so that guarantee is tested.
     /// </summary>
-    internal static void RunThread(StartupLoadSampler sampler, Stopwatch clock, Action<string> write, Action? firstOnThread)
+    internal static void RunThread(StartupLoadSampler sampler, Func<TimeSpan> elapsed, Action<string> write, Action? firstOnThread)
     {
         try
         {
             using (sampler)
             {
                 firstOnThread?.Invoke();
-                sampler.Run(() => clock.Elapsed, delay => { Thread.Sleep(delay); return true; }, write, () => DateTime.UtcNow);
+                sampler.Run(elapsed, delay => { Thread.Sleep(delay); return true; }, write, () => DateTime.UtcNow);
             }
         }
         catch (Exception ex)

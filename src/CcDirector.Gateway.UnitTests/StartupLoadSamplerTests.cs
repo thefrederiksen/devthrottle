@@ -147,7 +147,7 @@ public sealed class StartupLoadSamplerTests
 
         StartupLoadSampler.RunThread(
             new StartupLoadSampler(listenToNpgsql: false),
-            System.Diagnostics.Stopwatch.StartNew(),
+            elapsed: () => TimeSpan.Zero,
             Bounded(lines),
             firstOnThread: () => throw new InvalidOperationException("share went away"));
 
