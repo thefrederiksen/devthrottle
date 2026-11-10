@@ -22,7 +22,9 @@ namespace CcDirector.Gateway.Diagnostics;
 /// WHAT A LINE HOLDS: the thread pool (threads, its floor, queued work items, completed work items), the Director hub
 /// (connections, pushes in flight), the roster request count and failures, processor time and working set,
 /// and, for each Npgsql connection pool, connections in use and idle, the pool's maximum, requests WAITING
-/// for a connection, connection timeouts, and commands executing. The database pool numbers come from Npgsql's
+/// for a connection, connection timeouts, and commands executing; and, for the two seconds since the previous line,
+/// how many commands finished and the slowest of them (cmds=, cmdMaxMs=), and how many new physical connections
+/// were opened and the slowest open (opens=, openMaxMs=). The database pool numbers come from Npgsql's
 /// own metrics, which <c>/diag/loadmetrics</c> does not carry. A pool is named by a short hash of its Npgsql
 /// pool name, because that name is the connection string without its password and still names the database
 /// host and user.
@@ -45,6 +47,13 @@ public sealed class StartupLoadSampler : IDisposable
     /// <summary>The name of the meter Npgsql publishes its connection-pool metrics on.</summary>
     public const string NpgsqlMeterName = "Npgsql";
 
+    /// <summary>Npgsql's histogram of how long each command took (Npgsql 9 names it this; the newer semantic
+    /// convention name, db.client.operation.duration, is not what this version publishes).</summary>
+    public const string CommandDurationInstrument = "db.client.commands.duration";
+
+    /// <summary>Npgsql's histogram of how long opening each new physical connection took.</summary>
+    public const string ConnectionCreateTimeInstrument = "db.client.connections.create_time";
+
     /// <summary>The prefix of every line this writes, for a reader to grep.</summary>
     public const string LinePrefix = "[StartupLoad]";
 
@@ -55,6 +64,11 @@ public sealed class StartupLoadSampler : IDisposable
     // created later would miss the earlier adds and print wrong, even negative, numbers. GatewayEntryPoint starts
     // the sampler before the host is built, which is what makes these sums true.
     private readonly ConcurrentDictionary<(string Instrument, string Pool, string State), double> _summed = new();
+    // Instruments Npgsql reports as durations (histograms): kept per pool for the current two-second window only,
+    // as a count and a maximum, and emptied by each line. Added after the 9 November deploys, when single requests
+    // took 24 to 30 seconds and nothing could say whether that time was spent in the DATABASE (a slow command), in
+    // OPENING a connection (a pooler with no free session), or neither. The two numbers below answer that per line.
+    private readonly ConcurrentDictionary<(string Instrument, string Pool), DurationWindow> _durations = new();
     private readonly MeterListener _listener = new();
     private readonly ConcurrentDictionary<string, byte> _listened = new(StringComparer.Ordinal);
 
@@ -85,6 +99,7 @@ public sealed class StartupLoadSampler : IDisposable
             }
         };
         _listener.SetMeasurementEventCallback<int>((i, v, tags, _) => Record(i, v, tags));
+        _listener.SetMeasurementEventCallback<float>((i, v, tags, _) => Record(i, v, tags));
         _listener.SetMeasurementEventCallback<long>((i, v, tags, _) => Record(i, v, tags));
         _listener.SetMeasurementEventCallback<double>((i, v, tags, _) => Record(i, v, tags));
         _listener.Start();
@@ -184,7 +199,9 @@ public sealed class StartupLoadSampler : IDisposable
     }
 
     /// <summary>
-    /// The database pools, one group per pool: <c>db[label] used= idle= max= waiting= timeouts= executing=</c>.
+    /// The database pools, one group per pool: <c>db[label] used= idle= max= waiting= timeouts= executing= cmds=
+    /// cmdMaxMs= opens= openMaxMs=</c>. The last four cover only the window since the previous line, and reading
+    /// them empties it.
     /// "No database pool yet" is said out loud, so an empty group is never mistaken for a dead instrument. A value
     /// is "-" when that instrument has reported nothing for the pool yet: Npgsql reports waiting requests,
     /// timeouts and executing commands only as they change, so "-" there means none since the process started.
@@ -193,6 +210,7 @@ public sealed class StartupLoadSampler : IDisposable
     {
         var pools = _observed.Keys.Select(k => k.Pool)
             .Concat(_summed.Keys.Select(k => k.Pool))
+            .Concat(_durations.Keys.Select(k => k.Pool))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(p => p, StringComparer.Ordinal)
             .ToList();
@@ -211,6 +229,10 @@ public sealed class StartupLoadSampler : IDisposable
             sb.Append(CultureInfo.InvariantCulture, $" waiting={Value("db.client.connections.pending_requests", pool, "")}");
             sb.Append(CultureInfo.InvariantCulture, $" timeouts={Value("db.client.connections.timeouts", pool, "")}");
             sb.Append(CultureInfo.InvariantCulture, $" executing={Value("db.client.commands.executing", pool, "")}");
+            var (cmds, cmdMax) = TakeWindow(CommandDurationInstrument, pool);
+            var (opens, openMax) = TakeWindow(ConnectionCreateTimeInstrument, pool);
+            sb.Append(CultureInfo.InvariantCulture, $" cmds={cmds} cmdMaxMs={cmdMax}");
+            sb.Append(CultureInfo.InvariantCulture, $" opens={opens} openMaxMs={openMax}");
         }
     }
 
@@ -224,9 +246,9 @@ public sealed class StartupLoadSampler : IDisposable
     /// <summary>Feed one measurement in, exactly as the listener does. Internal so a test can drive the
     /// bookkeeping without a database.</summary>
     internal void Record(Instrument instrument, double value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
-        => Record(instrument.Name, instrument.IsObservable, value, tags);
+        => Record(instrument.Name, instrument.IsObservable, value, tags, instrument.Unit);
 
-    internal void Record(string instrumentName, bool observable, double value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
+    internal void Record(string instrumentName, bool observable, double value, ReadOnlySpan<KeyValuePair<string, object?>> tags, string? unit = null)
     {
         var pool = "";
         var state = "";
@@ -235,7 +257,18 @@ public sealed class StartupLoadSampler : IDisposable
             if (tag.Key == "pool.name") pool = tag.Value?.ToString() ?? "";
             else if (tag.Key == "state") state = tag.Value?.ToString() ?? "";
         }
-        // Histograms (durations, create times) are not counts; they are left out.
+        // The two durations the line reports go into the current window, in milliseconds. Every other histogram
+        // is not a count and is left out.
+        if (instrumentName is CommandDurationInstrument or ConnectionCreateTimeInstrument)
+        {
+            var window = _durations.GetOrAdd((instrumentName, pool), _ => new DurationWindow());
+            var milliseconds = ToMilliseconds(value, unit);
+            if (milliseconds is null)
+                window.AddUnknownUnit(unit);
+            else
+                window.Add(milliseconds.Value);
+            return;
+        }
         if (instrumentName.EndsWith(".duration", StringComparison.Ordinal) || instrumentName.EndsWith(".create_time", StringComparison.Ordinal))
             return;
 
@@ -252,6 +285,71 @@ public sealed class StartupLoadSampler : IDisposable
         if (_observed.TryGetValue(key, out var observed)) return observed.ToString("0", CultureInfo.InvariantCulture);
         if (_summed.TryGetValue(key, out var summed)) return summed.ToString("0", CultureInfo.InvariantCulture);
         return "-";
+    }
+
+    /// <summary>
+    /// A histogram value in milliseconds, or null for a unit this does not know. Npgsql 9 publishes both durations
+    /// in seconds (unit "s"). An unknown unit is NOT thrown: this runs on the thread executing the database command,
+    /// and a measurement must never fail a request. It is said on the line instead (cmdMaxMs=unit?..), so it is
+    /// loud where it is read, rather than printing a number off by a factor of a thousand.
+    /// </summary>
+    internal static double? ToMilliseconds(double value, string? unit) => unit switch
+    {
+        "s" => value * 1000.0,
+        "ms" => value,
+        _ => null,
+    };
+
+    /// <summary>The count and the slowest value for this pool since the previous line, emptying the window. With
+    /// nothing in the window the count is 0 and the maximum is "-".</summary>
+    private (long Count, string MaxMs) TakeWindow(string instrument, string pool)
+    {
+        if (!_durations.TryGetValue((instrument, pool), out var window))
+            return (0, "-");
+        var (count, max, unknownUnit) = window.Take();
+        if (unknownUnit is not null)
+            return (count, $"unit?{unknownUnit}");
+        return (count, count == 0 ? "-" : max.ToString("0", CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>One pool's measurements of one duration since the last line. Written from any thread (the listener
+    /// is called on whichever thread ran the command), taken from the sampler's thread.</summary>
+    private sealed class DurationWindow
+    {
+        private readonly object _gate = new();
+        private long _count;
+        private double _max;
+        private string? _unknownUnit;
+
+        public void Add(double milliseconds)
+        {
+            lock (_gate)
+            {
+                _count++;
+                if (milliseconds > _max) _max = milliseconds;
+            }
+        }
+
+        public void AddUnknownUnit(string? unit)
+        {
+            lock (_gate)
+            {
+                _count++;
+                _unknownUnit = string.IsNullOrEmpty(unit) ? "none" : unit;
+            }
+        }
+
+        public (long Count, double Max, string? UnknownUnit) Take()
+        {
+            lock (_gate)
+            {
+                var taken = (_count, _max, _unknownUnit);
+                _count = 0;
+                _max = 0;
+                _unknownUnit = null;
+                return taken;
+            }
+        }
     }
 
     /// <inheritdoc />
