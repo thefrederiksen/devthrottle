@@ -1,5 +1,0 @@
-  Passed CcDirector.Gateway.Tests.Account.GatewayAccountMembershipTests.Check_TokenForSameAccount_IsMember [36 ms]
-  Passed CcDirector.Gateway.Tests.Account.GatewayAccountMembershipTests.Check_TokenForDifferentAccount_IsNotMember [2 ms]
-  Passed CcDirector.Gateway.Tests.Account.GatewayAccountMembershipTests.Check_PresentedTokenNotAuthorizationValid_IsNotMember [1 ms]
-  Passed CcDirector.Gateway.Tests.Account.GatewayAccountMembershipTests.Check_ReasonStrings_CarryNoPersonallyIdentifyingInformation [1 ms]
-  Passed CcDirector.Gateway.Tests.Account.GatewayAccountMembershipTests.Check_GatewayNotSignedIn_IsNotMember [< 1 ms]

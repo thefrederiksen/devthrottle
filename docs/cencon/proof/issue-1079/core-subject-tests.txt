@@ -1,5 +1,0 @@
-  Passed CcDirector.Core.Tests.Account.DevThrottleAccountServiceTests.GetAccountSubject_StoredCredential_ReturnsSubjectWithoutNetwork [243 ms]
-  Passed CcDirector.Core.Tests.Account.DevThrottleAccountServiceTests.GetAccountSubject_NoStoredCredential_ReturnsNull [< 1 ms]
-  Passed CcDirector.Core.Tests.Account.JwtIdentityReaderTests.ReadSubject_TokenWithoutSubjectClaim_ReturnsNull [< 1 ms]
-  Passed CcDirector.Core.Tests.Account.JwtIdentityReaderTests.ReadSubject_MalformedToken_ReturnsNull [< 1 ms]
-  Passed CcDirector.Core.Tests.Account.JwtIdentityReaderTests.ReadSubject_TokenWithSubjectClaim_ReturnsSubject [< 1 ms]

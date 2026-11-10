@@ -1,2 +1,0 @@
-Error: this route identifies the sender from the session key that authenticated
-the request; the caller presented no session key

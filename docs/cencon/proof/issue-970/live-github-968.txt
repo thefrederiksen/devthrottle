@@ -1,4 +1,0 @@
-REQUEST: GET http://127.0.0.1:50339/gateway/lists/item-status?source=github&id=968
-(browser sends only the same-origin cc-gateway-token; the GitHub token stays on the Gateway)
-RESPONSE STATUS: 200
-RESPONSE BODY: {"title":"Cockpit React: stand up packages/client-core + Gateway-only-ingress lint rule; retarget mobile","status":"done","detail":null}

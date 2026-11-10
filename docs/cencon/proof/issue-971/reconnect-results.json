@@ -1,6 +1,0 @@
-{
-  "status_line_visible": true,
-  "status_snippet": "[stream lost, reconnecting via gateway localhost:5231 (attempt 4)...]\n ",
-  "typing_after_reconnect": true,
-  "final_snippet": "rottle-wt-971>echo issue-971-interactive-terminal-OK\nissue-971-interactive-terminal-OK\nD:\\ReposFred\\devthrottle-wt-971>echo reconnected-and-typing-works\nreconnected-and-typing-works\nD:\\ReposFred\\devthrottle-wt-971>echo after-real-reconnect-OK\nafter-real-reconnect-OK\nD:\\ReposFred\\devthrottle-wt-971> "
-}

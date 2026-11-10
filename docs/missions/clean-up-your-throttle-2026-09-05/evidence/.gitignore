@@ -1,3 +1,0 @@
-# The hosted statistics database connection string. NEVER COMMITTED.
-# Fetch it with the command named in reconciliation.md, "How to re-run this".
-pgconn.txt

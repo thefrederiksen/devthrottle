@@ -1,8 +1,0 @@
-{
-  "runId": "20260803-044208",
-  "gatewayUrl": "http://127.0.0.1:7891",
-  "port": 7891,
-  "tenants": 20,
-  "directorsPerTenant": 5,
-  "seededAtUtc": "2026-08-03T04:42:12.6153459Z"
-}
