@@ -3,6 +3,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Util;
 using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway;
@@ -28,7 +29,16 @@ public sealed class CronRunHistoryStore
     /// <summary>Max records retained per job; older runs are pruned (keeps the store bounded).</summary>
     public const int MaxRecordsPerJob = 50;
 
-    private readonly object _gate = new();
+    // One gate for the whole store, exactly the serialisation the lock it replaced gave: some methods read across
+    // accounts, so the store is not keyed per account. What changed (deploy outage, 9 November 2026) is that the due
+    // check claim every Director makes on reconnect AWAITS it (ClaimDueChecksAsync) instead of blocking a thread-pool
+    // worker; the other methods wait as before. No method takes the gate while holding it, so a gate that is not
+    // re-entrant is safe here.
+    private readonly KeyedAsyncGate _gate = new();
+    private const string StoreKey = "cron-runs";
+
+    /// <summary>TEST seam: hold the store's gate, to prove the due check claim waits on it without blocking.</summary>
+    internal IDisposable EnterGateForTest() => _gate.Enter(StoreKey);
     private readonly GatewayDatabase _db;
     private readonly string _legacyJsonPath;
 
@@ -50,7 +60,7 @@ public sealed class CronRunHistoryStore
             throw new ArgumentException("legacy json path is required", nameof(legacyJsonPath));
         _legacyJsonPath = legacyJsonPath;
 
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
             ImportLegacyJsonIfNeeded();
     }
 
@@ -64,7 +74,7 @@ public sealed class CronRunHistoryStore
         if (record is null)
             throw new ArgumentNullException(nameof(record));
 
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext();
             // The insert and the prune are decided together and committed in ONE SaveChanges, so a crash can never
@@ -88,7 +98,7 @@ public sealed class CronRunHistoryStore
             throw new ArgumentException("job id is required", nameof(jobId));
         ArgumentNullException.ThrowIfNull(record);
 
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var entity = AddInContext(ctx, ctx.ActiveTenant!, jobId, record);
@@ -166,7 +176,7 @@ public sealed class CronRunHistoryStore
         if (string.IsNullOrWhiteSpace(jobId))
             return Array.Empty<CronRunRecord>();
 
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext();
             return ctx.CronRuns.AsNoTracking()
@@ -201,7 +211,7 @@ public sealed class CronRunHistoryStore
     {
         if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return false;
 
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             return ctx.CronRuns.AsNoTracking().Any(e => e.SessionId == sessionId);
@@ -224,7 +234,7 @@ public sealed class CronRunHistoryStore
             throw new ArgumentException($"only a recorded ending may be stamped, not '{ending}'", nameof(ending));
         if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return 0;
 
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var rows = ctx.CronRuns.Where(e => e.SessionId == sessionId).ToList();
@@ -247,7 +257,7 @@ public sealed class CronRunHistoryStore
     {
         if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return 0;
 
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var rows = ctx.CronRuns.Where(e => e.SessionId == sessionId).ToList()
@@ -270,7 +280,7 @@ public sealed class CronRunHistoryStore
     public bool HasRunScheduledAt(string jobId, DateTime scheduledUtc)
     {
         if (string.IsNullOrWhiteSpace(jobId)) return false;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext();
             return ctx.CronRuns.AsNoTracking().Any(e => e.JobId == jobId && e.ScheduledUtc == scheduledUtc);
@@ -289,7 +299,7 @@ public sealed class CronRunHistoryStore
     public JobRun? FindBySession(Core.Tenancy.TenantId tenant, string sessionId)
     {
         if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return null;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.AsNoTracking()
@@ -304,7 +314,7 @@ public sealed class CronRunHistoryStore
     public JobRun? Find(Core.Tenancy.TenantId tenant, Guid runId)
     {
         if (!tenant.IsValid) return null;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.AsNoTracking().FirstOrDefault(e => e.Id == runId);
@@ -331,7 +341,7 @@ public sealed class CronRunHistoryStore
     public CronRunRecord? AdoptStartUnknown(Core.Tenancy.TenantId tenant, Guid runId, string sessionId, string? directorId)
     {
         if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return null;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
@@ -365,7 +375,7 @@ public sealed class CronRunHistoryStore
     public CronRunRecord? LapseStartUnknown(Core.Tenancy.TenantId tenant, Guid runId, string reason, DateTime nowUtc)
     {
         if (!tenant.IsValid) return null;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
@@ -393,7 +403,7 @@ public sealed class CronRunHistoryStore
     private IReadOnlyList<JobRun> RunsWhere(Core.Tenancy.TenantId tenant, System.Linq.Expressions.Expression<Func<CronRunEntity, bool>> where)
     {
         if (!tenant.IsValid) return Array.Empty<JobRun>();
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             return ctx.CronRuns.AsNoTracking().Where(where).OrderBy(e => e.Sequence).ToList().Select(ToJobRun).ToList();
@@ -407,7 +417,7 @@ public sealed class CronRunHistoryStore
     public IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> AllByJob(Core.Tenancy.TenantId tenant)
     {
         if (!tenant.IsValid) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             return ctx.CronRuns.AsNoTracking()
@@ -445,7 +455,7 @@ public sealed class CronRunHistoryStore
     {
         ArgumentNullException.ThrowIfNull(query);
         if (query.Limit < 1) throw new ArgumentOutOfRangeException(nameof(query), "the limit must be at least 1");
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateUnscopedContext();
             var rows = ctx.CronRuns.IgnoreQueryFilters().AsNoTracking();
@@ -470,7 +480,7 @@ public sealed class CronRunHistoryStore
     public IReadOnlyList<AccountRun> FailedSince(DateTime sinceUtc, int max)
     {
         if (max < 1) throw new ArgumentOutOfRangeException(nameof(max), "max must be at least 1");
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateUnscopedContext();
             var found = ctx.CronRuns.IgnoreQueryFilters().AsNoTracking()
@@ -491,7 +501,7 @@ public sealed class CronRunHistoryStore
     {
         if (!tenant.IsValid) return null;
         var after = DateTime.SpecifyKind(afterUtc, DateTimeKind.Utc);
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var found = ctx.CronRuns.AsNoTracking()
@@ -535,7 +545,7 @@ public sealed class CronRunHistoryStore
         if (result == CronRunResults.Problem && string.IsNullOrWhiteSpace(problem))
             throw new ArgumentException("a problem needs its kind", nameof(problem));
         if (!tenant.IsValid) return new ResultWrite(false, null);
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
@@ -568,7 +578,7 @@ public sealed class CronRunHistoryStore
         if (string.IsNullOrWhiteSpace(resolvedBy)) throw new ArgumentException("who resolved it is required", nameof(resolvedBy));
         if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("a reason is required", nameof(reason));
         if (!tenant.IsValid) return new ResultWrite(false, null);
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
@@ -592,7 +602,7 @@ public sealed class CronRunHistoryStore
     public void SettleInNoFactory(Core.Tenancy.TenantId tenant, Guid runId)
     {
         if (!tenant.IsValid) throw new ArgumentException("a valid account is required", nameof(tenant));
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId)
@@ -616,7 +626,7 @@ public sealed class CronRunHistoryStore
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!tenant.IsValid) throw new ArgumentException("a valid account is required", nameof(tenant));
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId)
@@ -656,7 +666,7 @@ public sealed class CronRunHistoryStore
         ArgumentNullException.ThrowIfNull(reasonFor);
         FileLog.Write($"[CronRunHistoryStore] SupersedeUnreportedCheck: job={jobId}");
         if (!tenant.IsValid || string.IsNullOrWhiteSpace(jobId)) return null;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns
@@ -684,22 +694,23 @@ public sealed class CronRunHistoryStore
     /// and CLAIMS each for that Director, in one write. A run whose check is already being decided (its report was read
     /// and its session is being started) is never handed out again. Oldest first.
     /// </summary>
-    public IReadOnlyList<DueCheck> ClaimDueChecks(Core.Tenancy.TenantId tenant, string directorId, string machine,
-        DateTime nowUtc, TimeSpan claimLapse)
+    public async Task<IReadOnlyList<DueCheck>> ClaimDueChecksAsync(Core.Tenancy.TenantId tenant, string directorId, string machine,
+        DateTime nowUtc, TimeSpan claimLapse, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(directorId)) throw new ArgumentException("a Director id is required", nameof(directorId));
         FileLog.Write($"[CronRunHistoryStore] ClaimDueChecks: director={directorId}, machine={machine}");
         if (!tenant.IsValid) return Array.Empty<DueCheck>();
-        lock (_gate)
+        // Awaited, not blocked on: every Director calls this on reconnect (deploy outage, 9 November 2026).
+        using (await _gate.EnterAsync(StoreKey, cancellationToken).ConfigureAwait(false))
         {
-            using var ctx = _db.CreateContext(tenant);
+            await using var ctx = _db.CreateContext(tenant);
             var lapsedBefore = nowUtc - claimLapse;
             // The machine is compared ignoring case, in memory, as the trigger store and the Director lookup compare it:
             // a seat written "soren_north" runs on the Director registered as SOREN_NORTH.
-            var rows = ctx.CronRuns
+            var rows = (await ctx.CronRuns
                 .Where(e => e.Result == CronRunResults.Checking && e.CheckedUtc == null)
                 .OrderBy(e => e.Sequence)
-                .ToList()
+                .ToListAsync(cancellationToken).ConfigureAwait(false))
                 .Where(e => string.Equals(e.Machine, machine, StringComparison.OrdinalIgnoreCase))
                 .Where(e => e.ClaimedByDirectorId is null || e.ClaimedByDirectorId == directorId
                             || e.ClaimedUtc is null || e.ClaimedUtc.Value < lapsedBefore)
@@ -712,7 +723,7 @@ public sealed class CronRunHistoryStore
                 row.ClaimedByDirectorId = directorId;
                 row.ClaimedUtc = nowUtc;
             }
-            if (rows.Count > 0) ctx.SaveChanges();
+            if (rows.Count > 0) await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return rows.Select(r => new DueCheck(r.JobId, ToRecord(r), r.ClaimedByDirectorId, SpecifyUtc(r.ClaimedUtc))).ToList();
         }
     }
@@ -722,7 +733,7 @@ public sealed class CronRunHistoryStore
     {
         FileLog.Write($"[CronRunHistoryStore] FindDueCheck: run={runId}");
         if (!tenant.IsValid) return null;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.AsNoTracking().FirstOrDefault(e => e.Id == runId);
@@ -793,7 +804,7 @@ public sealed class CronRunHistoryStore
     {
         FileLog.Write($"[CronRunHistoryStore] FailStalledDueStarts: decided before {decidedBeforeUtc:o}");
         if (!tenant.IsValid) return Array.Empty<JobRun>();
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var rows = ctx.CronRuns
@@ -842,7 +853,7 @@ public sealed class CronRunHistoryStore
     {
         ArgumentNullException.ThrowIfNull(start);
         if (!tenant.IsValid) return null;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
@@ -893,7 +904,7 @@ public sealed class CronRunHistoryStore
         Action<CronRunEntity> write)
     {
         if (!tenant.IsValid) return DueCheckWrite.NoSuchRun;
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
@@ -932,7 +943,7 @@ public sealed class CronRunHistoryStore
         ArgumentNullException.ThrowIfNull(jobIds);
         if (perJob < 1) throw new ArgumentOutOfRangeException(nameof(perJob), perJob, "perJob must be at least 1");
         if (jobIds.Count == 0) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext();
             return RecentIn(ctx, jobIds, perJob);
@@ -948,7 +959,7 @@ public sealed class CronRunHistoryStore
         ArgumentNullException.ThrowIfNull(jobIds);
         if (perJob < 1) throw new ArgumentOutOfRangeException(nameof(perJob), perJob, "perJob must be at least 1");
         if (jobIds.Count == 0) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
-        lock (_gate)
+        using (_gate.Enter(StoreKey))
         {
             using var ctx = _db.CreateContext(tenant);
             return RecentIn(ctx, jobIds, perJob);

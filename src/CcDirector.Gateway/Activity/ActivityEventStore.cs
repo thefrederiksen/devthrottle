@@ -4,6 +4,8 @@ using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
+using CcDirector.Gateway.Util;
+
 namespace CcDirector.Gateway.Activity;
 
 /// <summary>
@@ -22,12 +24,20 @@ namespace CcDirector.Gateway.Activity;
 /// RETENTION is 30 days (the owner's ruling, 2026-07-24 - deliberately replacing the earlier "unbounded,
 /// decide later"): <see cref="PurgeOlderThan"/> is called per tenant by <c>ActivityRetentionSweep</c>.
 ///
-/// Threading matches the rest of the data layer: single writer, write lock, fresh pooled context per
-/// operation, tenant resolved from the ambient scope by <see cref="GatewayDatabase.CreateContext()"/>.
+/// Threading: a fresh pooled context per operation, tenant resolved from the ambient scope by
+/// <see cref="GatewayDatabase.CreateContext()"/>, and writes serialised PER ACCOUNT by a gate that can be awaited
+/// (<see cref="KeyedAsyncGate"/>). Every query is scoped to one account, so two accounts never touched the same rows.
+/// The HTTP route uses <see cref="AppendBatchAsync"/>, which waits without holding a thread: until the deploy outage
+/// of 9 November 2026 this was one process-wide lock around synchronous database work, and when every Director pushed
+/// at once on reconnect while single database commands took 24 to 30 seconds, the waiting pushes held every
+/// thread-pool worker. The in-process callers keep the synchronous <see cref="AppendBatch"/>, on the same gate.
 /// </summary>
 public sealed class ActivityEventStore
 {
-    private readonly object _gate = new();
+    private readonly KeyedAsyncGate _gate = new();
+
+    /// <summary>TEST seam: hold one account's gate, to prove what waits on it and what does not.</summary>
+    internal IDisposable EnterGateForTest(string tenant) => _gate.Enter(tenant);
     private readonly GatewayDatabase _db;
 
     /// <summary>The hard ceiling on one appended batch.</summary>
@@ -69,45 +79,21 @@ public sealed class ActivityEventStore
     /// <exception cref="ActivityValidationException">The batch or an event in it is malformed.</exception>
     public (int Written, int Duplicates) AppendBatch(IReadOnlyList<ActivityEventRecord> events)
     {
-        if (events is null)
-            throw new ActivityValidationException("An events list is required.");
+        CheckBatch(events);
         if (events.Count == 0)
             return (0, 0);
-        if (events.Count > MaxBatchSize)
-            throw new ActivityValidationException(
-                $"A batch carries at most {MaxBatchSize} events (got {events.Count}).");
 
-        lock (_gate)
+        using var ctx = _db.CreateContext();
+        var tenant = ctx.ActiveTenant!;
+        using (_gate.Enter(tenant))
         {
-            using var ctx = _db.CreateContext();
-            var now = DateTime.UtcNow;
-            var tenant = ctx.ActiveTenant!;
-
-            // Validate the WHOLE batch before touching the database, and collapse an id repeated within the
-            // batch itself (a producer replaying inside one push) to its first occurrence - same identity,
-            // same idempotent outcome as a cross-batch replay.
-            var fresh = new Dictionary<Guid, ActivityEventEntity>(events.Count);
-            var withinBatchDuplicates = 0;
-            foreach (var record in events)
-            {
-                if (record is null)
-                    throw new ActivityValidationException("The events list contains a null entry.");
-                var entity = BuildEntity(record, tenant, now);
-                if (!fresh.TryAdd(entity.EventId, entity))
-                    withinBatchDuplicates++;
-            }
-
-            // The replay check: which of these ids does this tenant already hold? Reads through the global
-            // tenant query filter, so tenant A replaying tenant B's id sees nothing and simply writes its
-            // own row under its own composite key.
+            var (fresh, withinBatchDuplicates) = Prepare(events, tenant, DateTime.UtcNow);
             var ids = fresh.Keys.ToList();
             var existing = ctx.ActivityEvents.AsNoTracking()
                 .Where(e => ids.Contains(e.EventId))
                 .Select(e => e.EventId)
                 .ToHashSet();
-
             var toInsert = fresh.Values.Where(e => !existing.Contains(e.EventId)).ToList();
-
             if (toInsert.Count > 0)
             {
                 var previousAutoDetect = ctx.ChangeTracker.AutoDetectChangesEnabled;
@@ -122,11 +108,88 @@ public sealed class ActivityEventStore
                     ctx.ChangeTracker.AutoDetectChangesEnabled = previousAutoDetect;
                 }
             }
-
-            var duplicates = existing.Count + withinBatchDuplicates;
-            FileLog.Write($"[ActivityEventStore] AppendBatch: wrote {toInsert.Count}, duplicates {duplicates}");
-            return (toInsert.Count, duplicates);
+            return Finish(toInsert.Count, existing.Count + withinBatchDuplicates);
         }
+    }
+
+    /// <summary>
+    /// <see cref="AppendBatch"/> for the HTTP route: the same validation, the same idempotent answer and the same
+    /// per-account ordering - but the gate is awaited and the database work is asynchronous, so a slow command holds no
+    /// thread.
+    /// </summary>
+    /// <exception cref="ActivityValidationException">The batch or an event in it is malformed.</exception>
+    public async Task<(int Written, int Duplicates)> AppendBatchAsync(IReadOnlyList<ActivityEventRecord> events,
+        CancellationToken cancellationToken = default)
+    {
+        CheckBatch(events);
+        if (events.Count == 0)
+            return (0, 0);
+
+        await using var ctx = _db.CreateContext();
+        var tenant = ctx.ActiveTenant!;
+        using (await _gate.EnterAsync(tenant, cancellationToken).ConfigureAwait(false))
+        {
+            var (fresh, withinBatchDuplicates) = Prepare(events, tenant, DateTime.UtcNow);
+            var ids = fresh.Keys.ToList();
+            var existing = (await ctx.ActivityEvents.AsNoTracking()
+                .Where(e => ids.Contains(e.EventId))
+                .Select(e => e.EventId)
+                .ToListAsync(cancellationToken).ConfigureAwait(false))
+                .ToHashSet();
+            var toInsert = fresh.Values.Where(e => !existing.Contains(e.EventId)).ToList();
+            if (toInsert.Count > 0)
+            {
+                var previousAutoDetect = ctx.ChangeTracker.AutoDetectChangesEnabled;
+                ctx.ChangeTracker.AutoDetectChangesEnabled = false;
+                try
+                {
+                    ctx.ActivityEvents.AddRange(toInsert);
+                    await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    ctx.ChangeTracker.AutoDetectChangesEnabled = previousAutoDetect;
+                }
+            }
+            return Finish(toInsert.Count, existing.Count + withinBatchDuplicates);
+        }
+    }
+
+    private static void CheckBatch(IReadOnlyList<ActivityEventRecord> events)
+    {
+        if (events is null)
+            throw new ActivityValidationException("An events list is required.");
+        if (events.Count > MaxBatchSize)
+            throw new ActivityValidationException(
+                $"A batch carries at most {MaxBatchSize} events (got {events.Count}).");
+    }
+
+    /// <summary>
+    /// Validate the WHOLE batch before touching the database, and collapse an id repeated within the batch itself (a
+    /// producer replaying inside one push) to its first occurrence - same identity, same idempotent outcome as a
+    /// cross-batch replay. The replay check that follows reads through the global tenant query filter, so one account
+    /// replaying another account's id sees nothing and simply writes its own row under its own composite key.
+    /// </summary>
+    private static (Dictionary<Guid, ActivityEventEntity> Fresh, int WithinBatchDuplicates) Prepare(
+        IReadOnlyList<ActivityEventRecord> events, string tenant, DateTime now)
+    {
+        var fresh = new Dictionary<Guid, ActivityEventEntity>(events.Count);
+        var withinBatchDuplicates = 0;
+        foreach (var record in events)
+        {
+            if (record is null)
+                throw new ActivityValidationException("The events list contains a null entry.");
+            var entity = BuildEntity(record, tenant, now);
+            if (!fresh.TryAdd(entity.EventId, entity))
+                withinBatchDuplicates++;
+        }
+        return (fresh, withinBatchDuplicates);
+    }
+
+    private static (int Written, int Duplicates) Finish(int written, int duplicates)
+    {
+        FileLog.Write($"[ActivityEventStore] AppendBatch: wrote {written}, duplicates {duplicates}");
+        return (written, duplicates);
     }
 
     /// <summary>
@@ -139,9 +202,9 @@ public sealed class ActivityEventStore
         DateTime? fromUtc = null, DateTime? toUtc = null, int limit = 1000)
     {
         var take = Math.Clamp(limit, 1, MaxListLimit);
-        lock (_gate)
+        using var ctx = _db.CreateContext();
+        using (_gate.Enter(ctx.ActiveTenant!))
         {
-            using var ctx = _db.CreateContext();
             IQueryable<ActivityEventEntity> query = ctx.ActivityEvents.AsNoTracking();
 
             if (!string.IsNullOrWhiteSpace(sessionId))
@@ -183,9 +246,9 @@ public sealed class ActivityEventStore
     public int PurgeOlderThan(DateTime cutoffUtc)
     {
         var cutoff = DateTime.SpecifyKind(cutoffUtc.ToUniversalTime(), DateTimeKind.Utc);
-        lock (_gate)
+        using var ctx = _db.CreateContext();
+        using (_gate.Enter(ctx.ActiveTenant!))
         {
-            using var ctx = _db.CreateContext();
             // ExecuteDelete applies the global tenant query filter, so this deletes only the ambient
             // tenant's expired rows - a set-based delete, no need to materialize thousands of old events.
             var deleted = ctx.ActivityEvents.Where(e => e.OccurredUtc < cutoff).ExecuteDelete();

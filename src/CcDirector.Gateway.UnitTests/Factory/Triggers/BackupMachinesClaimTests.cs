@@ -16,7 +16,7 @@ namespace CcDirector.Gateway.Tests.Factory.Triggers;
 /// BACKUP MACHINES (Mail Desk, phase 5, contract section 2, tests 1 to 5): a definition trigger names its own machine
 /// and backups in order, and the claim follows them. Against a real database file, with an injected clock: "the first
 /// machine goes quiet" is the clock moving past <see cref="TriggerStore.ClaimLapse"/> with no assignment poll from it.
-/// No Director runs and no port is opened - each "Director" is a name asking <see cref="TriggerService.AssignmentsFor"/>
+/// No Director runs and no port is opened - each "Director" is a name asking <see cref="TriggerService.AssignmentsForAsync"/>
 /// and reporting through <see cref="TriggerService.ReportCheckAsync"/>, exactly as the routes call them.
 /// The memory is the check's state, kept on the Gateway; "the cursor continues" is the backup being handed the state
 /// the first machine's last report left.
@@ -125,18 +125,18 @@ public sealed class BackupMachinesClaimTests : IDisposable
         // Arrange: the first machine's Director claims the check and reports, leaving its cursor.
         var service = Service();
         var t = AddTrigger(MachineB);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
         var first = await Report(service, DirectorA, MachineA, t, Nothing("cursor after message 41"));
         Assert.Equal(TriggerReportRefusal.None, first.Refusal);
 
         // Act and assert: before the lapse, the backup is handed nothing, and holds nothing.
         _now = _now.Add(TriggerStore.ClaimLapse(Interval));
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorB, MachineB));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
         Assert.Equal(DirectorA, Row(service, t).ClaimedByDirectorId);
 
         // After it, the backup is handed the trigger, with the memory the first machine left.
         _now = _now.AddSeconds(1);
-        var handed = Assert.Single(service.AssignmentsFor(Tenant, DirectorB, MachineB));
+        var handed = Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
         Assert.Equal("cursor after message 41", handed.State);
         Assert.Equal((DirectorB, MachineB), (Row(service, t).ClaimedByDirectorId, Row(service, t).ClaimedByMachine));
 
@@ -145,7 +145,7 @@ public sealed class BackupMachinesClaimTests : IDisposable
         Assert.Equal(TriggerReportRefusal.None, second.Refusal);
         Assert.Equal(DirectorB, second.Run!.DirectorId);
         Assert.Equal(2, Runs(t));
-        Assert.Equal("cursor after message 42", Assert.Single(service.AssignmentsFor(Tenant, DirectorB, MachineB)).State);
+        Assert.Equal("cursor after message 42", Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB))).State);
     }
 
     // ---------- 2. hand-back ----------
@@ -156,15 +156,15 @@ public sealed class BackupMachinesClaimTests : IDisposable
         // Arrange: the backup holds a live claim, taken over after the first machine went quiet.
         var service = Service();
         var t = AddTrigger(MachineB);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
         GoQuiet();
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorB, MachineB));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
         await Report(service, DirectorB, MachineB, t, Nothing("cursor from the backup"));
         var runsBefore = Runs(t);
 
         // Act: the first machine's Director asks for its assignments, well inside the backup's claim.
         _now = _now.AddSeconds(30);
-        var back = Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        var back = Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
 
         // Assert: it is handed the trigger, with the backup's cursor; the backup's next report is refused and records
         // nothing; and the backup's next assignment poll hands it nothing.
@@ -173,8 +173,8 @@ public sealed class BackupMachinesClaimTests : IDisposable
         var refused = await Report(service, DirectorB, MachineB, t, Nothing("must not be kept"));
         Assert.Equal(TriggerReportRefusal.HeldByAnotherDirector, refused.Refusal);
         Assert.Equal(runsBefore, Runs(t));
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorB, MachineB));
-        Assert.Equal("cursor from the backup", Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA)).State);
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
+        Assert.Equal("cursor from the backup", Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA))).State);
     }
 
     [Fact]
@@ -183,9 +183,9 @@ public sealed class BackupMachinesClaimTests : IDisposable
         // Arrange: the backup holds the claim, and its check counts work; the session's start is held open.
         var service = Service();
         var t = AddTrigger(MachineB);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
         GoQuiet();
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorB, MachineB));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
         _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var counted = await Report(service, DirectorB, MachineB, t,
             new TriggerCheckReport { CheckedAtUtc = _now, ExitCode = 0, Output = """{"count": 1}""" });
@@ -193,7 +193,7 @@ public sealed class BackupMachinesClaimTests : IDisposable
 
         // Act: the first machine takes its check back while that start runs; then the start returns.
         _now = _now.AddSeconds(10);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
         _holdStart.SetResult();
         var run = await counted.Starting!;
 
@@ -212,9 +212,9 @@ public sealed class BackupMachinesClaimTests : IDisposable
     {
         var service = Service();
         var t = AddTrigger(MachineB);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
         GoQuiet();
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorB, MachineB));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
 
         var counted = await Report(service, DirectorB, MachineB, t,
             new TriggerCheckReport { CheckedAtUtc = _now, ExitCode = 0, Output = """{"count": 2}""" });
@@ -229,7 +229,7 @@ public sealed class BackupMachinesClaimTests : IDisposable
     {
         var service = Service();
         var t = AddTrigger(MachineB);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
 
         var counted = await Report(service, DirectorA, MachineA, t,
             new TriggerCheckReport { CheckedAtUtc = _now, ExitCode = 0, Output = """{"count": 2}""" });
@@ -248,78 +248,78 @@ public sealed class BackupMachinesClaimTests : IDisposable
         var t = AddTrigger(MachineB);
 
         // Free: never handed.
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorC, MachineC));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorC, MachineC)));
         Assert.True(string.IsNullOrEmpty(Row(service, t).ClaimedByDirectorId));
 
         // Held live: never handed.
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
         await Report(service, DirectorA, MachineA, t, Nothing("cursor"));
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorC, MachineC));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorC, MachineC)));
 
         // Lapsed: still never handed, and the claim it never had is not touched.
         GoQuiet();
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorC, MachineC));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorC, MachineC)));
         Assert.Equal(DirectorA, Row(service, t).ClaimedByDirectorId);
     }
 
     // ---------- 4. three machines ----------
 
     [Fact]
-    public void ClaimForDirector_ThreeMachines_SecondTakesOver_ThenTheThird_AndTheSecondTakesItBackFromTheThird()
+    public async Task ClaimForDirector_ThreeMachines_SecondTakesOver_ThenTheThird_AndTheSecondTakesItBackFromTheThird()
     {
         var service = Service();
         var t = AddTrigger(MachineB, MachineC);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
 
         // The first goes quiet: the second takes over, and the third - later than the second - is handed nothing
         // while the second holds it.
         GoQuiet();
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorB, MachineB));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
         Assert.Equal(MachineB, Row(service, t).ClaimedByMachine);
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorC, MachineC));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorC, MachineC)));
 
         // The first is still away and the second goes quiet: the third takes over.
         GoQuiet();
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorC, MachineC));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorC, MachineC)));
         Assert.Equal((DirectorC, MachineC), (Row(service, t).ClaimedByDirectorId, Row(service, t).ClaimedByMachine));
 
         // The second returns, the first still away: it takes the check back from the third, live claim or not.
         _now = _now.AddSeconds(30);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorB, MachineB));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, MachineB)));
         Assert.Equal((DirectorB, MachineB), (Row(service, t).ClaimedByDirectorId, Row(service, t).ClaimedByMachine));
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorC, MachineC));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorC, MachineC)));
     }
 
     // ---------- 5. two Directors on the same machine ----------
 
     [Fact]
-    public void ClaimForDirector_TwoDirectorsOnTheSameMachineOfATriggerWithBackups_HandOverOnlyAtTheLapse()
+    public async Task ClaimForDirector_TwoDirectorsOnTheSameMachineOfATriggerWithBackups_HandOverOnlyAtTheLapse()
     {
         // The existing tests prove a trigger with no backups is unchanged; this proves a backup list does not change it
         // between two Directors on one machine either - they stand at the same place, so neither takes it from the other.
         var service = Service();
         var t = AddTrigger(MachineB);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
 
         _now = _now.Add(TriggerStore.ClaimLapse(Interval));
-        Assert.Empty(service.AssignmentsFor(Tenant, "dir-a-second", MachineA));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, "dir-a-second", MachineA)));
 
         _now = _now.AddSeconds(1);
-        Assert.Single(service.AssignmentsFor(Tenant, "dir-a-second", MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, "dir-a-second", MachineA)));
         Assert.Equal("dir-a-second", Row(service, t).ClaimedByDirectorId);
-        Assert.Empty(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
     }
 
     [Fact]
-    public void ClaimForDirector_MachineNamesDifferingOnlyInCase_AreTheSameMachine()
+    public async Task ClaimForDirector_MachineNamesDifferingOnlyInCase_AreTheSameMachine()
     {
         var service = Service();
         AddTrigger(MachineB);
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, MachineA));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, MachineA)));
         GoQuiet();
 
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorB, "MACHINE-B"));
-        Assert.Single(service.AssignmentsFor(Tenant, DirectorA, "Machine-A"));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorB, "MACHINE-B")));
+        Assert.Single((await service.AssignmentsForAsync(Tenant, DirectorA, "Machine-A")));
     }
 
     // ---------- 9. the words ----------

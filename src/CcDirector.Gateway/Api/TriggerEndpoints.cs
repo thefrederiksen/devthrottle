@@ -274,13 +274,14 @@ internal static class TriggerEndpoints
             });
         });
 
-        app.MapGet("/directors/{directorId}/triggers", (string directorId, HttpContext ctx) =>
+        app.MapGet("/directors/{directorId}/triggers", async (string directorId, HttpContext ctx) =>
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
             if (directorMachine(tenant, directorId) is not { } machine) return NoSuchDirector(directorId);
             // The interval checks, then the due checks of timed starts on this machine - each claimed for this Director.
-            var assigned = service.AssignmentsFor(tenant, directorId, machine).ToList();
-            assigned.AddRange(dueChecks.AssignmentsFor(tenant, directorId, machine));
+            // Every Director calls this on reconnect, so the claim is awaited, never blocked on (deploy outage, 9 Nov 2026).
+            var assigned = (await service.AssignmentsForAsync(tenant, directorId, machine, ctx.RequestAborted)).ToList();
+            assigned.AddRange(await dueChecks.AssignmentsForAsync(tenant, directorId, machine, ctx.RequestAborted));
             return Results.Json(new TriggerAssignmentResponse { Triggers = assigned });
         });
 

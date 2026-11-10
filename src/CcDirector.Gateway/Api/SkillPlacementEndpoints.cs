@@ -34,7 +34,7 @@ internal static class SkillPlacementEndpoints
         ArgumentNullException.ThrowIfNull(store);
         var now = utcNow ?? (() => DateTime.UtcNow);
 
-        app.MapPost(Path, (HttpContext ctx, SkillPlacementPushRequest? request) =>
+        app.MapPost(Path, async (HttpContext ctx, SkillPlacementPushRequest? request) =>
         {
             // Resolved through the gated shared resolver (finding I1-01): deciding on the argument fails
             // OPEN - a hosted process handed a null boundary would write the report into the Local partition.
@@ -62,9 +62,10 @@ internal static class SkillPlacementEndpoints
             var receivedAtUtc = now();
             try
             {
-                var stored = store.StoreBatch(
+                // Every Director pushes on reconnect: awaited, never blocked on (deploy outage, 9 Nov 2026).
+                var stored = await store.StoreBatchAsync(
                     tenant.Value, directorId, request.MachineName,
-                    request.Reports ?? new(), receivedAtUtc);
+                    request.Reports ?? new(), receivedAtUtc, ctx.RequestAborted);
 
                 FileLog.Write($"[SkillPlacementEndpoints] POST {Path}: tenant={tenant.Value.ToLogString()} " +
                               $"director={directorId} stored={stored}");

@@ -124,12 +124,14 @@ public sealed class DueCheckService
     /// its own, or whose claim lapsed - each CLAIMED for it. None at all for a Director that never said it runs checks
     /// from a definition. A due check whose schedule is gone, or no longer has a check, is not handed out.
     /// </summary>
-    public IReadOnlyList<TriggerAssignmentDto> AssignmentsFor(TenantId tenant, string directorId, string machine)
+    public async Task<IReadOnlyList<TriggerAssignmentDto>> AssignmentsForAsync(TenantId tenant, string directorId, string machine,
+        CancellationToken cancellationToken = default)
     {
         if (!_directorRunsDefinitionChecks(tenant, directorId)) return Array.Empty<TriggerAssignmentDto>();
         // Every pull re-writes the claim of a check this Director already holds, on purpose: that refresh is what keeps a
         // live Director's claim from lapsing while its check runs.
-        var claimed = _runs.ClaimDueChecks(tenant, directorId, machine, _nowUtc(), ClaimLapse);
+        var claimed = await _runs.ClaimDueChecksAsync(tenant, directorId, machine, _nowUtc(), ClaimLapse, cancellationToken)
+            .ConfigureAwait(false);
         var assignments = new List<TriggerAssignmentDto>();
         foreach (var due in claimed)
         {

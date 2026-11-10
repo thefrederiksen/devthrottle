@@ -44,7 +44,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
 
     private async Task<TriggerRunEntity?> Screen(StandInCheck.Plan plan, string director = DirectorA)
     {
-        var report = StandInCheck.Run(_rig.Handed(director), plan, _rig.Now);
+        var report = StandInCheck.Run((await _rig.HandedAsync(director)), plan, _rig.Now);
         var (result, run) = await _rig.ReportAsync(report, director);
         Assert.Equal(TriggerReportRefusal.None, result.Refusal);
         return run;
@@ -164,12 +164,12 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         _rig.AddMailDeskTrigger();
         _rig.Channel(BoxA);
         _rig.Model.Hold = new TaskCompletionSource();
-        var first = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("key-1", 1) })), _rig.Now);
+        var first = StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads((BoxA, new[] { Mail("key-1", 1) })), _rig.Now);
         var firstResult = await _rig.Triggers.ReportCheckAsync(MailDeskHandOffRig.Account, DirectorA, _rig.TriggerId.ToString("D"), first, CancellationToken.None, MachineA);
         var memoryRowsBefore = _rig.KeptMemoryRows();
 
         // Act
-        var second = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("key-2", 2) })), _rig.Now.AddMinutes(5));
+        var second = StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads((BoxA, new[] { Mail("key-2", 2) })), _rig.Now.AddMinutes(5));
         // Not awaited past the report itself: a second screening begun by mistake would wait on the same hold.
         var secondResult = await _rig.Triggers.ReportCheckAsync(MailDeskHandOffRig.Account, DirectorA, _rig.TriggerId.ToString("D"), second, CancellationToken.None, MachineA);
         var began = secondResult.Starting is not null;
@@ -202,7 +202,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         _rig.TriggerStore.SetPaused(MailDeskHandOffRig.Account, _rig.TriggerId.ToString("D"), true);
 
         // Act
-        var report = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
+        var report = StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
         var (result, run) = await _rig.ReportAsync(report);
 
         // Assert
@@ -232,7 +232,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         _rig.AddMailDeskTrigger();
         _rig.Channel(BoxA);
         var b = _rig.Channel(BoxB);
-        var report = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
+        var report = StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
         // Mailbox B is taken out by its address: two channels added at one instant are in no fixed order.
         var memory = JsonNode.Parse(report.State!)!.AsObject();
         RemoveAddress(memory["channels"]!.AsArray(), BoxB);
@@ -264,7 +264,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         // Arrange: the memory is handed out holding only A; B is added a minute later.
         _rig.AddMailDeskTrigger();
         _rig.Channel(BoxA);
-        var handedWithoutB = _rig.Handed();
+        var handedWithoutB = (await _rig.HandedAsync());
         _rig.Now = _rig.Now.AddMinutes(1);
         _rig.Channel(BoxB);
         _rig.Now = _rig.Now.AddMinutes(1);
@@ -277,7 +277,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
 
         // Act again: the next hand-out holds B, and the check leaves it out of its context and memory alike.
         _rig.Now = _rig.Now.AddMinutes(5);
-        var report = DropFromReport(StandInCheck.Run(_rig.Handed(), StandInCheck.Reads(), _rig.Now), BoxB);
+        var report = DropFromReport(StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads(), _rig.Now), BoxB);
         var (_, refused) = await _rig.ReportAsync(report);
 
         // Assert
@@ -294,7 +294,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         _rig.Channel(BoxA);
         _rig.Channel(BoxB);
         _rig.Now = _rig.Now.AddMinutes(1);
-        var handed = _rig.Handed();
+        var handed = (await _rig.HandedAsync());
         var report = DropFromReport(StandInCheck.Run(handed, StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now.AddDays(-2)), BoxB);
 
         // Act
@@ -315,9 +315,9 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         _rig.Channel(BoxA);
         _rig.Model.Hold = new TaskCompletionSource();
         var first = await _rig.Triggers.ReportCheckAsync(MailDeskHandOffRig.Account, DirectorA, _rig.TriggerId.ToString("D"),
-            StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now), CancellationToken.None, MachineA);
+            StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now), CancellationToken.None, MachineA);
         var second = await _rig.Triggers.ReportCheckAsync(MailDeskHandOffRig.Account, DirectorA, _rig.TriggerId.ToString("D"),
-            StandInCheck.Run(_rig.Handed(), StandInCheck.Reads(), _rig.Now), CancellationToken.None, MachineA);
+            StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads(), _rig.Now), CancellationToken.None, MachineA);
         Assert.Equal(TriggerRunOutcome.SkippedRunning, second.Run!.Outcome);
 
         // Act
@@ -338,7 +338,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         _rig.Channel(BoxA);
 
         // Act
-        var (_, run) = await _rig.ReportAsync(StandInCheck.Failed(_rig.Now, _rig.Handed()!));
+        var (_, run) = await _rig.ReportAsync(StandInCheck.Failed(_rig.Now, (await _rig.HandedAsync())!));
 
         // Assert
         Assert.Equal(TriggerRunOutcome.Failed, run!.Outcome);
@@ -681,7 +681,7 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         // Arrange
         _rig.AddMailDeskTrigger();
         _rig.Channel(BoxA);
-        var report = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
+        var report = StandInCheck.Run((await _rig.HandedAsync()), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
         report.Output = report.Output!.Replace("\\u0022version\\u0022:2", "\\u0022version\\u0022:1");
         Assert.Contains("\\u0022version\\u0022:1", report.Output);
 

@@ -19,7 +19,7 @@ namespace CcDirector.Gateway.Diagnostics;
 /// records the numbers itself, into the log that now lives on the shared drive and survives the deploy. Every
 /// line carries a UTC timestamp, so it lines up with the watch job's outage record afterwards.
 ///
-/// WHAT A LINE HOLDS: the thread pool (threads, queued work items, completed work items), the Director hub
+/// WHAT A LINE HOLDS: the thread pool (threads, its floor, queued work items, completed work items), the Director hub
 /// (connections, pushes in flight), the roster request count and failures, processor time and working set,
 /// and, for each Npgsql connection pool, connections in use and idle, the pool's maximum, requests WAITING
 /// for a connection, connection timeouts, and commands executing. The database pool numbers come from Npgsql's
@@ -165,7 +165,9 @@ public sealed class StartupLoadSampler : IDisposable
         var sb = new StringBuilder(LinePrefix);
         sb.Append(CultureInfo.InvariantCulture, $" utc={utcNow:yyyy-MM-ddTHH:mm:ss.fffZ}");
         sb.Append(CultureInfo.InvariantCulture, $" t={sinceStart.TotalSeconds:0.0}s");
+        ThreadPool.GetMinThreads(out var floor, out _);
         sb.Append(CultureInfo.InvariantCulture, $" threads={ThreadPool.ThreadCount}");
+        sb.Append(CultureInfo.InvariantCulture, $" floor={floor}");
         sb.Append(CultureInfo.InvariantCulture, $" queued={ThreadPool.PendingWorkItemCount}");
         sb.Append(CultureInfo.InvariantCulture, $" completed={ThreadPool.CompletedWorkItemCount}");
         sb.Append(CultureInfo.InvariantCulture, $" hub={live.HubConnections}");

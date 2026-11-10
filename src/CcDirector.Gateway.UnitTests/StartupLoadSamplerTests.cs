@@ -104,6 +104,8 @@ public sealed class StartupLoadSamplerTests
 
         Assert.StartsWith(StartupLoadSampler.LinePrefix, line);
         Assert.Contains(" threads=", line);
+        ThreadPool.GetMinThreads(out var floor, out _);
+        Assert.Contains($" floor={floor} ", line);
         Assert.Contains(" queued=", line);
         Assert.Contains(" hub=", line);
         Assert.Contains(" db=none-yet", line);

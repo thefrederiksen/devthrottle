@@ -46,8 +46,16 @@
          (which never touches the database) queued for up to 2 seconds. On the load rig (2 cores, 3 ms database
          round trip) 32 removed every stall: worst health check 1.8 s -> 17 ms. Threads are still created only on
          demand, so an idle Gateway pays nothing. Set here, in the hosted host's own runtimeconfig, so it applies
-         to the container only and not to the self-host or tray Gateway. /diag/loadmetrics reports the floor. -->
-    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.MinThreads" Value="32" />
+         to the container only and not to the self-host or tray Gateway. /diag/loadmetrics reports the floor.
+
+         Raised to 128 after the deploy outage of 9 November 2026, measured by the [StartupLoad] lines: once all
+         seven Directors reconnected, slow database commands blocked the workers, the queue reached 209 items while
+         the pool added a thread every two seconds from 61 to 106, and service came back only when it reached 126
+         threads. 32 was sized for the timers on a rig with a 3 ms database, not for a reconnect burst against a
+         database answering in seconds. The trigger, skill placement and activity routes no longer block a worker
+         while they wait, so this is the backstop, not the fix. Still created only on demand, so an idle Gateway
+         pays nothing; the [StartupLoad] line prints the floor (floor=) so a deploy shows it in force. -->
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.MinThreads" Value="128" />
   </ItemGroup>
 
   <ItemGroup>

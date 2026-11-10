@@ -595,10 +595,10 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     {
         var service = Service();
         var t = AddDefinitionTrigger();
-        Assert.Equal("", Assert.Single(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH")).State);
+        Assert.Equal("", Assert.Single((await service.AssignmentsForAsync(Tenant, Director, "SOREN_NORTH"))).State);
         await Send(service, t, Report("""{"count": 0}""", state: "after the first run"));
 
-        var a = Assert.Single(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH"));
+        var a = Assert.Single((await service.AssignmentsForAsync(Tenant, Director, "SOREN_NORTH")));
 
         Assert.Equal(TriggerKinds.Definition, a.Kind);
         Assert.Equal("frontdesk", a.Seat);
@@ -617,27 +617,27 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     // ---------- only a Director that says it runs definition checks gets one (design 2.6) ----------
 
     [Fact]
-    public void AnOlderDirector_IsHandedNoDefinitionTrigger_AndClaimsNone_ButACapableOneGetsIt()
+    public async Task AnOlderDirector_IsHandedNoDefinitionTrigger_AndClaimsNone_ButACapableOneGetsIt()
     {
         var service = Service();
         var t = AddDefinitionTrigger();
 
-        Assert.Empty(service.AssignmentsFor(Tenant, "dir-older", "SOREN_NORTH"));
+        Assert.Empty((await service.AssignmentsForAsync(Tenant, "dir-older", "SOREN_NORTH")));
         Assert.True(string.IsNullOrEmpty(service.Store.Find(Tenant, t.ToString("D"))!.ClaimedByDirectorId));
 
-        var a = Assert.Single(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH"));
+        var a = Assert.Single((await service.AssignmentsForAsync(Tenant, Director, "SOREN_NORTH")));
         Assert.Equal(TriggerKinds.Definition, a.Kind);
         Assert.Equal(Director, service.Store.Find(Tenant, t.ToString("D"))!.ClaimedByDirectorId);
     }
 
     [Fact]
-    public void ACommandTrigger_ReachesAnOlderDirector_AsItAlwaysDid()
+    public async Task ACommandTrigger_ReachesAnOlderDirector_AsItAlwaysDid()
     {
         var service = Service();
         var command = AddCommandTrigger(service);
         AddDefinitionTrigger();
 
-        var a = Assert.Single(service.AssignmentsFor(Tenant, "dir-older", "SOREN_NORTH"));
+        var a = Assert.Single((await service.AssignmentsForAsync(Tenant, "dir-older", "SOREN_NORTH")));
 
         Assert.Equal(command.ToString("D"), a.Id);
         Assert.Null(a.Kind);
@@ -675,12 +675,12 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     }
 
     [Fact]
-    public void TheAssignmentOfACommandTrigger_IsExactlyAsBefore_WithNoDefinitionField()
+    public async Task TheAssignmentOfACommandTrigger_IsExactlyAsBefore_WithNoDefinitionField()
     {
         var service = Service();
         AddCommandTrigger(service);
 
-        var a = Assert.Single(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH"));
+        var a = Assert.Single((await service.AssignmentsForAsync(Tenant, Director, "SOREN_NORTH")));
 
         Assert.Null(a.Kind);
         Assert.Null(a.Seat);

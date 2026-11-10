@@ -29,7 +29,7 @@ namespace CcDirector.Gateway.Factory.Definition;
 ///
 /// EVERY READER IS CORRECT AFTER COMMIT. The cron engine reads every schedule from the database on every sweep
 /// (<c>CronJobStore.ListAll</c>), and a Director's trigger claim reads the trigger table on every ask
-/// (<c>TriggerStore.ClaimForDirector</c>); the registry is read per request. None of the three keeps a copy in memory,
+/// (<c>TriggerStore.ClaimForDirectorAsync</c>); the registry is read per request. None of the three keeps a copy in memory,
 /// so there is nothing to refresh.
 /// </summary>
 public sealed class FactoryPublishApply

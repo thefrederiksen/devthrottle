@@ -11,7 +11,7 @@ namespace CcDirector.Gateway.MailDesk;
 ///
 /// WHICH MACHINE IS THE MAIN ONE. The Mail Desk start runs on its own machine whenever that machine is up, and moves
 /// to its backups, in order, only while every machine before them is away: the start's own machine always takes the
-/// claim back (<see cref="TriggerStore.ClaimForDirector"/>). The Director holding the claim reads only the mailboxes
+/// claim back (<see cref="TriggerStore.ClaimForDirectorAsync"/>). The Director holding the claim reads only the mailboxes
 /// that name its machine (<see cref="MailDeskMemory.HandedTo"/>). So, walking the start's list in order: the start's
 /// own machine is a mailbox's main machine when the mailbox names it, and every later machine the mailbox names is a
 /// backup. A machine on the start's list that the mailbox leaves out, ahead of one it names, is a gap: while that
