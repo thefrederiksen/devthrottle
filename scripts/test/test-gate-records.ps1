@@ -104,6 +104,7 @@ Test-That "the record directory can be created and written" {
 Write-Host ""
 Write-Host "the platform rule:"
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "platform-suites.ps1")
+$dotnetExe = Get-DotnetExecutable
 
 $probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cc-platform-suites-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
 try {
@@ -159,6 +160,16 @@ try {
         return $null
     }
 
+    Test-That "a platform-versioned Windows framework is still recognised as Windows-only" {
+        # net10.0-windows10.0.17763.0 is a real spelling in this repository (tools/cc-computer). The
+        # substring test has to catch it, or such a project is run here and the gate reports NEVER RAN.
+        $versioned = New-Project "sub\versioned\Versioned.csproj" "net10.0-windows10.0.17763.0" "TargetFramework"
+        $held = @(Get-SuitesThisPlatformCannotRun @($versioned) $probeRoot)
+        $expected = if ($onWindows) { 0 } else { 1 }
+        if ($held.Count -ne $expected) { return "expected $expected held back, got $($held.Count)" }
+        return $null
+    }
+
     Test-That "a project declaring no target framework is run, not held back" {
         # Cannot tell is not the same as cannot run. A real failure beats a silent omission.
         $held = @(Get-SuitesThisPlatformCannotRun @($noFramework) $probeRoot)
@@ -187,7 +198,7 @@ try {
         if (-not $onWindows -and $spelled.IndexOf([char] 92) -lt 0) {
             return "this case proves nothing - the path it built has no backslash in it"
         }
-        if (-not (Test-ProjectIsWindowsOnly $spelled)) {
+        if (-not (Test-ProjectIsWindowsOnly $spelled $dotnetExe)) {
             return "the rule could not read '$spelled', so a hand-built Windows-spelled path does not reach the project"
         }
         return $null
@@ -204,7 +215,7 @@ try {
         Set-Content -Encoding Ascii -Path (Join-Path $root "sub\Inherited.csproj") -Value `
             '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Library</OutputType></PropertyGroup></Project>'
 
-        $frameworks = Get-ProjectTargetFrameworks (Join-Path $root "sub\Inherited.csproj")
+        $frameworks = Get-ProjectTargetFrameworks (Join-Path $root "sub\Inherited.csproj") $dotnetExe
         if ($frameworks -notcontains "net10.0-windows") {
             return "expected net10.0-windows from the property file, got '$($frameworks -join ", ")'"
         }
@@ -222,9 +233,188 @@ try {
         Set-Content -Encoding Ascii -Path (Join-Path $root "Legacy.csproj") -Value `
             '<Project Sdk="Microsoft.NET.Sdk" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup></Project>'
 
-        $frameworks = Get-ProjectTargetFrameworks (Join-Path $root "Legacy.csproj")
+        $frameworks = Get-ProjectTargetFrameworks (Join-Path $root "Legacy.csproj") $dotnetExe
         if ($frameworks -notcontains "net10.0-windows") {
             return "expected net10.0-windows despite the 2003 namespace, got '$($frameworks -join ", ")'"
+        }
+        return $null
+    }
+
+    # ---- issue #4883: the rule must FIND the software development kit, and refuse loudly when it cannot ----
+
+    # These cases CHANGE THE ENVIRONMENT and restore it. The earlier drafts did not, which is why they
+    # proved less than their names said: "found without relying on the PATH" never removed the PATH, and
+    # the refusal case passed an explicit bogus path, so it exercised the file check and never the lookup
+    # returning nothing.
+    function Invoke-WithEnvironment([hashtable] $Set, [scriptblock] $Body) {
+        $saved = @{}
+        foreach ($k in $Set.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+        try {
+            foreach ($k in $Set.Keys) {
+                if ($null -eq $Set[$k]) { Remove-Item -Path ("Env:" + $k) -ErrorAction SilentlyContinue }
+                else { Set-Item -Path ("Env:" + $k) -Value $Set[$k] }
+            }
+            return & $Body
+        } finally {
+            foreach ($k in $Set.Keys) {
+                if ($null -eq $saved[$k]) { Remove-Item -Path ("Env:" + $k) -ErrorAction SilentlyContinue }
+                else { Set-Item -Path ("Env:" + $k) -Value $saved[$k] }
+            }
+        }
+    }
+
+    Test-That "the kit is found with NOTHING on the PATH and no DOTNET_ROOT" {
+        # THE #4883 REGRESSION, with the PATH actually taken away. The first version invoked a bare
+        # "dotnet"; on this fleet's Mac the kit is at ~/.dotnet and is not on the session PATH, so every
+        # query failed and the fail-open rule held NOTHING back.
+        if ($onWindows) { return $null }
+        $found = Invoke-WithEnvironment @{ PATH = "/nonexistent-for-this-test"; DOTNET_ROOT = $null; DOTNET_HOST_PATH = $null } {
+            Get-DotnetExecutable
+        }
+        if ([string]::IsNullOrWhiteSpace($found)) { return "nothing was found with the PATH removed, so the ~/.dotnet fallback is not working" }
+        if ($found -notmatch "\.dotnet") { return "it found '$found', which is not the ~/.dotnet fallback" }
+        return $null
+    }
+
+    Test-That "a kit is accepted only if it ANSWERS, not merely because the file exists" {
+        # ROUND TWO OF #4883. A runtime-only install is a real file that prints "A compatible .NET SDK
+        # was not found" and exits 145. The first repair checked only Test-Path, so such a kit was
+        # accepted, every project came back unestablished, and 0 were held back with nothing thrown -
+        # the original defect by another door. Worse, a dead ~/.dotnet outranked a working PATH kit.
+        if ($onWindows) { return $null }   # the shim below is a shell script
+        $dead = Join-Path $probeRoot "deadkit"
+        New-Item -ItemType Directory -Force $dead | Out-Null
+        $deadExe = Join-Path $dead "dotnet"
+        Set-Content -Path $deadExe -Encoding Ascii -Value "#!/bin/sh`necho 'A compatible .NET SDK was not found.' >&2`nexit 145"
+        & /bin/chmod +x $deadExe
+
+        if (Test-DotnetAnswers $deadExe) { return "a runtime-only kit was accepted as able to answer" }
+
+        # And it must not outrank a working kit: with DOTNET_ROOT pointing at the dead one, the lookup
+        # has to pass over it and still find a working kit.
+        $found = Invoke-WithEnvironment @{ DOTNET_ROOT = $dead; DOTNET_HOST_PATH = $null } { Get-DotnetExecutable }
+        if ($found -eq $deadExe) { return "the dead kit at DOTNET_ROOT was chosen over a working one" }
+        if ([string]::IsNullOrWhiteSpace($found)) { return "passing over the dead kit found nothing at all" }
+        return $null
+    }
+
+    Test-That "a SYMLINK's folder is never called a DOTNET_ROOT" {
+        # ROUND THREE OF #4883, and the only finding so far that would make a machine WORSE than before
+        # the change. An apphost honours DOTNET_ROOT literally and does not look through a symbolic link,
+        # and a link is the ORDINARY install shape: Microsoft's package links /usr/local/bin/dotnet,
+        # Homebrew links /opt/homebrew/bin/dotnet, Ubuntu links /usr/bin/dotnet. Measured on this machine:
+        # DOTNET_ROOT at the real root, a framework-dependent executable exits 0; DOTNET_ROOT at a folder
+        # holding only a symlink to that same kit, exit 131. So the folder must hold "shared" to count.
+        if ($onWindows) { return $null }
+        if ([string]::IsNullOrWhiteSpace($dotnetExe)) { return "no kit to link to" }
+
+        $linkDir = Join-Path $probeRoot "linkdir"
+        New-Item -ItemType Directory -Force $linkDir | Out-Null
+        $link = Join-Path $linkDir "dotnet"
+        $realExe = Resolve-DotnetRealPath $dotnetExe
+        & /bin/ln -s $realExe $link
+        if (-not (Test-Path -LiteralPath $link)) { return "could not create the symlink to test with" }
+
+        # It must still be usable - the link is a fine thing to INVOKE.
+        if (-not (Test-DotnetAnswers $link)) { return "the symlinked kit could not answer, so this case proves nothing" }
+
+        # ...but its folder is not a root, and must not be offered as one.
+        $root = Get-DotnetRootFolder $link
+        if ($root -eq $linkDir) { return "the symlink's own folder '$linkDir' was called a root; it holds no 'shared'" }
+
+        # It should resolve THROUGH the link to the real root, which does hold 'shared'.
+        $expected = Split-Path -Parent $realExe
+        if ($root -ne $expected) { return "expected the real root '$expected', got '$root'" }
+        return $null
+    }
+
+    Test-That "a folder with no shared subfolder is never called a DOTNET_ROOT" {
+        # The positive rule, held to its word: only a folder that can be PROVED to be a root counts.
+        if ($onWindows) { return $null }
+        $bare = Join-Path $probeRoot "barekit"
+        New-Item -ItemType Directory -Force $bare | Out-Null
+        $bareExe = Join-Path $bare "dotnet"
+        Set-Content -Path $bareExe -Encoding Ascii -Value "#!/bin/sh`necho 10.0.403"
+        & /bin/chmod +x $bareExe
+        if ($null -ne (Get-DotnetRootFolder $bareExe)) { return "a folder holding no 'shared' was called a root" }
+        return $null
+    }
+
+    Test-That "a kit older than version 8 is rejected, because -getProperty needs 8" {
+        # It would PASS a bare --version check and then fail every query with MSB1001, which produced the
+        # right refusal with the wrong explanation. Rejecting it here says why.
+        if ($onWindows) { return $null }
+        $old = Join-Path $probeRoot "oldkit"
+        New-Item -ItemType Directory -Force $old | Out-Null
+        $oldExe = Join-Path $old "dotnet"
+        Set-Content -Path $oldExe -Encoding Ascii -Value "#!/bin/sh`necho 6.0.400"
+        & /bin/chmod +x $oldExe
+        if (Test-DotnetAnswers $oldExe) { return "a version 6 kit was accepted, but -getProperty needs 8" }
+        return $null
+    }
+
+    Test-That "a kit that prints a banner before its version is still accepted" {
+        # The probe reads the LAST non-empty line of --version, not the whole output joined. This kit
+        # does not print a banner today, and under a fresh DOTNET_CLI_HOME it still prints the version
+        # alone - but a joined string would be unparseable if that ever changed, and rejecting a good
+        # kit is the failure this whole issue is about.
+        if ($onWindows) { return $null }
+        $banner = Join-Path $probeRoot "bannerkit"
+        New-Item -ItemType Directory -Force (Join-Path $banner "shared") | Out-Null
+        $bannerExe = Join-Path $banner "dotnet"
+        Set-Content -Path $bannerExe -Encoding Ascii -Value "#!/bin/sh`necho 'Welcome to .NET!'`necho '----------------'`necho 10.0.403"
+        & /bin/chmod +x $bannerExe
+        if (-not (Test-DotnetAnswers $bannerExe)) { return "a kit printing a banner before its version was rejected" }
+        return $null
+    }
+
+    Test-That "the kit it finds can really answer a framework query" {
+        $frameworks = Get-ProjectTargetFrameworks (Join-Path $probeRoot $windowsOnly) $dotnetExe
+        if ($frameworks -notcontains "net10.0-windows") {
+            return "the executable at '$dotnetExe' returned '$($frameworks -join ", ")' instead of net10.0-windows"
+        }
+        return $null
+    }
+
+    Test-That "NO working kit anywhere REFUSES rather than answering that nothing is held back" {
+        # Proved through the LOOKUP returning nothing rather than through an explicit bogus path. HOME is
+        # pointed at an empty folder so the ~/.dotnet fallback misses too.
+        if ($onWindows) { return $null }
+        $emptyHome = Join-Path $probeRoot "emptyhome"
+        New-Item -ItemType Directory -Force $emptyHome | Out-Null
+        return Invoke-WithEnvironment @{ PATH = "/nonexistent-for-this-test"; HOME = $emptyHome; DOTNET_ROOT = $null; DOTNET_HOST_PATH = $null } {
+            try {
+                $held = @(Get-SuitesThisPlatformCannotRun @($windowsOnly) $probeRoot)
+                return "returned $($held.Count) suite(s) instead of throwing"
+            } catch {
+                if ($_.Exception.Message -notmatch "no working .NET") { return "threw the wrong thing: $($_.Exception.Message)" }
+                return $null
+            }
+        }
+    }
+
+    Test-That "every project failing is a broken instrument and REFUSES" {
+        # The second line behind the probe. Two or more asked and not one answered cannot be two or more
+        # unreadable projects; it is the instrument. One project is allowed, because it cannot be told
+        # apart from a project that is simply absent - which an earlier case pins.
+        if ($onWindows) { return $null }
+        try {
+            $held = @(Get-SuitesThisPlatformCannotRun @("sub\absent\A.csproj", "sub\absent\B.csproj") $probeRoot)
+            return "returned $($held.Count) suite(s) instead of throwing for 2 of 2 unestablished"
+        } catch {
+            if ($_.Exception.Message -notmatch "broken instrument") { return "threw the wrong thing: $($_.Exception.Message)" }
+            return $null
+        }
+    }
+
+    Test-That "the decision reports which projects could not be established" {
+        if ($onWindows) { return $null }
+        $decision = Get-PlatformSuiteDecision @($windowsOnly, "sub\absent\Absent.csproj") $probeRoot
+        if ($decision.Unestablished -notcontains "sub\absent\Absent.csproj") {
+            return "the absent project is not named in Unestablished: '$($decision.Unestablished -join ", ")'"
+        }
+        if ($decision.HeldBack -notcontains $windowsOnly) {
+            return "the Windows-only project is not in HeldBack: '$($decision.HeldBack -join ", ")'"
         }
         return $null
     }
