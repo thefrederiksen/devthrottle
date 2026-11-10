@@ -91,8 +91,8 @@ public sealed class WorkflowSeatTests : IAsyncLifetime
     {
         RepoPath = _repoDir,
         Agent = "RawCli",
-        Command = "cmd",
-        CommandArgs = "/k",
+        Command = CcDirector.Core.Tests.TestShell.Path,
+        CommandArgs = CcDirector.Core.Tests.TestShell.Args,
         Role = "Architect",
     };
 

@@ -53,19 +53,34 @@ public static class GitHubUrls
         return RepoNameCache.GetOrAdd(repoPath, ResolveRepoNameUncached);
     }
 
-    private static string ResolveRepoNameUncached(string repoPath)
+    private static string ResolveRepoNameUncached(string repoPath) =>
+        ResolveRepoName(repoPath, ReadOriginRemoteUrl);
+
+    /// <summary>
+    /// The repo name of <paramref name="repoPath"/>, read through <paramref name="readOrigin"/> (null = no origin
+    /// remote). Split from the git call so the reporting rule is testable without starting git.
+    /// </summary>
+    internal static string ResolveRepoName(string repoPath, Func<string, string?> readOrigin)
     {
         try
         {
             if (!Directory.Exists(repoPath)) return "";
-            var repoName = ParseRepoName(GetOriginRemoteUrl(repoPath));
+            var origin = readOrigin(repoPath);
+            if (origin is null)
+            {
+                // No origin remote is the normal state of a local-only repository, so it is a plain line, not a
+                // FAILED one: every FAILED line is sent to the Gateway as an error report (issue #3828).
+                FileLog.Write($"[GitHubUrls] ResolveRepoNameCached: {repoPath} has no origin remote, so it has no repo name");
+                return "";
+            }
+            var repoName = ParseRepoName(origin);
             FileLog.Write($"[GitHubUrls] ResolveRepoNameCached: {repoPath} -> {repoName}");
             return repoName;
         }
         catch (Exception ex)
         {
-            // A checkout with no origin, or one on a host we do not recognize, is an expected state, not a
-            // failure to hide: it simply has no repo name and groups by its folder name instead. Recorded, "".
+            // An origin on a host we do not recognize, or a folder git cannot read, has no repo name and groups by
+            // its folder name instead. Recorded as a failure, "".
             FileLog.Write($"[GitHubUrls] ResolveRepoNameCached FAILED: {repoPath} has no recognized remote repo name: {ex.Message}");
             return "";
         }
@@ -162,9 +177,14 @@ public static class GitHubUrls
 
     /// <summary>
     /// Runs "git remote get-url origin" in the repo and returns the trimmed URL.
-    /// Throws when the repo has no origin remote (or is not a git repo).
+    /// Throws when the repo has no origin remote, or when git itself fails (not a git repo).
     /// </summary>
-    private static string GetOriginRemoteUrl(string repoPath)
+    private static string GetOriginRemoteUrl(string repoPath) =>
+        ReadOriginRemoteUrl(repoPath) ?? throw new InvalidOperationException($"No 'origin' remote in {repoPath}");
+
+    /// <summary>The origin remote's URL, or null when the repository has no origin remote. Throws when git
+    /// itself fails (not a repository, a broken .git, git missing).</summary>
+    private static string? ReadOriginRemoteUrl(string repoPath)
     {
         var psi = new System.Diagnostics.ProcessStartInfo
         {
@@ -180,10 +200,24 @@ public static class GitHubUrls
         CcDirector.Core.Git.GitOptionalLocks.ApplyTo(psi);
         using var process = System.Diagnostics.Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start git");
+        // Both streams are drained at once, so a full error pipe can never stall the read of the output.
+        var errorRead = process.StandardError.ReadToEndAsync();
         var output = process.StandardOutput.ReadToEnd().Trim();
+        var error = errorRead.GetAwaiter().GetResult().Trim();
         process.WaitForExit();
-        if (process.ExitCode != 0 || output.Length == 0)
-            throw new InvalidOperationException($"No 'origin' remote in {repoPath}");
+        return InterpretOriginRead(repoPath, process.ExitCode, output, error);
+    }
+
+    /// <summary>
+    /// What a "git remote get-url origin" run means: the URL; null when the repository has no origin remote (git
+    /// exit code 2, or success with nothing printed); otherwise git itself failed and this throws with git's message.
+    /// </summary>
+    internal static string? InterpretOriginRead(string repoPath, int exitCode, string output, string error)
+    {
+        if (exitCode == 2 || (exitCode == 0 && output.Length == 0))
+            return null;
+        if (exitCode != 0)
+            throw new InvalidOperationException($"git remote get-url origin failed in {repoPath} (exit {exitCode}): {error}");
         return output;
     }
 }

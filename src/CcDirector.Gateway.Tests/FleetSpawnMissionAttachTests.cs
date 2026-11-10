@@ -67,8 +67,8 @@ public sealed class FleetSpawnMissionAttachTests : IDisposable
     {
         RepoPath = _repoDir,
         Agent = "RawCli",
-        Command = "cmd",
-        CommandArgs = "/k",
+        Command = CcDirector.Core.Tests.TestShell.Path,
+        CommandArgs = CcDirector.Core.Tests.TestShell.Args,
     };
 
     private DirectorCommandResult Spawn(NewSessionRequest body)

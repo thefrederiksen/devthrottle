@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.Tests;
 /// dispatches it down the tunnel and <see cref="SessionCommandExecutor.CreateAsync"/> is its whole body:
 /// validation, create funnel, pre-launch stamp, DTO mapper. These tests drive that real verb core, so
 /// the strength of the original wire tests is preserved over the surviving code. The sessions are
-/// `cmd /k`, the same harmless launch the sibling spawn tests use.
+/// the platform's own shell (TestShell), the same harmless launch the sibling spawn tests use.
 /// </summary>
 [Collection("DirectorRoot")]
 public sealed class FleetSpawnOriginTests : IDisposable
@@ -56,8 +56,8 @@ public sealed class FleetSpawnOriginTests : IDisposable
     {
         RepoPath = _repoDir,
         Agent = "RawCli",
-        Command = "cmd",
-        CommandArgs = "/k",
+        Command = CcDirector.Core.Tests.TestShell.Path,
+        CommandArgs = CcDirector.Core.Tests.TestShell.Args,
         Name = "origin test session",
     };
 
