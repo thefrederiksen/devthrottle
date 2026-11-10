@@ -324,6 +324,15 @@ public partial class App : Application
         MigrateRecentSessionsToHistory();
 
         FileLog.Start();
+
+        // Sweep this Director's OWN spent process logs (issue #4853). One file is written per
+        // Director process and nothing had ever removed one, so the folder grew for ever - 409 MB in
+        // 85 files on one machine, going back three weeks, in a path nobody thinks to look in. Done
+        // here because start-up is the one moment the folder is quiet and this process's own file is
+        // known. It only ever removes files whose names are provably spent Director process logs
+        // older than the keep window, never the file this process is writing.
+        DirectorLogSweep.Run(FileLog.LogDirectory, FileLog.DirectorFilePrefix, FileLog.CurrentLogPath, DateTime.UtcNow);
+
         var retiredFilesRemoved = LegacyPrivacyDataCleanup.Run();
         if (retiredFilesRemoved > 0)
             FileLog.Write($"[App] Removed {retiredFilesRemoved} retired local tracking file(s).");
