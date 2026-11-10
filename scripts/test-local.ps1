@@ -382,6 +382,27 @@ if ($Gateway) {
     if ($Quarantine) { $toRun += @($parkedProjects | Where-Object { $_ -ne $gatewayProject }) }
 }
 
+# =====================================================================================================
+# A SUITE THIS OPERATING SYSTEM CANNOT RUN IS NAMED AND HELD BACK - NEVER SILENTLY DROPPED (issue #4806)
+#
+# Holding one back is NOT the same as pretending it passed. The gate's whole design is that a suite
+# which did not run certifies nothing, so these are listed in the open, as a platform gap a person has
+# to weigh - exactly as a parked suite's COVERAGE GAP is. The rule itself lives in
+# scripts\platform-suites.ps1 so it can be tested on its own; see that file for why.
+# =====================================================================================================
+. (Join-Path $PSScriptRoot "platform-suites.ps1")
+
+$platformHeldBack = @(Get-SuitesThisPlatformCannotRun $toRun (Split-Path -Parent $PSScriptRoot))
+if ($platformHeldBack.Count -gt 0) {
+    $toRun = @($toRun | Where-Object { $platformHeldBack -notcontains $_ })
+    Write-Host ""
+    Write-Host ("PLATFORM GAP - {0} suite(s) target Windows alone and cannot run on this operating system:" -f $platformHeldBack.Count)
+    foreach ($p in $platformHeldBack) { Write-Host "  $p" }
+    Write-Host "They were NOT run and this run says nothing about them. Gate them on Windows before merging a"
+    Write-Host "change that reaches them, or say in the pull request why not."
+    Write-Host ""
+}
+
 
 # ---------------------------------------------------------------------------------------------------
 # THE RUN'S IDENTITY AND ITS FOLDER, settled before anything is built, because the run record below names both.
@@ -603,6 +624,13 @@ $runRecord = [ordered]@{
     expectTests   = $ExpectTests
     startedUtc    = (Get-Date).ToUniversalTime().ToString("o")
     machine       = [Environment]::MachineName
+    # WHICH OPERATING SYSTEM, AND WHAT IT COULD NOT RUN (issue #4806). Without these two a record
+    # written on a Mac is indistinguishable from one written on Windows, while covering strictly fewer
+    # suites - so a reader of the record cannot tell that the installer was never tested. The gate's
+    # whole design is that a suite which did not run certifies nothing; that only holds if the record
+    # says which ones did not.
+    operatingSystem  = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+    platformHeldBack = @($platformHeldBack)
     user          = [Environment]::UserName
     session       = (Get-GateSessionName)
     directory     = $repoRoot
@@ -894,7 +922,19 @@ try {
     $buildServerArgs = @()
     # A build server would keep files in the throwaway clearance worktree open, and it could not be removed.
     if ($null -ne $clearTree) { $buildServerArgs = @("--disable-build-servers") }
-    & dotnet build $sln -c $Configuration -v q --nologo @buildServerArgs
+
+    # The solution holds projects that target Windows, and the software development kit refuses to build
+    # one of those on another operating system (NETSDK1100) unless it is told to allow it. Without this
+    # the gate stopped before a single test ran on a Mac (issue #4806), which is why rule 5a could not be
+    # followed on this platform at all. Scoped to the platforms that need it: the property only ever
+    # suppresses a check that Windows does not raise, so it is inert there - but the build command on the
+    # platform everyone uses is left provably untouched.
+    $targetingArgs = @()
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+        $targetingArgs = @("-p:EnableWindowsTargeting=true")
+    }
+
+    & dotnet build $sln -c $Configuration -v q --nologo @buildServerArgs @targetingArgs
     if ($LASTEXITCODE -ne 0 -and $null -ne $clearTree) {
         Write-Host ""
         Write-Host "RESULT: NOT CLEARED - main's test projects do not build against the candidate's product code: some test"
@@ -914,7 +954,7 @@ try {
     # A failure is fatal for the same reason a solution build failure is: tests that never ran must not be
     # reported as tests that passed.
     foreach ($proj in ($toRun | Where-Object { $installerProjects -contains $_ })) {
-        & dotnet build (Join-Path $repoRoot $proj) -c $Configuration -v q --nologo
+        & dotnet build (Join-Path $repoRoot $proj) -c $Configuration -v q --nologo @targetingArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Host ""
             Write-Host "RESULT: BUILD FAILED for $proj - no tests were run."
@@ -1467,6 +1507,16 @@ try {
                          Where-Object { -not ($Filter -eq "" -and -not $Quarantine -and $selectedInDefault -contains $_) })
     }
     foreach ($n in $parkedRan) { Write-Host "Parked suite $n ran the tests this change can reach (see its line in the TRX verdict)." }
+
+    # Printed AGAIN here, beside the verdict (issue #4806). The first notice goes out before the build,
+    # which on a full run is tens of thousands of lines earlier and long since scrolled away - and the
+    # verdict is the part people read and paste.
+    if ($platformHeldBack.Count -gt 0) {
+        Write-Host ""
+        Write-Host ("PLATFORM GAP - {0} suite(s) could not run on this operating system and were NOT run:" -f $platformHeldBack.Count)
+        foreach ($n in $platformHeldBack) { Write-Host "  $n" }
+        Write-Host "This run says nothing about them. Gate a change that reaches them on Windows."
+    }
 
     if ($coverageGap.Count -gt 0) {
         Write-Host ""
