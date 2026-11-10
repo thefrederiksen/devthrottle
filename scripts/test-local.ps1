@@ -73,7 +73,7 @@
     ran. Red-first evidence is gathered with this command, so that shape of green is now a failure:
     exit 3 means zero tests were collected anywhere, exit 4 means a project exited zero without writing a
     result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), exit 2
-    means a bad argument, exit 7 means a -Parked
+    means a bad argument OR that no working .NET kit could be found (see PLATFORM GAP below), exit 7 means a -Parked
     or -Gateway run was refused before building because the disk is too full to finish it, exit 10 means
     a -RerunFailed found every failed test FLAKY (still a failure - see THE FLAKY TEST RULE), and exit 9 means a
     suite NEVER RAN or did not finish: it executed zero tests with no filter, its result file says the
@@ -382,28 +382,6 @@ if ($Gateway) {
     if ($Quarantine) { $toRun += @($parkedProjects | Where-Object { $_ -ne $gatewayProject }) }
 }
 
-# =====================================================================================================
-# A SUITE THIS OPERATING SYSTEM CANNOT RUN IS NAMED AND HELD BACK - NEVER SILENTLY DROPPED (issue #4806)
-#
-# Holding one back is NOT the same as pretending it passed. The gate's whole design is that a suite
-# which did not run certifies nothing, so these are listed in the open, as a platform gap a person has
-# to weigh - exactly as a parked suite's COVERAGE GAP is. The rule itself lives in
-# scripts\platform-suites.ps1 so it can be tested on its own; see that file for why.
-# =====================================================================================================
-. (Join-Path $PSScriptRoot "platform-suites.ps1")
-
-$platformHeldBack = @(Get-SuitesThisPlatformCannotRun $toRun (Split-Path -Parent $PSScriptRoot))
-if ($platformHeldBack.Count -gt 0) {
-    $toRun = @($toRun | Where-Object { $platformHeldBack -notcontains $_ })
-    Write-Host ""
-    Write-Host ("PLATFORM GAP - {0} suite(s) target Windows alone and cannot run on this operating system:" -f $platformHeldBack.Count)
-    foreach ($p in $platformHeldBack) { Write-Host "  $p" }
-    Write-Host "They were NOT run and this run says nothing about them. Gate them on Windows before merging a"
-    Write-Host "change that reaches them, or say in the pull request why not."
-    Write-Host ""
-}
-
-
 # ---------------------------------------------------------------------------------------------------
 # THE RUN'S IDENTITY AND ITS FOLDER, settled before anything is built, because the run record below names both.
 #
@@ -590,6 +568,93 @@ if ($ClearFlaky -ne "") {
 if ($targetMode -ne "") {
     $toRun = @($targets | ForEach-Object { $_.Project } | Select-Object -Unique)
 }
+
+# =====================================================================================================
+# A SUITE THIS OPERATING SYSTEM CANNOT RUN IS NAMED AND HELD BACK - NEVER SILENTLY DROPPED (#4806)
+#
+# Holding one back is NOT the same as pretending it passed. The gate's whole design is that a suite
+# which did not run certifies nothing, so these are listed in the open, as a platform gap a person has
+# to weigh - exactly as a parked suite's COVERAGE GAP is. The rule itself lives in
+# scripts\platform-suites.ps1 so it can be tested on its own; see that file for why.
+#
+# THIS RUNS HERE, AFTER $toRun IS FINAL, and that position is load-bearing (#4883). The first version
+# filtered immediately after the default list was built - which is BEFORE the targeted modes
+# (-RerunFailed, -ClearFlaky) replace $toRun with the projects their named tests live in. So a targeted
+# run discarded the filter entirely and could try to run a Windows-only suite again. It also has to stay
+# BEFORE the run record below, which records what was held back.
+#
+# A missing .NET executable THROWS rather than answering "nothing is held back", because those two are
+# indistinguishable from the outside and only one of them is true. The refusal names the fix.
+# =====================================================================================================
+. (Join-Path $PSScriptRoot "platform-suites.ps1")
+
+# THE GATE AND THE RULE USE THE SAME KIT (#4883, round two). Every dotnet call below this point is a
+# BARE "dotnet" - the solution build, the installer builds, and the test host's Start-Process - so on a
+# machine where the kit is not on the PATH they raise CommandNotFoundException under ErrorActionPreference
+# Stop, inside the main try, and the run dies with a red PowerShell error and no verdict. Meanwhile the
+# rule above WOULD have found the kit at ~/.dotnet. The two resolving differently is the actual defect:
+# the rule's lookup buys the gate nothing until they agree. So resolve once, here, and put that kit on
+# the PATH for everything that follows - which is exactly what scripts\local-build-mac.sh already does.
+# SCOPED TO THE PLATFORMS THAT NEED IT, like targetingArgs below. On Windows the kit is always on the
+# PATH, and the promise a few lines down - that the build command on the platform everyone uses is left
+# provably untouched - has to stay true of its ENVIRONMENT as well as its arguments.
+$gateDotnet = $null
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+    $gateDotnet = Get-DotnetExecutable
+    if ($null -ne $gateDotnet) {
+        $gateDotnetDir = Split-Path -Parent $gateDotnet
+        if (($env:PATH -split [IO.Path]::PathSeparator) -notcontains $gateDotnetDir) {
+            $env:PATH = $gateDotnetDir + [IO.Path]::PathSeparator + $env:PATH
+            Write-Host "Using the .NET kit at $gateDotnet (added to PATH for this run)."
+        }
+
+        # DOTNET_ROOT IS SET ONLY TO A FOLDER THAT CAN BE PROVED TO BE A ROOT, and the proof is that it
+        # holds "shared". Setting it wrong is worse than leaving it unset: an apphost honours it
+        # LITERALLY and does not look through a symbolic link, and a link is the ordinary install shape
+        # (/usr/local/bin, /opt/homebrew/bin, /usr/bin all link to a kit elsewhere). Measured here: with
+        # DOTNET_ROOT at the real root a framework-dependent executable exits 0; with DOTNET_ROOT at a
+        # folder holding only a symlink to that same kit it exits 131, "You must install .NET to run
+        # this application". Unset, the host finds a default-location install by itself. The first draft
+        # of this block wrote the symlink's folder and would have broken every test that launches a
+        # built executable on every package-installed machine, in exchange for nothing.
+        $gateDotnetRoot = Get-DotnetRootFolder $gateDotnet
+        if ($null -ne $gateDotnetRoot) {
+            if ([string]::IsNullOrWhiteSpace($env:DOTNET_ROOT)) {
+                $env:DOTNET_ROOT = $gateDotnetRoot
+            } elseif ($env:DOTNET_ROOT -ne $gateDotnetRoot -and -not (Test-DotnetAnswers (Join-Path $env:DOTNET_ROOT "dotnet"))) {
+                # The probe rejected what DOTNET_ROOT points at, so leaving it would hand every child a
+                # kit this run has already established cannot answer. Said out loud rather than swapped
+                # silently.
+                Write-Host "DOTNET_ROOT was $($env:DOTNET_ROOT), which cannot answer; using $gateDotnetRoot for this run."
+                $env:DOTNET_ROOT = $gateDotnetRoot
+            }
+        }
+    }
+}
+
+$platformHeldBack = @()
+$platformUnestablished = @()
+try {
+    $decision = Get-PlatformSuiteDecision $toRun (Split-Path -Parent $PSScriptRoot) $gateDotnet
+    $platformHeldBack = @($decision.HeldBack)
+    $platformUnestablished = @($decision.Unestablished)
+} catch {
+    Stop-Refused ("could not work out which suites this operating system can run: " + $_.Exception.Message)
+}
+
+foreach ($u in $platformUnestablished) {
+    Write-Host "  (could not establish the target frameworks of $u - it will be RUN)"
+}
+
+if ($platformHeldBack.Count -gt 0) {
+    $toRun = @($toRun | Where-Object { $platformHeldBack -notcontains $_ })
+    Write-Host ""
+    Write-Host ("PLATFORM GAP - {0} suite(s) target Windows alone and cannot run on this operating system:" -f $platformHeldBack.Count)
+    foreach ($p in $platformHeldBack) { Write-Host "  $p" }
+    Write-Host "They were NOT run and this run says nothing about them. Gate them on Windows before merging a"
+    Write-Host "change that reaches them, or say in the pull request why not."
+    Write-Host ""
+}
 $logDir = Join-Path ([System.IO.Path]::GetTempPath()) ("cc-test-local-" + [Guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
@@ -631,6 +696,10 @@ $runRecord = [ordered]@{
     # says which ones did not.
     operatingSystem  = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
     platformHeldBack = @($platformHeldBack)
+    # Recorded, not merely printed: a project whose frameworks could not be established IS RUN, and if
+    # it cannot execute here the gate reports NEVER RAN - so the record has to say which ones those were
+    # or the only evidence is console scrollback.
+    platformUnestablished = @($platformUnestablished)
     user          = [Environment]::UserName
     session       = (Get-GateSessionName)
     directory     = $repoRoot
