@@ -8,7 +8,6 @@ import {
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { OwnerActionButton, StatusWord, TalkButton, ToneChip, toneClass } from "./FactoryParts";
-import { FactoryManagerCard } from "./FactoryManagerCard";
 import { DraftFactories, NewFactoryButton } from "./FactoryNew";
 import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import {
@@ -35,7 +34,7 @@ import {
 } from "./factoriesSort";
 import "./factory.css";
 
-// Factories (Factories screen mission, mockups 1 and 4): four tabs - Factories, Activity, Reports and Factory Manager,
+// Factories (Factories screen mission, mockups 1 and 4): three tabs - Factories, Activity and Reports,
 // as the Gateway lists them. The Factories tab is one row per factory - name, what is waiting on the owner, status,
 // and the boss's Talk button. Every word and
 // tone is the Gateway's (FactoriesScreenFold), rendered verbatim (rule 7). The ORDER is the owner's: a "Sort by"
@@ -49,12 +48,11 @@ import "./factory.css";
 
 //
 // Since 17 Oct 2026 (owner) the Factories tab leads with the factories: published ones, then the drafts as cards of
-// their own, then what is secondary - the archived factories and the schedules outside any factory. The Factory
-// Manager card moved to its own tab, unchanged.
+// their own, then what is secondary - the archived factories and the schedules outside any factory.
 
-type TabKey = "factories" | "activity" | "reports" | "manager";
+type TabKey = "factories" | "activity" | "reports";
 
-const TAB_KEYS: ReadonlyArray<TabKey> = ["factories", "activity", "reports", "manager"];
+const TAB_KEYS: ReadonlyArray<TabKey> = ["factories", "activity", "reports"];
 
 export function FactoriesView() {
   const [params, setParams] = useSearchParams();
@@ -109,7 +107,6 @@ export function FactoriesView() {
       {frame.data !== null && tab === "factories" && <FactoriesList view={frame.data} onChanged={frame.reload} />}
       {tab === "activity" && <ActivityTab />}
       {tab === "reports" && <ReportsTab />}
-      {tab === "manager" && <FactoryManagerCard />}
     </div>
   );
 }

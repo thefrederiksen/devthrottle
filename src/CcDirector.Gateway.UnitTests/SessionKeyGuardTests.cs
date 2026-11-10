@@ -302,10 +302,7 @@ public sealed class SessionKeyGuardTests
     // show|reset`. A session may read it; its reset reaches the route, which refuses it in words (only a person resets).
     [InlineData("GET", "/factory-definitions/warmforward/check-state")]
     [InlineData("POST", "/factory-definitions/warmforward/check-state/reset")]
-    // The Factory Manager's binding and the name check (Factory Control, step 5):
-    // `cc-devthrottle factory manager show|set|clear` and `cc-devthrottle factory name-check`.
-    [InlineData("GET", "/gateway/factory-manager")]
-    [InlineData("PUT", "/gateway/factory-manager")]
+    // The name check: `cc-devthrottle factory name-check`.
     [InlineData("GET", "/gateway/factory/name-check")]
     public void The_methods_and_paths_the_shipped_clients_send_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed,
@@ -333,15 +330,14 @@ public sealed class SessionKeyGuardTests
             $"{method} {path} is not a routed workspace shape and must not be authorized");
 
     [Theory]
-    // The Factory Manager's own talk and the owner's card are the owner's: a session starts no talk and reads no
-    // owner screen. The binding is a mark, not a verb set - there is nothing to POST or DELETE.
+    // The retired Factory Manager's routes are gone, and a session key is refused on every one of them.
     [InlineData("POST", "/gateway/factory-agents/factory-manager/talk")]
     [InlineData("GET", "/gateway/factory-agents/factory-manager")]
-    [InlineData("POST", "/gateway/factory-manager")]
-    [InlineData("DELETE", "/gateway/factory-manager")]
+    [InlineData("GET", "/gateway/factory-manager")]
+    [InlineData("PUT", "/gateway/factory-manager")]
     [InlineData("PUT", "/gateway/factory/name-check")]
     [InlineData("POST", "/gateway/factory/name-check")]
-    public void Factory_manager_shapes_a_session_must_not_reach_stay_refused(string method, string path)
+    public void Retired_and_unrouted_factory_shapes_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is the owner's or is not routed, and must not be authorized for a session key");
 

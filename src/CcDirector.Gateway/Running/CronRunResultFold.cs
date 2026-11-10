@@ -174,7 +174,7 @@ public static class CronRunResultFold
 
     /// <summary>
     /// Fold an account's runs into its problems, newest first (the one source the factory page, the 08:00 email and
-    /// the Factory Manager read).
+    /// the Fleet Manager read).
     /// </summary>
     /// <param name="runsByJob">Every run of the account, by schedule id, newest first.</param>
     /// <param name="jobs">The account's schedules, by id. A run of a deleted schedule is still listed, under its id.</param>

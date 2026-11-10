@@ -32,7 +32,6 @@ public sealed class EveryFactoryRouteIsBehindTheGateTests
         ["POST /gateway/factories/{factory}/waiting/handled-older"] = "an owner action that asks the decision itself",
         ["POST /gateway/factory-agents/factories/{factory}/problems/{runId}/handle"] = "a talk that asks the decision itself",
         ["POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk"] = "a talk that asks the decision itself",
-        ["POST /gateway/factory-agents/factory-manager/talk"] = "the Factory Manager's talk, which asks the decision itself",
         // The Owner sending a factory to a contributor (Team implementation 4.1), mapped under /teams so the team gate
         // admits it. FactoryShares asks the same decision for the TEAM's account first - proven in
         // ContributorFactoriesAndInboxTests.ShareRoutes_TheTeamsFactoryAreaIsOff_AnswerNotFoundAndRecordNothing.

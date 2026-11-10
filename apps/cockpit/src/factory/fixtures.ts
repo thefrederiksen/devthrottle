@@ -219,7 +219,6 @@ export const FACTORY_LIST: FactoriesListView = {
     { key: "factories", label: "Factories" },
     { key: "activity", label: "Activity" },
     { key: "reports", label: "Reports" },
-    { key: "manager", label: "Factory Manager" },
   ],
   columns: ["Factory", "Waiting on you", "Status"],
   rows: [

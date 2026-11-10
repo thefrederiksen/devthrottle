@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.Teams;
 ///
 /// WHERE IT IS ASKED (review of the second commit, F1 and F2). Every session a person or a factory starts on a Director
 /// goes through one door, <c>GatewayEndpoints.StartSessionOnDirectorAsync</c>, which asks <see cref="Refuse"/> for that
-/// Director's computer - the talk, the Factory Manager's talk, "handle the issue", a Boss's seat start and anything added
+/// Director's computer - the talk, "handle the issue", a Boss's seat start and anything added
 /// later. A definition's publish and restore ask it for every computer the definition names, before the check asks
 /// those computers anything and before the apply writes a schedule or a trigger. A stored schedule firing asks
 /// <see cref="RefuseRun"/>. The write routes of a schedule, a trigger and the folder choices ask <see cref="Refuse"/> as

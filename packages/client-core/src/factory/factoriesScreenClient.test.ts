@@ -3,11 +3,9 @@ import { gatewayErrorMessage, GatewayError } from "../api/client";
 import {
   getFactoriesList,
   getFactoryEmail,
-  getFactoryManagerCard,
   getFactorySeatPage,
   takeScheduleOffSeat,
   resolveRunProblem,
-  startFactoryManagerTalk,
   runFactoryOwnerAction,
   startProblemTalk,
   startFactoryTalk,
@@ -157,9 +155,9 @@ describe("startProblemTalk", () => {
   });
 
   it("carries the Gateway's refusal sentence", async () => {
-    answer(409, JSON.stringify({ error: "Tallyhand has no boss, so this goes to the Factory Manager, which is not built yet." }));
+    answer(409, JSON.stringify({ error: "Tallyhand has no boss, and the Fleet Manager could not be started." }));
     const err = await startProblemTalk(HANDLE).catch((e: unknown) => e);
-    expect(gatewayErrorMessage(err, "start the talk")).toContain("which is not built yet");
+    expect(gatewayErrorMessage(err, "start the talk")).toContain("could not be started");
   });
 });
 
@@ -199,37 +197,6 @@ describe("getFactoryEmail", () => {
     answer(200, "<!doctype html><html></html>", "text/html");
     const err = await getFactoryEmail("e1").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(GatewayError);
-  });
-});
-
-describe("the Factory Manager", () => {
-  it("reads its card from the Factory Manager route", async () => {
-    answer(200, JSON.stringify({ title: "Factory Manager", actionLabel: "Talk to the Factory Manager" }));
-    await expect(getFactoryManagerCard()).resolves.toMatchObject({ title: "Factory Manager" });
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/gateway/factory-agents/factory-manager", expect.objectContaining({ method: "GET" }));
-  });
-
-  it("sends the chosen computer and folder on a first start", async () => {
-    answer(201, JSON.stringify({ sessionId: "s-1", href: "/session/s-1" }));
-    await expect(startFactoryManagerTalk({ computer: "SOREN_NORTH", folder: "D:/factories" })).resolves.toMatchObject({ href: "/session/s-1" });
-    const [path, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
-    expect(path).toBe("/gateway/factory-agents/factory-manager/talk");
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({ computer: "SOREN_NORTH", folder: "D:/factories" });
-  });
-
-  it("sends no body when the saved placement is used", async () => {
-    answer(200, JSON.stringify({ sessionId: "s-1", href: "/session/s-1" }));
-    await startFactoryManagerTalk(null);
-    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
-    expect(init.body).toBeUndefined();
-  });
-
-  it("carries the Gateway's refusal sentence", async () => {
-    answer(409, JSON.stringify({ error: "No Director is running on SOREN_NORTH, the computer the Factory Manager runs on." }));
-    const err = await startFactoryManagerTalk(null).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(GatewayError);
-    expect(gatewayErrorMessage(err, "start the Factory Manager")).toContain("No Director is running on SOREN_NORTH");
   });
 });
 

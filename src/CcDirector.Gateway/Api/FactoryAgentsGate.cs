@@ -82,7 +82,7 @@ internal static class FactoryAgentsGate
         => factorySwitch.Answer(resolveTenant(ctx));
 
     /// <summary>
-    /// The sentence a route mapped OUTSIDE the group (talk, the owner's actions, the Factory Manager's talk) carries on
+    /// The sentence a route mapped OUTSIDE the group (talk, the owner's actions) carries on
     /// its 404 when the area is off, ending in what was not done. It names the plan when the plan is why; otherwise it
     /// is the sentence those routes have always said.
     /// </summary>

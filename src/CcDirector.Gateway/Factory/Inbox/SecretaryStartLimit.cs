@@ -42,7 +42,7 @@ public sealed record SecretaryStartRefusal(int Status, string Code, string Sente
 /// </list>
 /// Not doors, deliberately: a restart REQUEST (it restarts nothing until the owner accepts it), creating a browser profile
 /// (it launches nothing), pausing a schedule or a trigger, and every read. Routes only a person's device reaches - the Talk
-/// button, the Factory Manager talk - are refused to every session key by the guard already.
+/// button - are refused to every session key by the guard already.
 /// </summary>
 public static class SecretaryStartLimit
 {

@@ -7,7 +7,7 @@ namespace CcDirector.Gateway.Tests.Factory;
 
 /// <summary>
 /// Handle the issue (Factory Control, step 1b), without a server: the factory page's Open problems card laid out from
-/// the one problems fold's answer, who a problem's talk goes to (the boss, or the Factory Manager that does not exist
+/// the one problems fold's answer, who a problem's talk goes to (the boss, or the Fleet Manager
 /// yet), and the briefing the boss is opened with.
 /// </summary>
 [Trait("Category", "FactoryTalk")]
@@ -117,17 +117,17 @@ public sealed class FactoryProblemsFoldTests
     }
 
     [Fact]
-    public void Card_AFactoryWithNoBoss_OffersHandleTheIssue_WithTheFactoryManager()
+    public void Card_AFactoryWithNoBoss_OffersHandleTheIssue_WithTheFleetManager()
     {
         var handle = Assert.Single(FactoryProblemsFold.Card(Factory(null), Answer(Problem())).Items).Handle;
 
         Assert.True(handle.Available);
         Assert.Null(handle.UnavailableText);
         Assert.Equal("Handle the issue", handle.Label);
-        Assert.Equal("Starting the talk with the Factory Manager...", handle.BusyLabel);
+        Assert.Equal("Telling the Fleet Manager...", handle.BusyLabel);
         // The card's note says who THIS factory's problems go to, and never names a boss it does not have.
         var note = FactoryProblemsFold.Card(Factory(null), Answer(Problem())).Note;
-        Assert.EndsWith("This factory has no boss, so Handle the issue opens a talk with the Factory Manager, already told about it.", note);
+        Assert.EndsWith("This factory has no boss, so Handle the issue goes to the Fleet Manager, already told about it.", note);
         Assert.DoesNotContain("with the boss", note);
         Assert.EndsWith("Handle the issue opens a talk with the boss, already told about it.", FactoryProblemsFold.Card(Factory("boss"), Answer(Problem())).Note);
     }
@@ -172,12 +172,12 @@ public sealed class FactoryProblemsFoldTests
     }
 
     [Fact]
-    public void Route_ABossSeatTheFactoryDoesNotHave_GoesToTheFactoryManager()
+    public void Route_ABossSeatTheFactoryDoesNotHave_GoesToTheFleetManager()
     {
         var target = FactoryProblemHandoff.Route(Factory("ceo"));
 
         Assert.True(target.Available);
-        Assert.True(target.ToFactoryManager);
+        Assert.True(target.ToFleetManager);
         Assert.Null(target.Seat);
     }
 

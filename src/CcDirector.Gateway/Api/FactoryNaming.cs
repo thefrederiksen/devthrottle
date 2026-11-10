@@ -282,7 +282,7 @@ internal static class FactoryNaming
     }, statusCode: StatusCodes.Status403Forbidden);
 
     /// <summary>The sentence acting on another factory's row is refused with. Held here so a route that adds to it
-    /// (the resolve route, for a session that was the Factory Manager) says the same words.</summary>
+    /// (the resolve route, for a session that was the Fleet Manager) says the same words.</summary>
     internal static string ActRefusal(string what, string factory) =>
         $"this {what} belongs to factory '{factory}', so only a person or a session of '{factory}' may change or run it";
 
