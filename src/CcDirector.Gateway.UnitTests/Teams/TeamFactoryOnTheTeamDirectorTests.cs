@@ -216,7 +216,7 @@ public sealed class TeamFactoryOnTheTeamDirectorTests : IAsyncLifetime
             Delivery: delivery, Factories: _factories, Activity: _activity, FactoryContributors: new FactoryContributors(_db),
             FactorySwitch: factorySwitch,
             FactoryInbox: new CcDirector.Gateway.Factory.Inbox.FactoryInboxStore(_db, _ => CcDirector.Core.Dictation.Models.DictationDictionary.Empty),
-            FactoryInboxMessageSent: (_, _, _) => { }, UtcNow: () => Now));
+            FactoryInboxMessageSent: (_, _, _) => { }, TenantSettings: new CcDirector.Gateway.Settings.TenantSettingsStore(_db), UtcNow: () => Now));
 
         // What a Director pulls while it runs a factory, and the Boss's own factory inbox: reached or not.
         foreach (var (method, pattern) in DirectorAndBossRoutes)

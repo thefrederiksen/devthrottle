@@ -40,6 +40,9 @@ import "./factoryWatch.css";
 export interface FactoryWatchPlayerProps {
   /** The finished watch view from the Gateway. Pass a new view with more steps and, live, they play as they arrive. */
   view: FactoryWatchView;
+  /** True to start the replay at once, as the replay button would, when the view offers one (piece 6: pressing the
+   * explainer card's "Watch your factory" starts the factory playing). Read once, when the player first draws. */
+  startPlaying?: boolean;
 }
 
 /** The hall floors, picked by the hall's index from the Gateway. */
@@ -57,7 +60,7 @@ const SPEEDS: ReadonlyArray<{ speed: Speed; label: string }> = [
 const pts = (a: Array<[number, number]>) => a.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
 const boxText = (b: Box) => `${b.x.toFixed(1)} ${b.y.toFixed(1)} ${b.w.toFixed(1)} ${b.h.toFixed(1)}`;
 
-export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
+export function FactoryWatchPlayer({ view, startPlaying = false }: FactoryWatchPlayerProps) {
   const timeline = useMemo(() => buildTimeline(view), [view]);
   const world = useMemo(() => worldBox(view), [view]);
   const [pb, dispatch] = useReducer(playbackReducer, timeline, initialPlayback);
@@ -83,6 +86,14 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
       svgRef.current.setAttribute("viewBox", boxText(camRef.current));
     }
   });
+
+  // Started from the explainer card: play the window from the start, exactly as the replay button does.
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    if (startPlaying && view.replayText !== null) dispatch({ type: "restart" });
+  }, [startPlaying, view.replayText]);
 
   // One loop drives both clocks: playback time (through the reducer) and the camera easing toward its target.
   useEffect(() => {

@@ -233,7 +233,8 @@
     "emptyText": null,
     "truncatedText": null,
     "notes": [],
-    "replayText": "Watch what happened last"
+    "replayText": "Watch what happened last",
+    "explainer": null
   },
   "shared": {
     "factoryId": "",
@@ -469,6 +470,7 @@
     "emptyText": null,
     "truncatedText": null,
     "notes": [],
-    "replayText": "Watch what happened last"
+    "replayText": "Watch what happened last",
+    "explainer": null
   }
 }

@@ -4,6 +4,8 @@ import {
   getContributorFactories,
   getContributorInbox,
   getCustomerPage,
+  getContributorWatch,
+  markWatchExplainerSeen,
   readCombined,
   teamsWithPage,
 } from "./contributorClient";
@@ -89,5 +91,38 @@ describe("combined across teams", () => {
     });
 
     await expect(readCombined([team("a", ["inbox"]), team("b", ["inbox"])], read, (r) => r.items)).rejects.toThrow("Beta could not be read");
+  });
+});
+
+describe("Watch your factory (piece 6)", () => {
+  it("GetContributorWatch_AsksTheFactorysWatchAddress_AndReturnsTheViewAsSent", async () => {
+    const view = { title: "Odd~title", explainer: { paragraphs: ["One~odd."], buttonText: "Go~odd" } };
+    const fetchMock = vi.fn().mockResolvedValue(respond(view));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await getContributorWatch("t/1", "web site")).toEqual(view);
+    expect(fetchMock.mock.calls[0][0]).toBe("/teams/t%2F1/contributor/factories/web%20site/watch");
+  });
+
+  it("GetContributorWatch_Refused_ReturnsTheGatewaysOwnSentence", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond({ error: "Not~yours~odd", code: "factory_not_found" }, 404)));
+
+    expect(await getContributorWatch("a", "secret")).toEqual({ refused: "Not~yours~odd" });
+  });
+
+  it("MarkWatchExplainerSeen_PostsToTheFactorysExplainerSeenAddress", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await markWatchExplainerSeen("t/1", "web site");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/teams/t%2F1/contributor/factories/web%20site/watch/explainer-seen");
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+  });
+
+  it("MarkWatchExplainerSeen_Refused_Throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond({ error: "Not~yours~odd", code: "factory_not_found" }, 404)));
+
+    await expect(markWatchExplainerSeen("a", "secret")).rejects.toThrow();
   });
 });

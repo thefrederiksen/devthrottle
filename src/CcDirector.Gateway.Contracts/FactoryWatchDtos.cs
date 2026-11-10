@@ -100,6 +100,23 @@ public sealed class FactoryWatchViewDto
     /// replay, null when there are none. The player opens on the live floor and offers the replay only when this is
     /// set; it never writes the words itself.</summary>
     public string? ReplayText { get; set; }
+
+    /// <summary>The card a contributor reads before their FIRST watch (piece 6), or null. Always null in the owner
+    /// audience and never set by the fold: the contributor route sets it, from the person's own record, until they have
+    /// pressed its button once - on any surface. The player's shell shows the card only when this is set, and every word
+    /// on it is this object's.</summary>
+    public FactoryWatchExplainerDto? Explainer { get; set; }
+}
+
+/// <summary>The explainer card shown before a contributor's first watch. Its words are the owner's, approved word for
+/// word; nothing rewords them.</summary>
+public sealed class FactoryWatchExplainerDto
+{
+    /// <summary>The card's paragraphs, in order.</summary>
+    public List<string> Paragraphs { get; set; } = new();
+
+    /// <summary>The words on the card's one button, which closes it and starts the player.</summary>
+    public string ButtonText { get; set; } = "";
 }
 
 /// <summary>One seat's station on the floor.</summary>

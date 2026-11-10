@@ -204,7 +204,8 @@ public sealed class TeamRequestForwardingTests : IDisposable
         // needs the same instance - which is how the other three call sites on main pass it.
         var shares = new FactoryContributors(_db);
         var pages = new ContributorPages(new ContributorFactoryAccess(_teams, _factories, shares), shares,
-            new FactoryActivityRecord(_db), reports, recipients, questions, _requests, _teams, _ => "UTC", () => Now);
+            new FactoryActivityRecord(_db), reports, recipients, questions, _requests, _teams,
+            new ContributorWatchExplainer(new CcDirector.Gateway.Settings.TenantSettingsStore(_db), new TenantRegistry(_db), () => Now), _ => "UTC", () => Now);
 
         // Act
         var inbox = JsonSerializer.SerializeToElement(pages.Inbox(_acme, Carla));

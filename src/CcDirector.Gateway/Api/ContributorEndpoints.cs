@@ -24,7 +24,10 @@ namespace CcDirector.Gateway.Api;
 /// <item><c>GET /teams/{teamId}/contributor/inbox</c> - only what was sent to the caller, and their conversation with the
 /// team's Owner.</item>
 /// <item><c>GET /teams/{teamId}/contributor/factories/{factory}/watch?window=&amp;from=&amp;to=</c> - "Watch your factory": the
-/// contributor audience of <see cref="FactoryWatchFold"/> for one factory sent to them (version one, piece 4).</item>
+/// contributor audience of <see cref="FactoryWatchFold"/> for one factory sent to them (version one, piece 4), carrying the
+/// explainer card until the person has seen it (piece 6).</item>
+/// <item><c>POST /teams/{teamId}/contributor/factories/{factory}/watch/explainer-seen</c> - the person pressed the explainer
+/// card's button: it is not shown to them again, on any team or surface (piece 6). The one write here.</item>
 /// </list>
 ///
 /// COMBINED ACROSS TEAMS, ONE ROUTE PER TEAM. A person on several teams sees one Factories page and one Inbox; the client
@@ -52,12 +55,15 @@ internal static class ContributorEndpoints
     /// <summary>One factory's watch view, as the route table writes it.</summary>
     public const string WatchPattern = FactoriesPattern + "/{factory}/watch";
 
+    /// <summary>"I have seen the explainer card", as the route table writes it.</summary>
+    public const string ExplainerSeenPattern = WatchPattern + "/explainer-seen";
+
     /// <summary>The Inbox, as the route table writes it.</summary>
     public const string InboxPattern = GroupPath + "/inbox";
 
     internal const string CallerItemKey = "cc.teams.contributor.caller";
 
-    /// <summary>Maps the four routes.</summary>
+    /// <summary>Maps the five routes.</summary>
     public static void Map(IEndpointRouteBuilder app, ContributorPages pages, HostedTenantBoundary boundary, TenantRegistry tenants)
     {
         ArgumentNullException.ThrowIfNull(app);
@@ -95,9 +101,11 @@ internal static class ContributorEndpoints
                 : NotSentToYou());
         group.MapGet("/factories/{factory}/watch", (HttpContext ctx, string teamId, string factory, string? window, DateTime? from, DateTime? to) =>
             Watch(pages, teamId, Caller(ctx), factory, window, from, to));
+        group.MapPost("/factories/{factory}/watch/explainer-seen", (HttpContext ctx, string teamId, string factory) =>
+            ExplainerSeen(pages, teamId, Caller(ctx), factory));
         group.MapGet("/inbox", (HttpContext ctx, string teamId) => Results.Json(pages.Inbox(teamId, Caller(ctx))));
 
-        FileLog.Write($"[ContributorEndpoints] mapped {FactoriesPattern} (list, one), {WatchPattern} and {InboxPattern}");
+        FileLog.Write($"[ContributorEndpoints] mapped {FactoriesPattern} (list, one), {WatchPattern}, {ExplainerSeenPattern} and {InboxPattern}");
     }
 
     /// <summary>The watch route's answer: the view; the customer page's own not-found for every refusal; or a 400 naming
@@ -117,6 +125,11 @@ internal static class ContributorEndpoints
             return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
         }
     }
+
+    /// <summary>The explainer-seen route's answer: 204 once recorded, or the customer page's own not-found for every refusal,
+    /// so the route says nothing about a factory the person may not watch.</summary>
+    internal static IResult ExplainerSeen(ContributorPages pages, string teamId, string caller, string factory) =>
+        pages.MarkExplainerSeen(teamId, caller, factory) ? Results.NoContent() : NotSentToYou();
 
     /// <summary>THE one refusal a contributor reads for a factory, whichever condition failed: the customer page and the
     /// watch view answer it with the same bytes.</summary>
@@ -180,13 +193,15 @@ internal sealed class ContributorPages
     private readonly TeamQuestions _questions;
     private readonly TeamRequestStore _requests;
     private readonly TeamRegistry _teams;
+    private readonly ContributorWatchExplainer _explainer;
     private readonly Func<TenantId, string> _timeZoneOf;
     private readonly Func<DateTime> _utcNow;
 
     public ContributorPages(ContributorFactoryAccess access, FactoryContributors shares, FactoryActivityRecord activity, DevReportStore reports,
         DevReportRecipients recipients, TeamQuestions questions, TeamRequestStore requests, TeamRegistry teams,
-        Func<TenantId, string> timeZoneOf, Func<DateTime>? utcNow = null)
+        ContributorWatchExplainer explainer, Func<TenantId, string> timeZoneOf, Func<DateTime>? utcNow = null)
     {
+        _explainer = explainer ?? throw new ArgumentNullException(nameof(explainer));
         _access = access ?? throw new ArgumentNullException(nameof(access));
         _shares = shares ?? throw new ArgumentNullException(nameof(shares));
         _activity = activity ?? throw new ArgumentNullException(nameof(activity));
@@ -222,6 +237,7 @@ internal sealed class ContributorPages
                 name = f.Title,
                 nowText = latest?.Text,
                 needsYouLabel = NeedsYouLabel(waiting),
+                watchLabel = ContributorWatchExplainer.WatchLabel,
                 order = Order(waiting > 0, lastAt, f.Title, teamId),
             };
         }).ToList();
@@ -321,9 +337,26 @@ internal sealed class ContributorPages
         var scope = ContributorWatchScope.For(_shares.ContributorsOf(team, f.Factory), caller, _activity.MachineNamesOf(team));
 
         var view = FactoryWatchFold.View(f, rows, truncated, w, zone, FactoryWatchAudience.Contributor, scope);
+        view.Explainer = _explainer.For(caller);
         FileLog.Write($"[ContributorPages] Watch: team {team.ToLogString()} factory={f.Factory} window={w.Key} rows={rows.Count} " +
-                      $"truncated={truncated} wholeFactory={scope.WholeFactory} steps={view.Steps.Count}");
+                      $"truncated={truncated} wholeFactory={scope.WholeFactory} steps={view.Steps.Count} explainer={view.Explainer is not null}");
         return view;
+    }
+
+    /// <summary>
+    /// The person pressed the explainer card's button on one factory's watch view (piece 6). Asks the same check as the
+    /// view first, so only someone who may watch this factory can record it, and a refusal is the same not-found; then
+    /// records it on the person's own account, for every team and surface. False when the check refused.
+    /// </summary>
+    public bool MarkExplainerSeen(string teamId, string caller, string factory)
+    {
+        var verdict = _access.Check(teamId, caller, factory);
+        if (!verdict.Allowed)
+            return false;
+
+        _explainer.MarkSeen(caller);
+        FileLog.Write($"[ContributorPages] MarkExplainerSeen: team {new TenantId(teamId).ToLogString()} factory={verdict.Factory!.Factory}");
+        return true;
     }
 
     // ---------------------------------------------------------------- Inbox

@@ -28,6 +28,8 @@ const state = vi.hoisted(() => ({
   factories: {} as Record<string, unknown>,
   inbox: {} as Record<string, unknown>,
   page: null as unknown,
+  watch: null as unknown,
+  seen: [] as string[],
   sent: [] as { teamId: string; text: string }[],
 }));
 
@@ -39,6 +41,10 @@ vi.mock("@devthrottle/client-core/teams/contributorClient", async (importOrigina
   getContributorFactories: vi.fn(async (teamId: string) => state.factories[teamId]),
   getContributorInbox: vi.fn(async (teamId: string) => state.inbox[teamId]),
   getCustomerPage: vi.fn(async () => state.page),
+  getContributorWatch: vi.fn(async () => state.watch),
+  markWatchExplainerSeen: vi.fn(async (teamId: string, factory: string) => {
+    state.seen.push(`${teamId}/${factory}`);
+  }),
 }));
 vi.mock("@devthrottle/client-core/teams/requestsClient", () => ({
   sendRequest: vi.fn(async (teamId: string, text: string) => {
@@ -64,7 +70,7 @@ import { ContributorFactoriesPage } from "./ContributorFactoriesPage";
 import { ContributorInboxPage } from "./ContributorInboxPage";
 
 function card(teamId: string, teamLabel: string, factory: string, name: string, order: string, needs: string | null = null) {
-  return { teamId, teamLabel, factory, name, nowText: `now~${factory}`, needsYouLabel: needs, order };
+  return { teamId, teamLabel, factory, name, nowText: `now~${factory}`, needsYouLabel: needs, watchLabel: `Watch~${factory}~odd`, order };
 }
 
 function item(teamId: string, teamLabel: string, id: string, title: string, order: string, kind = "report") {
@@ -91,6 +97,49 @@ beforeEach(() => {
   state.sent = [];
 });
 afterEach(() => cleanup());
+
+describe("Watch your factory (piece 6)", () => {
+  it("ContributorFactoriesPage_EveryCard_HasTheGatewaysWatchButton_OpeningThatFactorysWatchView", async () => {
+    state.factories = {
+      acme: { teamId: "acme", teamLabel: "Acme", count: 1, intro: "i", emptyText: "x", factories: [card("acme", "Acme", "web site", "Website~odd", "1")] },
+      beta: { teamId: "beta", teamLabel: "Beta", count: 0, intro: "i", emptyText: "x", factories: [] },
+    };
+
+    at("/contributor/factories", <ContributorFactoriesPage />);
+
+    const button = await screen.findByTestId("contributor-watch-button");
+    expect(button.textContent).toBe("Watch~web site~odd");
+    expect(button.getAttribute("href")).toBe("/contributor/factories?team=acme&factory=web%20site&view=watch");
+    // The card itself still opens the customer page, which only the Cockpit has.
+    expect(screen.getByTestId("contributor-factory-open").getAttribute("href")).toBe("/contributor/factories?team=acme&factory=web%20site");
+  });
+
+  it("ContributorFactoriesPage_TheWatchAddress_ShowsTheGatewaysExplainerCard_ThenThePlayer", async () => {
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    state.seen = [];
+    state.watch = {
+      factoryId: "", title: "Website~odd", layout: "workshop", floorWidth: 4, floorHeight: 3,
+      stations: [{ id: "seat-1", label: "Boss", sub: "Plans", isBoss: true, gx: 1, gy: 1, width: 2, height: 1, line: null }],
+      lines: [], characters: [{ seat: "seat-1", name: "Boss", colour: "#f0a03c", station: "seat-1", homeGx: 2, homeGy: 2 }],
+      steps: [],
+      window: { key: "last-24h", label: "Last 24 hours", fromUtc: "2026-11-08T00:00:00Z", toUtc: "2026-11-09T00:00:00Z", fromLocal: "", toLocal: "", choices: [] },
+      emptyText: "Nothing~odd", truncatedText: null, notes: [], replayText: null,
+      explainer: { paragraphs: ["Para~one~odd.", "Para~two~odd."], buttonText: "Go~odd" },
+    };
+
+    const { container } = at("/contributor/factories?team=acme&factory=website&view=watch", <ContributorFactoriesPage />);
+
+    const paragraphs = await screen.findAllByTestId("watch-explainer-paragraph");
+    expect(paragraphs.map((p) => p.textContent)).toEqual(["Para~one~odd.", "Para~two~odd."]);
+    fireEvent.click(screen.getByTestId("watch-explainer-go"));
+    expect(container.querySelector(".fwp")).not.toBeNull();
+    await waitFor(() => expect(state.seen).toEqual(["acme/website"]));
+    // The way back is the Gateway's page label.
+    expect(screen.getByText("Factories~page").getAttribute("href")).toBe("/contributor/factories");
+    vi.unstubAllGlobals();
+  });
+});
 
 describe("Factories", () => {
   it("ContributorFactoriesPage_TwoTeams_ShowsBothTogetherInTheGatewaysOrder_WithEachTeamsLabel", async () => {

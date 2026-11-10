@@ -416,30 +416,6 @@
    Layout only: every word, label and tone is the Gateway's.
    --------------------------------------------------------------------------------------------------------------- */
 
-.contributor-grid {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-}
-
-.contributor-factory-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  color: var(--text);
-  text-decoration: none;
-  border-left: 3px solid var(--ok);
-}
-
-.contributor-factory-card:hover {
-  border-color: var(--accent);
-}
-
-.contributor-card-head,
 .contributor-customer-head,
 .contributor-row {
   display: flex;
@@ -451,15 +427,6 @@
 
 .contributor-row {
   padding: 4px 0;
-}
-
-.contributor-card-name {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.contributor-card-now {
-  margin-top: 4px;
 }
 
 .contributor-card-title {

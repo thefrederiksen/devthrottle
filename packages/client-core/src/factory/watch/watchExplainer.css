@@ -1,0 +1,82 @@
+/* The explainer card before a contributor's first watch (Watch your factory, piece 6), shared by the Cockpit and the
+ * phone. Like the floor, it is a drawing with its own fixed palette from the mockup (erik-replay.html): a light card on
+ * the dark floor colour, an orange button. It reads the same in either shell and either theme. */
+
+.fwx {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 420px;
+  padding: 24px 16px;
+  border-radius: 12px;
+  background: radial-gradient(ellipse at 50% 40%, #2a3350 0%, #151a28 70%);
+}
+
+.fwx-card {
+  max-width: 460px;
+  width: 100%;
+  background: #fbf8f2;
+  color: #1d1f24;
+  border-radius: 16px;
+  padding: 26px 26px 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.fwx-title {
+  margin: 0 0 12px;
+  font-size: 22px;
+  color: #1d1f24;
+}
+
+.fwx-paragraph {
+  margin: 0 0 10px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.fwx-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.fwx-go {
+  min-height: 44px;
+  background: #ff9a3c;
+  border: 0;
+  color: #1b1d26;
+  font-weight: 800;
+  padding: 11px 18px;
+  font-size: 16px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.fwx-go:hover {
+  filter: brightness(1.06);
+}
+.fwx-go:focus-visible {
+  outline: 2px solid #1d1f24;
+  outline-offset: 3px;
+}
+
+.fwx-trio {
+  flex: none;
+}
+
+@media (max-width: 480px) {
+  .fwx {
+    min-height: 0;
+    padding: 16px 10px;
+  }
+  .fwx-card {
+    padding: 20px 18px 18px;
+  }
+  .fwx-title {
+    font-size: 20px;
+  }
+  .fwx-paragraph {
+    font-size: 15px;
+  }
+}

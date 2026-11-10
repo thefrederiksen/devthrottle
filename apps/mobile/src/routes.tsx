@@ -17,6 +17,7 @@ import { Diagnostics } from "./pages/Diagnostics";
 import { YourThrottle } from "./pages/YourThrottle";
 import { Repos } from "./pages/Repos";
 import { Account } from "./pages/Account";
+import { ContributorFactories } from "./pages/ContributorFactories";
 import { SignIn } from "@devthrottle/client-core/auth/SignIn";
 import { DeviceCallback } from "@devthrottle/client-core/auth/DeviceCallback";
 import { RequireDeviceKey } from "./components/RequireDeviceKey";
@@ -147,6 +148,10 @@ export const MOBILE_ROUTES: RouteObject[] = [
           // The Mail Desk (Mail Desk mission, phase 7): the same page the Cockpit shows at the same address, from the
           // same client-core component. With the Mail Desk switch off it is the ordinary "Page not found".
           { path: "/mail-desk", element: <MailDesk /> },
+          // A contributor's Factories ("Watch your factory", piece 6): the factories sent to them by name, each with its
+          // "Watch your factory" button, and that factory's watch view (?team=&factory=&view=watch) - the same cards and
+          // the same view the Cockpit shows at the same address, from client-core.
+          { path: "/contributor/factories", element: <ContributorFactories /> },
           { path: "/mail-desk/how-it-works", element: <MailDeskHowItWorks /> },
           // The Inbox (Factory Inbox mission, phase 4): the Factory inbox list and one factory's thread. Behind the
           // factory area switch; off, both are the ordinary Page not found.
