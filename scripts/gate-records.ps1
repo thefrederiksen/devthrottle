@@ -16,12 +16,17 @@
     the same time, limited only by the machine's memory and disk. The record locations below are
     unchanged, so records written before the lock went are still found.
 
-    WINDOWS IS THE ONLY PLATFORM THIS IS VERIFIED ON. Elsewhere the base is the root folder, exactly where
-    the lock-derived path put it before; nobody runs this gate on a Mac or Linux box today.
+    THE HOME IS THE PER-USER APPLICATION DATA DIRECTORY ON EVERY PLATFORM. Until issue #4806 this
+    function answered "/" on anything that was not Windows, so the records landed at the filesystem
+    ROOT - /test-gate/gated, and the runs log at /test-gate/runs.jsonl - which no ordinary user can
+    write. A gate that got past the build on a Mac then failed at the very end while recording that it
+    had passed. The Windows answer is unchanged, so records written before this are still found.
 #>
 
 function Get-GateHomeDirectory {
-    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return "/" }
+    # LocalApplicationData is defined on every platform .NET runs on, and it is per user everywhere:
+    # %LOCALAPPDATA% on Windows (what this has always returned there, so nothing moves), and
+    # ~/Library/Application Support on macOS - the same place the product keeps its own state.
     $localAppData = [Environment]::GetFolderPath(
         [Environment+SpecialFolder]::LocalApplicationData, [Environment+SpecialFolderOption]::DoNotVerify)
     if ([string]::IsNullOrWhiteSpace($localAppData)) {
