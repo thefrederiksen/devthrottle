@@ -57,11 +57,36 @@ public static class DirectorLogSweep
 {
     /// <summary>
     /// How long a log is kept after its last write. Long enough to investigate a stop days later -
-    /// the whole reason these files exist - and short enough to bound the folder. A Director that
-    /// stopped without shutting down is usually looked at the same day or the next; two weeks is
-    /// several times that.
+    /// the whole reason these files exist - and short enough to bound the folder.
+    ///
+    /// <para>SEVEN DAYS, by the owner's ruling of 10 November 2026, which replaced the fourteen this
+    /// shipped with two days earlier. The window was chosen against the real folder on
+    /// devthrottle-mac-mini, measured on 10 November 2026 at 418 megabytes in 97 files:
+    /// twenty-one days reclaimed nothing at all, because the folder was only twenty and a half days
+    /// old; fourteen days reclaimed 99 megabytes; seven days reclaims 245 megabytes and still leaves
+    /// 63 files. Fourteen barely touched it because most of the bulk had been written inside the
+    /// second week. Seven is the knee of that table - a day less stops buying much, a day more stops
+    /// costing much.</para>
+    ///
+    /// <para>WHY SHORTENING IT IS SAFE, which matters more than the arithmetic, because a destructive
+    /// sweep must lean to keeping and this change leans the other way. A running process holds its
+    /// log open, so the question is whether seven days can reach a file something is still writing,
+    /// and it cannot: <c>FileLogWriter</c> names the file by DATE and rolls at local midnight,
+    /// disposing the old handle as it goes, so the only file any live process holds is the CURRENT
+    /// DATE'S, and that file's last write is minutes old at worst - the writer flushes when its queue
+    /// drains or on a bounded interval, whichever comes first. The margin is therefore about one day,
+    /// not one week, and seven days is seven times it. (The by-name protection of
+    /// <c>liveFilePath</c> sits on top of that, and only covers the sweeping process's own file; it is
+    /// the date-rolling, not the name, that protects the OTHER Directors on a machine that runs
+    /// several.) Yesterday's file is closed for good and is never appended to again, which is what
+    /// makes it a spent log rather than a quiet one.</para>
+    ///
+    /// <para>This is the window the Director actually sweeps with, because
+    /// <see cref="Run(string, string, string?, DateTime, TimeSpan?)"/> is called at start-up without
+    /// one. A test drives that defaulted path rather than reading this field, so changing the number
+    /// here cannot quietly disagree with what the application does.</para>
     /// </summary>
-    public static readonly TimeSpan DefaultKeepWindow = TimeSpan.FromDays(14);
+    public static readonly TimeSpan DefaultKeepWindow = TimeSpan.FromDays(7);
 
     /// <summary>
     /// True when <paramref name="fileName"/> is EXACTLY a process log of <paramref name="filePrefix"/>:
