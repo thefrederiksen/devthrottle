@@ -345,6 +345,133 @@ public sealed class ContributorNoticeTests : IDisposable
     }
 
     [Fact]
+    public async Task RunOnce_TwoGatewaysOverOneDatabase_RightAway_SendOneEmail()
+    {
+        // Arrange: a second Gateway's sweep over the same database, as during a deploy; it runs its whole pass while the
+        // first Gateway's send is in flight - after the first has read what waits, before it has settled anything.
+        await SendReportAsync(_acme, OwnerA, Mike);
+        var other = SecondGatewaySweep();
+        ContributorNoticeSweepResult? otherResult = null;
+        _mail.DuringSend = async () => otherResult = await other.RunOnceAsync();
+
+        // Act
+        var result = await _sweep.RunOnceAsync();
+
+        // Assert: one email between the two Gateways, and the notice settled once.
+        Assert.Equal(1, result.EmailsSent);
+        Assert.NotNull(otherResult);
+        Assert.Equal(0, otherResult!.EmailsSent);
+        Assert.Single(_mail.Sent);
+        Assert.Empty(_notices.Waiting(_acme));
+    }
+
+    [Fact]
+    public async Task RunOnce_TwoGatewaysOverOneDatabase_Daily_SendOneEmail()
+    {
+        // Arrange
+        Assert.NotNull(_notices.SetChoice(Own(Mike), ContributorNoticeModes.Daily, 8).Choice);
+        await SendReportAsync(_acme, OwnerA, Mike);
+        await SendReportAsync(_beta, OwnerB, Mike);
+        _now = new DateTime(2026, 11, 9, 8, 0, 0, DateTimeKind.Utc);
+        var other = SecondGatewaySweep();
+        ContributorNoticeSweepResult? otherResult = null;
+        _mail.DuringSend = async () => otherResult = await other.RunOnceAsync();
+
+        // Act
+        var result = await _sweep.RunOnceAsync();
+
+        // Assert
+        Assert.Equal(1, result.EmailsSent);
+        Assert.NotNull(otherResult);
+        Assert.Equal(0, otherResult!.EmailsSent);
+        Assert.Single(_mail.Sent);
+        Assert.Empty(_notices.Waiting(_acme));
+        Assert.Empty(_notices.Waiting(_beta));
+    }
+
+    [Fact]
+    public async Task Claim_TwoGatewaysThatBothReadTheNoticeAsWaiting_OnlyOneWins()
+    {
+        // Arrange: both Gateways have read the same waiting notice; neither has claimed it yet.
+        await SendReportAsync(_acme, OwnerA, Mike);
+        var id = Assert.Single(_notices.Waiting(_acme)).Id;
+        var other = new ContributorNotices(_db, new TeamRegistry(_db, new TenantRegistry(_db), () => _now), () => _now);
+
+        // Act
+        var first = _notices.Claim(_acme, id, _now, _now + ContributorNoticeSweep.ClaimHold);
+        var second = other.Claim(_acme, id, _now, _now + ContributorNoticeSweep.ClaimHold);
+
+        // Assert: one claim, and the notice is free again once the hold has passed.
+        Assert.True(first);
+        Assert.False(second);
+        var later = _now + ContributorNoticeSweep.ClaimHold;
+        Assert.True(other.Claim(_acme, id, later, later + ContributorNoticeSweep.ClaimHold));
+    }
+
+    [Fact]
+    public void ClaimDay_TwoGatewaysForOneDay_OnlyOneWins_AndAReleasedDayCanBeClaimedAgain()
+    {
+        // Arrange
+        Assert.NotNull(_notices.SetChoice(Own(Mike), ContributorNoticeModes.Daily, 8).Choice);
+        var other = new ContributorNotices(_db, new TeamRegistry(_db, new TenantRegistry(_db), () => _now), () => _now);
+
+        // Act
+        var first = _notices.ClaimDay(Own(Mike), "2026-11-09");
+        var second = other.ClaimDay(Own(Mike), "2026-11-09");
+        _notices.ReleaseDay(Own(Mike), "2026-11-09", null);
+        var afterRelease = other.ClaimDay(Own(Mike), "2026-11-09");
+
+        // Assert
+        Assert.True(first);
+        Assert.False(second);
+        Assert.True(afterRelease);
+        Assert.True(_notices.ClaimDay(Own(Mike), "2026-11-10"));
+    }
+
+    [Fact]
+    public async Task RunOnce_DailySendFails_TriedAgainInsideTheHourAndSentOnce()
+    {
+        // Arrange
+        Assert.NotNull(_notices.SetChoice(Own(Mike), ContributorNoticeModes.Daily, 8).Choice);
+        await SendReportAsync(_acme, OwnerA, Mike);
+        _now = new DateTime(2026, 11, 9, 8, 0, 0, DateTimeKind.Utc);
+        _mail.Fail = true;
+
+        // Act / Assert: the failed send gives the day back, so the try after the wait still sends today, once.
+        Assert.Equal(1, (await _sweep.RunOnceAsync()).Failed);
+        Assert.Null(_notices.ChoiceOf(Own(Mike)).DailyHandledLocalDate);
+        _mail.Fail = false;
+        _now = _now.AddMinutes(1);
+        Assert.Equal(1, (await _sweep.RunOnceAsync()).EmailsSent);
+        _now = _now.AddMinutes(5);
+        Assert.Equal(0, (await _sweep.RunOnceAsync()).EmailsSent);
+        Assert.Equal("2026-11-09", _notices.ChoiceOf(Own(Mike)).DailyHandledLocalDate);
+        Assert.Single(_mail.Sent);
+    }
+
+    [Fact]
+    public async Task RunOnce_EmailServiceRefusesForGood_SettledAsUndeliverableAndNotTriedAgain()
+    {
+        // Arrange
+        await SendReportAsync(_acme, OwnerA, Mike);
+        _mail.Refuse = true;
+
+        // Act
+        var first = await _sweep.RunOnceAsync();
+        _now = _now.AddHours(2);
+        var later = await _sweep.RunOnceAsync();
+
+        // Assert
+        Assert.Equal(1, first.Settled);
+        Assert.Equal(0, first.Failed);
+        Assert.Empty(_notices.Waiting(_acme));
+        Assert.Equal(0, later.Settled + later.Failed + later.EmailsSent);
+        Assert.Equal(1, _mail.Tries);
+        using var ctx = _db.CreateContext(new TenantId(_acme));
+        Assert.Equal(ContributorNoticeOutcomes.Undeliverable, Assert.Single(ctx.ContributorNotices).Outcome);
+    }
+
+    [Fact]
     public async Task RunOnce_NoPublicAddress_SendsNothingAndKeepsWaiting()
     {
         // Arrange
@@ -454,6 +581,16 @@ public sealed class ContributorNoticeTests : IDisposable
 
     private TenantId Own(string subject) => _tenants.LookupBySubject(subject)!.Value;
 
+    /// <summary>The sweep a second Gateway runs over the same database (its own notices and registries, as a second
+    /// process would have), sending through the same recording sender so every email is counted once.</summary>
+    private ContributorNoticeSweep SecondGatewaySweep()
+    {
+        var tenants = new TenantRegistry(_db);
+        var teams = new TeamRegistry(_db, tenants, () => _now);
+        return new ContributorNoticeSweep(_db, new ContributorNotices(_db, teams, () => _now), teams, tenants, _mail,
+            t => _zones.TryGetValue(t.Value, out var z) ? z : "UTC", () => _publicBase, () => _now);
+    }
+
     /// <summary>A report written in <paramref name="team"/> by <paramref name="author"/>, its title, text and one question
     /// carrying markers, sent through the real send route's answer to <paramref name="to"/>.</summary>
     private async Task SendReportAsync(string team, string author, params string[] to)
@@ -495,15 +632,27 @@ public sealed class ContributorNoticeTests : IDisposable
     {
         public List<(string To, PersonEmail Email)> Sent { get; } = new();
         public bool Fail { get; set; }
+        public bool Refuse { get; set; }
         public int Tries { get; private set; }
 
-        public Task<PersonEmailResult> SendAsync(string accountSubject, PersonEmail email, CancellationToken ct = default)
+        /// <summary>Run once inside the next send, before it is recorded - another Gateway's pass while this one's send is
+        /// in flight.</summary>
+        public Func<Task>? DuringSend { get; set; }
+
+        public async Task<PersonEmailResult> SendAsync(string accountSubject, PersonEmail email, CancellationToken ct = default)
         {
             Tries++;
+            if (DuringSend is { } during)
+            {
+                DuringSend = null;
+                await during();
+            }
+            if (Refuse)
+                return new PersonEmailResult(false, PersonEmailSender.Refused(404), Permanent: true);
             if (Fail)
-                return Task.FromResult(new PersonEmailResult(false, "The DevThrottle email service could not be reached."));
+                return new PersonEmailResult(false, "The DevThrottle email service could not be reached.");
             Sent.Add((accountSubject, email));
-            return Task.FromResult(new PersonEmailResult(true, null));
+            return new PersonEmailResult(true, null);
         }
     }
 }

@@ -106,6 +106,48 @@ public sealed class PersonEmailSenderTests : IDisposable
         Assert.False(result.Sent);
         Assert.Equal(TimeSpan.FromSeconds(120), result.RetryAfter);
         Assert.Equal("Too many.", result.Detail);
+        Assert.False(result.Permanent);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.UnprocessableEntity)]
+    public async Task SendAsync_EmailServiceRefusesWith4xxOtherThan429_IsPermanentAndCarriesNoServiceText(HttpStatusCode status)
+    {
+        // Arrange: the service's own text names the person, as an owner_not_resolvable answer could.
+        _handler.Answer = () => new HttpResponseMessage(status)
+        {
+            Content = new StringContent("{\"error\":{\"type\":\"refused\",\"code\":\"owner_not_resolvable\",\"message\":\"mike@example.com has no address\"}}"),
+        };
+
+        // Act
+        var result = await Sender("service-secret").SendAsync(Mike, Email);
+
+        // Assert
+        Assert.False(result.Sent);
+        Assert.True(result.Permanent);
+        Assert.Equal(PersonEmailSender.Refused((int)status), result.Detail);
+        Assert.DoesNotContain("@", result.Detail);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task SendAsync_EmailServiceFailsWith5xx_IsTriedAgain(HttpStatusCode status)
+    {
+        // Arrange
+        _handler.Answer = () => new HttpResponseMessage(status) { Content = new StringContent("{}") };
+
+        // Act
+        var result = await Sender("service-secret").SendAsync(Mike, Email);
+
+        // Assert
+        Assert.False(result.Sent);
+        Assert.False(result.Permanent);
     }
 
     private sealed class RecordingHandler : HttpMessageHandler

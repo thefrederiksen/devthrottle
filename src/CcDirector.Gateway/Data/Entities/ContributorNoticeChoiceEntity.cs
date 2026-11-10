@@ -17,8 +17,10 @@ public sealed class ContributorNoticeChoiceEntity : GatewayMintedKeyEntity
     /// <summary>The hour of the day (0 to 23, in the person's own time zone) the daily email goes out.</summary>
     public int DailyHour { get; set; }
 
-    /// <summary>The person's local date (yyyy-MM-dd) whose daily email time has already been handled - sent, or passed
-    /// with nothing waiting - so a day is never mailed twice. Null until the first.</summary>
+    /// <summary>The person's local date (yyyy-MM-dd) whose daily email has been sent, so a day is never mailed twice. It
+    /// is set only during the chosen hour, when there is something waiting, just before the send, and a send that failed
+    /// and will be tried again puts it back. An hour with nothing waiting leaves it alone, so something that
+    /// arrives later in that hour is still sent the same day. Null until the first.</summary>
     public string? DailyHandledLocalDate { get; set; }
 
     /// <summary>When the person last changed the choice (UTC).</summary>

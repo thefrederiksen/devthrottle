@@ -54,8 +54,9 @@ public static class ContributorNoticeOutcomes
     /// <summary>Not emailed: the person is no longer a contributor of the team.</summary>
     public const string NotAContributor = "not-a-contributor";
 
-    /// <summary>Not emailed: the person has no account on this Gateway to address.</summary>
-    public const string NoAccount = "no-account";
+    /// <summary>Not emailed, because trying again cannot help: the person has no account on this Gateway to address, or
+    /// the email service refused the email for good (an answer from 400 to 499 other than 429).</summary>
+    public const string Undeliverable = "undeliverable";
 }
 
 /// <summary>One person's choice. <paramref name="Chosen"/> is false when they never chose, and the defaults apply.</summary>
@@ -229,14 +230,48 @@ public sealed class ContributorNotices
         return new ContributorNoticeChoiceResult(stored, null);
     }
 
-    /// <summary>Mark today's daily email time of the person whose own tenant is <paramref name="own"/> as handled.</summary>
-    internal void MarkDailyHandled(TenantId own, string localDate)
+    // ---------------------------------------------------------------- claiming, so two Gateways never send one notice twice
+    //
+    // During a deploy the new Gateway runs beside the old one until it is warm, and both sweeps fire once a minute over
+    // the one database. Every send is therefore preceded by a CLAIM: one conditional UPDATE that only one of them can win,
+    // and a sweep sends only what it claimed.
+
+    /// <summary>Claim the waiting notice <paramref name="id"/> of one team for a send now: in one conditional update, hold
+    /// its next try until <paramref name="holdUntilUtc"/>, only where it is unsettled and its next try is unset or not after
+    /// <paramref name="nowUtc"/>. True only for the one caller whose update changed the row. A Gateway that stops between the
+    /// claim and the settle leaves the notice to be tried again once the hold has passed.</summary>
+    internal bool Claim(string teamId, Guid id, DateTime nowUtc, DateTime holdUntilUtc)
+    {
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
+        DateTime? hold = DateTime.SpecifyKind(holdUntilUtc, DateTimeKind.Utc);
+        using var ctx = _db.CreateContext(new TenantId(teamId));
+        var changed = ctx.ContributorNotices
+            .Where(n => n.Id == id && n.SettledAtUtc == null && (n.NextTryAtUtc == null || n.NextTryAtUtc <= now))
+            .ExecuteUpdate(set => set.SetProperty(n => n.NextTryAtUtc, hold));
+        return changed == 1;
+    }
+
+    /// <summary>Claim the day <paramref name="localDate"/> (yyyy-MM-dd) of the daily email of the person whose own tenant is
+    /// <paramref name="own"/>: in one conditional update, mark it handled only where it is not marked already. True only for
+    /// the one caller whose update changed the row - that caller sends the day's email, and nobody else does.</summary>
+    internal bool ClaimDay(TenantId own, string localDate)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(localDate);
         using var ctx = _db.CreateContext(own);
-        var row = ctx.ContributorNoticeChoices.FirstOrDefault()
-                  ?? throw new InvalidOperationException("A daily email time was handled for a person who never chose the daily email.");
-        row.DailyHandledLocalDate = localDate;
-        ctx.SaveChanges();
+        var changed = ctx.ContributorNoticeChoices
+            .Where(c => c.DailyHandledLocalDate == null || c.DailyHandledLocalDate != localDate)
+            .ExecuteUpdate(set => set.SetProperty(c => c.DailyHandledLocalDate, localDate));
+        return changed == 1;
+    }
+
+    /// <summary>The daily email of <paramref name="localDate"/> was claimed but NOT sent: put the mark back to
+    /// <paramref name="previous"/>, so a later pass inside the hour tries again.</summary>
+    internal void ReleaseDay(TenantId own, string localDate, string? previous)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(localDate);
+        using var ctx = _db.CreateContext(own);
+        ctx.ContributorNoticeChoices
+            .Where(c => c.DailyHandledLocalDate == localDate)
+            .ExecuteUpdate(set => set.SetProperty(c => c.DailyHandledLocalDate, previous));
     }
 }

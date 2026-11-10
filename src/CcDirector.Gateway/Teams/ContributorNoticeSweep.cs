@@ -33,8 +33,14 @@ public sealed record ContributorNoticeSweepResult(int EmailsSent, int Settled, i
 /// THE EMAIL CARRIES NO CONTENT (<see cref="ContributorNoticeEmail"/>): the team's name and the link to the Inbox.
 ///
 /// A send that fails is tried again, the tries moving apart (one minute, two, four, up to an hour, or longer when the email
-/// service asks), and a notice is settled only when the email service confirmed the send. The clock is injected; nothing
-/// here waits.
+/// service asks), and a notice is settled only when the email service confirmed the send. A refusal that trying again
+/// cannot change (no account here, or an answer from 400 to 499 other than 429) is settled as undeliverable and logged,
+/// so retries end. The clock is injected; nothing here waits.
+///
+/// TWO GATEWAYS NEVER SEND ONE NOTICE TWICE. During a deploy the new Gateway runs beside the old one over the same
+/// database, and both sweeps fire. Before each send the sweep CLAIMS what it is about to tell - a right-away notice by one
+/// conditional update of its next try (<see cref="ContributorNotices.Claim"/>), a day's daily email by one conditional
+/// update of the day's mark (<see cref="ContributorNotices.ClaimDay"/>) - and sends only what it claimed.
 /// </summary>
 public sealed class ContributorNoticeSweep
 {
@@ -43,6 +49,11 @@ public sealed class ContributorNoticeSweep
 
     /// <summary>The longest the sweep itself waits between two tries of one email.</summary>
     internal static readonly TimeSpan LongestWait = TimeSpan.FromHours(1);
+
+    /// <summary>How long a claim holds a notice for the send in hand. Well beyond one call to the email service (30 seconds
+    /// at most), so a claim never lapses under a send still running; a Gateway that stops mid-send leaves the notice to be
+    /// tried again after it.</summary>
+    internal static readonly TimeSpan ClaimHold = TimeSpan.FromMinutes(2);
 
     /// <summary>The Inbox page of the contributor's app (<see cref="TeamApp"/>), under the Gateway's public address.</summary>
     internal const string InboxPath = "/contributor/inbox";
@@ -171,6 +182,11 @@ public sealed class ContributorNoticeSweep
             case ContributorNoticeModes.Now:
                 foreach (var w in mine.Where(w => w.Notice.NextTryAtUtc is null || w.Notice.NextTryAtUtc <= now))
                 {
+                    if (!_notices.Claim(w.TeamId, w.Notice.Id, now, now + ClaimHold))
+                    {
+                        FileLog.Write($"[ContributorNoticeSweep] TellPersonAsync: team {new TenantId(w.TeamId).ToLogString()} - a notice is already claimed by another pass, not sent here");
+                        continue;
+                    }
                     var email = ContributorNoticeEmail.RightAway(teams[w.TeamId].Name, link);
                     var ok = await SendAsync(subject, email, new[] { w }, ContributorNoticeOutcomes.Emailed, now, tally, ct).ConfigureAwait(false);
                     if (!ok)
@@ -198,10 +214,16 @@ public sealed class ContributorNoticeSweep
         if (mine.Any(w => w.Notice.NextTryAtUtc is { } next && next > now))
             return;
 
+        if (!_notices.ClaimDay(own, today))
+        {
+            FileLog.Write($"[ContributorNoticeSweep] TellDailyAsync: tenant {own.ToLogString()} - today's daily email is already claimed by another pass, not sent here");
+            return;
+        }
+
         var names = mine.Select(w => teams[w.TeamId].Name).Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         var email = ContributorNoticeEmail.Daily(names, link);
-        if (await SendAsync(subject, email, mine, ContributorNoticeOutcomes.InDailyEmail, now, tally, ct).ConfigureAwait(false))
-            _notices.MarkDailyHandled(own, today);
+        if (!await SendAsync(subject, email, mine, ContributorNoticeOutcomes.InDailyEmail, now, tally, ct).ConfigureAwait(false))
+            _notices.ReleaseDay(own, today, choice.DailyHandledLocalDate);
     }
 
     /// <summary>Send one email for <paramref name="notices"/> and settle them as <paramref name="outcome"/> when it was
@@ -222,8 +244,8 @@ public sealed class ContributorNoticeSweep
         if (result.Permanent)
         {
             foreach (var team in notices.GroupBy(w => w.TeamId, StringComparer.Ordinal))
-                tally.Settled += _notices.Settle(team.Key, team.Select(w => w.Notice.Id).ToList(), ContributorNoticeOutcomes.NoAccount, now);
-            FileLog.Write($"[ContributorNoticeSweep] SendAsync: {notices.Count} notice(s) settled without an email: {result.Detail}");
+                tally.Settled += _notices.Settle(team.Key, team.Select(w => w.Notice.Id).ToList(), ContributorNoticeOutcomes.Undeliverable, now);
+            FileLog.Write($"[ContributorNoticeSweep] SendAsync: {notices.Count} notice(s) settled as undeliverable, not tried again: {result.Detail}");
             return true;
         }
 
