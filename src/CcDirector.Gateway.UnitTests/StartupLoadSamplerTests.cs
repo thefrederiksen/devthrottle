@@ -126,8 +126,8 @@ public sealed class StartupLoadSamplerTests
         sampler.Record("db.client.connections.pending_requests", observable: false, 1, Tags(pool, null));
         sampler.Record("db.client.connections.pending_requests", observable: false, -1, Tags(pool, null));
         sampler.Record("db.client.connections.timeouts", observable: false, 1, Tags(pool, null));
-        // A duration histogram is not a count and is left out.
-        sampler.Record("db.client.commands.duration", observable: false, 1234, Tags(pool, null));
+        // A histogram that is neither of the two reported durations is not a count and is left out.
+        sampler.Record("db.client.commands.bytes_read.duration", observable: false, 1234, Tags(pool, null));
 
         var sb = new StringBuilder();
         sampler.AppendDatabasePools(sb);
@@ -135,10 +135,84 @@ public sealed class StartupLoadSamplerTests
 
         var label = StartupLoadSampler.PoolLabel(pool);
         Assert.Equal(
-            $" db[{label}] used=15 idle=0 max=15 waiting=2 timeouts=1 executing=-",
+            $" db[{label}] used=15 idle=0 max=15 waiting=2 timeouts=1 executing=- cmds=0 cmdMaxMs=- opens=0 openMaxMs=-",
             text);
         Assert.DoesNotContain("db.example.internal", text);
         Assert.DoesNotContain("1234", text);
+    }
+
+    [Fact]
+    public void AppendDatabasePools_DurationsInTheWindow_ReportCountAndSlowestInMilliseconds()
+    {
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
+        const string pool = "pool-a";
+
+        // Npgsql 9 reports both durations in seconds.
+        sampler.Record(StartupLoadSampler.CommandDurationInstrument, observable: false, 0.004, Tags(pool, null), "s");
+        sampler.Record(StartupLoadSampler.CommandDurationInstrument, observable: false, 27.5, Tags(pool, null), "s");
+        sampler.Record(StartupLoadSampler.CommandDurationInstrument, observable: false, 0.2, Tags(pool, null), "s");
+        sampler.Record(StartupLoadSampler.ConnectionCreateTimeInstrument, observable: false, 14.25, Tags(pool, null), "s");
+
+        var sb = new StringBuilder();
+        sampler.AppendDatabasePools(sb);
+
+        Assert.Contains(" cmds=3 cmdMaxMs=27500 opens=1 openMaxMs=14250", sb.ToString());
+    }
+
+    [Fact]
+    public void AppendDatabasePools_NextLine_StartsAnEmptyWindow()
+    {
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
+        const string pool = "pool-a";
+        sampler.Record(StartupLoadSampler.CommandDurationInstrument, observable: false, 3, Tags(pool, null), "s");
+        sampler.AppendDatabasePools(new StringBuilder());
+
+        sampler.Record(StartupLoadSampler.CommandDurationInstrument, observable: false, 0.01, Tags(pool, null), "s");
+        var second = new StringBuilder();
+        sampler.AppendDatabasePools(second);
+        var third = new StringBuilder();
+        sampler.AppendDatabasePools(third);
+
+        Assert.Contains(" cmds=1 cmdMaxMs=10 opens=0 openMaxMs=-", second.ToString());
+        Assert.Contains(" cmds=0 cmdMaxMs=- opens=0 openMaxMs=-", third.ToString());
+    }
+
+    [Fact]
+    public void AppendDatabasePools_DurationsArePerPool()
+    {
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
+        sampler.Record(StartupLoadSampler.CommandDurationInstrument, observable: false, 2, Tags("pool-a", null), "s");
+        sampler.Record(StartupLoadSampler.ConnectionCreateTimeInstrument, observable: false, 5, Tags("pool-b", null), "s");
+
+        var sb = new StringBuilder();
+        sampler.AppendDatabasePools(sb);
+        var text = sb.ToString();
+
+        // The whole text, so each pool's durations are pinned to its own label (pools print sorted by raw name).
+        Assert.Equal(
+            $" db[{StartupLoadSampler.PoolLabel("pool-a")}] used=- idle=- max=- waiting=- timeouts=- executing=- cmds=1 cmdMaxMs=2000 opens=0 openMaxMs=-"
+            + $" db[{StartupLoadSampler.PoolLabel("pool-b")}] used=- idle=- max=- waiting=- timeouts=- executing=- cmds=0 cmdMaxMs=- opens=1 openMaxMs=5000",
+            text);
+    }
+
+    [Fact]
+    public void Record_DurationInAnUnknownUnit_SaysSoOnTheLineAndDoesNotThrow()
+    {
+        using var sampler = new StartupLoadSampler(listenToNpgsql: false);
+
+        sampler.Record(StartupLoadSampler.CommandDurationInstrument, observable: false, 5, Tags("pool-a", null), "min");
+
+        var sb = new StringBuilder();
+        sampler.AppendDatabasePools(sb);
+        Assert.Contains(" cmds=1 cmdMaxMs=unit?min ", sb.ToString());
+    }
+
+    [Theory]
+    [InlineData(1.5, "s", 1500.0)]
+    [InlineData(1.5, "ms", 1.5)]
+    public void ToMilliseconds_KnownUnits_Convert(double value, string unit, double expected)
+    {
+        Assert.Equal(expected, StartupLoadSampler.ToMilliseconds(value, unit));
     }
 
     [Fact]

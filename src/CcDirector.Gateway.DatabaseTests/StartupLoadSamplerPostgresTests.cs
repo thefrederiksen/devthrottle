@@ -37,6 +37,9 @@ public sealed class StartupLoadSamplerPostgresTests
         string whileOpen;
         await using (var connection = await dataSource.OpenConnectionAsync())
         {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT 1";
+            await command.ExecuteScalarAsync();
             whileOpen = sampler.FormatLine(TimeSpan.Zero, Now);
         }
         var afterRelease = sampler.FormatLine(TimeSpan.FromSeconds(2), Now.AddSeconds(2));
@@ -44,12 +47,18 @@ public sealed class StartupLoadSamplerPostgresTests
         Assert.Matches($@" db\[{label}\] used=1 idle=0 max=7 ", whileOpen);
         Assert.Matches($@" db\[{label}\] used=0 idle=1 max=7 ", afterRelease);
         Assert.DoesNotContain(builder.Host!, whileOpen);
+        // The durations come from the library too, in a unit the sampler knows: one physical open and at least the
+        // one command (Npgsql may run its own on open), each with a real millisecond figure, not "-" or "unit?".
+        Assert.Matches($@" db\[{label}\] [^\[]* cmds=[1-9]\d* cmdMaxMs=\d+ opens=1 openMaxMs=\d+", whileOpen);
+        // Reading the line emptied the window.
+        Assert.Matches($@" db\[{label}\] [^\[]* cmds=0 cmdMaxMs=- opens=0 openMaxMs=-", afterRelease);
 
         // Every instrument the line reads is one the library really publishes.
         foreach (var name in new[]
                  {
                      "db.client.connections.usage", "db.client.connections.max", "db.client.connections.pending_requests",
                      "db.client.connections.timeouts", "db.client.commands.executing",
+                     StartupLoadSampler.CommandDurationInstrument, StartupLoadSampler.ConnectionCreateTimeInstrument,
                  })
             Assert.Contains(name, sampler.ListenedInstruments);
     }
