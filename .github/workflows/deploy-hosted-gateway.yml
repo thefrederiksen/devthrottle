@@ -1012,17 +1012,13 @@ jobs:
           STATE_LOG=/tmp/site-state.log; : > "$STATE_LOG"
           echo "Watching for ${WATCH_SECONDS}s past the deploy (the failure window is 2-4 minutes out)..."
 
-          deadline=$(( $(date +%s) + WATCH_SECONDS ))
-          bad_state=""
-          while [ "$(date +%s)" -lt "$deadline" ]; do
-            st=$(az webapp show --resource-group "$AZURE_RG" --name "$APP" --query state --output tsv 2>/dev/null || echo "Unknown")
-            echo "$(date -u +%H:%M:%S) $st" >> "$STATE_LOG"
-            if [ "$st" != "Running" ]; then
-              bad_state="$st"
-              echo "SITE STATE LEFT Running: $st at $(date -u +%H:%M:%S)"
-            fi
-            sleep 15
-          done
+          # The sampling and its verdict live in scripts/watch-site-state.sh, proved against a fake az by
+          # scripts/watch-site-state.test.sh. A read that FAILS is recorded as a failed read with the az
+          # error kept - never as a state - and only fails the run when the state goes unmeasured for
+          # longer than the bound (run 42752825924 failed on one failed read; the script says why).
+          watch_start=$(date +%s)
+          WATCH_DEADLINE=$(( watch_start + WATCH_SECONDS )) bash scripts/watch-site-state.sh sample "$STATE_LOG"
+          watch_end=$(date +%s)
 
           # Stop this job's poller, then join the deploy job's record to it. Both carry absolute epoch
           # timestamps and the deploy job's samples all precede this job's, so ordering is by construction.
@@ -1165,6 +1161,10 @@ jobs:
           EOF
 
           echo "--- site state samples ---"; cat "$STATE_LOG"
+          UNMEASURED_LIMIT_SECONDS="$MAX_ACCEPTABLE_OUTAGE_SECONDS" \
+            bash scripts/watch-site-state.sh verdict "$STATE_LOG" "$watch_start" "$watch_end" /tmp/site-state.result
+          state_value() { grep "^$1=" /tmp/site-state.result | cut -d= -f2-; }
+          state_fail=$(state_value state_fail)
           echo "Longest unavailable stretch: ${longest}s   Total unavailable: ${total}s"
 
           # WHERE THE LONGEST STRETCH WAS, and whether it spans the join. On 2026-10-10 (run 38015983864)
@@ -1233,11 +1233,12 @@ jobs:
           fi
           echo "true_outage_seconds=$longest" >> "$GITHUB_OUTPUT"
           echo "total_unavailable_seconds=$total" >> "$GITHUB_OUTPUT"
-          echo "site_state_left_running=${bad_state:-no}" >> "$GITHUB_OUTPUT"
+          echo "site_state_left_running=$(state_value site_state_left_running)" >> "$GITHUB_OUTPUT"
+          echo "site_state_failed_reads=$(state_value site_state_failed_reads)" >> "$GITHUB_OUTPUT"
 
           fail=""
-          if [ -n "$bad_state" ]; then
-            fail="the App Service site left the Running state (saw '$bad_state')"
+          if [ -n "$state_fail" ]; then
+            fail="$state_fail"
           elif awk -v a="$longest" -v b="$MAX_ACCEPTABLE_OUTAGE_SECONDS" 'BEGIN{exit !(a > b)}'; then
             fail="production was unavailable for ${longest}s, over the ${MAX_ACCEPTABLE_OUTAGE_SECONDS}s budget"
           fi
