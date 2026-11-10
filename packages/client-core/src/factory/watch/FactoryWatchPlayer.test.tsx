@@ -75,6 +75,39 @@ describe("FactoryWatchPlayer", () => {
     }
   });
 
+  for (const [name, view] of Object.entries(allViews)) {
+    it(`${name}: every station label is drawn after every character, so no lifted crate covers a label`, () => {
+      const { container } = render(<FactoryWatchPlayer view={view} />);
+      const labels = [...container.querySelectorAll("[data-label-for]")];
+      expect(labels.length).toBe(view.stations.length);
+      for (const character of container.querySelectorAll(".fwp-character")) {
+        for (const label of labels) {
+          // In SVG, what comes later in the document paints on top.
+          expect(character.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        }
+      }
+    });
+  }
+
+  it("contributor: the lifted plain crate is drawn before the label of the station it stands at", () => {
+    // Arrange
+    const index = shared.steps.findIndex((s) => s.plain && s.kind === "talked");
+    const step = shared.steps[index];
+    const { container } = render(<FactoryWatchPlayer view={shared} />);
+
+    // Act: a frame advances playback by at most a tenth of a second; eight of them bring the crate up.
+    fireEvent.click(container.querySelectorAll(".fwp-step .fwp-step-main")[index]);
+    for (let i = 0; i < 8; i++) runFrame(100);
+
+    // Assert
+    const crate = container.querySelector('[data-glyph="plain-crate"]')!;
+    expect(crate).not.toBeNull();
+    const station = shared.characters.find((c) => c.seat === step.seat)!.station;
+    const label = container.querySelector(`[data-label-for="${station}"]`)!;
+    expect(label).not.toBeNull();
+    expect(crate.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   for (const kind of FACTORY_WATCH_STEP_KINDS) {
     it(`a ${kind} step plays its animation on the seat it names`, () => {
       // Arrange

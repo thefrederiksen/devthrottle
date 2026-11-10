@@ -42,6 +42,7 @@ function expectValueTypes(view: FactoryWatchView) {
     expect(Number.isInteger(s.emptyChecks)).toBe(true);
     expect(typeof s.mine).toBe("boolean");
     expect(typeof s.alarm).toBe("boolean");
+    expect(typeof s.plain).toBe("boolean");
   }
 }
 

@@ -219,11 +219,6 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
                   <StationBox key={s.id} station={s} lamp={scene.lamps[s.id] ?? "#5b6480"} />
                 ))}
             </g>
-            <g className="fwp-labels">
-              {view.stations.map((s) => (
-                <StationLabel key={s.id} station={s} scale={labelScale} compact={compact} />
-              ))}
-            </g>
             <Effects scene={scene} />
             <g className="fwp-characters">
               {[...scene.poses]
@@ -231,6 +226,13 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
                 .map((p) => (
                   <Character key={p.seat} pose={p} t={pb.t} followed={pb.follow === p.seat} onClick={() => onCharacterClick(p.seat)} />
                 ))}
+            </g>
+            {/* The words are drawn after the characters, so no crate a character lifts - plain, starred mid-jump, or the
+                Boss's own delivery - ever paints over a station's name. */}
+            <g className="fwp-labels">
+              {view.stations.map((s) => (
+                <StationLabel key={s.id} station={s} scale={labelScale} compact={compact} />
+              ))}
             </g>
             <Bubble scene={scene} world={world} scale={labelScale} />
           </svg>
@@ -403,8 +405,10 @@ function Floor({ view }: { view: FactoryWatchView }) {
       {grid}
       {view.lines.map((l) => {
         const fill = HALL_FILLS[l.index % HALL_FILLS.length];
-        // The name runs along the hall's left edge, just outside it, clear of every station inside.
-        const [nx, ny] = iso(l.gx - 0.35, l.gy + l.height / 2);
+        // The name runs along the hall's far right edge, just outside it and parallel to it. Every station of a hall
+        // stands at its left, and a label floats up toward the hall behind, so the far end is the one edge that no
+        // station, character or label of this hall or the next one reaches.
+        const [nx, ny] = iso(l.gx + l.width + 0.45, l.gy + l.height / 2);
         return (
           <g key={l.name} data-hall={l.name} data-gx={l.gx} data-gy={l.gy}>
             <polygon

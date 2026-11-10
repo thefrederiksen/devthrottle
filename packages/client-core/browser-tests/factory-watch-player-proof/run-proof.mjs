@@ -6,7 +6,7 @@
 // in the real browser, that every station and character of the fixture is drawn and that each control changes the
 // playback state the player reports.
 //
-// Run:  node run-proof.mjs [output folder]   ->  screenshots + evidence.json, prints PASS/FAIL. ASCII only.
+// Run:  PLAYWRIGHT_PATH=<folder of the playwright package> node run-proof.mjs [output folder]   ->  screenshots + evidence.json, prints PASS/FAIL. ASCII only.
 
 import { build } from "esbuild";
 import { createServer } from "node:http";
@@ -15,10 +15,24 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, extname } from "node:path";
 import { createRequire } from "node:module";
 
+// Playwright is not a dependency of this workspace. Point PLAYWRIGHT_PATH at any installed copy of the playwright
+// package (its folder, e.g. <some project>/node_modules/playwright). Without it, the driver tries a plain
+// require("playwright") from here, and if that finds nothing it stops and says what to set.
 const requireCjs = createRequire(import.meta.url);
-const PLAYWRIGHT_PATH =
-  process.env.PLAYWRIGHT_PATH || "C:/Users/soren/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright";
-const { chromium } = requireCjs(PLAYWRIGHT_PATH);
+function loadPlaywright() {
+  const target = process.env.PLAYWRIGHT_PATH || "playwright";
+  try {
+    return requireCjs(target);
+  } catch (e) {
+    console.error(
+      `[watch-player-proof] FAIL - cannot load Playwright from '${target}': ${e.message}\n` +
+        "Set PLAYWRIGHT_PATH to the folder of an installed playwright package, for example " +
+        "PLAYWRIGHT_PATH=/path/to/node_modules/playwright node run-proof.mjs <output folder>",
+    );
+    process.exit(2);
+  }
+}
+const { chromium } = loadPlaywright();
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = process.argv[2] || join(here, "evidence");
@@ -77,6 +91,27 @@ const state = (page) =>
   });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// In the real browser, measure the drawn boxes: no hall name may touch a station label or a character, and no two
+// station labels may touch. Returns the list of overlapping pairs; empty means clear.
+const overlaps = (page) =>
+  page.evaluate(() => {
+    const box = (el) => el.getBoundingClientRect();
+    const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const labels = [...document.querySelectorAll("[data-label-for] text")].map((el) => ({
+      name: `label ${el.closest("[data-label-for]").getAttribute("data-label-for")} '${el.textContent}'`,
+      r: box(el),
+      owner: el.closest("[data-label-for]").getAttribute("data-label-for"),
+    }));
+    const halls = [...document.querySelectorAll(".fwp-hall-name")].map((el) => ({ name: `hall '${el.textContent}'`, r: box(el) }));
+    const characters = [...document.querySelectorAll(".fwp-character")].map((el) => ({ name: `character ${el.getAttribute("data-seat")}`, r: box(el) }));
+    const found = [];
+    for (const h of halls) for (const o of [...labels, ...characters]) if (hit(h.r, o.r)) found.push(`${h.name} x ${o.name}`);
+    for (let i = 0; i < labels.length; i++)
+      for (let j = i + 1; j < labels.length; j++)
+        if (labels[i].owner !== labels[j].owner && hit(labels[i].r, labels[j].r)) found.push(`${labels[i].name} x ${labels[j].name}`);
+    return found;
+  });
+
 async function capture(browser, url, width, height, tag, evidence) {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2, hasTouch: width < 500 });
   const shots = {};
@@ -105,6 +140,8 @@ async function capture(browser, url, width, height, tag, evidence) {
   const resting = await page.locator(".fwp-character:not([data-animation=''])").count();
   check(`${tag}: opens live at rest with '${fixture.replayText}'`, (await replayButton.count()) === 1 && opening.live === "true" && resting === 0,
     `${JSON.stringify(opening)}, animating=${resting}`);
+  const hubClash = await overlaps(page);
+  check(`${tag}: no station label touches another`, hubClash.length === 0, hubClash.join("; ") || "clear");
   await shot("hub-quiet-opening-replay-button");
   await replayButton.click();
   const afterReplay = await state(page);
@@ -167,6 +204,8 @@ async function capture(browser, url, width, height, tag, evidence) {
   await page.locator(".fwp-step[data-kind='woke'] .fwp-step-main").click();
   await wait(1500);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
+  const lineClash = await overlaps(page);
+  check(`${tag}: no hall name touches a label or a character, and no label touches another`, lineClash.length === 0, lineClash.join("; ") || "clear");
   await shot("lines-step-woke");
 
   await page.goto(`${url}?empty#empty`);
