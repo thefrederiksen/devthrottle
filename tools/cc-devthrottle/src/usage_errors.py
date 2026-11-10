@@ -44,6 +44,7 @@ are therefore taken from whichever Click Typer itself is using.
 
 from __future__ import annotations
 
+import enum
 import importlib
 import sys
 from pathlib import Path
@@ -119,9 +120,43 @@ def _param_hint(param: Any) -> str:
     return param.human_readable_name
 
 
+def _choice_values(param: Any) -> Optional[List[str]]:
+    """The fixed set of values an option accepts, or None. The Click package and the copy of Click in
+    Typer up to 0.28 keep it on the parameter's type as `choices`; Typer 0.29 dropped Click and keeps
+    only the annotation, an Enum, on `type_descriptor`."""
+    choices = getattr(getattr(param, "type", None), "choices", None)
+    if choices:
+        return [str(getattr(choice, "value", choice)) for choice in choices]
+    annotation = getattr(getattr(param, "type_descriptor", None), "annotation", None)
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return [str(member.value) for member in annotation]
+    return None
+
+
+def _name_the_given_value(error: Any) -> None:
+    """Typer 0.29 validates values itself and its message leaves out what was typed ("Input should be
+    a valid integer"). The value is on the validation error it attaches as the cause; put it in front,
+    as Click's own messages always did. On Click (Typer up to 0.28) there is no such cause, and the
+    message, which already names the value, is left exactly as it is."""
+    cause = getattr(error, "__cause__", None)
+    problems = getattr(cause, "errors", None)
+    if not callable(problems):
+        return
+    found = problems()
+    if not found or "input" not in found[0]:
+        return
+    message = str(getattr(error, "message", ""))
+    if message.startswith("Value error, "):
+        message = message[len("Value error, "):]
+    given = repr(found[0]["input"])
+    error.message = message if given in message else f"{given} is not valid. {message}"
+
+
 def format_usage_error(error: Any) -> str:
     """The whole text written for a usage error: pure ASCII, one fact per line, newline at the end."""
     param = getattr(error, "param", None)
+    if isinstance(error, _BadParameter):
+        _name_the_given_value(error)
     if (
         isinstance(error, _BadParameter)
         and error.param_hint is None
@@ -143,11 +178,9 @@ def format_usage_error(error: Any) -> str:
         if hasattr(ctx.command, "list_commands"):  # a command group, in either Click
             commands = _command_names(ctx)
             lines.append("Valid commands: " + (", ".join(commands) if commands else "none"))
-    # A fixed set of values is recognised by its `choices`: the Click package calls the type Choice,
-    # and the copy of Click inside later Typer releases has its own class for it.
-    choices = getattr(getattr(param, "type", None), "choices", None)
+    choices = _choice_values(param)
     if isinstance(error, _BadParameter) and choices:
-        listed = ", ".join(axi_output.escape_ascii(str(getattr(choice, "value", choice))) for choice in choices)
+        listed = ", ".join(axi_output.escape_ascii(choice) for choice in choices)
         lines.append(f"Valid values for {_param_hint(param)}: {listed}")
     if ctx is not None:
         lines.append(axi_output.format_help([axi_output.escape_ascii(f"{ctx.command_path} --help")]))
