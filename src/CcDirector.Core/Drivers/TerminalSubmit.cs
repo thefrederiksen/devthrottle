@@ -333,6 +333,19 @@ public static class TerminalSubmit
                 return textForCheck;
             }
 
+            // NEVER AN @-REFERENCE FOR PI (issue #4014). Pi's @ is its file-name search: the Enter after
+            // "@.temp/input_....txt" picked from the search list instead of submitting, so every prompt over the
+            // typing limit sent with paste off sat unsent in the composer. Pi reads the same file through the
+            // instruction line it already gets above PasteLimit.
+            if (IsPi(driverTag) && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
+            {
+                FileLog.Write($"[TerminalSubmit] PiInstructionLine: driver={driverTag}, session={sessionId}, length={textForCheck.Length}, paste=off");
+                var instruction = await SubmitViaInstructionFileAsync(backend, textForCheck, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
+                    pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
+                ComposerRetention.Clear(backend);
+                return instruction;
+            }
+
             if (!string.IsNullOrWhiteSpace(backend.WorkingDirectory))
             {
                 var atReference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
@@ -1541,7 +1554,15 @@ public static class TerminalSubmit
         && (driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
             // Pi too (issue #3290, measured 24 September 2026 with every core busy): an 869-character line typed into Pi
             // was not drawn for over twenty seconds, while a 292-character paste was taken in within twelve.
-            || driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase));
+            || IsPi(driverTag));
+
+    /// <summary>
+    /// Session sends tag Pi by its kind ("Pi"); <see cref="PiDriver"/> tags its own sends "PiDriver" (issue #4014). Both
+    /// are Pi, and every Pi rule must see both - a bare Equals("Pi") let the driver's own route skip them all.
+    /// </summary>
+    internal static bool IsPi(string driverTag) =>
+        driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase)
+        || driverTag.Equals("PiDriver", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The longest text pasted into Claude Code or Pi. Longer goes through a file - an @-reference for Claude Code, the
@@ -1557,7 +1578,7 @@ public static class TerminalSubmit
     internal static bool PastesLikeAPerson(string driverTag) =>
         driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
         || driverTag.Contains("Codex", StringComparison.OrdinalIgnoreCase)
-        || driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase);
+        || IsPi(driverTag);
 
     /// <summary>
     /// The longest text pasted into each measured agent; a longer one goes through a file (issue #4379). It is the
@@ -1579,7 +1600,7 @@ public static class TerminalSubmit
         if (!LargeInputHandler.IsLargeInput(text) && text.Length <= 300)
             return false;
 
-        if (text.Length > PasteLimit && driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase))
+        if (text.Length > PasteLimit && IsPi(driverTag))
             return true;
 
         return driverTag.Contains("Codex", StringComparison.OrdinalIgnoreCase)
