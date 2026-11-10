@@ -61,30 +61,50 @@ public static class DirectorLogSweep
     ///
     /// <para>SEVEN DAYS, by the owner's ruling of 10 November 2026, which replaced the fourteen this
     /// shipped with two days earlier. The window was chosen against the real folder on
-    /// devthrottle-mac-mini, measured on 10 November 2026 at 418 megabytes in 97 files:
-    /// twenty-one days reclaimed nothing at all, because the folder was only twenty and a half days
-    /// old; fourteen days reclaimed 99 megabytes; seven days reclaims 245 megabytes and still leaves
-    /// 63 files. Fourteen barely touched it because most of the bulk had been written inside the
-    /// second week. Seven is the knee of that table - a day less stops buying much, a day more stops
-    /// costing much.</para>
+    /// devthrottle-mac-mini, measured on 10 November 2026 at 418 MEBIBYTES in 97 files - about 438
+    /// megabytes, and the unit is spelled out because the first version of this comment called the
+    /// mebibyte figures megabytes. Twenty-one days reclaimed nothing at all, because the folder was
+    /// only twenty and a half days old; fourteen days reclaimed 99 mebibytes; seven days reclaims 245
+    /// mebibytes and still leaves 63 files. Fourteen barely touched it because most of the bulk had
+    /// been written inside the second week. Seven is the knee of that table - a day less stops buying
+    /// much, a day more stops costing much.</para>
     ///
     /// <para>WHY SHORTENING IT IS SAFE, which matters more than the arithmetic, because a destructive
-    /// sweep must lean to keeping and this change leans the other way. A running process holds its
-    /// log open, so the question is whether seven days can reach a file something is still writing,
-    /// and it cannot: <c>FileLogWriter</c> names the file by DATE and rolls at local midnight,
-    /// disposing the old handle as it goes, so the only file any live process holds is the CURRENT
-    /// DATE'S, and that file's last write is minutes old at worst - the writer flushes when its queue
-    /// drains or on a bounded interval, whichever comes first. The margin is therefore about one day,
-    /// not one week, and seven days is seven times it. (The by-name protection of
-    /// <c>liveFilePath</c> sits on top of that, and only covers the sweeping process's own file; it is
-    /// the date-rolling, not the name, that protects the OTHER Directors on a machine that runs
-    /// several.) Yesterday's file is closed for good and is never appended to again, which is what
-    /// makes it a spent log rather than a quiet one.</para>
+    /// sweep must lean to keeping and this change leans the other way. A running process holds its log
+    /// open, so the question is whether seven days can reach a file something is still writing. It
+    /// cannot, and the guarantee is ROLL BEFORE WRITE: <c>FileLogWriter.WriterLoop</c> compares the
+    /// clock's date against the open file's date before EVERY line and rolls to a newly named file
+    /// first, so no byte is ever written into a file whose name-date is not the current date.</para>
+    ///
+    /// <para>The one case that defeats the roll is a CLOCK THAT JUMPS BACKWARDS by more than the
+    /// window: the writer then reopens the old-dated file and appends to it, because the clock's date
+    /// IS that date again, so the roll does not prevent the append. What protects that case is not the
+    /// roll but the shared clock - the sweep judges age with the same clock the writer names files by,
+    /// so the appended file's last write is fresh relative to the jumped clock and is kept. And once
+    /// the clock comes forward again, the next line rolls before it is written, so a sweep that
+    /// unlinks the old file in that gap still loses nothing.</para>
+    ///
+    /// <para>NOTE WHAT THE GUARANTEE IS NOT, because the first version of this comment got it wrong
+    /// and said so confidently. It is NOT "the only file a live process holds open is today's", and it
+    /// is not "the last write is minutes old": an idle Director can be quiet for hours, and one that
+    /// goes quiet across local midnight keeps YESTERDAY'S handle open, because the roll happens on the
+    /// next line written rather than at midnight itself. What makes that case harmless is not the
+    /// handle but the silence - nothing is written through it - so on Unix the sweep's unlink loses no
+    /// data. On Windows the open handle would make the delete fail, which <see cref="Run(string, string, string?, DateTime, TimeSpan?)"/> already
+    /// reports and retries on the next start, and it takes seven fully silent days to arise at all.</para>
+    ///
+    /// <para>The by-name protection of <c>liveFilePath</c> sits on top of this and is the SECOND
+    /// layer, not the load-bearing one: it covers only the sweeping process's own file, so on a
+    /// machine running several Directors it is the date-rolling that keeps one Director's start-up from
+    /// deleting another's live log. That distinction matters because on Unix deleting a file another
+    /// process holds open succeeds SILENTLY, with the writes going to an unlinked inode - the failure
+    /// would not have thrown.</para>
     ///
     /// <para>This is the window the Director actually sweeps with, because
     /// <see cref="Run(string, string, string?, DateTime, TimeSpan?)"/> is called at start-up without
-    /// one. A test drives that defaulted path rather than reading this field, so changing the number
-    /// here cannot quietly disagree with what the application does.</para>
+    /// one. The test that holds it drives that defaulted path rather than reading this field, and
+    /// straddles the horizon by an hour either side, so it pins seven days to within an hour of what
+    /// the application really does. Changing the number here without changing that test fails it.</para>
     /// </summary>
     public static readonly TimeSpan DefaultKeepWindow = TimeSpan.FromDays(7);
 
