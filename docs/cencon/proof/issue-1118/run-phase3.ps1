@@ -1,3 +1,0 @@
-Set-Location -LiteralPath 'D:\ReposFred\devthrottle'
-$p = Start-Process -FilePath 'D:\ReposFred\devthrottle\tools\harnesses\terminal-inject-harness\bin\Debug\net10.0\terminal-inject-harness.exe' -ArgumentList @('--case','medium-line,large-line,multiline','--submit-strategy','all','--runs','1','--timeout','240','--startup-timeout','150','--no-forced-parked','--allow-failures','--out','D:\ReposFred\devthrottle\docs\cencon\proof\issue-1118') -WorkingDirectory 'D:\ReposFred\devthrottle' -PassThru -Wait
-Set-Content -LiteralPath 'D:\ReposFred\devthrottle\docs\cencon\proof\issue-1118\exit-code.txt' -Value $p.ExitCode -Encoding ascii

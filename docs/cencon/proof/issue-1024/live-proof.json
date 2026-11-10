@@ -1,7 +1,0 @@
-{
-  "loaded": "http://localhost:5311/",
-  "sessions_401_intercepts": 2,
-  "final_url": "http://localhost:5311/login?next=%2F",
-  "went_to_login": true,
-  "went_to_m_signin": false
-}

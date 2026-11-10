@@ -1,6 +1,0 @@
-=== Core: DeviceRegistryClient (endpoint_url on register/heartbeat + record parse) ===
-Passed!  - Failed:     0, Passed:    13, Skipped:     0, Total:    13, Duration: 43 ms - CcDirector.Core.Tests.dll (net10.0)
-=== Gateway: device registration + child mirror (publishes endpoint_url) ===
-Passed!  - Failed:     0, Passed:    23, Skipped:     0, Total:    23, Duration: 268 ms - CcDirector.Gateway.Tests.dll (net10.0)
-=== Engine: GatewayAccountEnrollRunner (sign-in + discover gateways) ===
-Passed!  - Failed:     0, Passed:    18, Skipped:     0, Total:    18, Duration: 67 ms - CcDirector.Setup.Engine.Tests.dll (net10.0)

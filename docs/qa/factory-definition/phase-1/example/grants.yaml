@@ -1,5 +1,0 @@
-grants:
-  - id: publish-posts
-    allows: Publish a post on the blog
-    limits: At most two a week
-    seats: [writer]

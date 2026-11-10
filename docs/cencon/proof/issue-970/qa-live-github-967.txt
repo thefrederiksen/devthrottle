@@ -1,4 +1,0 @@
-REQUEST: GET http://127.0.0.1:63899/gateway/lists/item-status?source=github&id=967
-(browser sends only the same-origin cc-gateway-token; the GitHub token stays on the Gateway)
-RESPONSE STATUS: 200
-RESPONSE BODY: {"title":"[Epic] Rebuild the Cockpit in React (retire Blazor Server)","status":"queued","detail":null}
