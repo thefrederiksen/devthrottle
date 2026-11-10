@@ -994,4 +994,61 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal(0, _queued);
     }
 
+    // ---- Handle the issue refuses what it must, whichever way it would go (restored after the Factory Manager's retirement) ----
+
+    [Fact]
+    public async Task Handle_ARunThatIsNoOpenProblemOfThisFactory_Is404_AndNothingIsStarted()
+    {
+        await StartAsync();
+        var resolved = ScoutProblem();
+        resolved.State = CronRunProblemStates.Resolved;
+        _problems.Add(resolved);
+        var elsewhere = ScoutProblem(runId: "3f1c2b7a-0000-4000-8000-0000000000a2", factory: "tallyhand");
+        _problems.Add(elsewhere);
+
+        var notOpen = await Handle("warmforward", resolved.RunId);
+        var notThisFactory = await Handle("warmforward", elsewhere.RunId);
+
+        Assert.Equal(HttpStatusCode.NotFound, notOpen.StatusCode);
+        Assert.Contains("has no open problem on run", await ErrorOf(notOpen));
+        Assert.Equal(HttpStatusCode.NotFound, notThisFactory.StatusCode);
+        Assert.Empty(_sent);
+        Assert.Empty(_sentToFleetManager);
+    }
+
+    [Theory]
+    [InlineData(Caller.DirectorDeviceKey)]
+    [InlineData(Caller.MachineToken)]
+    public async Task Handle_ACredentialThatIsNotTheOwnersBrowserOrPhone_Is403_AndNothingIsStarted(Caller caller)
+    {
+        await StartAsync(caller: caller);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(_sent);
+        Assert.Empty(_sentToFleetManager);
+    }
+
+    [Fact]
+    public async Task Handle_TheFactorySwitchOff_Is404WithASentence_AndNothingIsStarted()
+    {
+        await StartAsync(switchOn: false);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("switched off", await ErrorOf(response));
+        Assert.Empty(_sent);
+        Assert.Empty(_sentToFleetManager);
+    }
+
+    [Fact]
+    public void Handle_ASessionsOwnKey_NeverReachesTheRoute()
+        => Assert.False(SessionKeyGuard.Check("POST", "/gateway/factory-agents/factories/warmforward/problems/x/handle").Allowed,
+            "Handle the issue opens the owner's own talk; a session must not be able to start one");
 }
