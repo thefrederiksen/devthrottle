@@ -188,9 +188,11 @@ public sealed class StartupLoadSamplerTests
         sampler.AppendDatabasePools(sb);
         var text = sb.ToString();
 
-        Assert.Contains($" db[{StartupLoadSampler.PoolLabel("pool-a")}]", text);
-        Assert.Contains("cmds=1 cmdMaxMs=2000 opens=0 openMaxMs=-", text);
-        Assert.Contains("cmds=0 cmdMaxMs=- opens=1 openMaxMs=5000", text);
+        // The whole text, so each pool's durations are pinned to its own label (pools print sorted by raw name).
+        Assert.Equal(
+            $" db[{StartupLoadSampler.PoolLabel("pool-a")}] used=- idle=- max=- waiting=- timeouts=- executing=- cmds=1 cmdMaxMs=2000 opens=0 openMaxMs=-"
+            + $" db[{StartupLoadSampler.PoolLabel("pool-b")}] used=- idle=- max=- waiting=- timeouts=- executing=- cmds=0 cmdMaxMs=- opens=1 openMaxMs=5000",
+            text);
     }
 
     [Fact]

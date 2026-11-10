@@ -83,7 +83,7 @@ public sealed class StartupLoadSampler : IDisposable
 
     /// <summary>
     /// TEST seam: <paramref name="listenToNpgsql"/> false builds a sampler that hears only what a test feeds it
-    /// through <see cref="Record(string, bool, double, ReadOnlySpan{KeyValuePair{string, object?}})"/>. The Npgsql
+    /// through <see cref="Record(string, bool, double, ReadOnlySpan{KeyValuePair{string, object?}}, string?)"/>. The Npgsql
     /// meter is process-wide, so a listening sampler in a test would also see every pool another test created.
     /// </summary>
     internal StartupLoadSampler(bool listenToNpgsql)
