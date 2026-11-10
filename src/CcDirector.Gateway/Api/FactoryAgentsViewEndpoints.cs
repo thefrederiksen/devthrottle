@@ -438,12 +438,18 @@ internal static class FactoryAgentsViewEndpoints
     /// <summary>Page through the record up to <see cref="MaxRowsPerRead"/> rows. The second value is true when the
     /// record held more, so a cut list is never presented as complete.</summary>
     internal static (List<FactoryActivityDto> Rows, bool Truncated) ReadAll(FactoryAgentsSources sources, TenantId tenant, FactoryRecordQuery query)
+        => ReadAll(q => sources.Query(tenant, q), query);
+
+    /// <summary>The same paging, over any reader of the record: a contributor's watch view reads one team's rows with it,
+    /// so its window is cut at exactly the place the owner's views cut theirs.</summary>
+    internal static (List<FactoryActivityDto> Rows, bool Truncated) ReadAll(Func<FactoryRecordQuery, FactoryActivityPage> read, FactoryRecordQuery query)
     {
+        ArgumentNullException.ThrowIfNull(read);
         var rows = new List<FactoryActivityDto>();
         var offset = 0;
         while (true)
         {
-            var page = sources.Query(tenant, query with { Offset = offset, Limit = PageSize });
+            var page = read(query with { Offset = offset, Limit = PageSize });
             rows.AddRange(page.Rows);
             if (!page.HasMore) return (rows, false);
             if (rows.Count >= MaxRowsPerRead) return (rows, true);

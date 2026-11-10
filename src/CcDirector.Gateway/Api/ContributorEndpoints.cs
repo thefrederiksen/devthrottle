@@ -23,6 +23,8 @@ namespace CcDirector.Gateway.Api;
 /// project is, today in your factory, what you have so far, sent to you, what you can do here.</item>
 /// <item><c>GET /teams/{teamId}/contributor/inbox</c> - only what was sent to the caller, and their conversation with the
 /// team's Owner.</item>
+/// <item><c>GET /teams/{teamId}/contributor/factories/{factory}/watch?window=&amp;from=&amp;to=</c> - "Watch your factory": the
+/// contributor audience of <see cref="FactoryWatchFold"/> for one factory sent to them (version one, piece 4).</item>
 /// </list>
 ///
 /// COMBINED ACROSS TEAMS, ONE ROUTE PER TEAM. A person on several teams sees one Factories page and one Inbox; the client
@@ -47,12 +49,15 @@ internal static class ContributorEndpoints
     /// <summary>The Factories list, as the route table writes it.</summary>
     public const string FactoriesPattern = GroupPath + "/factories";
 
+    /// <summary>One factory's watch view, as the route table writes it.</summary>
+    public const string WatchPattern = FactoriesPattern + "/{factory}/watch";
+
     /// <summary>The Inbox, as the route table writes it.</summary>
     public const string InboxPattern = GroupPath + "/inbox";
 
     internal const string CallerItemKey = "cc.teams.contributor.caller";
 
-    /// <summary>Maps the three routes.</summary>
+    /// <summary>Maps the four routes.</summary>
     public static void Map(IEndpointRouteBuilder app, ContributorPages pages, HostedTenantBoundary boundary, TenantRegistry tenants)
     {
         ArgumentNullException.ThrowIfNull(app);
@@ -87,12 +92,37 @@ internal static class ContributorEndpoints
         group.MapGet("/factories/{factory}", (HttpContext ctx, string teamId, string factory) =>
             pages.CustomerPage(teamId, Caller(ctx), factory) is { } page
                 ? Results.Json(page)
-                : Results.Json(new { error = ContributorFactoryAccess.NotSentToYou, code = ContributorPages.NotFoundCode },
-                    statusCode: StatusCodes.Status404NotFound));
+                : NotSentToYou());
+        group.MapGet("/factories/{factory}/watch", (HttpContext ctx, string teamId, string factory, string? window, DateTime? from, DateTime? to) =>
+            Watch(pages, teamId, Caller(ctx), factory, window, from, to));
         group.MapGet("/inbox", (HttpContext ctx, string teamId) => Results.Json(pages.Inbox(teamId, Caller(ctx))));
 
-        FileLog.Write($"[ContributorEndpoints] mapped {FactoriesPattern} (list, one) and {InboxPattern}");
+        FileLog.Write($"[ContributorEndpoints] mapped {FactoriesPattern} (list, one), {WatchPattern} and {InboxPattern}");
     }
+
+    /// <summary>The watch route's answer: the view; the customer page's own not-found for every refusal; or a 400 naming
+    /// what is wrong with the window - asked only after the check allowed the factory, so a refused factory never
+    /// answers anything but the not-found.</summary>
+    internal static IResult Watch(ContributorPages pages, string teamId, string caller, string factory, string? window, DateTime? from, DateTime? to)
+    {
+        try
+        {
+            return pages.Watch(teamId, caller, factory, window, from, to) is { } view
+                ? Results.Json(view)
+                : NotSentToYou();
+        }
+        catch (FactoryViewValidationException ex)
+        {
+            FileLog.Write($"[ContributorEndpoints] GET watch: window refused: {ex.Message}");
+            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    /// <summary>THE one refusal a contributor reads for a factory, whichever condition failed: the customer page and the
+    /// watch view answer it with the same bytes.</summary>
+    internal static IResult NotSentToYou() =>
+        Results.Json(new { error = ContributorFactoryAccess.NotSentToYou, code = ContributorPages.NotFoundCode },
+            statusCode: StatusCodes.Status404NotFound);
 
     /// <summary>The person the filter admitted. Set on every request that reaches a route here.</summary>
     internal static string Caller(HttpContext ctx) =>
@@ -139,6 +169,7 @@ internal sealed class ContributorPages
     internal const int TodayLines = 20;
 
     private readonly ContributorFactoryAccess _access;
+    private readonly FactoryContributors _shares;
     private readonly FactoryActivityRecord _activity;
     private readonly DevReportStore _reports;
     private readonly DevReportRecipients _recipients;
@@ -148,11 +179,12 @@ internal sealed class ContributorPages
     private readonly Func<TenantId, string> _timeZoneOf;
     private readonly Func<DateTime> _utcNow;
 
-    public ContributorPages(ContributorFactoryAccess access, FactoryActivityRecord activity, DevReportStore reports,
+    public ContributorPages(ContributorFactoryAccess access, FactoryContributors shares, FactoryActivityRecord activity, DevReportStore reports,
         DevReportRecipients recipients, TeamQuestions questions, TeamRequestStore requests, TeamRegistry teams,
         Func<TenantId, string> timeZoneOf, Func<DateTime>? utcNow = null)
     {
         _access = access ?? throw new ArgumentNullException(nameof(access));
+        _shares = shares ?? throw new ArgumentNullException(nameof(shares));
         _activity = activity ?? throw new ArgumentNullException(nameof(activity));
         _reports = reports ?? throw new ArgumentNullException(nameof(reports));
         _recipients = recipients ?? throw new ArgumentNullException(nameof(recipients));
@@ -255,6 +287,39 @@ internal sealed class ContributorPages
             },
             canDo = new { title = "What you can do here", text = CanDoText, note = CanDoNote },
         };
+    }
+
+    // ---------------------------------------------------------------- Watch your factory
+
+    /// <summary>
+    /// "Watch your factory" for a contributor (version one, piece 4): the CONTRIBUTOR audience of
+    /// <see cref="FactoryWatchFold"/> for one factory, or null when <see cref="ContributorFactoryAccess"/> refuses it -
+    /// whichever condition failed, the route answers the customer page's own not-found.
+    ///
+    /// The factory, its tenant and the rows come only from the check's verdict and the team the route names: the
+    /// factory is the verdict's registered one (never looked up a second time), the rows are read in the team's tenant
+    /// under the verdict's spelling, and the machine names are the team account's. What is the caller's own is
+    /// version one's rule (A), decided in <see cref="ContributorWatchScope"/>.
+    /// </summary>
+    public FactoryWatchViewDto? Watch(string teamId, string caller, string factory, string? window, DateTime? fromUtc, DateTime? toUtc)
+    {
+        var verdict = _access.Check(teamId, caller, factory);
+        if (!verdict.Allowed)
+            return null;
+
+        var team = new TenantId(teamId);
+        var f = verdict.Factory!;
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(_timeZoneOf(team));
+        var w = FactoryAgentsFold.ResolveWindow(window, fromUtc, toUtc, _utcNow(), FactoryAgentsFold.WindowLast24h, zone);
+        var (rows, truncated) = FactoryAgentsViewEndpoints.ReadAll(
+            q => _activity.Query(team, q.Factory, q.Agent, q.Outcome, q.FromUtc, q.ToUtc, q.OldestFirst, q.Offset, q.Limit),
+            new FactoryRecordQuery(f.Factory, null, null, w.FromUtc, w.ToUtc, true, 0, FactoryAgentsViewEndpoints.PageSize));
+        var scope = ContributorWatchScope.For(_shares.ContributorsOf(team, f.Factory), caller, _activity.MachineNamesOf(team));
+
+        var view = FactoryWatchFold.View(f, rows, truncated, w, zone, FactoryWatchAudience.Contributor, scope);
+        FileLog.Write($"[ContributorPages] Watch: team {team.ToLogString()} factory={f.Factory} window={w.Key} rows={rows.Count} " +
+                      $"truncated={truncated} wholeFactory={scope.WholeFactory} steps={view.Steps.Count}");
+        return view;
     }
 
     // ---------------------------------------------------------------- Inbox

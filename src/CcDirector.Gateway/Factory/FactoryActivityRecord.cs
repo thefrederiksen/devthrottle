@@ -291,6 +291,21 @@ public sealed class FactoryActivityRecord
         }
     }
 
+    /// <summary>
+    /// The names of the machines on <paramref name="tenant"/>'s account - the same list the contributor sentence's
+    /// machine rule checks at record time - for a reader that must check words again against them (a contributor's
+    /// watch view, version one piece 4). Opened for the account the caller names, never the ambient one. Internal, so the
+    /// record's public surface stays Append and Query (Store_exposes_no_mutating_method_besides_Append).
+    /// </summary>
+    internal IReadOnlyList<string> MachineNamesOf(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return MachineNamesOf(ctx);
+        }
+    }
+
     // The names of the machines on the row's account, for the contributor sentence's machine rule: every device the
     // account ever enrolled, revoked ones included - a name that was once a machine of the account is still one. The
     // device table is global (a key is resolved before any tenant is known), so the account is matched on its own
