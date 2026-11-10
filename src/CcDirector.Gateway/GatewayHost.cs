@@ -6122,7 +6122,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 DateTime.UtcNow));
         // The Talk button (Factories screen mission, phase C): a session seated as one seat, started down the same
         // path a person's New Session takes, built from the same stores GatewayEndpoints.Map was handed above.
-        // Every factory start goes through this one door - the talk, the Factory Manager's talk, "handle the issue" and a
+        // Every factory start goes through this one door - the talk, "handle the issue" and a
         // Boss's seat start - so the team machine check (Team implementation 2.1, F1) is wired once, here.
         var talkSpawnDoor = new Api.DirectorSpawnDoor(_tenantBoundary, Registry, _sessionHistory.FactoryOf, SendCommandAsync,
             Missions, _workflowRuns, _workspaces, TeamMachineRefusal, _factoryKitCapabilities, SeatRulesFor);
