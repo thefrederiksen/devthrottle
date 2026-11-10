@@ -200,7 +200,10 @@ public sealed class TeamRequestForwardingTests : IDisposable
             (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session in these tests"),
             (_, _) => null, CancellationToken.None, () => Now);
         var questions = new TeamQuestions(reports, recipients, new DevReportPersonComments(_db), _teams, access, delivery, () => Now);
-        var pages = new ContributorPages(new ContributorFactoryAccess(_teams, _factories, new FactoryContributors(_db)),
+        // ContributorPages takes the contributor shares as its second argument, and the factory access
+        // needs the same instance - which is how the other three call sites on main pass it.
+        var shares = new FactoryContributors(_db);
+        var pages = new ContributorPages(new ContributorFactoryAccess(_teams, _factories, shares), shares,
             new FactoryActivityRecord(_db), reports, recipients, questions, _requests, _teams, _ => "UTC", () => Now);
 
         // Act
