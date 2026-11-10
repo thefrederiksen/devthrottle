@@ -14,6 +14,9 @@ export interface WatchExplainerCardProps {
   explainer: FactoryWatchExplainer;
   /** The factory's name from the same view, as the card's heading. */
   title: string;
+  /** False when the shell's own frame already shows the factory's name (the phone's app bar), so it is not shown twice.
+   *  The name still labels the card for a screen reader. Defaults to true. */
+  showTitle?: boolean;
   /** Called when the person presses the button. */
   onWatch: () => void;
 }
@@ -25,13 +28,20 @@ const TRIO: ReadonlyArray<{ colour: string; expression: "happy" | "focused" | "c
   { colour: "#7fcf9a", expression: "cool", crown: false, x: 72 },
 ];
 
-export function WatchExplainerCard({ explainer, title, onWatch }: WatchExplainerCardProps) {
+export function WatchExplainerCard({ explainer, title, showTitle = true, onWatch }: WatchExplainerCardProps) {
   return (
     <div className="fwx" data-testid="watch-explainer">
-      <div className="fwx-card" role="dialog" aria-modal="false" aria-labelledby="fwx-title">
-        <h2 id="fwx-title" className="fwx-title">
-          {title}
-        </h2>
+      <div
+        className="fwx-card"
+        role="dialog"
+        aria-modal="false"
+        {...(showTitle ? { "aria-labelledby": "fwx-title" } : { "aria-label": title })}
+      >
+        {showTitle && (
+          <h2 id="fwx-title" className="fwx-title">
+            {title}
+          </h2>
+        )}
         {explainer.paragraphs.map((p, i) => (
           <p key={i} className="fwx-paragraph" data-testid="watch-explainer-paragraph">
             {p}

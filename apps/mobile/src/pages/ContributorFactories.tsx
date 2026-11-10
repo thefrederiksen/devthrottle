@@ -90,7 +90,14 @@ function PhoneWatch({ teamId, factory }: { teamId: string; factory: string }) {
   const [title, setTitle] = useState<string | null>(null);
   return (
     <Screen title={title} back={CONTRIBUTOR_FACTORIES_PATH}>
-      <ContributorWatchView teamId={teamId} factory={factory} errorClassName="banner banner-error" onTitle={setTitle} />
+      {/* The app bar shows the factory's name, so the card and the player do not repeat it beneath. */}
+      <ContributorWatchView
+        teamId={teamId}
+        factory={factory}
+        errorClassName="banner banner-error"
+        onTitle={setTitle}
+        titleInFrame
+      />
     </Screen>
   );
 }
