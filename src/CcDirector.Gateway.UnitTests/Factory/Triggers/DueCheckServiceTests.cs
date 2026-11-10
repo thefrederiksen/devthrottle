@@ -95,7 +95,7 @@ public sealed class DueCheckServiceTests : IDisposable
         var (job, runId) = await ADueCheck();
         _states.RecordIfChanged(T, "mail", FactoryCheckStateStore.ScheduleOwner(job.Id), """{"seen":"m-7"}""", Capable, "an-earlier-run", Now.AddDays(-1));
 
-        var handed = Assert.Single(Service().AssignmentsFor(T, Capable, Machine));
+        var handed = Assert.Single((await Service().AssignmentsForAsync(T, Capable, Machine)));
 
         Assert.Equal((runId, runId, TriggerKinds.Definition), (handed.DueRunId, handed.ReportId, handed.Kind));
         Assert.Equal((TriggerCheckLimits.DueCheckTimeoutSeconds, "", ""), (handed.TimeoutSeconds, handed.CheckCommand, handed.RepoPath));
@@ -111,8 +111,8 @@ public sealed class DueCheckServiceTests : IDisposable
         await ADueCheck();
         var service = Service();
 
-        Assert.Empty(service.AssignmentsFor(T, Older, Machine));
-        Assert.Single(service.AssignmentsFor(T, Capable, Machine));
+        Assert.Empty((await service.AssignmentsForAsync(T, Older, Machine)));
+        Assert.Single((await service.AssignmentsForAsync(T, Capable, Machine)));
     }
 
     [Fact]
@@ -120,13 +120,13 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         await ADueCheck();
         var service = Service();
-        Assert.Single(service.AssignmentsFor(T, Capable, Machine));
+        Assert.Single((await service.AssignmentsForAsync(T, Capable, Machine)));
 
         _now = Now.AddMinutes(5);
-        Assert.Empty(service.AssignmentsFor(T, OtherCapable, Machine));
+        Assert.Empty((await service.AssignmentsForAsync(T, OtherCapable, Machine)));
 
         _now = Now.AddMinutes(6).AddSeconds(1);
-        Assert.Single(service.AssignmentsFor(T, OtherCapable, Machine));
+        Assert.Single((await service.AssignmentsForAsync(T, OtherCapable, Machine)));
         Assert.Equal(TimeSpan.FromMinutes(6), DueCheckService.ClaimLapse);
     }
 
@@ -135,7 +135,7 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         await ADueCheck();
 
-        Assert.Empty(Service().AssignmentsFor(T, Capable, "SOREN_SOUTH"));
+        Assert.Empty((await Service().AssignmentsForAsync(T, Capable, "SOREN_SOUTH")));
     }
 
     // ---------- the report ----------
@@ -145,7 +145,7 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         var (_, runId) = await ADueCheck();
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         var refused = service.Report(T, OtherCapable, Guid.Parse(runId), Report("""{"count": 0}"""));
 
@@ -169,7 +169,7 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         var (job, runId) = await ADueCheck();
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         var result = service.Report(T, Capable, Guid.Parse(runId), Report("not json at all", state: """{"half":"written"}"""));
 
@@ -187,7 +187,7 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         var (job, runId) = await ADueCheck();
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 0}""", state: """{"seen":"m-9"}"""));
 
@@ -204,7 +204,7 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         var (job, runId) = await ADueCheck();
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         var result = service.Report(T, Capable, Guid.Parse(runId),
             Report("""{"count": 2, "context": "from ada@example.com"}""", state: """{"seen":"m-12"}"""));
@@ -228,7 +228,7 @@ public sealed class DueCheckServiceTests : IDisposable
         // counted work, so without the refusal the seat would start.
         var (job, runId) = await ADueCheck(factory: MailDeskTemplate.Factory, checkPath: MailDeskTemplate.CheckPath);
         var service = Service(mailDeskOn: false);
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         // Act
         var refused = service.Report(T, Capable, Guid.Parse(runId),
@@ -257,7 +257,7 @@ public sealed class DueCheckServiceTests : IDisposable
         // Arrange
         var (job, runId) = await ADueCheck(factory: MailDeskTemplate.Factory, checkPath: MailDeskTemplate.CheckPath);
         var service = Service(mailDeskOn: true);
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         // Act
         var refused = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 2}""", state: """{"seen":"m-2"}"""));
@@ -281,7 +281,7 @@ public sealed class DueCheckServiceTests : IDisposable
         // Arrange: the same factory, a different check - not the screening check.
         var (job, runId) = await ADueCheck(factory: MailDeskTemplate.Factory, checkPath: "checks/new_mail.py");
         var service = Service(mailDeskOn: false);
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         // Act
         var result = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 1}"""));
@@ -299,7 +299,7 @@ public sealed class DueCheckServiceTests : IDisposable
         var (job, runId) = await ADueCheck();
         _starter.Fail = "the machine is offline";
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
 
         var finished = await service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 1}""", state: """{"seen":"m-13"}""")).Starting!;
 
@@ -314,7 +314,7 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         var (_, runId) = await ADueCheck();
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
         service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 0}"""));
 
         var again = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 3}"""));
@@ -331,11 +331,11 @@ public sealed class DueCheckServiceTests : IDisposable
         var (_, runId) = await ADueCheck();
         _starter.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
         var first = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 1}"""));
 
         var second = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 1}"""));
-        Assert.Empty(service.AssignmentsFor(T, Capable, Machine));
+        Assert.Empty((await service.AssignmentsForAsync(T, Capable, Machine)));
         _starter.Gate.SetResult();
         await first.Starting!;
 
@@ -349,7 +349,7 @@ public sealed class DueCheckServiceTests : IDisposable
         // A seat written "Soren_North" publishes and its plain runs start there; its due check must reach it too.
         var (_, runId) = await ADueCheck(machine: "Soren_North");
 
-        var handed = Assert.Single(Service().AssignmentsFor(T, Capable, "SOREN_NORTH"));
+        var handed = Assert.Single((await Service().AssignmentsForAsync(T, Capable, "SOREN_NORTH")));
 
         Assert.Equal(runId, handed.DueRunId);
     }
@@ -361,7 +361,7 @@ public sealed class DueCheckServiceTests : IDisposable
         var (job, runId) = await ADueCheck();
         _starter.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
         var first = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 2}"""));
         await new CronEngine(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(Now.AddHours(1)))
             .RunNowAsync(job.Id, CancellationToken.None);
@@ -388,7 +388,7 @@ public sealed class DueCheckServiceTests : IDisposable
         var (job, runId) = await ADueCheck();
         _starter.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
         service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 3}"""));
         CronEngine Sweep(DateTime at) => new(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(at));
 
@@ -413,7 +413,7 @@ public sealed class DueCheckServiceTests : IDisposable
         var (_, runId) = await ADueCheck();
         _starter.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
         var report = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 3}"""));
         await new CronEngine(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(Now.AddMinutes(6)))
             .EvaluateDueAsync(CancellationToken.None);
@@ -432,7 +432,7 @@ public sealed class DueCheckServiceTests : IDisposable
     {
         var (job, runId) = await ADueCheck();
         var service = Service();
-        service.AssignmentsFor(T, Capable, Machine);
+        await service.AssignmentsForAsync(T, Capable, Machine);
         // The schedule's next time came first: the run was superseded.
         await new CronEngine(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(Now.AddHours(1)))
             .RunNowAsync(job.Id, CancellationToken.None);

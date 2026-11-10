@@ -146,6 +146,21 @@ public sealed class GatedStoresWaitWithoutBlockingTests : IDisposable
         Assert.Equal(1, results.Count(r => r.Count == 0));
     }
 
+    [Fact]
+    public async Task ClaimDueChecksAsync_StoreGateHeld_WaitsWithoutBlockingThenAnswers()
+    {
+        // The due check claim on the same reconnect route. Its store keeps one gate for every account (some of its
+        // methods read across accounts), so the proof here is that the claim WAITS by awaiting, then answers.
+        var runs = new CronRunHistoryStore(_harness.Open(), _harness.LegacyPath("runs.json"));
+        var held = runs.EnterGateForTest();
+
+        var claim = runs.ClaimDueChecksAsync(AccountA, "dir-a", "SOREN_NORTH", Now, TimeSpan.FromMinutes(10));
+
+        Assert.False(claim.IsCompleted);
+        held.Dispose();
+        Assert.Empty(await claim);
+    }
+
     // ---------- the skill placement push ----------
 
     [Fact]
@@ -166,9 +181,11 @@ public sealed class GatedStoresWaitWithoutBlockingTests : IDisposable
     }
 
     [Fact]
-    public async Task StoreBatchAsync_TwoPushesFromOneDirectorAtOnce_LeaveOneRowWithTheLaterAnswer()
+    public async Task StoreBatchAsync_TwoPushesFromOneDirectorAtOnce_LeaveOneRow_FromThePushThatRanLast()
     {
-        // Serialised per Director, so two pushes never both insert the same row; the second overwrites the first.
+        // Serialised per Director, so two pushes never both insert the same row: the second to take the gate overwrites
+        // the first. The store keeps whichever ran last - it compares no times - and the gate serves its waiters in the
+        // order they arrived, so here that is the second push.
         var store = new SkillPlacementStore(_harness.Open(new AsyncLocalTenantContext()));
         var held = store.EnterGateForTest(AccountA, "dir-1");
 

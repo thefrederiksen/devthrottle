@@ -281,7 +281,7 @@ internal static class TriggerEndpoints
             // The interval checks, then the due checks of timed starts on this machine - each claimed for this Director.
             // Every Director calls this on reconnect, so the claim is awaited, never blocked on (deploy outage, 9 Nov 2026).
             var assigned = (await service.AssignmentsForAsync(tenant, directorId, machine, ctx.RequestAborted)).ToList();
-            assigned.AddRange(dueChecks.AssignmentsFor(tenant, directorId, machine));
+            assigned.AddRange(await dueChecks.AssignmentsForAsync(tenant, directorId, machine, ctx.RequestAborted));
             return Results.Json(new TriggerAssignmentResponse { Triggers = assigned });
         });
 
