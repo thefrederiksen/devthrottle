@@ -68,7 +68,7 @@ public sealed class GitHubUrlsNoOriginReportingTests
     private static List<string> RunAndCollectErrors(Func<string, string?> readOrigin, out string result)
     {
         // The folder must exist: a missing folder short-circuits before the origin is read.
-        var dir = Path.Combine(Path.GetTempPath(), $"cc-director-no-origin-{Guid.NewGuid():N}");
+        var dir = TestTempRoot.For("cc-director-no-origin-");
         Directory.CreateDirectory(dir);
         var errors = new List<string>();
         var previous = FileLog.ErrorObserver;
@@ -82,7 +82,7 @@ public sealed class GitHubUrlsNoOriginReportingTests
         finally
         {
             FileLog.ErrorObserver = previous;
-            Directory.Delete(dir, recursive: true);
+            TestTempRoot.DeleteTree(dir);
         }
     }
 }

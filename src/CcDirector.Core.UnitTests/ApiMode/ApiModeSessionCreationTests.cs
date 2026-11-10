@@ -136,18 +136,20 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         // Windows paths are not case-sensitive, and the resolver takes the extension's casing from PATHEXT (pi.CMD).
         Assert.Equal(Path.GetFullPath(_piResolved), started.Executable, ignoreCase: OperatingSystem.IsWindows());
         Assert.Equal(_repo, started.WorkingDirectory);
-        Assert.Equal(["--mode", "rpc", "--session-id"], started.Arguments.Take(3));
-        Assert.Equal(session.ClaudeSessionId, started.Arguments[3]);
-        Assert.Equal("--extension", started.Arguments[4]);
-        var extension = started.Arguments[5];
+        // --approve leads the terminal launch line too (issue #4010), so a folder with project resources never stops
+        // Pi on its trust question.
+        Assert.Equal(["--mode", "rpc", "--approve", "--session-id"], started.Arguments.Take(4));
+        Assert.Equal(session.ClaudeSessionId, started.Arguments[4]);
+        Assert.Equal("--extension", started.Arguments[5]);
+        var extension = started.Arguments[6];
         Assert.Equal(Path.Combine(CcStorage.PiExtensions(), PiStateExtensionInstaller.ExtensionFileName), extension);
         Assert.Equal(PiStateExtensionInstaller.ExtensionSource(), File.ReadAllText(extension));
-        Assert.Equal("--append-system-prompt", started.Arguments[6]);
-        var preamble = started.Arguments[7];
+        Assert.Equal("--append-system-prompt", started.Arguments[7]);
+        var preamble = started.Arguments[8];
         Assert.Equal(Path.Combine(CcStorage.PiPreamble(), Path.GetFileName(preamble)), preamble);
         Assert.True(File.Exists(preamble), "the fleet preamble file the terminal path writes for Pi exists");
         Assert.Contains(session.Id.ToString(), File.ReadAllText(preamble));
-        Assert.Equal(8, started.Arguments.Count);
+        Assert.Equal(9, started.Arguments.Count);
         Assert.Equal(session.Id.ToString(), started.SetVariables["CC_SESSION_ID"]);
         var stateDirectory = started.SetVariables[SessionHookFiles.StateEventDirectoryEnvVar];
         var stateToken = started.SetVariables[SessionHookFiles.StateEventTokenEnvVar];
@@ -413,7 +415,8 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         var ready = await sink.WaitForAsync<ConnectionReady>();
 
         // Assert: the same --session-id, the conversation found (messageCount 5), and the session linked to it.
-        Assert.Equal(pi.AgentSessionId, pi.Process.StartedWith!.Arguments[3]);
+        Assert.Equal("--session-id", pi.Process.StartedWith!.Arguments[3]);
+        Assert.Equal(pi.AgentSessionId, pi.Process.StartedWith!.Arguments[4]);
         Assert.Equal(pi.AgentSessionId, ready.AgentSessionId);
         Assert.Equal(pi.AgentSessionId, session.ClaudeSessionId);
     }
