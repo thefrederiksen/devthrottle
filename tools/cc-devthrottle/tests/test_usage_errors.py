@@ -227,23 +227,35 @@ def test_every_command_MissingRequiredValue_ExitsTwoAndListsOptions(path, comman
     assert _listed(text, "Valid options") == _options(command)
 
 
+def _value_type_name(param):
+    """The option's value type, lower case. Typer up to 0.28 runs on Click, whose parameter carries
+    `type` (`INT` is named "integer"); Typer 0.29 dropped Click and keeps the annotation on
+    `type_descriptor` instead ("int")."""
+    click_type = getattr(param, "type", None)
+    if click_type is not None:
+        return click_type.name.lower()
+    return param.type_descriptor.annotation.__name__.lower()
+
+
 def _filled(command, skip):
     """Arguments that satisfy every required value except `skip`."""
     args = []
     for param in _required(command):
         if param is skip:
             continue
+        # A number option is given a number, so the error under test is the only one on the line.
+        value = "1" if _value_type_name(param) in ("integer", "int", "float") else "x"
         if param.param_type_name == "option":
-            args += [param.opts[0], "x"]
+            args += [param.opts[0], value]
         else:
-            args.append("x")
+            args.append(value)
     return args
 
 
 def _typed_options(command, type_name):
     return [
         param for param in command.params
-        if param.param_type_name == "option" and param.type.name.lower() in type_name
+        if param.param_type_name == "option" and _value_type_name(param) in type_name
     ]
 
 

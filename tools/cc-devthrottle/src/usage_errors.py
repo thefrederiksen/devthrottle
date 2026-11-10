@@ -44,6 +44,7 @@ are therefore taken from whichever Click Typer itself is using.
 
 from __future__ import annotations
 
+import enum
 import importlib
 import sys
 from pathlib import Path
@@ -119,9 +120,53 @@ def _param_hint(param: Any) -> str:
     return param.human_readable_name
 
 
-def format_usage_error(error: Any) -> str:
-    """The whole text written for a usage error: pure ASCII, one fact per line, newline at the end."""
+def _given_value(args: Sequence[str], param: Any) -> Optional[str]:
+    """The last value the command line gave an option: `--opt value` or `--opt=value`."""
+    given = None
+    flags = [*getattr(param, "opts", []), *getattr(param, "secondary_opts", [])]
+    for index, arg in enumerate(args):
+        for flag in flags:
+            if arg == flag and index + 1 < len(args):
+                given = args[index + 1]
+            elif flag.startswith("--") and arg.startswith(flag + "="):
+                given = arg[len(flag) + 1:]
+    return given
+
+
+def _choice_values(param: Any) -> Optional[List[str]]:
+    """The fixed set of values an option accepts, or None. The Click package and the copy of Click in
+    Typer up to 0.28 keep it on the parameter's type as `choices`; Typer 0.29 dropped Click and keeps
+    only the annotation, an Enum, on `type_descriptor`."""
+    choices = getattr(getattr(param, "type", None), "choices", None)
+    if choices:
+        return [str(getattr(choice, "value", choice)) for choice in choices]
+    annotation = getattr(getattr(param, "type_descriptor", None), "annotation", None)
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return [str(member.value) for member in annotation]
+    return None
+
+
+def _name_the_given_value(error: Any, args: Sequence[str]) -> None:
+    """Typer 0.29 validates values itself and its message leaves out what was typed ("Input should be
+    a valid integer"). Put the typed value in front, as Click's own messages always did."""
     param = getattr(error, "param", None)
+    if getattr(param, "param_type_name", "") != "option":
+        return
+    given = _given_value(args, param)
+    message = str(getattr(error, "message", ""))
+    if message.startswith("Value error, "):
+        message = message[len("Value error, "):]
+    if given is not None and given not in message:
+        message = f"'{given}' is not valid. {message}"
+    error.message = message
+
+
+def format_usage_error(error: Any, args: Sequence[str] = ()) -> str:
+    """The whole text written for a usage error: pure ASCII, one fact per line, newline at the end.
+    `args` is the command line the failing command was given, used to name a value Typer 0.29 omits."""
+    param = getattr(error, "param", None)
+    if isinstance(error, _BadParameter):
+        _name_the_given_value(error, args)
     if (
         isinstance(error, _BadParameter)
         and error.param_hint is None
@@ -143,11 +188,9 @@ def format_usage_error(error: Any) -> str:
         if hasattr(ctx.command, "list_commands"):  # a command group, in either Click
             commands = _command_names(ctx)
             lines.append("Valid commands: " + (", ".join(commands) if commands else "none"))
-    # A fixed set of values is recognised by its `choices`: the Click package calls the type Choice,
-    # and the copy of Click inside later Typer releases has its own class for it.
-    choices = getattr(getattr(param, "type", None), "choices", None)
+    choices = _choice_values(param)
     if isinstance(error, _BadParameter) and choices:
-        listed = ", ".join(axi_output.escape_ascii(str(getattr(choice, "value", choice))) for choice in choices)
+        listed = ", ".join(axi_output.escape_ascii(choice) for choice in choices)
         lines.append(f"Valid values for {_param_hint(param)}: {listed}")
     if ctx is not None:
         lines.append(axi_output.format_help([axi_output.escape_ascii(f"{ctx.command_path} --help")]))
@@ -158,8 +201,8 @@ def _args_of(ctx: Any) -> List[str]:
     return [*getattr(ctx, "_protected_args", []), *ctx.args]
 
 
-def _exit_with_usage_error(error: Any) -> NoReturn:
-    sys.stderr.write(format_usage_error(error))
+def _exit_with_usage_error(error: Any, args: Sequence[str] = ()) -> NoReturn:
+    sys.stderr.write(format_usage_error(error, args))
     sys.stderr.flush()
     raise SystemExit(axi_output.USAGE_ERROR_EXIT_CODE)
 
@@ -179,7 +222,7 @@ class AxiGroup(typer.core.TyperGroup):
                 # The command being parsed is this group, so its context is rebuilt without
                 # arguments, only to say which command the error is about.
                 error.ctx = super().make_context(info_name, [], parent=parent, resilient_parsing=True)
-            _exit_with_usage_error(error)
+            _exit_with_usage_error(error, list(args or []))
 
     def invoke(self, ctx: Any) -> Any:
         # Taken before Click consumes them: they name the subcommand, should its own parse fail.
@@ -194,4 +237,4 @@ class AxiGroup(typer.core.TyperGroup):
                 # been resolved, so resolving it again cannot fail.
                 name, command, _ = self.resolve_command(ctx, pending)
                 error.ctx = command.make_context(name, [], parent=ctx, resilient_parsing=True)
-            _exit_with_usage_error(error)
+            _exit_with_usage_error(error, pending)
