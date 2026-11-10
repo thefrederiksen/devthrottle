@@ -37,7 +37,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     {
         _db = _h.Open();
         _legacy = _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json");
-        _store = new CronJobStore(_db, _legacy);
+        _store = new CronJobStore(_db, _legacy, timeProvider: _clock);
         _history = new CronRunHistoryStore(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
 
         var builder = WebApplication.CreateBuilder();
@@ -51,7 +51,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
             checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null,
             timeProvider: _clock);
         var engine = new CronEngine(_store, _history, new RecordingStarter(), new UnusedWorkListRunner(),
-            new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
+            new NullCronNotifier(), new FakeClock(_clock.GetUtcNow().UtcDateTime));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, accountZoneOf: _ => TimeZoneInfo.Utc, runLifetime: CancellationToken.None);
         await _app.StartAsync();
@@ -83,9 +83,9 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         var created = _store.Create(RandomJob());
 
         Assert.NotNull(created.NextRunUtc);
-        Assert.Equal(CronSchedule.ComputeNextRunUtc(created, DateTime.UtcNow), created.NextRunUtc);
+        Assert.Equal(CronSchedule.ComputeNextRunUtc(created, _clock.GetUtcNow().UtcDateTime), created.NextRunUtc);
 
-        var reloaded = new CronJobStore(_h.Open(), _legacy).Get(created.Id);   // a fresh store recomputes on load
+        var reloaded = new CronJobStore(_h.Open(), _legacy, timeProvider: _clock).Get(created.Id);   // a fresh store recomputes on load
 
         Assert.NotNull(reloaded);
         Assert.Equal(created.NextRunUtc, reloaded.NextRunUtc);
@@ -184,7 +184,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         // and the morning of tomorrow's, and a job whose fires all fall in the other halves has none in it. That is
         // what failed it on the Windows build machine at about 14:00 Toronto time on 10 November 2026. The forecast
         // was right; the test asked it something that is only sometimes true.
-        _clock.Fixed = TorontoTime(new DateTime(2026, 11, 10, 6, 30, 0));
+        _clock.Now = TorontoTime(new DateTime(2026, 11, 10, 6, 30, 0));
         var created = _store.Create(RandomJob("load"));
 
         var resp = await _http.GetAsync("cron/load");
@@ -215,7 +215,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         // fire is lost and none is invented. The plan is read from the schedule itself (CronSchedule.RandomPlan), not
         // from the forecast, so this is two answers agreeing, and it holds for whatever id the store gives the job.
         var nowUtc = TorontoTime(new DateTime(2026, 11, 10, hour, minute, 0));
-        _clock.Fixed = nowUtc;
+        _clock.Now = nowUtc;
         var created = _store.Create(RandomJob("load-" + hour + "-" + minute));
 
         var load = JsonSerializer.Deserialize<CronLoadDto>(await _http.GetStringAsync("cron/load"), JsonOpts)!;
@@ -237,10 +237,10 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     [Fact]
     public async Task Rest_Create_AScheduleThatOverfillsAnHour_IsSavedWithALoadWarning_AndOneThatFitsHasNone()
     {
-        // Three hours ahead of now on the schedules' own clock, so every run is inside the forecast whatever time the
-        // test runs at, and none has already started.
+        // Three hours ahead of now on the schedules' own clock, so every run is inside the forecast and none has
+        // already started.
         var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
-        var hour = (TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone).Hour + 3) % 24;
+        var hour = (TimeZoneInfo.ConvertTimeFromUtc(_clock.GetUtcNow().UtcDateTime, zone).Hour + 3) % 24;
         var label = $"{hour:00}:00";
         CronJobDto Seven(int i) => new()
         {
@@ -372,11 +372,14 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     private static DateTimeOffset TorontoTime(DateTime local) =>
         new(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), Toronto));
 
-    /// <summary>The clock the REST routes read. Unset, it is the real clock, which every other test here was written against.</summary>
+    /// <summary>
+    /// The one clock of this class: the store, the engine and the REST routes all read it, so every answer here that
+    /// depends on the time of day is pinned. It starts at 10:00 Toronto time on 10 November 2026; a test may move it.
+    /// </summary>
     private sealed class SettableClock : TimeProvider
     {
-        public DateTimeOffset? Fixed { get; set; }
-        public override DateTimeOffset GetUtcNow() => Fixed ?? DateTimeOffset.UtcNow;
+        public DateTimeOffset Now { get; set; } = TorontoTime(new DateTime(2026, 11, 10, 10, 0, 0));
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 
     private sealed class FakeClock : IClock
