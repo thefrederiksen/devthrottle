@@ -17,6 +17,7 @@ does not (Click before 8.2 merges the two on some systems), so they pass with ei
 """
 
 import enum
+from typing import List
 import sys
 from pathlib import Path
 
@@ -361,6 +362,67 @@ def test_choice_option_BadValue_ExitsTwoAndListsTheValidValues():
     assert text.splitlines()[0].startswith("Error: Invalid value for --colour / -c: "), text
     assert _listed(text, "Valid values for --colour / -c") == ["red", "dark green"]
     assert _listed(text, "Valid options") == ["--colour", "-c", "--help"]
+
+
+def test_choice_option_BadValue_NamesTheValueOnce():
+    result = _invoke(["paint", "--colour", "blue"], application=_choices)
+
+    first = _assert_plain_usage_error(result, ["paint"]).splitlines()[0]
+    assert first.count("blue") == 1, first
+    assert "Value error" not in first, first
+
+
+_numbers = typer.Typer(cls=AxiGroup, add_completion=False)
+
+
+@_numbers.command("count")
+def _count(
+    count: int = typer.Option(1, "--count", "-n"),
+    tag: List[int] = typer.Option([], "--tag"),
+    name: str = typer.Option("", "--name"),
+    json_output: bool = typer.Option(False, "--json", "-j"),
+) -> None:
+    """Count."""
+
+
+@_numbers.command("resize")
+def _resize(cols: int = typer.Argument(...)) -> None:
+    """Resize."""
+
+
+# Each shape gives the bad value in a way a scan of the command line would get wrong; the error must
+# name exactly the value that failed, on the newest Typer and on the declared floor alike.
+@pytest.mark.parametrize(
+    "args,bad",
+    [
+        (["count", "--count", "abc"], "abc"),
+        (["count", "--count=abc"], "abc"),
+        (["count", "-nabc"], "abc"),
+        (["count", "-jn", "abc"], "abc"),
+        (["count", "--count", "a"], "a"),
+        (["count", "--tag", "abc", "--tag", "1"], "abc"),
+        (["count", "--count", "abc", "--name", "--count"], "abc"),
+        (["resize", "abc"], "abc"),
+    ],
+    ids=["separate", "equals", "attached-short", "grouped-short", "substring-of-message",
+         "repeated-flag", "flag-as-another-value", "argument"],
+)
+def test_number_BadValue_NamesExactlyTheValueThatFailed(args, bad):
+    result = _invoke(args, application=_numbers)
+
+    first = _assert_plain_usage_error(result, [args[0]]).splitlines()[0]
+    said = first.split(": ", 2)[2]  # after "Error: Invalid value for <name>: "
+    assert said.startswith(f"'{bad}'"), first
+    assert said.count("'") == 2, first
+
+
+def test_number_BadValueWithABackslash_IsNamedOnce():
+    # Click writes the value with repr, so its backslash is doubled; the floor's message must not be
+    # rewritten into a second statement of the same fact.
+    result = _invoke(["count", "--count", "a\\b"], application=_numbers)
+
+    first = _assert_plain_usage_error(result, ["count"]).splitlines()[0]
+    assert first.count("is not") == 1, first
 
 
 def test_choice_option_GoodValue_RunsTheCommand():

@@ -120,19 +120,6 @@ def _param_hint(param: Any) -> str:
     return param.human_readable_name
 
 
-def _given_value(args: Sequence[str], param: Any) -> Optional[str]:
-    """The last value the command line gave an option: `--opt value` or `--opt=value`."""
-    given = None
-    flags = [*getattr(param, "opts", []), *getattr(param, "secondary_opts", [])]
-    for index, arg in enumerate(args):
-        for flag in flags:
-            if arg == flag and index + 1 < len(args):
-                given = args[index + 1]
-            elif flag.startswith("--") and arg.startswith(flag + "="):
-                given = arg[len(flag) + 1:]
-    return given
-
-
 def _choice_values(param: Any) -> Optional[List[str]]:
     """The fixed set of values an option accepts, or None. The Click package and the copy of Click in
     Typer up to 0.28 keep it on the parameter's type as `choices`; Typer 0.29 dropped Click and keeps
@@ -146,27 +133,30 @@ def _choice_values(param: Any) -> Optional[List[str]]:
     return None
 
 
-def _name_the_given_value(error: Any, args: Sequence[str]) -> None:
+def _name_the_given_value(error: Any) -> None:
     """Typer 0.29 validates values itself and its message leaves out what was typed ("Input should be
-    a valid integer"). Put the typed value in front, as Click's own messages always did."""
-    param = getattr(error, "param", None)
-    if getattr(param, "param_type_name", "") != "option":
+    a valid integer"). The value is on the validation error it attaches as the cause; put it in front,
+    as Click's own messages always did. On Click (Typer up to 0.28) there is no such cause, and the
+    message, which already names the value, is left exactly as it is."""
+    cause = getattr(error, "__cause__", None)
+    problems = getattr(cause, "errors", None)
+    if not callable(problems):
         return
-    given = _given_value(args, param)
+    found = problems()
+    if not found or "input" not in found[0]:
+        return
     message = str(getattr(error, "message", ""))
     if message.startswith("Value error, "):
         message = message[len("Value error, "):]
-    if given is not None and given not in message:
-        message = f"'{given}' is not valid. {message}"
-    error.message = message
+    given = repr(found[0]["input"])
+    error.message = message if given in message else f"{given} is not valid. {message}"
 
 
-def format_usage_error(error: Any, args: Sequence[str] = ()) -> str:
-    """The whole text written for a usage error: pure ASCII, one fact per line, newline at the end.
-    `args` is the command line the failing command was given, used to name a value Typer 0.29 omits."""
+def format_usage_error(error: Any) -> str:
+    """The whole text written for a usage error: pure ASCII, one fact per line, newline at the end."""
     param = getattr(error, "param", None)
     if isinstance(error, _BadParameter):
-        _name_the_given_value(error, args)
+        _name_the_given_value(error)
     if (
         isinstance(error, _BadParameter)
         and error.param_hint is None
@@ -201,8 +191,8 @@ def _args_of(ctx: Any) -> List[str]:
     return [*getattr(ctx, "_protected_args", []), *ctx.args]
 
 
-def _exit_with_usage_error(error: Any, args: Sequence[str] = ()) -> NoReturn:
-    sys.stderr.write(format_usage_error(error, args))
+def _exit_with_usage_error(error: Any) -> NoReturn:
+    sys.stderr.write(format_usage_error(error))
     sys.stderr.flush()
     raise SystemExit(axi_output.USAGE_ERROR_EXIT_CODE)
 
@@ -222,7 +212,7 @@ class AxiGroup(typer.core.TyperGroup):
                 # The command being parsed is this group, so its context is rebuilt without
                 # arguments, only to say which command the error is about.
                 error.ctx = super().make_context(info_name, [], parent=parent, resilient_parsing=True)
-            _exit_with_usage_error(error, list(args or []))
+            _exit_with_usage_error(error)
 
     def invoke(self, ctx: Any) -> Any:
         # Taken before Click consumes them: they name the subcommand, should its own parse fail.
@@ -237,4 +227,4 @@ class AxiGroup(typer.core.TyperGroup):
                 # been resolved, so resolving it again cannot fail.
                 name, command, _ = self.resolve_command(ctx, pending)
                 error.ctx = command.make_context(name, [], parent=ctx, resilient_parsing=True)
-            _exit_with_usage_error(error, pending)
+            _exit_with_usage_error(error)
