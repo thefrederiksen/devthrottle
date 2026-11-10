@@ -171,7 +171,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _history.FactoryOf, sendCommand: send);
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
-            sessionFactoryOf: _history.FactoryOf, directors: _registry);
+            teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _history.FactoryOf, directors: _registry);
 
         var db = _db.Open();
         _schedules = new CronJobStore(db, Path.Combine(_dir, "jobs.json"));

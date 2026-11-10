@@ -45,8 +45,15 @@ public sealed class DirectorRestartCycleTests
         /// was true of the sessions at that moment.</summary>
         public Action? WhenLauncherAsked;
 
+        /// <summary>When set, every check after the first answers this instead of <see cref="Capability"/> - a
+        /// machine that changed between the check before anything was touched and the re-check after it.</summary>
+        public MachineRestartCapabilityDto? CapabilityAfterTheFirstCheck;
+
         public Task<MachineRestartCapabilityDto> CheckCapabilityAsync(string machine, CancellationToken ct)
-        { CapabilityChecks++; return Task.FromResult(Capability); }
+        {
+            CapabilityChecks++;
+            return Task.FromResult(CapabilityChecks > 1 && CapabilityAfterTheFirstCheck is { } later ? later : Capability);
+        }
 
         public Task<LauncherRestartAnswer> AskOwnLauncherRestartOnlyIfEmptyAsync(string machine, string? exePath, CancellationToken ct)
         { LauncherAsks++; WhenLauncherAsked?.Invoke(); return Task.FromResult(LauncherAnswer); }

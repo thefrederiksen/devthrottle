@@ -63,6 +63,7 @@ public sealed class LauncherSelfUpdateStreamLossTests : IAsyncLifetime
         builder.Services.AddSignalR();
         builder.Services.AddSingleton(_connections);
         builder.Services.AddSingleton(new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false));
+        builder.Services.AddSingleton(CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly);
         _app = builder.Build();
         _app.MapHub<LauncherHub>("/launcher-stream");
         await _app.StartAsync();
@@ -197,7 +198,7 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
             new MachineSessionSpawner(new NoDirectors(),
                 (DirectorCommandRouter.SendDirectorCommandAsync)((_, _, _) => Task.FromResult<DirectorCommandResult?>(null))),
             boundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false),
-            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
+            teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             sendLauncherCommand: (tenant, machine, command, ct) => _send(tenant, machine, command, ct));
         await _app.StartAsync();
         _http = _app.GetTestClient();

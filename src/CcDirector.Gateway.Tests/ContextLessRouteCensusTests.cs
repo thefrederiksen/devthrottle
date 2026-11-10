@@ -70,7 +70,9 @@ public sealed class ContextLessRouteCensusTests
     ///   /gateway/skills/{id} and its family        skills, skill_versions, skill_files,
     ///                                              skill_tenant_overrides
     ///   GET /gateway/rules/{id:guid} (+ /firings)  session_rules, session_rule_firings
-    ///   /gateway/workspaces/{id} (GET + DELETE)   workspaces
+    ///   /gateway/workspaces/{id} (DELETE)         workspaces
+    ///     GET is NOT here any more: inside a team a record may be read only when its Director is the caller's own
+    ///     (devthrottle_internal#2829), so the route takes the HttpContext it needs to read who is asking.
     ///     - probed by CensusRouteTenancyProbeTests.Workspaces_ContextLess_KeepEachTenantsWorkspaceUnderTheSameSlugSeparate
     ///
     /// THE WORKSPACES FAMILY (issue #2722), ruled on here because it is added by the same change that
@@ -157,7 +159,6 @@ public sealed class ContextLessRouteCensusTests
         "GET /gateway/workflows/{id}/instructions",
         "GET /gateway/workflows/{id}/versions",
         "GET /gateway/workflows/{id}/versions/{version:int}",
-        "GET /gateway/workspaces/{id}",
         "GET /lists/{name}",
         "POST /directors/{id}/doorbell",
         "POST /gateway/skills/{id}/publish",

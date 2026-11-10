@@ -393,7 +393,7 @@ public sealed class FactorySeatStartRefusalTests : IDisposable
         MachineEndpoints.Map(app, false, new LauncherRegistry(), Spawner(),
             boundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false),
             // The calling session is a seat of a defined factory, so its child leaves as the seat with a rules-only kit.
-            sessionFactoryOf: id => id == Caller.ToString() ? _callerRow : SessionFactoryLookup.NotKnown,
+            teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: id => id == Caller.ToString() ? _callerRow : SessionFactoryLookup.NotKnown,
             directors: _registry,
             seatRulesFor: _ => (_, _, _) => SeatRulesRead.Carries(true));
         await app.StartAsync();

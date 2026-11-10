@@ -88,7 +88,36 @@ internal static class WorkspaceEndpoints
         if (teamCaller is not null)
             return teamCaller(ctx);
         if (Teams.TeamEndpointGate.AllowedTeam(ctx) is not null)
-            throw new InvalidOperationException("GET /gateway/workspaces was allowed inside a team, but this Gateway gave it no way to cut the list to the caller's own.");
+            throw new InvalidOperationException("A workspace route was allowed inside a team, but this Gateway gave it no way to tell the caller's own Directors from anyone else's.");
+        return null;
+    }
+
+    /// <summary>What a team caller is told when a restart record request is for a Director that is not theirs. It names
+    /// nothing about the team's other Directors, nor whether the record exists.</summary>
+    internal const string TeamRecordRefusal =
+        "Inside a team you may use only the restart records of your own Directors, and DevThrottle cannot show that " +
+        "the Director this is for is one of yours. Nothing was done.";
+
+    /// <summary>
+    /// Why, inside a team, this restart record request may not go ahead, or null when it may (devthrottle_internal#2829):
+    /// every Director it names - in its body, and the one stored on the record it touches - must be one of the caller's
+    /// own. A record that does not exist, or names no Director, is refused the same way, so the answer never says which
+    /// records a colleague has. A personal account is never refused here.
+    /// </summary>
+    private static IResult? TeamRefused(HttpContext ctx, Func<HttpContext, Teams.TeamCaller?>? teamCaller, string what,
+        params Func<string?>[] directorIds)
+    {
+        if (TeamCallerOf(ctx, teamCaller) is not { } team)
+            return null;
+        foreach (var directorId in directorIds)
+        {
+            var director = directorId();
+            if (team.OwnsDirectorDurably(director))
+                continue;
+            FileLog.Write($"[WorkspaceEndpoints] {what} REFUSED in a team: director={director ?? "(none)"} is not shown to be the caller's own");
+            return Results.Json(new { error = TeamRecordRefusal, code = Teams.TeamEndpointGate.RefusalCode },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
         return null;
     }
 
@@ -154,6 +183,10 @@ internal static class WorkspaceEndpoints
             if (req is null || string.IsNullOrWhiteSpace(req.DirectorId))
                 return Results.Json(new { error = "directorId is required - a restore names the Director that brings the seats back (after a restart, the NEW one)" },
                     statusCode: StatusCodes.Status400BadRequest);
+
+            // Inside a team: the record's Director and the Director that brings the seats back are both the caller's own.
+            if (TeamRefused(ctx, teamCaller, $"restore id={id}", () => store.Get(id)?.DirectorId, () => req.DirectorId) is { } refusedInTeam)
+                return refusedInTeam;
 
             var doc = store.Get(id);
             if (doc is null)
@@ -278,6 +311,10 @@ internal static class WorkspaceEndpoints
             if (mark is null)
                 return Results.Json(new { error = "a restore mark body is required" }, statusCode: StatusCodes.Status400BadRequest);
 
+            // Inside a team: the record's Director and the Director writing the mark are both the caller's own.
+            if (TeamRefused(ctx, teamCaller, $"restore mark id={id}", () => store.Get(id)?.DirectorId, () => mark.DirectorId) is { } refusedInTeam)
+                return refusedInTeam;
+
             if (string.IsNullOrWhiteSpace(mark.DirectorId) || !callerIsDirector(ctx, mark.DirectorId))
             {
                 FileLog.Write($"[WorkspaceEndpoints] restore mark REFUSED: id={id}, director={mark.DirectorId}, kind={mark.Kind}: the credential is not the one that Director is connected on");
@@ -331,6 +368,10 @@ internal static class WorkspaceEndpoints
             if (req is null)
                 return Results.Json(new { error = "a dev report pass body is required" }, statusCode: StatusCodes.Status400BadRequest);
 
+            // Inside a team: the record's Director and the Director passing the reports are both the caller's own.
+            if (TeamRefused(ctx, teamCaller, $"dev report pass id={id}", () => store.Get(id)?.DirectorId, () => req.DirectorId) is { } refusedInTeam)
+                return refusedInTeam;
+
             if (string.IsNullOrWhiteSpace(req.DirectorId) || !callerIsDirector(ctx, req.DirectorId))
             {
                 FileLog.Write($"[WorkspaceEndpoints] dev report pass REFUSED: id={id}, director={req.DirectorId}: the credential is not the one that Director is connected on");
@@ -362,13 +403,17 @@ internal static class WorkspaceEndpoints
         app.MapGet("/gateway/workspaces", (HttpContext ctx) =>
         {
             var team = TeamCallerOf(ctx, teamCaller);
-            var workspaces = team is null ? store.List() : store.List(team.OwnsDirector);
+            var workspaces = team is null ? store.List() : store.List(team.OwnsDirectorDurably);
             FileLog.Write($"[WorkspaceEndpoints] list: count={workspaces.Count}{(team is null ? "" : ", in a team: captured from the caller's own Directors only")}");
             return Results.Json(new { workspaces });
         });
 
-        app.MapGet("/gateway/workspaces/{id}", (string id) =>
+        app.MapGet("/gateway/workspaces/{id}", (string id, HttpContext ctx) =>
         {
+            // Inside a team, only a record of the caller's own Director - refused, not "not found", whatever is stored.
+            if (TeamRefused(ctx, teamCaller, $"get id={id}", () => store.Get(id)?.DirectorId) is { } refusedInTeam)
+                return refusedInTeam;
+
             var doc = store.Get(id);
             if (doc is null)
             {
@@ -406,6 +451,12 @@ internal static class WorkspaceEndpoints
 
             doc.Id = id;
 
+            // INSIDE A TEAM, ONLY AN EXISTING RECORD OF THE CALLER'S OWN DIRECTOR (devthrottle_internal#2829). The Director
+            // is read from the STORED record, never the body: the store keeps it on every update, so it is the Director
+            // the record was captured from. A new workspace (no stored record) names no Director and is refused.
+            if (TeamRefused(ctx, teamCaller, $"PUT id={id}", () => store.Get(id)?.DirectorId) is { } refusedInTeam)
+                return refusedInTeam;
+
             // CREATE-ONLY, when the caller asks for it. "If-None-Match: *" is the standard way to say
             // "write this only if it does not exist", and a caller who has to overwrite must first read
             // what is there. Without it the only way to avoid clobbering is to list, check, and then PUT
@@ -436,11 +487,15 @@ internal static class WorkspaceEndpoints
         // CAPTURE. POST creates a workspace by folding a Director's live sessions - the only way a
         // workspace is created from something that is running, and the reason there is no POST that takes a
         // hand-assembled document (PUT is that path, and it names its own id).
-        app.MapPost("/gateway/workspaces", (WorkspaceCaptureRequest? req) =>
+        app.MapPost("/gateway/workspaces", (WorkspaceCaptureRequest? req, HttpContext ctx) =>
         {
             if (req is null || string.IsNullOrWhiteSpace(req.DirectorId))
                 return Results.Json(new { error = "directorId is required - a capture names the Director it folds" },
                     statusCode: StatusCodes.Status400BadRequest);
+
+            // Inside a team, only a capture of the caller's own Director (devthrottle_internal#2829).
+            if (TeamRefused(ctx, teamCaller, $"capture directorId={req.DirectorId}", () => req.DirectorId) is { } refusedInTeam)
+                return refusedInTeam;
 
             var director = lookupDirector(req.DirectorId);
             if (director is null)
@@ -559,6 +614,10 @@ internal static class WorkspaceEndpoints
             if (req is null || string.IsNullOrWhiteSpace(req.DirectorId) || req.Journal is null)
                 return Results.Json(new { error = "a crash record names the Director sending it and carries the journal" },
                     statusCode: StatusCodes.Status400BadRequest);
+
+            // Inside a team, only the caller's own Director sends a crash record; the record is filed under it.
+            if (TeamRefused(ctx, teamCaller, $"crash record director={req.DirectorId}", () => req.DirectorId) is { } refusedInTeam)
+                return refusedInTeam;
             if (req.Journal.Sessions.Count == 0)
                 return Results.Json(new { error = "the crash journal holds no session, so there is nothing to record" },
                     statusCode: StatusCodes.Status400BadRequest);

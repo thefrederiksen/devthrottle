@@ -1283,7 +1283,7 @@ public sealed class ConnectionChoiceTests : IDisposable
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, sendCommand: send,
             workspaces: _workspaces = new WorkspaceStore(_db.Open()), spawnDoorClock: _clock);
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
-            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, directors: _registry);
+            teamLaunchers: CcDirector.Gateway.Teams.TeamLauncherCheck.PersonalAccountsOnly, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, directors: _registry);
         await app.StartAsync();
         _app = app;
         _http = app.GetTestClient();

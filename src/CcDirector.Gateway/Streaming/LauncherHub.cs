@@ -32,6 +32,7 @@ public sealed class LauncherHub : Hub
 
     private readonly LauncherConnectionRegistry _registry;
     private readonly HostedTenantBoundary? _tenantBoundary;
+    private readonly Teams.TeamLauncherCheck _teamLaunchers;
 
     // REQUIRED AND NON-NULLABLE (finding I1-01): the boundary is a security argument, so constructing this
     // hub without one must be a compile error, never a silent default. In production SignalR resolves it from
@@ -39,10 +40,15 @@ public sealed class LauncherHub : Hub
     // built over the SingleTenantContext, which always resolves Local. The FIELD stays nullable because a
     // miswire is still expressible with a forced null, and the runtime gate in ResolveConnectionTenant must
     // hold even then.
-    public LauncherHub(LauncherConnectionRegistry registry, HostedTenantBoundary tenantBoundary)
+    //
+    // The team check is REQUIRED for the same reason (devthrottle_internal#2829): inside a team a launcher holds a
+    // stream only for the computer its own team Director was set up on, and a hub built without the check would let any
+    // member's launcher hold a colleague's. A host with no teams registers TeamLauncherCheck.PersonalAccountsOnly.
+    public LauncherHub(LauncherConnectionRegistry registry, HostedTenantBoundary tenantBoundary, Teams.TeamLauncherCheck teamLaunchers)
     {
         _registry = registry;
         _tenantBoundary = tenantBoundary;
+        _teamLaunchers = teamLaunchers ?? throw new ArgumentNullException(nameof(teamLaunchers));
     }
 
     /// <summary>Bind this connection to the calling tenant's machine launcher. Must be the first message;
@@ -72,6 +78,15 @@ public sealed class LauncherHub : Hub
         if (resolved is not { } tenant)
         {
             FileLog.Write($"[LauncherHub] Hello REJECTED (hosted: the authenticated device key resolves to no tenant): conn={Short(Context.ConnectionId)}");
+            Context.Abort();
+            return;
+        }
+
+        // INSIDE A TEAM, ONLY THE CALLER'S OWN COMPUTER (devthrottle_internal#2829), before anything is registered.
+        var http = Context.GetHttpContext();
+        if (_teamLaunchers.Refuse(tenant, AuthMiddleware.AuthenticatedDevice(http), AuthMiddleware.CallingSession(http), machine, "launcher-stream Hello") is not null)
+        {
+            FileLog.Write($"[LauncherHub] Hello REJECTED (in a team, a launcher holds a stream only for the computer its own Director was set up on, and {machine} is not shown to be that one): conn={Short(Context.ConnectionId)}");
             Context.Abort();
             return;
         }

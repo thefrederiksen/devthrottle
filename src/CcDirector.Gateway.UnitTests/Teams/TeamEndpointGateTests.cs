@@ -125,7 +125,7 @@ public sealed class TeamEndpointGateTests : IDisposable
     {
         foreach (var rule in TeamEndpointRules.All.Where(r => r.TeamFrom == TeamFrom.RequestTenant))
         {
-            var method = rule.Methods == TeamMethods.Write ? "POST" : "GET";
+            var method = rule.Methods switch { TeamMethods.Write => "POST", TeamMethods.Replace => "PUT", _ => "GET" };
             var verdict = InTeam(method, rule.Prefix, Collaborator, ownership);
             Assert.True(verdict.Outcome == TeamGateOutcome.Refused, $"{method} {rule.Prefix} was not refused for a Collaborator");
         }
@@ -174,7 +174,7 @@ public sealed class TeamEndpointGateTests : IDisposable
     {
         foreach (var rule in TeamEndpointRules.All)
         {
-            var method = rule.Methods == TeamMethods.Write ? "POST" : "GET";
+            var method = rule.Methods switch { TeamMethods.Write => "POST", TeamMethods.Replace => "PUT", _ => "GET" };
             var verdict = rule.TeamFrom == TeamFrom.RouteTeamId
                 ? ByRoute(method, rule.Prefix, Stranger, _team)
                 : InTeam(method, rule.Prefix, Stranger, TeamOwnership.Callers);

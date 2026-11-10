@@ -410,6 +410,63 @@ public sealed class DeviceRegistry : IDisposable
     }
 
     /// <summary>
+    /// The people holding an ACTIVE row (enrolled, not revoked) in <paramref name="tenant"/> whose machine name is
+    /// <paramref name="machine"/>, trimmed and ignoring letter case - a row naming no person is listed as null
+    /// (devthrottle_internal#2829, review finding 1). Inside a team this is the durable answer to "whose computer is
+    /// this": a row does not die with a connection, so a colleague's computer stays theirs while their Director is down,
+    /// which is exactly the Smart Restart window. The names are compared in memory for the reason
+    /// <see cref="OtherPeoplesRowsForDirector"/> gives. Personally identifying: the people are never logged.
+    /// </summary>
+    public IReadOnlyList<string?> PeopleWithActiveRowsOnMachineInTenant(TenantId tenant, string machine)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("A tenant is required.", nameof(tenant));
+        if (string.IsNullOrWhiteSpace(machine))
+            throw new ArgumentException("machine is required", nameof(machine));
+
+        var name = machine.Trim();
+        var tenantId = tenant.Value;
+        using var ctx = _db.CreateUnscopedContext();
+        var people = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.TenantId == tenantId && d.Status == StatusActive && d.RevokedAtUtc == null)
+            .Select(d => new { d.MachineName, d.AccountSubject })
+            .ToList()
+            .Where(row => row.MachineName != null && string.Equals(row.MachineName.Trim(), name, StringComparison.OrdinalIgnoreCase))
+            .Select(row => row.AccountSubject)
+            .ToList();
+        FileLog.Write($"[DeviceRegistry] PeopleWithActiveRowsOnMachineInTenant: machine={name} tenant={tenant.ToLogString()} rows={people.Count}");
+        return people;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="accountSubject"/> holds an ACTIVE row in <paramref name="tenant"/> enrolled for
+    /// <paramref name="directorId"/> by <see cref="DeviceCredentialIdentity.SameDirectorId"/> (devthrottle_internal#2829,
+    /// review finding 2): the durable record that the Director is that person's, which survives the Director being down.
+    /// </summary>
+    public bool PersonHoldsActiveKeyForDirectorInTenant(TenantId tenant, string accountSubject, string directorId)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("A tenant is required.", nameof(tenant));
+        if (string.IsNullOrWhiteSpace(accountSubject))
+            throw new ArgumentException("accountSubject is required", nameof(accountSubject));
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
+
+        var subject = accountSubject.Trim();
+        var tenantId = tenant.Value;
+        using var ctx = _db.CreateUnscopedContext();
+        var held = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.TenantId == tenantId && d.AccountSubject == subject && d.Status == StatusActive && d.RevokedAtUtc == null)
+            .Select(d => d.DeviceId)
+            .ToList()
+            .Any(id => RowIsEnrolledFor(id, directorId));
+        FileLog.Write($"[DeviceRegistry] PersonHoldsActiveKeyForDirectorInTenant: director={directorId.Trim()} tenant={tenant.ToLogString()} held={held}");
+        return held;
+    }
+
+    /// <summary>
     /// THE ONE READ behind both questions above (#3552 review, S2-F5). It reads the tenant's rows and compares each row's
     /// enrolled Director id with <paramref name="directorId"/> IN MEMORY, through the same function Hello uses, rather
     /// than asking the database to match text: SQLite's <c>LIKE</c> ignores letter case and PostgreSQL's does not, so a

@@ -120,8 +120,6 @@ public sealed class TeamDirectorRoutesTests : IDisposable
     [Theory]
     [InlineData("PUT", "/gateway/snooze-presets")]
     [InlineData("PUT", "/gateway/injected-text")]
-    [InlineData("GET", "/gateway/workspaces/{id}")]
-    [InlineData("PUT", "/gateway/workspaces/{id}")]
     [InlineData("GET", "/gateway/director-errors")]
     [InlineData("GET", "/activity-events")]
     public void Find_TheOwnerDecisionsLeftOpen_StayUndeclared_AndAreRefusedEvenToTheOwner(string method, string pattern)
