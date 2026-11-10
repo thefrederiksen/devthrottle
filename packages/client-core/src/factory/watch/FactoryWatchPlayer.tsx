@@ -43,6 +43,9 @@ export interface FactoryWatchPlayerProps {
   /** True to start the replay at once, as the replay button would, when the view offers one (piece 6: pressing the
    * explainer card's "Watch your factory" starts the factory playing). Read once, when the player first draws. */
   startPlaying?: boolean;
+  /** False when the shell's own frame already shows the factory's name (the phone's app bar), so it is not shown twice.
+   * Layout only: the name is still the view's, and still labels the floor for a screen reader. Defaults to true. */
+  showTitle?: boolean;
 }
 
 /** The hall floors, picked by the hall's index from the Gateway. */
@@ -60,7 +63,7 @@ const SPEEDS: ReadonlyArray<{ speed: Speed; label: string }> = [
 const pts = (a: Array<[number, number]>) => a.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
 const boxText = (b: Box) => `${b.x.toFixed(1)} ${b.y.toFixed(1)} ${b.w.toFixed(1)} ${b.h.toFixed(1)}`;
 
-export function FactoryWatchPlayer({ view, startPlaying = false }: FactoryWatchPlayerProps) {
+export function FactoryWatchPlayer({ view, startPlaying = false, showTitle = true }: FactoryWatchPlayerProps) {
   const timeline = useMemo(() => buildTimeline(view), [view]);
   const world = useMemo(() => worldBox(view), [view]);
   const [pb, dispatch] = useReducer(playbackReducer, timeline, initialPlayback);
@@ -200,7 +203,7 @@ export function FactoryWatchPlayer({ view, startPlaying = false }: FactoryWatchP
       data-t={pb.t.toFixed(2)}
     >
       <header className="fwp-head">
-        <h2 className="fwp-title">{view.title}</h2>
+        {showTitle && <h2 className="fwp-title">{view.title}</h2>}
         <span className="fwp-pill">{view.window.label}</span>
         {scene.clock !== null && (
           <span className="fwp-clock" data-testid="fwp-clock">

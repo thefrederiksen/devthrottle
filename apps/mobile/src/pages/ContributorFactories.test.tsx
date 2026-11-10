@@ -101,4 +101,20 @@ describe("ContributorFactories (phone)", () => {
     await waitFor(() => expect(container.querySelector(".fwp")).not.toBeNull());
     expect(screen.queryByTestId("watch-explainer")).toBeNull();
   });
+
+  it("ContributorFactories_TheWatchScreens_ShowTheFactorysNameOnce_InTheAppBar", async () => {
+    state.watch = { ...view, explainer: { paragraphs: ["One~odd."], buttonText: "Go~odd" } };
+
+    const { container } = at("/contributor/factories?team=acme&factory=web%20site&view=watch");
+
+    // The card: the name is the app bar's heading and nowhere else as a heading.
+    await screen.findByTestId("watch-explainer");
+    await waitFor(() => expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual([view.title]));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(view.title);
+
+    // The player after the button: still once.
+    fireEvent.click(screen.getByTestId("watch-explainer-go"));
+    expect(container.querySelector(".fwp")).not.toBeNull();
+    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual([view.title]);
+  });
 });

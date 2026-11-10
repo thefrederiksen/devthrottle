@@ -40,8 +40,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount() {
-  return render(<ContributorWatchView teamId="acme" factory="website" errorClassName="odd-error" />);
+function mount(titleInFrame?: boolean) {
+  return render(
+    <ContributorWatchView teamId="acme" factory="website" errorClassName="odd-error" titleInFrame={titleInFrame} />,
+  );
 }
 
 describe("ContributorWatchView", () => {
@@ -100,5 +102,33 @@ describe("ContributorWatchView", () => {
     mount();
 
     expect((await screen.findByTestId("contributor-watch-refused")).textContent).toBe("Not~sent~to~you~odd");
+  });
+
+  it("ContributorWatchView_TitleNotInFrame_TheCardAndThePlayerEachKeepTheirHeading", async () => {
+    // The Cockpit: its breadcrumb is a way back, so the card and the player keep the factory's name as their heading.
+    client.view = { ...own, explainer: ODD };
+    const { container } = mount();
+
+    expect((await screen.findByRole("heading")).textContent).toBe(own.title);
+    fireEvent.click(screen.getByTestId("watch-explainer-go"));
+
+    expect(container.querySelector(".fwp-title")?.textContent).toBe(own.title);
+  });
+
+  it("ContributorWatchView_TitleInFrame_TheNameIsNotRepeated_OnTheCardOrThePlayer_ButStillLabelsThem", async () => {
+    // The phone: its app bar shows the factory's name, so neither the card nor the player shows it again.
+    client.view = { ...own, explainer: ODD };
+    const { container } = mount(true);
+
+    await screen.findByTestId("watch-explainer");
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe(own.title);
+    expect(screen.getByTestId("watch-explainer").textContent).toBe(ODD.paragraphs.join("") + ODD.buttonText);
+
+    fireEvent.click(screen.getByTestId("watch-explainer-go"));
+
+    expect(container.querySelector(".fwp")).not.toBeNull();
+    expect(container.querySelector(".fwp-title")).toBeNull();
+    expect(container.querySelector(".fwp-svg")?.getAttribute("aria-label")).toBe(own.title);
   });
 });

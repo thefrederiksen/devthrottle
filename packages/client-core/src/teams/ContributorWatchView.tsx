@@ -31,9 +31,12 @@ export interface ContributorWatchViewProps {
   errorClassName: string;
   /** Called with the factory's name once the view has it, so the shell can put it in its frame. */
   onTitle?: (title: string) => void;
+  /** True when the shell's frame shows that name itself (the phone's app bar), so the card and the player leave their own
+   *  heading out and the name is shown once. The Cockpit's breadcrumb is a way back, not a heading, so it keeps them. */
+  titleInFrame?: boolean;
 }
 
-export function ContributorWatchView({ teamId, factory, errorClassName, onTitle }: ContributorWatchViewProps) {
+export function ContributorWatchView({ teamId, factory, errorClassName, onTitle, titleInFrame = false }: ContributorWatchViewProps) {
   const [view, setView] = useState<FactoryWatchView | CustomerPageRefused | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Pressed here: the card closes at once, whatever the next read says while the Gateway records it.
@@ -83,9 +86,9 @@ export function ContributorWatchView({ teamId, factory, errorClassName, onTitle 
       {view === null && error === null && <p data-testid="contributor-watch-loading">Loading...</p>}
       {view !== null &&
         (view.explainer !== null && !pressed ? (
-          <WatchExplainerCard explainer={view.explainer} title={view.title} onWatch={watch} />
+          <WatchExplainerCard explainer={view.explainer} title={view.title} showTitle={!titleInFrame} onWatch={watch} />
         ) : (
-          <FactoryWatchPlayer view={view} startPlaying={pressed} />
+          <FactoryWatchPlayer view={view} startPlaying={pressed} showTitle={!titleInFrame} />
         ))}
     </div>
   );

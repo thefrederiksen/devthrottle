@@ -361,6 +361,23 @@ public sealed class ContributorWatchTests : IDisposable
     }
 
     [Fact]
+    public async Task ExplainerSeen_AfterTheCardWasRead_TheVeryNextWatchCarriesNoExplainer()
+    {
+        // Arrange: Mike opens the watch view first, as he really does - so the settings store now remembers, for its
+        // thirty seconds, that his account has no "seen" row.
+        Share(_acme, "website", Mike);
+        Assert.Equal(JsonValueKind.Object, Explainer((await Get(_acme, Mike, "website")).Body).ValueKind);
+
+        // Act: he presses the card's button, and the view is read again at once, well inside those thirty seconds.
+        Assert.Equal(204, (await Seen(_acme, Mike, "website")).Status);
+        var (status, body) = await Get(_acme, Mike, "website");
+
+        // Assert: the remembered "no row" was dropped by the write, so the card is gone straight away.
+        Assert.Equal(200, status);
+        Assert.Equal(JsonValueKind.Null, Explainer(body).ValueKind);
+    }
+
+    [Fact]
     public async Task ExplainerSeen_IsRememberedPerPerson_AnotherContributorStillSeesTheCard()
     {
         Share(_acme, "website", Mike);
