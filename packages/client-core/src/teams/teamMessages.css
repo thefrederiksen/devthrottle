@@ -1,0 +1,82 @@
+/* THE TEAM OWNER'S MESSAGES FROM CONTRIBUTORS (Team piece 4.3), above Your inbox on both shells. Builds on the Factory
+   inbox's classes and colour tokens (factoryInbox.css). Layout only: every word and state is the Gateway's. */
+
+.tm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.tm-heading {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.tm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.tm-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 13px;
+  min-width: 0;
+}
+.tm-team {
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.tm-from {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.tm-time,
+.tm-where {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.tm-words {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tm-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.tm-trail {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.fi-composer-buttons .tm-forward {
+  margin-left: 0;
+}

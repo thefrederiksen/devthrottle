@@ -19,7 +19,15 @@ namespace CcDirector.Gateway.Api;
 /// <item><c>GET /teams/{teamId}/requests</c> - the team's whole Requests list, for the Owner and Managers.</item>
 /// <item><c>POST /teams/{teamId}/requests/{requestId}/accept</c>, <c>/decline</c> with <c>{"reason": "..."}</c>,
 /// and <c>/done</c> - decide a request, for the Owner and Managers.</item>
+/// <item><c>POST /teams/{teamId}/requests/{requestId}/forward</c> with <c>{"factory": "...", "note": "..."}</c> - the
+/// Owner's "Forward to the factory" (Team implementation piece 4.3): the words, quoted and marked as the sender's, are
+/// left in one of THIS team's factory inboxes in the Owner's name (<see cref="TeamRequestForwarding"/>). The Owner alone;
+/// the note is optional.</item>
 /// </list>
+///
+/// THE OWNER'S INBOX. What a contributor writes lands here and only here: the list the Owner's inbox shows is
+/// <c>GET /teams/{teamId}/requests</c>, labelled with the team and the sender, and it carries the factories the Owner may
+/// forward to. Nothing on this page is read by a session, a Director, a factory or a Boss; the forward is the one way out.
 ///
 /// A PERSON'S OWN WORDS NEVER REACH AN AGENT, and the routes make that structural: they answer only a person's own
 /// signed-in phone or browser key (<see cref="RequirePerson"/>). A session key is refused - and is refused before that
@@ -45,11 +53,22 @@ internal static class TeamRequestEndpoints
 
     internal sealed record DecideRequest(string? Reason);
 
+    internal sealed record ForwardRequest(string? Factory, string? Note);
+
+    /// <summary>The words of the forward control on the Owner's inbox item. All the Gateway's (rule 7).</summary>
+    internal const string ForwardLabel = "Forward to the factory";
+    internal const string ForwardNoteLabel = "Your note above their words (optional)";
+    internal const string ForwardNoteHint =
+        "The factory gets their words quoted and marked as theirs - who wrote them, on which team, and when - in your name.";
+    internal const string NotSeenByAgents = "Not seen by any agent until you forward it.";
     /// <summary>Maps the six routes.</summary>
-    public static void Map(IEndpointRouteBuilder app, TeamRequestStore requests, HostedTenantBoundary boundary, TenantRegistry tenants)
+    public static void Map(IEndpointRouteBuilder app, TeamRequestStore requests, TeamRequestForwarding forwarding, TeamRegistry teams,
+        HostedTenantBoundary boundary, TenantRegistry tenants)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(requests);
+        ArgumentNullException.ThrowIfNull(forwarding);
+        ArgumentNullException.ThrowIfNull(teams);
         ArgumentNullException.ThrowIfNull(boundary);
         ArgumentNullException.ThrowIfNull(tenants);
 
@@ -73,7 +92,7 @@ internal static class TeamRequestEndpoints
         app.MapGet(root, (HttpContext ctx, string teamId) => Guarded("GET requests", () =>
         {
             var caller = Caller(ctx, boundary, tenants);
-            return Task.FromResult(caller.Denial ?? AnswerList(requests.ListForTeam(teamId, caller.Subject!), "team"));
+            return Task.FromResult(caller.Denial ?? AnswerTeamList(requests.ListForTeam(teamId, caller.Subject!), teamId, caller.Subject!, forwarding, teams));
         }));
 
         app.MapPost(root + "/{requestId}/accept", (HttpContext ctx, string teamId, string requestId) => Guarded("POST requests/accept", () =>
@@ -99,7 +118,18 @@ internal static class TeamRequestEndpoints
                 ?? Answer(requests.Decide(teamId, requestId, caller.Subject!, TeamRequestDecision.MarkDone, null), "done", StatusCodes.Status200OK));
         }));
 
-        FileLog.Write($"[TeamRequestEndpoints] mapped {root} (POST, GET), {root}/mine, {root}/{{requestId}}/accept|decline|done");
+        app.MapPost(root + "/{requestId}/forward", (HttpContext ctx, string teamId, string requestId) => Guarded("POST requests/forward", async () =>
+        {
+            var caller = Caller(ctx, boundary, tenants);
+            if (caller.Denial is not null) return caller.Denial;
+            var body = await ReadBody<ForwardRequest>(ctx, "{\"factory\": \"<the factory>\", \"note\": \"<optional note>\"}").ConfigureAwait(false);
+            if (body.Denial is not null) return body.Denial;
+            var result = await forwarding.ForwardAsync(teamId, requestId, caller.Subject!, OwnerDevice(ctx), body.Value?.Factory, body.Value?.Note,
+                ctx.RequestAborted).ConfigureAwait(false);
+            return Answer(result, "forward", StatusCodes.Status200OK, ForwardTitles(forwarding, teamId, caller.Subject!));
+        }));
+
+        FileLog.Write($"[TeamRequestEndpoints] mapped {root} (POST, GET), {root}/mine, {root}/{{requestId}}/accept|decline|done|forward");
     }
 
     /// <summary>
@@ -121,13 +151,65 @@ internal static class TeamRequestEndpoints
     internal static IResult? RequirePerson(HttpContext ctx) =>
         PersonOnlyCaller.Require(ctx, "a request route", PersonOnlyRefusal);
 
+    /// <summary>The Owner's own phone or Cockpit, as the factory inbox records a sender. The caller has already passed
+    /// <see cref="RequirePerson"/>, so the key is a person's phone or browser key.</summary>
+    internal static TeamForwardDevice OwnerDevice(HttpContext ctx)
+    {
+        var device = AuthMiddleware.AuthenticatedDevice(ctx)
+            ?? throw new InvalidOperationException("A forward ran for a caller with no device key, after the person-only check let it in.");
+        var surface = SessionOriginSurfaces.FromDeviceType(device.DeviceType) switch
+        {
+            SessionOriginSurfaces.Phone => Factory.Inbox.FactoryInboxWords.Surfaces.Phone,
+            SessionOriginSurfaces.Cockpit => Factory.Inbox.FactoryInboxWords.Surfaces.Cockpit,
+            var other => throw new InvalidOperationException($"A forward ran from a {other} key, after the person-only check let it in."),
+        };
+        return new TeamForwardDevice(surface, device.DeviceId);
+    }
+
+    /// <summary>The titles of the factories the caller may forward to, by name - what a forwarded step shows the Owner.</summary>
+    private static IReadOnlyDictionary<string, string> ForwardTitles(TeamRequestForwarding forwarding, string teamId, string caller) =>
+        forwarding.Targets(teamId, caller).Factories.ToDictionary(f => f.Factory, f => f.Name, StringComparer.Ordinal);
+
+    /// <summary>
+    /// The team's whole list as HTTP, for the Owner's inbox and the Owner and Managers' Requests page: every request with
+    /// the team's label, who sent it, and - for the Owner - the factories to forward to and the words of the control.
+    /// </summary>
+    internal static IResult AnswerTeamList(TeamRequestListResult result, string teamId, string caller, TeamRequestForwarding forwarding, TeamRegistry teams)
+    {
+        if (result.Outcome != TeamRequestOutcome.Done)
+        {
+            FileLog.Write($"[TeamRequestEndpoints] list team: {result.Outcome}");
+            return Refusal(result.Outcome, result.Refusal!);
+        }
+
+        var teamLabel = teams.ListTeamsFor(caller).First(t => string.Equals(t.TeamId, teamId, StringComparison.Ordinal)).Name;
+        var targets = forwarding.Targets(teamId, caller);
+        var titles = targets.Factories.ToDictionary(f => f.Factory, f => f.Name, StringComparer.Ordinal);
+        FileLog.Write($"[TeamRequestEndpoints] list team: {result.Requests.Count} request(s), {targets.Factories.Count} factory target(s)");
+        return Results.Json(new
+        {
+            teamId,
+            teamLabel,
+            count = result.Requests.Count,
+            requests = result.Requests.Select(r => Describe(r, titles)).ToList(),
+            forward = new
+            {
+                label = ForwardLabel,
+                noteLabel = ForwardNoteLabel,
+                hint = ForwardNoteHint,
+                factories = targets.Factories.Select(f => new { factory = f.Factory, name = f.Name }).ToList(),
+                emptyText = targets.EmptyText,
+            },
+        });
+    }
+
     /// <summary>A send or decision as HTTP: the request as it now stands, or the refusal with its status.</summary>
-    internal static IResult Answer(TeamRequestResult result, string what, int successStatus)
+    internal static IResult Answer(TeamRequestResult result, string what, int successStatus, IReadOnlyDictionary<string, string>? titles = null)
     {
         if (result.Outcome == TeamRequestOutcome.Done)
         {
             FileLog.Write($"[TeamRequestEndpoints] {what}: done");
-            return Results.Json(new { request = Describe(result.Request!) }, statusCode: successStatus);
+            return Results.Json(new { request = Describe(result.Request!, titles) }, statusCode: successStatus);
         }
 
         FileLog.Write($"[TeamRequestEndpoints] {what}: {result.Outcome}");
@@ -144,7 +226,7 @@ internal static class TeamRequestEndpoints
         }
 
         FileLog.Write($"[TeamRequestEndpoints] list {what}: {result.Requests.Count} request(s)");
-        return Results.Json(new { count = result.Requests.Count, requests = result.Requests.Select(Describe).ToList() });
+        return Results.Json(new { count = result.Requests.Count, requests = result.Requests.Select(r => Describe(r)).ToList() });
     }
 
     private static IResult Refusal(TeamRequestOutcome outcome, string sentence) => outcome switch
@@ -153,17 +235,21 @@ internal static class TeamRequestEndpoints
         TeamRequestOutcome.Refused => Results.Json(new { error = sentence, code = TeamEndpointGate.RefusalCode }, statusCode: StatusCodes.Status403Forbidden),
         TeamRequestOutcome.Invalid => Results.BadRequest(new { error = sentence }),
         TeamRequestOutcome.Conflict => Results.Conflict(new { error = sentence }),
+        TeamRequestOutcome.Unavailable => Results.Json(new { error = sentence }, statusCode: StatusCodes.Status503ServiceUnavailable),
         _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Not a refusal."),
     };
 
-    /// <summary>One request on the wire. Every verdict is finished here; a screen only renders it.</summary>
-    internal static object Describe(TeamRequestView r) => new
+    /// <summary>One request on the wire. Every verdict is finished here; a screen only renders it. <paramref name="titles"/>
+    /// names the factories the reader may forward to; a forwarded step shows its factory's title only to that reader.</summary>
+    internal static object Describe(TeamRequestView r, IReadOnlyDictionary<string, string>? titles = null) => new
     {
         id = r.Id,
         text = r.Text,
         state = r.State,
         stateLabel = r.StateLabel,
         sentBy = r.SentBy,
+        fromLabel = FromLabel(r),
+        privacyNote = r.CanForward ? NotSeenByAgents : null,
         isYours = r.IsYours,
         sentAtUtc = r.SentAtUtc,
         updatedAtUtc = r.UpdatedAtUtc,
@@ -175,11 +261,20 @@ internal static class TeamRequestEndpoints
             atUtc = s.AtUtc,
             reason = s.Reason,
             sentence = s.Sentence,
+            forwardedTo = s.ForwardedTo is null ? null : titles?.GetValueOrDefault(s.ForwardedTo) ?? s.ForwardedTo,
         }).ToList(),
         canAccept = r.CanAccept,
         canDecline = r.CanDecline,
         canMarkDone = r.CanMarkDone,
+        canForward = r.CanForward,
     };
+
+    /// <summary>Who wrote it, as a list row says it: "From you", or the sender and - when they are a contributor - that
+    /// they are one, because a contributor's words are the ones that may never reach an agent unread.</summary>
+    internal static string FromLabel(TeamRequestView r) =>
+        r.IsYours ? "From you"
+        : r.SenderRole == TeamRole.Collaborator ? $"From {r.SentBy}, a contributor"
+        : $"From {r.SentBy}";
 
     private static async Task<(T? Value, IResult? Denial)> ReadBody<T>(HttpContext ctx, string shape) where T : class
     {

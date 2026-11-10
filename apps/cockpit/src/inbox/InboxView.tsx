@@ -5,6 +5,7 @@ import { InboxTabs } from "@devthrottle/client-core/factoryinbox/InboxTabs";
 import { YourInboxListView } from "@devthrottle/client-core/yourinbox/YourInboxListView";
 import { YourInboxMessageView } from "@devthrottle/client-core/yourinbox/YourInboxMessageView";
 import type { YourInboxLink } from "@devthrottle/client-core/yourinbox/yourInboxClient";
+import { TeamMessagesSection } from "@devthrottle/client-core/teams/TeamMessagesSection";
 
 // THE COCKPIT'S INBOX (Factory Inbox mission, phase 4 and step C; mockup D): two tabs, each a list on the left and a
 // reading pane on the right. Factory inbox: the factories and the open factory's thread. Your inbox: the messages to the
@@ -15,6 +16,9 @@ import type { YourInboxLink } from "@devthrottle/client-core/yourinbox/yourInbox
 //
 // ADDRESSES. A factory's thread is /inbox/<factory>, as before. Your inbox is /inbox?tab=yours, and an open message
 // /inbox?tab=yours&message=<id> - a query, not a path, so no factory's name can ever collide with the tab.
+//
+// THE TEAM OWNER'S MESSAGES (Team piece 4.3): above Your inbox, what the contributors of the person's own teams wrote to
+// them, each with "Forward to the factory" - client-core's TeamMessagesSection, the same the phone shows.
 
 /** Where a Your inbox link opens in the Cockpit: a session, a dev report, or a factory's thread on the other tab. */
 export function cockpitInboxHref(link: YourInboxLink): string | null {
@@ -59,6 +63,8 @@ export function InboxView() {
           </div>
         </div>
       ) : (
+        <>
+        <TeamMessagesSection />
         <div className="fi-split">
           <YourInboxListView
             selected={message}
@@ -72,6 +78,7 @@ export function InboxView() {
             )}
           </div>
         </div>
+        </>
       )}
     </section>
   );

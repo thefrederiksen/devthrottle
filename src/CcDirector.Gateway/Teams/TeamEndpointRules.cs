@@ -123,6 +123,10 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/teams/{teamId}/requests/mine", TeamMethods.Read, TeamAction.AnswerQuestionsSendRequestsReadReports, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         new TeamEndpointRule("/teams/{teamId}/requests", TeamMethods.Read, TeamAction.ReadAndDecideTeamRequests, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         new TeamEndpointRule("/teams/{teamId}/requests/{requestId}", TeamMethods.Write, TeamAction.ReadAndDecideTeamRequests, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The Owner's "Forward to the factory" (Team implementation piece 4.3): it leaves the words in one of the team's
+        // factory inboxes, so it is the row that talks to the team's factories - the Owner alone. Exact and longer than
+        // the decision rule above, so a Manager who may decide a request still may not forward it.
+        new TeamEndpointRule("/teams/{teamId}/requests/{requestId}/forward", TeamMethods.Write, Factories, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         // The team's shared skills and workflows, managed from a person's own account (devthrottle_internal#2304):
         // the Skills and workflows page (S5) reads and changes them here. Reading them is using them; anything else
         // changes them. Built-ins stay read-only inside a team as everywhere - the store refuses that, not this table.

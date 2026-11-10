@@ -47,10 +47,18 @@ public static class TeamApp
             ContributorApp: true),
         new TeamAppPage("inbox", "Inbox", "/contributor/inbox", TeamAction.AnswerQuestionsSendRequestsReadReports,
             ContributorApp: true),
+        // The team Owner's side of that conversation (piece 4.3): what the team's contributors write lands in the Owner's
+        // own Inbox, labelled with the team, with "Forward to the factory" on each message. The Owner alone - the row
+        // that talks to the team's factories - so this entry is the Gateway's answer to "which teams' messages does this
+        // person's Inbox show"; both shells read it and never decide from the role.
+        new TeamAppPage(MessagesPageId, "Messages from contributors", "/inbox?tab=yours", TeamAction.OpenRunAndTalkToTeamFactories),
     };
 
     /// <summary>The row that gives the whole Cockpit: sessions, computers and everything around them.</summary>
     public const TeamAction FullAppAction = TeamAction.RunSessionsOnOwnComputers;
+
+    /// <summary>The page entry that names a team whose contributors' messages the person's own Inbox shows (piece 4.3).</summary>
+    public const string MessagesPageId = "messages";
 
     /// <summary>The verdict for a person who holds <paramref name="role"/> in a team.</summary>
     public static TeamAppVerdict For(TeamRole role)

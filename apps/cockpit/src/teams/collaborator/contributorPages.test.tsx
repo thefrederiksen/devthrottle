@@ -70,7 +70,8 @@ function card(teamId: string, teamLabel: string, factory: string, name: string, 
 function item(teamId: string, teamLabel: string, id: string, title: string, order: string, kind = "report") {
   return {
     kind, id, teamId, teamLabel, title, text: kind === "message" ? `words~${id}` : null, fromLabel: `from~${id}`,
-    atUtc: "2026-11-09T10:00:00Z", stateLabel: `state~${id}`, tone: "waiting", trail: [], questions: [] as unknown[], order,
+    atUtc: "2026-11-09T10:00:00Z", stateLabel: `state~${id}`, tone: "waiting", trail: [] as unknown[], notice: null as string | null,
+    questions: [] as unknown[], order,
   };
 }
 
@@ -178,6 +179,32 @@ describe("Inbox", () => {
     at("/contributor/inbox?team=acme&item=m1", <ContributorInboxPage />);
 
     expect((await screen.findByTestId("contributor-message")).textContent).toContain("words~m1");
+  });
+
+  it("ContributorInboxPage_AForwardedMessage_ShowsTheGatewaysNoticeAndTrailAndNothingElse", async () => {
+    // Piece 4.3: the team's Owner forwarded it. The contributor reads the Gateway's sentence and trail line - never a
+    // factory, a seat or anything the factory did.
+    const forwarded = {
+      ...item("acme", "Acme", "m1", "Wrote~odd", "1", "message"),
+      stateLabel: "Forwarded~odd",
+      notice: "Notice~forwarded~odd",
+      trail: [{ label: "Forwarded", by: "the Owner", atUtc: "2026-11-09T15:00:00Z", reason: null, sentence: "Sentence~forwarded~odd" }],
+    };
+    state.inbox = { acme: inbox("acme", "Acme", [forwarded]), beta: inbox("beta", "Beta", []) };
+
+    at("/contributor/inbox?team=acme&item=m1", <ContributorInboxPage />);
+
+    expect((await screen.findByTestId("contributor-message-notice")).textContent).toBe("Notice~forwarded~odd");
+    expect(screen.getByTestId("contributor-message").textContent).toContain("Sentence~forwarded~odd");
+  });
+
+  it("ContributorInboxPage_AMessageNotForwarded_ShowsNoNotice", async () => {
+    state.inbox = { acme: inbox("acme", "Acme", [item("acme", "Acme", "m1", "Wrote~odd", "1", "message")]), beta: inbox("beta", "Beta", []) };
+
+    at("/contributor/inbox?team=acme&item=m1", <ContributorInboxPage />);
+
+    await screen.findByTestId("contributor-message");
+    expect(screen.queryByTestId("contributor-message-notice")).toBeNull();
   });
 
   it("ContributorInboxPage_OpenAReport_ShowsTheReportSentToThem_WithTheInboxsOwnWayBack", async () => {

@@ -36,9 +36,14 @@ public sealed class TeamAppTests
     {
         // The whole Cockpit carries the three pages; the contributor's own app carries Factories and Inbox instead.
         var full = RoleTableSpec.Cell(TeamAction.RunSessionsOnOwnComputers, role) != TeamGrant.No;
-        var expected = RoleTableSpec.Cell(TeamAction.AnswerQuestionsSendRequestsReadReports, role) != TeamGrant.No
+        var expected = (RoleTableSpec.Cell(TeamAction.AnswerQuestionsSendRequestsReadReports, role) != TeamGrant.No
             ? full ? ThreePages : ContributorPages
-            : Array.Empty<string>();
+            : Array.Empty<string>())
+            // The Owner's Inbox also shows the team's contributors' messages (piece 4.3), where the spec lets them talk to
+            // the team's factories - the forward goes there.
+            .Concat(full && RoleTableSpec.Cell(TeamAction.OpenRunAndTalkToTeamFactories, role) != TeamGrant.No
+                ? new[] { TeamApp.MessagesPageId } : Array.Empty<string>())
+            .ToArray();
 
         var app = TeamApp.For(role);
 
@@ -77,6 +82,15 @@ public sealed class TeamAppTests
         Assert.Equal(TeamApp.Pages.Count, TeamApp.Pages.Select(p => p.Id).Distinct().Count());
         Assert.Equal(TeamApp.Pages.Count, TeamApp.Pages.Select(p => p.Path).Distinct().Count());
         Assert.All(TeamApp.Pages, p => Assert.StartsWith("/", p.Path));
+    }
+
+    [Fact]
+    public void For_TheOwner_NamesTheMessagesEntryThatPointsAtTheirOwnInbox()
+    {
+        var messages = Assert.Single(TeamApp.For(TeamRole.Owner).Pages, p => p.Id == TeamApp.MessagesPageId);
+
+        Assert.Equal(("Messages from contributors", "/inbox?tab=yours"), (messages.Label, messages.Path));
+        Assert.DoesNotContain(TeamApp.For(TeamRole.Manager).Pages, p => p.Id == TeamApp.MessagesPageId);
     }
 
     [Theory]

@@ -7,6 +7,7 @@ import { useFactoryInboxOffered } from "@devthrottle/client-core/factoryinbox/us
 import { YourInboxListView } from "@devthrottle/client-core/yourinbox/YourInboxListView";
 import { YourInboxMessageView } from "@devthrottle/client-core/yourinbox/YourInboxMessageView";
 import type { YourInboxLink } from "@devthrottle/client-core/yourinbox/yourInboxClient";
+import { TeamMessagesSection } from "@devthrottle/client-core/teams/TeamMessagesSection";
 import { PageNotFound } from "../components/StaleShellRecovery";
 import { AppBarAlerts } from "../components/AppBarAlerts";
 
@@ -98,7 +99,11 @@ export function Inbox() {
         {tab === "factories" ? (
           <FactoryInboxListView surface="mobile" onOpen={(f) => navigate(`/inbox/${encodeURIComponent(f)}`)} />
         ) : (
-          <YourInboxListView onOpen={(id) => navigate(`/inbox?tab=yours&message=${encodeURIComponent(id)}`)} />
+          <>
+            {/* The team Owner's messages from contributors (Team piece 4.3), the same section the Cockpit shows. */}
+            <TeamMessagesSection />
+            <YourInboxListView onOpen={(id) => navigate(`/inbox?tab=yours&message=${encodeURIComponent(id)}`)} />
+          </>
         )}
       </PhoneFrame>
     </Gate>
