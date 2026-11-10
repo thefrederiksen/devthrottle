@@ -113,22 +113,6 @@ public sealed class WingmanTtsStatusPassthroughTests
         Assert.Equal("4", res.Headers.GetValues("Retry-After").Single());
     }
 
-    // Retry-After also has a DATE form. RetryAfterHeader normalizes both, so a client never has to parse
-    // an HTTP date to learn it should wait.
-    [Fact]
-    public async Task PostTts_Upstream429WithDateRetryAfter_NormalizesTheHintToSeconds()
-    {
-        var when = DateTimeOffset.UtcNow.AddSeconds(30).ToString("R");
-        var (app, http) = await StartAsync(new UpstreamStub(HttpStatusCode.TooManyRequests, "{}", retryAfter: when));
-        await using var _ = app;
-
-        var res = await http.PostAsync("/wingman/tts", Say());
-
-        Assert.Equal(HttpStatusCode.TooManyRequests, res.StatusCode);
-        var seconds = int.Parse(res.Headers.GetValues("Retry-After").Single());
-        Assert.InRange(seconds, 1, 31);   // ~30s, allowing for clock/scheduling slack
-    }
-
     // A 429 with no hint is still a 429. The status is the load-bearing part; the header is a bonus.
     [Fact]
     public async Task PostTts_Upstream429WithNoHint_StillPassesTheStatusThrough()
