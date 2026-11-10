@@ -4,7 +4,9 @@
 #
 #   watch-site-state.sh sample  <state-log>
 #       Samples until the epoch in WATCH_DEADLINE, one sample every SAMPLE_INTERVAL_SECONDS (default 15),
-#       appending one line per sample to <state-log>. Needs AZURE_RG and APP.
+#       appending one line per sample to <state-log>. Needs AZURE_RG and APP. Each read is cut off after
+#       AZ_READ_TIMEOUT_SECONDS (default 60), so a hung read becomes a failed read. MAX_SAMPLES, when set,
+#       stops after that many samples (the proof sets it, so the clock never decides its outcome).
 #
 #   watch-site-state.sh verdict <state-log> <watch-start-epoch> <watch-end-epoch> <result-file>
 #       Prints the judgement in words and writes key=value lines to <result-file>:
@@ -25,7 +27,8 @@
 # which the state was never measured. So the verdict measures how long the state went unmeasured - from
 # the last successful read (or the start of the watch) to the next successful read (or the end of the
 # watch) - and fails the run as NOT MEASURED when that stretch exceeds UNMEASURED_LIMIT_SECONDS, or when
-# no read succeeded at all.
+# no read succeeded at all. EVERY stretch counts, not only those around a failed read: a read that hangs
+# and then answers Running has left the state blind for the whole hang just the same.
 #
 # WHY 120 SECONDS. It is the outage budget this deploy is already judged on (MAX_ACCEPTABLE_OUTAGE_SECONDS,
 # owner ruling 2026-09-20), so the state is never blind for longer than the outage we have agreed to
@@ -52,7 +55,7 @@ read_state_once() {
   local errf; errf=$(mktemp)
   while [ "$n" -lt "$attempts" ]; do
     n=$((n + 1))
-    out=$(az webapp show --resource-group "$AZURE_RG" --name "$APP" --query state --output tsv 2>"$errf"); rc=$?
+    out=$(timeout "${AZ_READ_TIMEOUT_SECONDS:-60}" az webapp show --resource-group "$AZURE_RG" --name "$APP" --query state --output tsv 2>"$errf"); rc=$?
     out=$(printf '%s' "$out" | tr -d '\r' | awk 'NF { print $1; exit }')
     if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
       rm -f "$errf"
@@ -60,7 +63,9 @@ read_state_once() {
       return 0
     fi
     err=$(tr '\r\n\t' '   ' < "$errf" | sed 's/  */ /g; s/^ //; s/ $//' | cut -c1-400)
-    if [ -z "$err" ]; then
+    if [ "$rc" -eq 124 ]; then
+      err="az did not answer within ${AZ_READ_TIMEOUT_SECONDS:-60}s${err:+: $err}"
+    elif [ -z "$err" ]; then
       if [ "$rc" -eq 0 ]; then err="az exited 0 with an empty answer"; else err="az exited $rc with no error text"; fi
     else
       err="az exited $rc: $err"
@@ -75,8 +80,10 @@ cmd_sample() {
   local log=$1
   : "${WATCH_DEADLINE:?WATCH_DEADLINE (epoch seconds) is required}"
   : "${AZURE_RG:?AZURE_RG is required}"; : "${APP:?APP is required}"
-  local interval=${SAMPLE_INTERVAL_SECONDS:-15} line st
+  local interval=${SAMPLE_INTERVAL_SECONDS:-15} max=${MAX_SAMPLES:-0} taken=0 line st
   while [ "$(date +%s)" -lt "$WATCH_DEADLINE" ]; do
+    if [ "$max" -gt 0 ] && [ "$taken" -ge "$max" ]; then break; fi
+    taken=$((taken + 1))
     line=$(read_state_once)
     echo "$line" >> "$log"
     st=$(echo "$line" | awk '{ print $3 }')
@@ -92,20 +99,27 @@ cmd_sample() {
 cmd_verdict() {
   local log=$1 start=$2 end=$3 result=$4
   local limit=${UNMEASURED_LIMIT_SECONDS:-120}
+  # Compared with awk, like the outage budget it is copied from, so a bound such as 120.0 works. A bound
+  # that is not a number is refused outright: a comparison that errors must never read as "within bound".
+  if ! printf '%s' "$limit" | grep -Eq '^[0-9]+([.][0-9]+)?$'; then
+    echo "ERROR: UNMEASURED_LIMIT_SECONDS is '$limit', which is not a number of seconds." >&2
+    exit 2
+  fi
   [ -f "$log" ] || : > "$log"
   local summary
   summary=$(awk -v start="$start" -v end="$end" '
-    BEGIN { last_ok = start; in_gap = 0; longest = 0 }
-    $3 == "READ-FAILED" { failed++; if (!in_gap) { in_gap = 1; gap_from = last_ok }; next }
+    # The stretch with no successful read: from the start (or the last good read) to each good read, and
+    # from the last good read to the end. Failed reads simply do not close a stretch.
+    BEGIN { last_ok = start; longest = 0 }
+    $3 == "READ-FAILED" { failed++; next }
     NF >= 3 {
       ok++
       if ($3 != "Running") bad = $3
-      if (in_gap) { d = $1 - gap_from; if (d > longest) longest = d; in_gap = 0 }
+      d = $1 - last_ok; if (d > longest) longest = d
       last_ok = $1
     }
     END {
-      if (in_gap) { d = end - gap_from; if (d > longest) longest = d }
-      if (ok == 0) { d = end - start; if (d > longest) longest = d }
+      d = end - last_ok; if (d > longest) longest = d
       printf "%d %d %d %s", ok + 0, failed + 0, longest, (bad == "" ? "-" : bad)
     }
   ' "$log")
@@ -119,7 +133,7 @@ cmd_verdict() {
   elif [ "$ok" -eq 0 ]; then
     left="not-measured"
     fail="the App Service site state was NOT MEASURED: none of the ${failed} read(s) succeeded"
-  elif [ "$longest" -gt "$limit" ]; then
+  elif awk -v a="$longest" -v b="$limit" 'BEGIN { exit !(a > b) }'; then
     left="not-measured"
     fail="the App Service site state was NOT MEASURED for ${longest}s, longer than the ${limit}s bound (${failed} failed read(s))"
   else
