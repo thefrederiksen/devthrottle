@@ -28,7 +28,7 @@ function team(id: string, pages: string[]): TeamSummary {
     role: "Owner (gateway)",
     memberCount: 2,
     people: "2 people",
-    app: { full: true, pages: pages.map((p) => ({ id: p, label: `${p} label (gateway)`, path: "/x", countPath: null })), landing: null, elsewhere: null },
+    app: { full: true, pages: pages.map((p) => ({ id: p, label: `${p} label (gateway)`, path: "/x", countPath: null, inMenu: true })), landing: null, elsewhere: null },
   };
 }
 

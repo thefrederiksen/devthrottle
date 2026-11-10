@@ -38,6 +38,7 @@ internal sealed record TeamRouteServices(
     Factory.FactoryAgentsSwitch FactorySwitch,
     Factory.Inbox.FactoryInboxStore FactoryInbox,
     Action<TenantId, string, DateTime> FactoryInboxMessageSent,
+    Settings.TenantSettingsStore Settings,
     Func<DateTime>? UtcNow = null);
 
 /// <summary>
@@ -57,7 +58,10 @@ internal static class TeamRoutes
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(s);
 
-        TeamEndpoints.Map(app, s.Teams, s.Boundary, s.Tenants, s.FleetMap, s.Devices);
+        // The contributor's welcome (piece 4.2): whether the person has seen it, on their own account. GET /teams reads it to
+        // say where a contributor's app opens; the contributor routes serve the page and take the "seen" mark.
+        var welcome = new ContributorWelcome(s.Settings, s.Tenants, s.UtcNow);
+        TeamEndpoints.Map(app, s.Teams, s.Boundary, s.Tenants, s.FleetMap, s.Devices, welcome);
         // Invitations by email that expire (devthrottle_internal#2301).
         TeamInvitationEndpoints.Map(app, s.Teams, s.Boundary, s.Tenants, s.InvitationMailer, s.PublicBase);
         // Requests to the Owner and Managers (devthrottle_internal#2308). People only - a request is never readable
@@ -88,7 +92,7 @@ internal static class TeamRoutes
         // a whole factory with a contributor.
         var customerAccess = new ContributorFactoryAccess(s.Teams, s.Factories, s.FactoryContributors);
         ContributorEndpoints.Map(app, new ContributorPages(customerAccess, s.FactoryContributors, s.Activity, s.Reports, s.Recipients, questions,
-            s.Requests, s.Teams, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants);
+            s.Requests, s.Teams, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants, welcome, s.Teams);
         FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.FactorySwitch, s.UtcNow), s.Boundary, s.Tenants);
 
         FileLog.Write("[TeamRoutes] mapped every route under /teams and /team-invitations, and /account/mentor");

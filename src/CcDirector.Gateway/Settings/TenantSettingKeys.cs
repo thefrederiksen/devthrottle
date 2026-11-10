@@ -382,6 +382,13 @@ public static class TenantSettingKeys
     /// </summary>
     public const string LicenseTestUsageMachine = "license_test_usage_machine";
 
+    /// <summary>
+    /// When the person first saw the contributor's welcome (Team implementation piece 4.2), as a round-trip UTC time, on
+    /// their OWN account. No row means not seen yet, and the contributor's app opens on the welcome. Read and written only
+    /// by <c>Teams.ContributorWelcome</c>.
+    /// </summary>
+    public const string ContributorWelcomeSeen = "contributor_welcome_seen";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -406,5 +413,6 @@ public static class TenantSettingKeys
         FactoryEmailEnabled,
         LicenseApprovers, LicenseApproverRemovals, LicenseApproverFailedChecks,
         LicenseTestUsageMachine,
+        ContributorWelcomeSeen,
     };
 }

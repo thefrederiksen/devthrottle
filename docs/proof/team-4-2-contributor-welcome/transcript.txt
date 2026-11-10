@@ -1,0 +1,10 @@
+rig ready at http://127.0.0.1:7942; team id 24534eb6-a7c0-4fd8-a089-763ee899a9fc
+BEFORE desktop: GET /teams landing=/contributor/welcome menu=['Welcome', 'Factories', 'Inbox']
+BEFORE phone: GET /teams landing=/contributor/welcome menu=['Welcome', 'Factories', 'Inbox']
+desktop first sign-in opened at http://127.0.0.1:7942/contributor/welcome
+Send a request opened http://127.0.0.1:7942/contributor/inbox?team=24534eb6-a7c0-4fd8-a089-763ee899a9fc
+AFTER desktop saw it: GET /teams landing=/contributor/factories menu=['Factories', 'Inbox']
+desktop next sign-in opened at http://127.0.0.1:7942/contributor/factories
+desktop mailed link http://127.0.0.1:7942/contributor/welcome still shows the welcome
+phone opened at http://127.0.0.1:7942/contributor/welcome
+AFTER phone saw it: GET /teams landing=/contributor/factories

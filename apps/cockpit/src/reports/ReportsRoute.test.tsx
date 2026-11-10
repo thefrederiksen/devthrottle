@@ -37,7 +37,7 @@ const TEAM: TeamSummary = {
   role: "Owner",
   memberCount: 5,
   people: "5 people",
-  app: { full: true, pages: [{ id: "reports", label: "Reports", path: "/reports", countPath: null }], landing: null, elsewhere: null },
+  app: { full: true, pages: [{ id: "reports", label: "Reports", path: "/reports", countPath: null, inMenu: true }], landing: null, elsewhere: null },
 };
 
 function Where() {

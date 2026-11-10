@@ -178,6 +178,11 @@ public static class TeamEndpointRules
         // which also refuses anyone who is not a contributor of the team; a factory it refuses is not found.
         new TeamEndpointRule(Api.ContributorEndpoints.GroupPath, TeamMethods.Read, TeamAction.AnswerQuestionsSendRequestsReadReports,
             TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The contributor's welcome being seen (piece 4.2): a write, but only to the caller's own "seen" mark on their own
+        // account, under the same row as reading what was sent to them. The endpoint refuses anyone whose role gives them
+        // the whole app.
+        new TeamEndpointRule(Api.ContributorEndpoints.WelcomeSeenPattern, TeamMethods.Write, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         // Sending a whole factory to a contributor, and taking it back: the team's Owner alone, the row that opens and runs
         // the team's factories. A contributor is refused.
         new TeamEndpointRule(Api.FactoryShareEndpoints.Pattern, TeamMethods.Any, Factories,

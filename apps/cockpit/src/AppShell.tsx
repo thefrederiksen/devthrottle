@@ -184,6 +184,7 @@ const TEAM_PAGE_ICONS: Readonly<Record<string, NavIconName>> = {
   questions: "questions",
   requests: "requests",
   reports: "reports",
+  welcome: "welcome",
   factories: "factories",
   inbox: "inbox",
 };
@@ -191,7 +192,8 @@ const TEAM_PAGE_ICONS: Readonly<Record<string, NavIconName>> = {
 /** The rail of a Cockpit that is only the Gateway's pages: those, in the Gateway's order, and nothing else - each with
  *  the Gateway's count of what waits on the person there, for a page that has one (S8). */
 function teamPagesNav(app: Pick<TeamPagesApp, "pages">, counts: Readonly<Record<string, number>>): NavItem[] {
-  return app.pages.map((page) => {
+  // A page the Gateway keeps out of the menu (the contributor's welcome once seen) still opens at its address.
+  return app.pages.filter((page) => page.inMenu).map((page) => {
     const count = counts[page.id];
     return count === undefined
       ? { to: page.path, label: page.label, icon: TEAM_PAGE_ICONS[page.id] }

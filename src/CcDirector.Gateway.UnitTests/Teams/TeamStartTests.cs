@@ -109,7 +109,7 @@ public sealed class TeamStartTests : IDisposable
         var team = _teams.CreateTeam(Bob, "DevThrottle").Team!;
         _teams.AddMember(team.TeamId, Alice, TeamRole.Collaborator);
 
-        var body = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
+        var body = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false, welcomed: true));
 
         var start = body.GetProperty("start");
         Assert.Equal("team", start.GetProperty("where").GetString());
@@ -122,7 +122,7 @@ public sealed class TeamStartTests : IDisposable
         var team = _teams.CreateTeam(Bob, "DevThrottle").Team!;
         _teams.AddMember(team.TeamId, Alice, TeamRole.Collaborator);
 
-        var body = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: true));
+        var body = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: true, welcomed: true));
 
         Assert.Equal("own-account", body.GetProperty("start").GetProperty("where").GetString());
         Assert.Equal(JsonValueKind.Null, body.GetProperty("start").GetProperty("teamId").ValueKind);

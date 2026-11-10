@@ -684,9 +684,9 @@ describe("Cockpit left rail", () => {
     // the team's block keeps only Team, Questions and Requests.
     it("puts the team's Reports in Work and keeps Team, Questions and Requests in the team's block", async () => {
       const pages = [
-        { id: "questions", label: "Questions", path: "/questions", countPath: null },
-        { id: "requests", label: "Requests", path: "/requests", countPath: null },
-        { id: "reports", label: "Reports", path: "/reports", countPath: null },
+        { id: "questions", label: "Questions", path: "/questions", countPath: null, inMenu: true },
+        { id: "requests", label: "Requests", path: "/requests", countPath: null, inMenu: true },
+        { id: "reports", label: "Reports", path: "/reports", countPath: null, inMenu: true },
       ];
       const withPages = { ...TEAM, app: { ...TEAM.app, pages } } as TeamSummary;
       mentorRead.answers.set(TEAM.id, { kind: "page" });
@@ -1016,7 +1016,7 @@ describe("Cockpit license alarm triangle", () => {
       people: "5 people",
       app: {
         full: false,
-        pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null }],
+        pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null, inMenu: true }],
         landing: "/questions",
         elsewhere: "This page is not available to contributors.",
       },
@@ -1098,7 +1098,7 @@ describe("Cockpit rail head alerts", () => {
       people: "5 people",
       app: {
         full: false,
-        pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null }],
+        pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null, inMenu: true }],
         landing: "/questions",
         elsewhere: "This page is not available to contributors.",
       },

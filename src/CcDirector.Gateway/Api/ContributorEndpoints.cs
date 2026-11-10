@@ -25,6 +25,9 @@ namespace CcDirector.Gateway.Api;
 /// team's Owner.</item>
 /// <item><c>GET /teams/{teamId}/contributor/factories/{factory}/watch?window=&amp;from=&amp;to=</c> - "Watch your factory": the
 /// contributor audience of <see cref="FactoryWatchFold"/> for one factory sent to them (version one, piece 4).</item>
+/// <item><c>GET /teams/{teamId}/contributor/welcome</c> - the contributor's welcome (piece 4.2): its words, verbatim, with
+/// this team's name; and <c>POST /teams/{teamId}/contributor/welcome/seen</c> - the person has seen it, so their app opens
+/// on Factories from now on (<see cref="ContributorWelcome"/>). Both only for a contributor of the team.</item>
 /// </list>
 ///
 /// COMBINED ACROSS TEAMS, ONE ROUTE PER TEAM. A person on several teams sees one Factories page and one Inbox; the client
@@ -55,11 +58,20 @@ internal static class ContributorEndpoints
     /// <summary>The Inbox, as the route table writes it.</summary>
     public const string InboxPattern = GroupPath + "/inbox";
 
+    /// <summary>The welcome, as the route table writes it.</summary>
+    public const string WelcomePattern = GroupPath + "/welcome";
+
+    /// <summary>The welcome's "seen" mark, as the route table writes it.</summary>
+    public const string WelcomeSeenPattern = WelcomePattern + "/seen";
+
     internal const string CallerItemKey = "cc.teams.contributor.caller";
 
-    /// <summary>Maps the four routes.</summary>
-    public static void Map(IEndpointRouteBuilder app, ContributorPages pages, HostedTenantBoundary boundary, TenantRegistry tenants)
+    /// <summary>Maps the routes listed in the class comment.</summary>
+    public static void Map(IEndpointRouteBuilder app, ContributorPages pages, HostedTenantBoundary boundary, TenantRegistry tenants,
+        ContributorWelcome welcome, TeamRegistry teams)
     {
+        ArgumentNullException.ThrowIfNull(welcome);
+        ArgumentNullException.ThrowIfNull(teams);
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(pages);
         ArgumentNullException.ThrowIfNull(boundary);
@@ -96,8 +108,47 @@ internal static class ContributorEndpoints
         group.MapGet("/factories/{factory}/watch", (HttpContext ctx, string teamId, string factory, string? window, DateTime? from, DateTime? to) =>
             Watch(pages, teamId, Caller(ctx), factory, window, from, to));
         group.MapGet("/inbox", (HttpContext ctx, string teamId) => Results.Json(pages.Inbox(teamId, Caller(ctx))));
+        group.MapGet("/welcome", (HttpContext ctx, string teamId) => Welcome(teams, teamId, Caller(ctx)));
+        group.MapPost("/welcome/seen", (HttpContext ctx, string teamId) => WelcomeSeen(teams, welcome, teamId, Caller(ctx)));
 
-        FileLog.Write($"[ContributorEndpoints] mapped {FactoriesPattern} (list, one), {WatchPattern} and {InboxPattern}");
+        FileLog.Write($"[ContributorEndpoints] mapped {FactoriesPattern} (list, one), {WatchPattern}, {InboxPattern}, {WelcomePattern} and {WelcomeSeenPattern}");
+    }
+
+    /// <summary>The welcome's page for a contributor of the team; 404 with <see cref="ContributorWelcome.NotForThisRole"/>
+    /// for a member whose role gives them the whole app. Internal so every branch is tested without a host.</summary>
+    internal static IResult Welcome(TeamRegistry teams, string teamId, string caller)
+    {
+        if (ContributorTeam(teams, teamId, caller) is not { } team)
+            return NotForThisRole("GET welcome");
+        FileLog.Write($"[ContributorEndpoints] GET welcome: team {team.Tenant.ToLogString()}");
+        return Results.Json(ContributorWelcome.Page(team.TeamId, team.Name));
+    }
+
+    /// <summary>Marks the welcome seen on the caller's own account, for a contributor of the team; 404 as
+    /// <see cref="Welcome"/> for anyone else. Marking again changes nothing.</summary>
+    internal static IResult WelcomeSeen(TeamRegistry teams, ContributorWelcome welcome, string teamId, string caller)
+    {
+        if (ContributorTeam(teams, teamId, caller) is not { } team)
+            return NotForThisRole("POST welcome/seen");
+        welcome.MarkSeen(caller);
+        FileLog.Write($"[ContributorEndpoints] POST welcome/seen: marked, from team {team.Tenant.ToLogString()}");
+        return Results.Json(new { seen = true });
+    }
+
+    /// <summary>The team as the caller sees it, when the caller's role there gives them the contributor's app; null when it
+    /// gives them the whole app. The gate has already shown the caller is a member.</summary>
+    private static TeamSummary? ContributorTeam(TeamRegistry teams, string teamId, string caller)
+    {
+        var team = teams.ListTeamsFor(caller).FirstOrDefault(t => string.Equals(t.TeamId, teamId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("A contributor route ran for a caller who is not a member - the team gate was not run.");
+        return TeamApp.For(team.Role).FullApp ? null : team;
+    }
+
+    private static IResult NotForThisRole(string where)
+    {
+        FileLog.Write($"[ContributorEndpoints] {where}: refused - the caller's role gives them the whole app, not the welcome");
+        return Results.Json(new { error = ContributorWelcome.NotForThisRole, code = ContributorPages.NotFoundCode },
+            statusCode: StatusCodes.Status404NotFound);
     }
 
     /// <summary>The watch route's answer: the view; the customer page's own not-found for every refusal; or a 400 naming

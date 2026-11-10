@@ -1,0 +1,202 @@
+/* The contributor's welcome (Team implementation piece 4.2), as welcome-mockup.html draws it, in the shell's own tokens.
+   Step one - the contributor's own step - and the button are the shell's warm colour; every other number is the accent. */
+
+.contributor-welcome-body {
+  max-width: 720px;
+}
+
+.contributor-welcome-pill {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-text);
+  border: 1px solid var(--pin-mark-border);
+  border-radius: 99px;
+  padding: 1px 10px;
+}
+
+.contributor-welcome-title {
+  font-size: 28px;
+  line-height: 1.2;
+  margin: 10px 0 6px;
+  color: var(--text);
+}
+
+.contributor-welcome-lead {
+  font-size: 17px;
+  color: var(--text);
+  margin: 0 0 22px;
+  max-width: 600px;
+}
+
+.contributor-welcome-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.contributor-welcome-step {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.contributor-welcome-step + .contributor-welcome-step {
+  border-top: 1px solid var(--border);
+}
+
+.contributor-welcome-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--pin-bg);
+  border: 1px solid var(--pin-mark-border);
+  color: var(--accent-text);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.contributor-welcome-step-yours .contributor-welcome-num {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: var(--bg);
+}
+
+.contributor-welcome-step-title {
+  margin: 6px 0 2px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.contributor-welcome-step-text {
+  margin: 0;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.contributor-welcome-watch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.contributor-welcome-watch svg {
+  flex: none;
+}
+
+.contributor-welcome-watch span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.contributor-welcome-floor {
+  fill: var(--border);
+}
+
+/* The notifications line reads as the mockup's quiet line under the steps, and is a button: pressing it asks. */
+.contributor-welcome-notify {
+  display: block;
+  margin: 18px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.contributor-welcome-notify:hover:not(:disabled),
+.contributor-welcome-notify:focus-visible {
+  color: var(--text);
+}
+
+.contributor-welcome-notify:disabled {
+  cursor: progress;
+}
+
+.contributor-welcome-notify-answer {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.contributor-welcome-ask {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 22px 0 0;
+  color: var(--text);
+}
+
+.contributor-welcome-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+
+.contributor-welcome-button {
+  display: inline-block;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-weight: 700;
+  font-size: 15px;
+  background: var(--warn);
+  color: var(--bg);
+  text-decoration: none;
+}
+
+.contributor-welcome-button:hover,
+.contributor-welcome-button:focus-visible {
+  filter: brightness(1.08);
+}
+
+.contributor-welcome-loading {
+  color: var(--text-dim);
+}
+
+.contributor-welcome-error {
+  color: var(--danger-text);
+  margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .contributor-welcome-title {
+    font-size: 24px;
+  }
+
+  .contributor-welcome-lead {
+    font-size: 16px;
+  }
+
+  .contributor-welcome-step {
+    grid-template-columns: 36px 1fr;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .contributor-welcome-num {
+    width: 32px;
+    height: 32px;
+  }
+
+  .contributor-welcome-actions .contributor-welcome-button {
+    flex: 1;
+    text-align: center;
+  }
+}

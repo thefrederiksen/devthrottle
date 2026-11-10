@@ -14,8 +14,8 @@ function team(id: string, name: string): TeamSummary {
     app: {
       full: false,
       pages: [
-        { id: "factories", label: "Factories~page", path: "/contributor/factories", countPath: null },
-        { id: "inbox", label: "Inbox~page", path: "/contributor/inbox", countPath: null },
+        { id: "factories", label: "Factories~page", path: "/contributor/factories", countPath: null, inMenu: true },
+        { id: "inbox", label: "Inbox~page", path: "/contributor/inbox", countPath: null, inMenu: true },
       ],
       landing: "/contributor/factories",
       elsewhere: "Not for you.",

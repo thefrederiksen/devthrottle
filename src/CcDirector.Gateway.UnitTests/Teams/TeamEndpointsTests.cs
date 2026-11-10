@@ -40,7 +40,7 @@ public sealed class TeamEndpointsTests : IDisposable
     [Fact]
     public async Task ListTeams_AccountInNoTeam_AnswersAnEmptyListWithACount()
     {
-        var (status, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
+        var (status, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false, welcomed: true));
 
         Assert.Equal(200, status);
         Assert.Equal(0, body.GetProperty("count").GetInt32());
@@ -54,7 +54,7 @@ public sealed class TeamEndpointsTests : IDisposable
         var pauls = _teams.CreateTeam(Bob, "Paul's project").Team!;
         _teams.AddMember(pauls.TeamId, Alice, TeamRole.Developer);
 
-        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false, welcomed: true));
 
         var teams = body.GetProperty("teams").EnumerateArray().ToList();
         Assert.Equal(2, body.GetProperty("count").GetInt32());
@@ -76,12 +76,12 @@ public sealed class TeamEndpointsTests : IDisposable
         var dev = _teams.CreateTeam(Bob, "Paul's project").Team!;
         _teams.AddMember(dev.TeamId, Alice, TeamRole.Developer);
 
-        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false, welcomed: true));
 
         var byId = body.GetProperty("teams").EnumerateArray().ToDictionary(t => t.GetProperty("id").GetString()!, t => t.GetProperty("app"));
         var asCollaborator = byId[collab.TeamId];
         Assert.False(asCollaborator.GetProperty("full").GetBoolean());
-        Assert.Equal(new[] { "Factories|/contributor/factories", "Inbox|/contributor/inbox" },
+        Assert.Equal(new[] { "Welcome|/contributor/welcome", "Factories|/contributor/factories", "Inbox|/contributor/inbox" },
             asCollaborator.GetProperty("pages").EnumerateArray().Select(p => $"{p.GetProperty("label").GetString()}|{p.GetProperty("path").GetString()}"));
         Assert.Equal("/contributor/factories", asCollaborator.GetProperty("landing").GetString());
         Assert.Equal("This page is not available to contributors.", asCollaborator.GetProperty("elsewhere").GetString());
@@ -103,7 +103,7 @@ public sealed class TeamEndpointsTests : IDisposable
         var dev = _teams.CreateTeam(Bob, "Paul's project").Team!;
         _teams.AddMember(dev.TeamId, Alice, TeamRole.Developer);
 
-        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false, welcomed: true));
 
         foreach (var team in body.GetProperty("teams").EnumerateArray())
         {

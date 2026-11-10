@@ -13,9 +13,9 @@ const FULL = { full: true, pages: [], landing: null, elsewhere: null };
 const COLLABORATOR_APP = {
   full: false,
   pages: [
-    { id: "questions", label: "Questions", path: "/questions", countPath: "/teams/t2/questions" },
-    { id: "requests", label: "Requests", path: "/requests", countPath: null },
-    { id: "reports", label: "Reports", path: "/reports", countPath: null },
+    { id: "questions", label: "Questions", path: "/questions", countPath: "/teams/t2/questions", inMenu: true },
+    { id: "requests", label: "Requests", path: "/requests", countPath: null, inMenu: true },
+    { id: "reports", label: "Reports", path: "/reports", countPath: null, inMenu: true },
   ],
   landing: "/questions",
   elsewhere: "This page is not available to contributors.",
@@ -174,6 +174,30 @@ describe("getMyTeams", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         respond(`{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${noCountPath}}]}`, "application/json"),
+      ),
+    );
+    await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
+  });
+
+  // The contributor's welcome (piece 4.2): whether a page is in the menu is the Gateway's verdict, carried as sent; a page
+  // without the verdict cannot be drawn and fails loudly.
+  it("GetMyTeams_APagesInMenu_IsCarriedAsTheGatewaySentIt_AndAPageWithoutOneThrows", async () => {
+    const offMenu = JSON.stringify({ ...COLLABORATOR_APP, pages: COLLABORATOR_APP.pages.map((p, i) => ({ ...p, inMenu: i !== 0 })) });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        respond(`{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${offMenu}}],"start":{"where":"own-account"}}`, "application/json"),
+      ),
+    );
+    const answer = await getMyTeams();
+    if (answer.kind !== "teams") throw new Error("expected teams");
+    expect(answer.teams[0].app.pages.map((p) => p.inMenu)).toEqual([false, true, true]);
+
+    const noVerdict = JSON.stringify({ ...COLLABORATOR_APP, pages: [{ id: "welcome", label: "Welcome", path: "/contributor/welcome", countPath: null }] });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        respond(`{"teams":[{"id":"t","name":"n","role":"Contributor","memberCount":1,"people":"1 person","app":${noVerdict}}]}`, "application/json"),
       ),
     );
     await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);

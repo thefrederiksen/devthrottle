@@ -45,6 +45,7 @@ import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
 import { RequestsPage } from "./teams/collaborator/RequestsPage";
 import { ContributorFactoriesPage } from "./teams/collaborator/ContributorFactoriesPage";
 import { ContributorInboxPage } from "./teams/collaborator/ContributorInboxPage";
+import { ContributorWelcomePage } from "./teams/collaborator/ContributorWelcomePage";
 import { ReportsRoute } from "./reports/ReportsRoute";
 import { MentorView } from "./mentor/MentorView";
 import { MailDeskHowItWorksView, MailDeskView } from "./maildesk/MailDeskView";
@@ -286,6 +287,8 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/requests", element: <TeamPageRoute pageId="requests"><RequestsPage /></TeamPageRoute> },
           // A contributor's own app (Team implementation piece 4.1): Factories and Inbox, every team they are a contributor
           // on together. Only where the Gateway's page verdict lists them; everywhere else the ordinary "Page not found".
+          // The contributor's welcome (piece 4.2): where their app opens until they have seen it, and at its address after.
+          { path: "/contributor/welcome", element: <TeamPageRoute pageId="welcome"><ContributorWelcomePage /></TeamPageRoute> },
           { path: "/contributor/factories", element: <TeamPageRoute pageId="factories"><ContributorFactoriesPage /></TeamPageRoute> },
           { path: "/contributor/inbox", element: <TeamPageRoute pageId="inbox"><ContributorInboxPage /></TeamPageRoute> },
           // Reports is in Work for everyone (owner, 8 Oct 2026): the team's page with a team on screen (still only where the

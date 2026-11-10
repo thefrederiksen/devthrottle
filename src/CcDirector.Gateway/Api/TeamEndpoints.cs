@@ -62,8 +62,9 @@ internal static class TeamEndpoints
 
     /// <summary>Maps every route listed in the class comment.</summary>
     public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants,
-        TeamFleetMap fleetMap, Pairing.DeviceRegistry devices)
+        TeamFleetMap fleetMap, Pairing.DeviceRegistry devices, ContributorWelcome welcome)
     {
+        ArgumentNullException.ThrowIfNull(welcome);
         ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(teams);
@@ -77,7 +78,7 @@ internal static class TeamEndpoints
             if (caller.Denial is not null) return caller.Denial;
             // ResolveCaller has just shown the request is bound to this person's own tenant.
             var own = boundary.ResolveRequestTenant(ctx)!.Value;
-            return ListTeams(teams, caller.Subject!, devices.HasADirectorOnRecord(own));
+            return ListTeams(teams, caller.Subject!, devices.HasADirectorOnRecord(own), welcome.HasSeen(caller.Subject!));
         }));
 
         app.MapPost(Path, async (HttpContext ctx) =>
@@ -423,8 +424,9 @@ internal static class TeamEndpoints
     }
 
     /// <summary>The caller's teams, each with the caller's role and the member count, and where a fresh browser of
-    /// theirs starts (<see cref="TeamStart"/>).</summary>
-    internal static IResult ListTeams(TeamRegistry teams, string callerSubject, bool ownAccountHasADirector)
+    /// theirs starts (<see cref="TeamStart"/>). <paramref name="welcomed"/> is whether the caller has seen the contributor's
+    /// welcome (<see cref="ContributorWelcome"/>): until they have, a team where they are a contributor opens on it.</summary>
+    internal static IResult ListTeams(TeamRegistry teams, string callerSubject, bool ownAccountHasADirector, bool welcomed)
     {
         var list = teams.ListTeamsFor(callerSubject);
         var start = TeamStart.For(ownAccountHasADirector, list);
@@ -432,7 +434,7 @@ internal static class TeamEndpoints
         return Results.Json(new
         {
             count = list.Count,
-            teams = list.Select(Describe).ToList(),
+            teams = list.Select(t => Describe(t, welcomed)).ToList(),
             start = new { where = TeamStart.Wire(start.Place), teamId = start.TeamId },
         });
     }
@@ -453,7 +455,8 @@ internal static class TeamEndpoints
         }
 
         FileLog.Write($"[TeamEndpoints] POST /teams: created {team.Tenant.ToLogString()}");
-        return Results.Json(new { team = Describe(team) }, statusCode: StatusCodes.Status201Created);
+        // The creator is the team's Owner, who has the whole app, so the welcome plays no part in what they are shown.
+        return Results.Json(new { team = Describe(team, welcomed: true) }, statusCode: StatusCodes.Status201Created);
     }
 
     /// <summary>A team's members and roles, for a member of that team; 404 for anyone else.</summary>
@@ -469,7 +472,7 @@ internal static class TeamEndpoints
         FileLog.Write($"[TeamEndpoints] GET /teams/{{teamId}}/members: {result.Members.Count} member(s)");
         return Results.Json(new
         {
-            team = Describe(team),
+            team = Describe(team, welcomed: true),
             count = result.Members.Count,
             members = result.Members.Select(m => new
             {
@@ -515,19 +518,20 @@ internal static class TeamEndpoints
 
     /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team, and <c>app</c> is what
     /// the caller's Cockpit is in it (<see cref="TeamApp"/>, devthrottle_internal#2306).</summary>
-    private static object Describe(TeamSummary team) => new
+    private static object Describe(TeamSummary team, bool welcomed) => new
     {
         id = team.TeamId,
         name = team.Name,
         role = TeamRoles.Label(team.Role),
         memberCount = team.MemberCount,
         people = team.MemberCount == 1 ? "1 person" : $"{team.MemberCount} people",
-        app = DescribeApp(TeamApp.For(team.Role), team.TeamId),
+        app = DescribeApp(TeamApp.For(team.Role, welcomed), team.TeamId),
     };
 
     /// <summary>The page verdict on the wire. A page's <c>countPath</c> is where the Cockpit reads the number waiting on
     /// the person for that page, in this team (null for a page with no count) - the Gateway names it; the Cockpit never
-    /// builds it.</summary>
+    /// builds it. A page's <c>inMenu</c> is whether the menu lists it (<see cref="TeamAppVerdict.InMenu"/>): a page that is
+    /// not in the menu still opens at its address.</summary>
     internal static object DescribeApp(TeamAppVerdict app, string teamId) => new
     {
         full = app.FullApp,
@@ -537,6 +541,7 @@ internal static class TeamEndpoints
             label = p.Label,
             path = p.Path,
             countPath = p.CountRoute?.Replace("{teamId}", Uri.EscapeDataString(teamId), StringComparison.Ordinal),
+            inMenu = app.InMenu(p),
         }).ToList(),
         landing = app.Landing,
         elsewhere = app.Elsewhere,

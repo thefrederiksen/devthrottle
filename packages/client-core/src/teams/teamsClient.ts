@@ -35,6 +35,9 @@ export interface TeamAppPage {
   /** Where the number waiting on this person for this page is read (devthrottle_internal#2307 review F8: the count
    *  beside Questions), or null for a page with no count. The Gateway names it; the Cockpit never builds one. */
   countPath: string | null;
+  /** Whether the menu lists this page. A page that is not listed still opens at its address - the contributor's welcome
+   *  once it has been seen (Team implementation piece 4.2). The Gateway decides; the Cockpit only filters by it. */
+  inMenu: boolean;
 }
 
 /** The Gateway's page verdict for one person in one team: the whole Cockpit, or only some pages. */
@@ -179,11 +182,12 @@ function readApp(raw: unknown): TeamApp {
       typeof page.id !== "string" ||
       typeof page.label !== "string" ||
       typeof page.path !== "string" ||
-      !(page.countPath === null || typeof page.countPath === "string")
+      !(page.countPath === null || typeof page.countPath === "string") ||
+      typeof page.inMenu !== "boolean"
     ) {
       throw new GatewayError(502, UNREADABLE_APP);
     }
-    return { id: page.id, label: page.label, path: page.path, countPath: page.countPath };
+    return { id: page.id, label: page.label, path: page.path, countPath: page.countPath, inMenu: page.inMenu };
   });
   if (a.full) return { full: true, pages, landing: null, elsewhere: null };
   // A limited app must say where it opens and what every other address says; without both it cannot be drawn.

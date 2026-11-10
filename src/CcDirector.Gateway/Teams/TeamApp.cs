@@ -6,9 +6,10 @@ namespace CcDirector.Gateway.Teams;
 /// the page's name in the navigation (S8, devthrottle_internal#2307 review F8); which page has one is decided here.
 /// <paramref name="ContributorApp"/> is true for a page of the contributor's own app - their Factories and Inbox (Team
 /// implementation piece 4.1) - which is listed only where the person does NOT get the whole Cockpit, and false for a page
-/// listed only where they do.</summary>
+/// listed only where they do. <paramref name="Welcome"/> is true for the contributor's welcome (piece 4.2), the one page
+/// that is in the menu, and where the app opens, only until the person has seen it.</summary>
 public sealed record TeamAppPage(string Id, string Label, string Path, TeamAction Action, string? CountRoute = null,
-    bool ContributorApp = false);
+    bool ContributorApp = false, bool Welcome = false);
 
 /// <summary>
 /// WHAT ONE PERSON'S COCKPIT IS IN ONE TEAM (devthrottle_internal#2306), as the Gateway's verdict - the Cockpit renders it
@@ -20,7 +21,19 @@ public sealed record TeamAppPage(string Id, string Label, string Path, TeamActio
 /// <param name="Landing">Where the Cockpit opens, when <paramref name="FullApp"/> is false; null otherwise.</param>
 /// <param name="Elsewhere">The sentence shown at any other address, when <paramref name="FullApp"/> is false; null
 /// otherwise.</param>
-public sealed record TeamAppVerdict(bool FullApp, IReadOnlyList<TeamAppPage> Pages, string? Landing, string? Elsewhere);
+/// <param name="Welcomed">Whether the person has seen the contributor's welcome (piece 4.2). Decides whether the welcome
+/// is in the menu (<see cref="InMenu"/>) and where the app opens.</param>
+public sealed record TeamAppVerdict(bool FullApp, IReadOnlyList<TeamAppPage> Pages, string? Landing, string? Elsewhere,
+    bool Welcomed = true)
+{
+    /// <summary>Whether a page of this verdict is listed in the menu. Every page is, except the welcome once it has been
+    /// seen: it stays one of the pages, so its address still opens it, but the menu no longer offers it.</summary>
+    public bool InMenu(TeamAppPage page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        return !(page.Welcome && Welcomed);
+    }
+}
 
 /// <summary>
 /// THE PAGES A PERSON MAY OPEN IN A TEAM, READ FROM THE ROLE TABLE (devthrottle_internal#2306). A page is listed when the
@@ -41,6 +54,9 @@ public static class TeamApp
             Api.TeamQuestionEndpoints.GroupPath),
         new TeamAppPage("requests", "Requests", "/requests", TeamAction.AnswerQuestionsSendRequestsReadReports),
         new TeamAppPage("reports", "Reports", "/reports", TeamAction.AnswerQuestionsSendRequestsReadReports),
+        // The contributor's welcome (piece 4.2): first, where the app opens and in the menu until the person has seen it.
+        new TeamAppPage("welcome", "Welcome", ContributorWelcome.PagePath, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            ContributorApp: true, Welcome: true),
         // The contributor's app (piece 4.1). No count beside Inbox yet: a count read for the team on screen would leave out
         // the person's other teams, and the Inbox shows them all.
         new TeamAppPage("factories", "Factories", "/contributor/factories", TeamAction.AnswerQuestionsSendRequestsReadReports,
@@ -60,18 +76,24 @@ public static class TeamApp
     /// <summary>The page entry that names a team whose contributors' messages the person's own Inbox shows (piece 4.3).</summary>
     public const string MessagesPageId = "messages";
 
-    /// <summary>The verdict for a person who holds <paramref name="role"/> in a team.</summary>
-    public static TeamAppVerdict For(TeamRole role)
+    /// <summary>The verdict for a person who holds <paramref name="role"/> in a team and has seen the welcome - what every
+    /// caller that does not ask about the welcome reads (which pages exist, whether the app is whole).</summary>
+    public static TeamAppVerdict For(TeamRole role) => For(role, welcomed: true);
+
+    /// <summary>The verdict for a person who holds <paramref name="role"/> in a team, and has (or has not) seen the
+    /// contributor's welcome. Not yet seen, a contributor's app opens on the welcome; seen, on its first other page.</summary>
+    public static TeamAppVerdict For(TeamRole role, bool welcomed)
     {
         var full = TeamPermissions.Grant(role, FullAppAction) != TeamGrant.No;
         var pages = Pages.Where(p => p.ContributorApp != full && TeamPermissions.Grant(role, p.Action) != TeamGrant.No).ToList();
         if (full)
-            return new TeamAppVerdict(true, pages, null, null);
+            return new TeamAppVerdict(true, pages, null, null, welcomed);
 
-        if (pages.Count == 0)
+        if (pages.All(p => p.Welcome))
             throw new InvalidOperationException(
                 $"The role table gives a {TeamRoles.InText(role)} neither the whole app nor any page, so there is nothing to show them.");
-        return new TeamAppVerdict(false, pages, pages[0].Path, NotAvailableTo(role));
+        var opensOn = welcomed ? pages.First(p => !p.Welcome) : pages[0];
+        return new TeamAppVerdict(false, pages, opensOn.Path, NotAvailableTo(role), welcomed);
     }
 
     /// <summary>The sentence a person reads at an address their role does not open.</summary>

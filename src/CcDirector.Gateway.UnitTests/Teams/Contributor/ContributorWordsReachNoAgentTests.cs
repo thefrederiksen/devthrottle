@@ -157,7 +157,8 @@ public sealed class ContributorWordsReachNoAgentTests : IAsyncLifetime
                 (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session in this test"),
                 (_, _) => null, CancellationToken.None, () => Now),
             Factories: factories, Activity: new FactoryActivityRecord(_db), FactoryContributors: shares, FactorySwitch: factorySwitch,
-            FactoryInbox: _factoryInbox, FactoryInboxMessageSent: (_, _, _) => { }, UtcNow: () => Now));
+            FactoryInbox: _factoryInbox, FactoryInboxMessageSent: (_, _, _) => { },
+            Settings: new CcDirector.Gateway.Settings.TenantSettingsStore(_db), UtcNow: () => Now));
 
         _writeRoutes = ((IEndpointRouteBuilder)_app).DataSources
             .SelectMany(d => d.Endpoints)

@@ -11,7 +11,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 public sealed class TeamAppTests
 {
     private static readonly string[] ThreePages = { "questions", "requests", "reports" };
-    private static readonly string[] ContributorPages = { "factories", "inbox" };
+    private static readonly string[] ContributorPages = { "welcome", "factories", "inbox" };
 
     [Theory]
     [InlineData(TeamRole.Owner)]
@@ -51,15 +51,33 @@ public sealed class TeamAppTests
     }
 
     [Fact]
-    public void For_Collaborator_GetsFactoriesAndInbox_LandsOnFactories_AndIsToldEverythingElseIsNotAvailable()
+    public void For_Collaborator_GetsWelcomeFactoriesAndInbox_LandsOnFactories_AndIsToldEverythingElseIsNotAvailable()
     {
         var app = TeamApp.For(TeamRole.Collaborator);
 
         Assert.False(app.FullApp);
-        Assert.Equal(new[] { ("Factories", "/contributor/factories"), ("Inbox", "/contributor/inbox") },
+        Assert.Equal(new[] { ("Welcome", "/contributor/welcome"), ("Factories", "/contributor/factories"), ("Inbox", "/contributor/inbox") },
             app.Pages.Select(p => (p.Label, p.Path)));
         Assert.Equal("/contributor/factories", app.Landing);
         Assert.Equal("This page is not available to contributors.", app.Elsewhere);
+    }
+
+    [Fact]
+    public void For_CollaboratorWhoHasNotSeenTheWelcome_LandsOnTheWelcome_AndTheMenuListsEveryPage()
+    {
+        var app = TeamApp.For(TeamRole.Collaborator, welcomed: false);
+
+        Assert.Equal("/contributor/welcome", app.Landing);
+        Assert.All(app.Pages, p => Assert.True(app.InMenu(p)));
+    }
+
+    [Fact]
+    public void For_CollaboratorWhoHasSeenTheWelcome_KeepsItAsAPage_ButNotInTheMenu()
+    {
+        var app = TeamApp.For(TeamRole.Collaborator, welcomed: true);
+
+        Assert.Equal(new[] { "factories", "inbox" }, app.Pages.Where(app.InMenu).Select(p => p.Id));
+        Assert.Contains(app.Pages, p => p.Id == "welcome");
     }
 
     [Theory]

@@ -42,7 +42,8 @@ export type NavIconName =
   | "help"
   | "questions"
   | "requests"
-  | "reports";
+  | "reports"
+  | "welcome";
 
 // The shapes, keyed by name. Each value is the icon's paint - the <svg> wrapper (grid, stroke, size)
 // is applied once below, so no glyph can drift off the shared geometry.
@@ -65,6 +66,13 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <path d="M14.1 5.55a2 2 0 0 1-1.79 0L8.1 3.45a2 2 0 0 0-1.79 0L3.55 4.83A1 1 0 0 0 3 5.72v12.76a1 1 0 0 0 1.45.9l2.86-1.43a2 2 0 0 1 1.79 0l4.21 2.11a2 2 0 0 0 1.79 0l3.66-1.83a1 1 0 0 0 .55-.9V4.62a1 1 0 0 0-1.45-.9z" />
       <path d="M9 3.24v15" />
       <path d="M15 5.76v15" />
+    </>
+  ),
+  // A house with a door: the contributor's welcome, where a new member of a team starts (piece 4.2).
+  welcome: (
+    <>
+      <path d="M3 21V10l9-7 9 7v11z" />
+      <path d="M9 21v-6h6v6" />
     </>
   ),
   // A terminal prompt: the thing a session actually is.

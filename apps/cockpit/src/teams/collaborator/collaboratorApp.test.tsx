@@ -77,6 +77,26 @@ vi.mock("../../settings/SettingsView", () => ({ SettingsView: () => <div>setting
 // and answers the count the test sets.
 const pageCounts = vi.hoisted(() => ({ count: 0, asked: [] as string[] }));
 
+// The contributor's welcome (piece 4.2): its two routes, so the page opens without a Gateway.
+const welcome = vi.hoisted(() => ({ seen: [] as string[] }));
+vi.mock("@devthrottle/client-core/teams/contributorWelcomeClient", () => ({
+  getContributorWelcome: vi.fn(async (teamId: string) => ({
+    teamId,
+    teamLabel: "Owl~team",
+    title: "Welcome~title",
+    lead: "Welcome~lead",
+    steps: [{ number: 1, title: "S1~title", text: "S1~text", yours: true, watch: false }],
+    watchLabel: "Watch~label",
+    notifications: "Notify~line",
+    question: "Ask~question",
+    button: { label: "Request~button", href: "/contributor/inbox?team=" + teamId },
+  })),
+  markContributorWelcomeSeen: vi.fn(async (teamId: string) => {
+    welcome.seen.push(teamId);
+    return { seen: true };
+  }),
+}));
+
 const myTeams = vi.hoisted(() => ({
   teams: [] as unknown[],
   start: { where: "own-account" } as unknown,
@@ -118,9 +138,9 @@ const COLLABORATOR_TEAM: TeamSummary = {
     full: false,
     pages: [
       // An odd count path, so a path the Cockpit built for itself would never match it.
-      { id: "questions", label: "Questions", path: "/questions", countPath: "/teams/team-dt/questions?odd-count" },
-      { id: "requests", label: "Requests", path: "/requests", countPath: null },
-      { id: "reports", label: "Reports", path: "/reports", countPath: null },
+      { id: "questions", label: "Questions", path: "/questions", countPath: "/teams/team-dt/questions?odd-count", inMenu: true },
+      { id: "requests", label: "Requests", path: "/requests", countPath: null, inMenu: true },
+      { id: "reports", label: "Reports", path: "/reports", countPath: null, inMenu: true },
     ],
     landing: "/questions",
     elsewhere: NOT_AVAILABLE,
@@ -222,6 +242,7 @@ describe("The Collaborator's app", () => {
     reads.keepWarm = [];
     pageCounts.count = 0;
     pageCounts.asked = [];
+    welcome.seen = [];
     vi.clearAllMocks();
     resetFactorySwitchCache();
     // The signed-in account, as a finished sign-in leaves it in this browser.
@@ -253,6 +274,34 @@ describe("The Collaborator's app", () => {
     renderAt("/questions");
 
     await whenRailIs(["Questions", "Reports"]);
+  });
+
+  it("Navigation_APageTheGatewayKeepsOutOfTheMenu_IsNotInTheRail_ButItsAddressStillOpens", async () => {
+    myTeams.teams = [
+      {
+        ...COLLABORATOR_TEAM,
+        app: { ...COLLABORATOR_TEAM.app, pages: COLLABORATOR_TEAM.app.pages.map((p) => (p.id === "requests" ? { ...p, inMenu: false } : p)) },
+      },
+    ];
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/requests");
+
+    await whenRailIs(["Questions", "Reports"]);
+    expect(screen.queryByTestId("team-page-not-available")).toBeNull();
+  });
+
+  it("Landing_AContributorWhoHasNotSeenTheWelcome_OpensOnIt_AndItIsMarkedSeen", async () => {
+    const page = { id: "welcome", label: "Welcome", path: "/contributor/welcome", countPath: null, inMenu: true };
+    myTeams.teams = [
+      { ...COLLABORATOR_TEAM, app: { ...COLLABORATOR_TEAM.app, pages: [page, ...COLLABORATOR_TEAM.app.pages], landing: page.path } },
+    ];
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/");
+
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/contributor/welcome"));
+    expect(await screen.findByText("Welcome~title")).toBeTruthy();
+    await whenRailIs(["Welcome", "Questions", "Requests", "Reports"]);
+    await waitFor(() => expect(welcome.seen).toEqual([COLLABORATOR_TEAM.id]));
   });
 
   it("Landing_Collaborator_OpensOnQuestions", async () => {
