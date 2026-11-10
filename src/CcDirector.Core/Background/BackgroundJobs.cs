@@ -60,7 +60,26 @@ public sealed record BackgroundJobSnapshot(
     bool Running,
     int Instances = 1)
 {
-    public bool OverCeiling => CeilingPerHour is { } ceiling && RunsInLastHour > ceiling * Math.Max(1, Instances);
+    /// <summary>
+    /// True only when this row shows MORE runs than its cadence can explain, fencepost included.
+    ///
+    /// <para>The <c>+ 1</c> is the fencepost and it is not slack (issue #4852). A trailing hour that is
+    /// closed at both ends holds one more timestamp than it has intervals, and on a real clock whether
+    /// the oldest run falls inside or outside the horizon is decided by timer lateness and by the rate
+    /// of the wall clock against the monotonic clock the timer schedules on. Comparing against
+    /// <c>ceiling</c> alone therefore marked every healthy job on a fixed cadence as over its ceiling,
+    /// on every run, for as long as the Director lived - sixteen of them at once on one machine. An
+    /// indicator that is red for everything cannot report the runaway it exists to catch.</para>
+    ///
+    /// <para>The bound is EXACT, not approximate, because the trailing hour counts the times runs
+    /// STARTED. A cadence bounds the fires, so an hour holds at most <c>ceiling + 1</c> of them. Were
+    /// the queue to hold END times instead it could hold one more, because an end is a fire shifted by
+    /// a varying duration - see the comment where a run is enqueued.</para>
+    ///
+    /// <para>It is per instance, so a folded row of three instances may legitimately show
+    /// <c>3 * (ceiling + 1)</c>. This must agree with the log line in <c>BackgroundJob.RunAsync</c>.</para>
+    /// </summary>
+    public bool OverCeiling => CeilingPerHour is { } ceiling && RunsInLastHour > (ceiling + 1) * Math.Max(1, Instances);
 }
 
 /// <summary>
@@ -265,13 +284,28 @@ public sealed class BackgroundJob : IDisposable
                 var ended = _owner.NowUtc();
                 _lastRunUtc = ended;
                 _lastDuration = ended - started;
-                _runsLastHour.Enqueue(ended);
+                // THE QUEUE HOLDS START TIMES, NOT END TIMES, and that is what makes the
+                // `ceiling + 1` bound in OverCeiling provably tight rather than nearly tight
+                // (issue #4852, third option). A cadence bounds the FIRES, so a trailing hour can
+                // hold at most `ceiling + 1` of them. End times are fires shifted by a varying
+                // duration, so a window over ENDED times can hold one more post than any window
+                // over fires - reachable when a run lasts nearly a whole cadence, which is
+                // pathological but not impossible. Counting starts removes the case rather than
+                // documenting it. `started` is read before the slot wait, so it tracks the fire.
+                _runsLastHour.Enqueue(started);
                 TrimLocked(ended);
                 _running = false;
                 again = _askedAgain;
                 _askedAgain = false;
 
-                if (Spec.CeilingPerHour is { } ceiling && _runsLastHour.Count > ceiling)
+                // TOLERATE THE FENCEPOST (issue #4852). A closed trailing hour holds one more
+                // timestamp than it has intervals, and on a real clock which side of the horizon the
+                // oldest run falls is decided by timer lateness and by the wall clock's rate against
+                // the monotonic clock the timer schedules on - not by anything the job did. So a job
+                // running exactly at its cadence legitimately shows either `ceiling` or `ceiling + 1`
+                // runs, and only MORE than that is evidence of a runaway. See OverCeiling, which must
+                // agree with this line.
+                if (Spec.CeilingPerHour is { } ceiling && _runsLastHour.Count > ceiling + 1)
                     FileLog.Write($"[BackgroundJobs] '{Spec.Name}' OVER ITS CEILING: {_runsLastHour.Count} runs in the last hour, allowed {ceiling}");
             }
             if (again)
@@ -279,10 +313,32 @@ public sealed class BackgroundJob : IDisposable
         }
     }
 
+    /// <summary>
+    /// Drop the runs that have left the trailing hour, leaving the window HALF-OPEN:
+    /// <c>(now - 1h, now]</c>. A run exactly an hour old is out.
+    ///
+    /// <para>THIS IS A TIDY-UP, NOT THE FIX FOR #4852, and the distinction matters because the first
+    /// draft of that fix claimed otherwise. Half-open makes the count mean the same thing
+    /// <see cref="BackgroundJobSpec.CeilingPerHour"/> means - a job on an IDEAL clock running exactly on
+    /// cadence yields exactly the ceiling - which is worth having for the number the Background work
+    /// page displays.</para>
+    ///
+    /// <para>It fixes almost nothing on a real machine, and it was measured rather than reasoned about.
+    /// This comparison and the previous one (<c>&lt; horizon</c>) differ only when a run's timestamp
+    /// equals the horizon to the tick, which on a clock read from <c>DateTime.UtcNow</c> with
+    /// millisecond timer jitter effectively never happens. What actually decides whether the hour holds
+    /// <c>ceiling</c> or <c>ceiling + 1</c> timestamps is whether the span of the last <c>ceiling</c>
+    /// intervals measures shorter or longer than an hour on the WALL clock - set by timer lateness, run
+    /// duration, and the wall clock's rate against the monotonic clock the timer schedules on - and
+    /// that is identical under both comparisons. Simulated over three hours of a two-second job: with a
+    /// wall clock 1.68 parts per million slow, both the old and the new comparison alarm on every run.
+    /// The fix is the tolerance in <see cref="BackgroundJobSnapshot.OverCeiling"/> and in the log line
+    /// in <c>RunAsync</c>; this only makes the displayed count honest.</para>
+    /// </summary>
     private void TrimLocked(DateTime now)
     {
         var horizon = now - TimeSpan.FromHours(1);
-        while (_runsLastHour.Count > 0 && _runsLastHour.Peek() < horizon)
+        while (_runsLastHour.Count > 0 && _runsLastHour.Peek() <= horizon)
             _runsLastHour.Dequeue();
     }
 
@@ -296,6 +352,31 @@ public sealed class BackgroundJob : IDisposable
                 _lastRunUtc, _lastDuration, _runsLastHour.Count,
                 _skippedOff, _skippedTooSoon, _failures, _running);
         }
+    }
+
+    /// <summary>
+    /// TEST-ONLY. The run CURRENTLY in flight, so a test can await a run to COMPLETION - body,
+    /// accounting and all - with no sleep and no clock read.
+    ///
+    /// <para>This exists because the accounting a test needs to observe (the run is enqueued into the
+    /// trailing-hour window, the window is trimmed, <c>Running</c> clears) happens in
+    /// <c>RunAsync</c>'s <c>finally</c>, AFTER the job body has returned. So signalling from the body
+    /// is not enough, and the alternative - polling <c>Snapshot()</c> behind a timeout - is exactly
+    /// the machine-dependent wait that <c>GateTestsDoNotDependOnTheMachineTests</c> refuses, and
+    /// rightly: it decides pass or fail on how loaded the machine is. Awaiting this task is
+    /// deterministic. <see cref="StopAsync"/> is not a substitute - it disposes the job, so it cannot
+    /// be used between two runs.</para>
+    ///
+    /// <para>IT IS NOT "the run the last Trigger started", and a caller must not read it as that. A
+    /// <see cref="Trigger()"/> that arrives while a run is in flight does not start one - it sets the
+    /// ask-again flag and leaves <c>_current</c> alone - so reading this straight after such a trigger
+    /// hands back the PREVIOUS run. A test must therefore establish that the job is idle before it
+    /// triggers; the helper in BackgroundJobsTests asserts exactly that, so a test which triggers into
+    /// a run in flight fails on the assertion rather than silently awaiting the wrong task.</para>
+    /// </summary>
+    internal Task? InFlightRunForTest
+    {
+        get { lock (_gate) return _current; }
     }
 
     /// <summary>
