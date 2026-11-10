@@ -101,7 +101,9 @@ jobs:
   #     tools/registry.json, the installer folders and several documents. The ONLY places proven outside
   #     it are:
   #       * docs/, EXCEPT docs/wingman, docs/architecture/wingman, docs/new_architecture,
-  #         docs/public/release-notes and docs/features/dictation, which its tests open by name;
+  #         docs/public/release-notes and docs/features/dictation, which its tests open by name, and
+  #         the records folders that moved to the private repository (docs/missions, docs/qa, docs/proof,
+  #         docs/reviews, docs/cencon), where RecordsLiveInThePrivateRepositoryTests refuses new files;
   #       * a Python tool folder under tools/ (one that has a pyproject.toml and no .csproj), and
   #         tools/test_shipped_tools_contract.py. The installer folders, registry.json and
   #         throttle-conformance are read by .NET and are never in this set.
@@ -228,6 +230,9 @@ jobs:
 
               docs/wingman/*|docs/architecture/wingman/*|docs/new_architecture/*|docs/public/release-notes/*|docs/features/dictation/*)
                 echo "  $f -> read by .NET tests: dotnet"
+                dotnet=true ;;
+              docs/missions/*|docs/qa/*|docs/proof/*|docs/reviews/*|docs/cencon/*)
+                echo "  $f -> a moved records folder, which RecordsLiveInThePrivateRepositoryTests guards: dotnet"
                 dotnet=true ;;
               docs/*)
                 echo "  $f -> read by no job" ;;
