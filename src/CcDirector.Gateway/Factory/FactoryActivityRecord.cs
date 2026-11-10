@@ -294,9 +294,10 @@ public sealed class FactoryActivityRecord
     /// <summary>
     /// The names of the machines on <paramref name="tenant"/>'s account - the same list the contributor sentence's
     /// machine rule checks at record time - for a reader that must check words again against them (a contributor's
-    /// watch view, version one piece 4). Opened for the account the caller names, never the ambient one.
+    /// watch view, version one piece 4). Opened for the account the caller names, never the ambient one. Internal, so the
+    /// record's public surface stays Append and Query (Store_exposes_no_mutating_method_besides_Append).
     /// </summary>
-    public IReadOnlyList<string> MachineNamesOf(TenantId tenant)
+    internal IReadOnlyList<string> MachineNamesOf(TenantId tenant)
     {
         lock (_gate)
         {
