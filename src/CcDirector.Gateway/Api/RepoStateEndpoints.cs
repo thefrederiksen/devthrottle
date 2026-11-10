@@ -60,7 +60,7 @@ internal static class RepoStateEndpoints
             if (string.IsNullOrWhiteSpace(request.DirectorId))
                 return Results.BadRequest(new { error = "directorId is required" });
 
-            if (GatewayEndpoints.RosterTeamCaller(ctx, tenant.Value, teamCaller) is { } team && !team.OwnsDirector(request.DirectorId))
+            if (GatewayEndpoints.RosterTeamCaller(ctx, tenant.Value, teamCaller) is { } team && !team.OwnsDirectorDurably(request.DirectorId))
             {
                 FileLog.Write($"[RepoStateEndpoints] POST {Path}: REFUSED in a team, director={request.DirectorId} is not shown to be the caller's own");
                 return Results.Json(new { error = TeamRefusal, code = Teams.TeamEndpointGate.RefusalCode },

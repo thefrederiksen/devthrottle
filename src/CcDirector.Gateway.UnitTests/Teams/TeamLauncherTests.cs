@@ -265,6 +265,96 @@ public sealed class TeamLauncherTests : IAsyncLifetime
         Assert.Null(_check.Refuse(_teamB, Identity(_aliceTeamBKey), null, AlicePc, "test"));
     }
 
+    // ---- review finding 1: the colleague's Director is down ------------------------------------------------------------
+
+    private const string BobLaptop = "BOB-LAPTOP";
+
+    /// <summary>Bob has a second computer whose Director is set up in the team but is not connected - the state a
+    /// Smart Restart leaves it in, and after any goodbye - and Alice holds a key whose device row names that computer
+    /// too. Returns Alice's key.</summary>
+    private string AliceNamingBobsComputerWhileItsDirectorIsDown(string machine = BobLaptop)
+    {
+        _devices.RegisterForTenant(_teamA, Bob, HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA.Value, Bob, "director-bob-laptop"), machine);
+        return _devices.RegisterForTenant(_teamA, Alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA.Value, Alice, "director-alice-2"), machine).DeviceKey;
+    }
+
+    // Shows: while Bob's Director is down, Alice's key whose own row names Bob's computer still cannot register a
+    // launcher for it nor hold its stream - Bob's device row keeps the computer his. Before the fix only a CONNECTED
+    // Director of Bob's refused it, so in exactly the Smart Restart window Alice's launcher took Bob's slot.
+    [Fact]
+    public async Task Register_AColleaguesComputerWhileTheirDirectorIsDown_IsRefusedOnRegisterAndStream()
+    {
+        var key = AliceNamingBobsComputerWhileItsDirectorIsDown();
+        Assert.Null(_directors.Get(_teamA, "director-bob-laptop"));
+
+        AssertTeamRefusal(await RegisterAsync(key, BobLaptop));
+        Assert.Null(_launchers.Get(_teamA, BobLaptop));
+        Assert.True(StreamHello(key, BobLaptop).Aborted);
+    }
+
+    // Shows: while Bob's Director is down, and even with a Director of Alice's reporting itself onto Bob's computer,
+    // every relay to that computer is refused - none of them reaches Bob's launcher.
+    [Theory]
+    [InlineData("GET", "/machines/{0}/resources")]
+    [InlineData("POST", "/machines/{0}/director/update")]
+    [InlineData("GET", "/machines/{0}/director/update-status")]
+    [InlineData("GET", "/machines/{0}/restart-capability")]
+    [InlineData("POST", "/machines/{0}/director/restart")]
+    [InlineData("POST", "/machines/{0}/director/start")]
+    [InlineData("POST", "/machines/{0}/sessions")]
+    [InlineData("POST", "/machines/{0}/director/stop")]
+    [InlineData("POST", "/machines/{0}/launch")]
+    [InlineData("GET", "/machines/{0}/apps")]
+    [InlineData("GET", "/machines/{0}/files")]
+    public async Task Machines_AColleaguesComputerWhileTheirDirectorIsDown_EveryRelayIsRefused(string method, string path)
+    {
+        var key = AliceNamingBobsComputerWhileItsDirectorIsDown();
+        _directors.RegisterFromStream("director-alice-2", BobLaptop, "u", "1.0", 1, HelloAt, _teamA, "director-alice-2",
+            "device:" + HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA.Value, Alice, "director-alice-2"));
+
+        var url = string.Format(System.Globalization.CultureInfo.InvariantCulture, path, BobLaptop);
+        AssertTeamRefusal(await SendAsync(new HttpMethod(method), url, key, method == "POST" ? new { } : null));
+        Assert.Equal(TeamOwnership.SomeoneElses,
+            _ownership.Whose(_teamA, Alice, "/machines/{machine}/director/restart", _ => BobLaptop, "POST"));
+    }
+
+    // Shows: two members whose computers carry the same name refuse each other - neither can register a launcher for
+    // it, and the computer is no one's alone. The launcher slot is keyed by computer name, so DevThrottle cannot tell
+    // the two computers apart; refusing is the safe answer, and keying the slot by device is left for a later piece.
+    [Fact]
+    public async Task Register_TwoMembersOnSameNamedComputers_RefuseEachOther()
+    {
+        var aliceKey = AliceNamingBobsComputerWhileItsDirectorIsDown("DESKTOP-1");
+        var bobKey = _devices.RegisterForTenant(_teamA, Bob,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA.Value, Bob, "director-bob-desktop"), "DESKTOP-1").DeviceKey;
+
+        AssertTeamRefusal(await RegisterAsync(aliceKey, "DESKTOP-1"));
+        AssertTeamRefusal(await RegisterAsync(bobKey, "DESKTOP-1"));
+        Assert.Equal(TeamOwnership.SomeoneElses, _ownership.Whose(_teamA, Alice, "/machines/{machine}/restart-capability", _ => "DESKTOP-1", "GET"));
+    }
+
+    // ---- handler census: every launcher route the gate lets through is checked by its handler -------------------------
+
+    public static IEnumerable<object[]> LauncherRoutes() =>
+        TeamCallerOwnership.LauncherOwnMachineRoutes.Select(r => new object[] { r.Method, r.Pattern });
+
+    // Shows: for every launcher route the gate answers as the caller's for the endpoint to check, the endpoint does
+    // check - Alice sending it for Bob's computer is refused. A route added to the list without a handler check fails here.
+    [Theory]
+    [MemberData(nameof(LauncherRoutes))]
+    public async Task Census_EveryLauncherRouteTheGateLetsThrough_IsRefusedForAColleaguesComputer(string method, string pattern)
+    {
+        Assert.Equal(HttpStatusCode.Created, (await RegisterAsync(_bobKey, BobPc)).Status);
+        var path = pattern.Replace("{machine}", BobPc, StringComparison.Ordinal);
+        object? body = pattern == "/launchers/register"
+            ? new LauncherRegistrationRequest { MachineName = BobPc, Pid = 7, Version = "1.0" }
+            : null;
+
+        AssertTeamRefusal(await SendAsync(new HttpMethod(method), path, _aliceKey, body));
+        Assert.NotNull(_launchers.Get(_teamA, BobPc));
+    }
+
     // ---- personal accounts unchanged ---------------------------------------------------------------------------------
 
     // Shows: a person's own account is not a team, so the check never refuses there - a personal launcher registers

@@ -643,6 +643,18 @@ public sealed class DirectorHub : Hub
             return null;
         }
 
+        // AND ON THE COMPUTER ITS OWN DEVICE ROW WAS ENROLLED ON (devthrottle_internal#2829, review finding 1). Inside a
+        // team the computer decides who may reach its launcher, and the machine name in a Hello is written by the
+        // client - so a team Director that reported itself onto a colleague's computer while the colleague's Director
+        // was down would be answered as that computer's owner. A team key is refused under any other machine name.
+        if (device is { IsTeamKey: true } && (_teamOwnership is null || !_teamOwnership.IsDevicesOwnMachine(device, hello.MachineName)))
+        {
+            FileLog.Write($"[DirectorHub] Hello REJECTED (a team key may say Hello only from the computer it was set up on, "
+                          + $"and {hello.MachineName} is not that computer): conn={Short(Context.ConnectionId)}");
+            Context.Abort();
+            return null;
+        }
+
         var registeringCredential = AuthMiddleware.RegisteringCredential(Context.GetHttpContext());
         if (_registry.IsBoundToAnotherCredential(tenant, directorId, registeringCredential))
         {

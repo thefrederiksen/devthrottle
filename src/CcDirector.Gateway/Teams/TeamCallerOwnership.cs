@@ -199,16 +199,21 @@ public sealed class TeamCallerOwnership
     /// (<see cref="TeamLauncherCheck"/>). <c>GET /launchers</c>, the list of the whole team's launchers, is not one of
     /// them: it stays Unknown and refused.
     /// </summary>
-    internal static bool IsLauncherOwnMachineRoute(string pattern, string? method)
+    internal static bool IsLauncherOwnMachineRoute(string pattern, string? method) =>
+        IsUnder(pattern, LauncherStreamPath) || IsListed(LauncherOwnMachineRoutes, pattern, method);
+
+    /// <summary>The launcher's own-machine routes other than its stream, each of whose handlers asks
+    /// <see cref="TeamLauncherCheck"/>. A handler census test sends every one of them for a colleague's computer.</summary>
+    internal static readonly IReadOnlyList<(string Method, string Pattern)> LauncherOwnMachineRoutes = new[]
     {
-        if (IsUnder(pattern, LauncherStreamPath))
-            return true;
-        var post = string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase);
-        var delete = string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase);
-        return (post && string.Equals(pattern, "/launchers/register", StringComparison.Ordinal))
-            || (post && string.Equals(pattern, "/launchers/{machine}/heartbeat", StringComparison.Ordinal))
-            || (delete && string.Equals(pattern, "/launchers/{machine}", StringComparison.Ordinal));
-    }
+        ("POST", "/launchers/register"),
+        ("POST", "/launchers/{machine}/heartbeat"),
+        ("DELETE", "/launchers/{machine}"),
+    };
+
+    private static bool IsListed(IReadOnlyList<(string Method, string Pattern)> routes, string pattern, string? method) =>
+        routes.Any(r => string.Equals(r.Method, method, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(r.Pattern, pattern, StringComparison.Ordinal));
 
     /// <summary>
     /// THE ROUTES OF A DIRECTOR'S OWN RESTART RECORD, ON THE WAY DOWN AND BACK UP (devthrottle_internal#2829), and its
@@ -219,23 +224,21 @@ public sealed class TeamCallerOwnership
     /// and a record that names no Director - a workspace written by hand - because it cannot be shown to be anyone's.
     /// Deleting a record is not one of these, and stays Unknown and refused.
     /// </summary>
-    internal static bool IsRestartRecordRouteOfOwnDirector(string pattern, string? method)
-    {
-        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
-            return string.Equals(pattern, "/gateway/workspaces/{id}", StringComparison.Ordinal);
-        if (string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase))
-            return string.Equals(pattern, "/gateway/workspaces/{id}", StringComparison.Ordinal);
-        return string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) && RestartRecordPosts.Contains(pattern);
-    }
+    internal static bool IsRestartRecordRouteOfOwnDirector(string pattern, string? method) =>
+        IsListed(RestartRecordRoutes, pattern, method);
 
-    private static readonly IReadOnlySet<string> RestartRecordPosts = new HashSet<string>(StringComparer.Ordinal)
+    /// <summary>The restart record routes, each of whose handlers refuses a Director that is not the caller's own. A
+    /// handler census test sends every one of them for a colleague's record or Director.</summary>
+    internal static readonly IReadOnlyList<(string Method, string Pattern)> RestartRecordRoutes = new[]
     {
-        "/gateway/workspaces",
-        "/gateway/workspaces/crash-records",
-        "/gateway/workspaces/{id}/restore",
-        "/gateway/workspaces/{id}/restore/marks",
-        "/gateway/workspaces/{id}/restore/dev-reports",
-        Api.RepoStateEndpoints.Path,
+        ("GET", "/gateway/workspaces/{id}"),
+        ("PUT", "/gateway/workspaces/{id}"),
+        ("POST", "/gateway/workspaces"),
+        ("POST", "/gateway/workspaces/crash-records"),
+        ("POST", "/gateway/workspaces/{id}/restore"),
+        ("POST", "/gateway/workspaces/{id}/restore/marks"),
+        ("POST", "/gateway/workspaces/{id}/restore/dev-reports"),
+        ("POST", Api.RepoStateEndpoints.Path),
     };
 
     /// <summary>The launcher's command stream.</summary>
@@ -253,9 +256,11 @@ public sealed class TeamCallerOwnership
     /// <item>The computer is the one that key's own device row was enrolled on - written when the person set the
     /// Director up, signed in, and never by the launcher. Another member's computer, or a computer no key of the
     /// caller's was set up on, is refused.</item>
-    /// <item>Every Director of the team known on that computer is the caller's own (<see cref="OwnerOf"/>). A launcher
-    /// row is one per computer in a tenant, so a launcher for a computer a colleague's Director also reports would be
-    /// the one asked to restart the colleague's Director.</item>
+    /// <item>No other person holds an active device row on that computer in this team, and every Director of the team
+    /// known on it now is the caller's own (<see cref="OwnerOf"/>). A launcher row is one per computer in a tenant, so a
+    /// launcher for a computer a colleague's Director also reports would be the one asked to restart the colleague's
+    /// Director. The device rows are the durable answer - a colleague's computer stays theirs while their Director is
+    /// down, which is exactly the Smart Restart window (review finding 1); the live Directors are checked as well.</item>
     /// </list>
     /// Personal tenants never reach this. Personally identifying: the person is never logged.
     /// </summary>
@@ -274,6 +279,8 @@ public sealed class TeamCallerOwnership
             why = "its key was not set up for a Director";
         else if (_devices.DisplayOfDevice(device.DeviceId) is not { } row || !SameMachine(row.MachineName, machine))
             why = "the computer is not the one its key's Director was set up on";
+        else if (AnotherPersonHasRowOnMachine(tenant, machine!, device.AccountSubject))
+            why = "another person's computer in this team carries that name";
         else
         {
             foreach (var director in _directors.ListDirectors(tenant))
@@ -297,14 +304,34 @@ public sealed class TeamCallerOwnership
         return TeamLauncherCheck.Refusal;
     }
 
+    /// <summary>Whether a person other than <paramref name="person"/> - or a row naming nobody - holds an active device
+    /// row in <paramref name="tenant"/> on <paramref name="machine"/>.</summary>
+    private bool AnotherPersonHasRowOnMachine(TenantId tenant, string machine, string person) =>
+        _devices.PeopleWithActiveRowsOnMachineInTenant(tenant, machine)
+            .Any(p => p is null || !string.Equals(p, person, StringComparison.Ordinal));
+
     /// <summary>
-    /// WHOSE A COMPUTER IS inside a team (devthrottle_internal#2829), by the rule <see cref="TeamMachineGuard"/> keeps:
-    /// the caller's own when at least one Director of the team is known on it and every one of them is the caller's;
-    /// someone else's when one of them is another person's; Unknown when no Director of the team is known on it, or one
-    /// on it is nobody's.
+    /// WHOSE A COMPUTER IS inside a team (devthrottle_internal#2829). The DURABLE answer comes first, from the team's
+    /// active device rows named for that computer (review finding 1): someone else's when any of them is another
+    /// person's, Unknown when one names nobody or none is the caller's. Then the live Directors on it, as a further
+    /// condition: Unknown when none is known on it or one is nobody's, someone else's when one is another person's. The
+    /// caller's own only when both answers say so. A colleague's computer therefore stays theirs while their Director
+    /// is down, and a Director that reported itself onto it is not enough.
     /// </summary>
     private TeamOwnership OwnerOfMachine(TenantId tenant, string machine, string callerSubject)
     {
+        var people = _devices.PeopleWithActiveRowsOnMachineInTenant(tenant, machine);
+        if (people.Any(p => p is not null && !string.Equals(p, callerSubject, StringComparison.Ordinal)))
+        {
+            FileLog.Write($"[TeamCallerOwnership] Whose: machine={machine} in tenant {tenant.ToLogString()} - another person's device row names it, someone else's");
+            return TeamOwnership.SomeoneElses;
+        }
+        if (people.Count == 0 || people.Any(p => p is null))
+        {
+            FileLog.Write($"[TeamCallerOwnership] Whose: machine={machine} in tenant {tenant.ToLogString()} - no device row of the caller's names it, or one names nobody, unknown");
+            return TeamOwnership.Unknown;
+        }
+
         var onIt = _directors.ListDirectors(tenant).Where(d => SameMachine(d.MachineName, machine)).ToList();
         if (onIt.Count == 0)
         {
@@ -545,6 +572,40 @@ public sealed class TeamCallerOwnership
     /// for Director <paramref name="directorId"/> (<see cref="DeviceRegistry.AnotherPersonHoldsActiveKeyForDirectorInTenant"/>).
     /// A team key's Hello is refused when it does (#3552 review, S2-F5).
     /// </summary>
+    /// <summary>
+    /// Whether a team key's Director may say Hello as running on <paramref name="machine"/>: only the computer its own
+    /// device row was enrolled on (devthrottle_internal#2829, review finding 1). A Director's machine name is written by
+    /// the client in its Hello, and the computer answers who may reach its launcher, so a Director that reported itself
+    /// onto a colleague's computer would be answered as that computer's owner.
+    /// </summary>
+    public bool IsDevicesOwnMachine(DeviceCredentialIdentity device, string? machine)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        var row = _devices.DisplayOfDevice(device.DeviceId);
+        var same = row is not null && SameMachine(row.MachineName, machine);
+        FileLog.Write($"[TeamCallerOwnership] IsDevicesOwnMachine: machine={machine} - {(same ? "its own device row's computer" : "NOT its own device row's computer")}");
+        return same;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="directorId"/> is <paramref name="person"/>'s by the DURABLE record (devthrottle_internal#2829,
+    /// review finding 2): the live answer (<see cref="OwnerOf"/>) when the Director is registered now; otherwise the person
+    /// holds an active row in the team enrolled for it and no other person does - which is how a Director that has said
+    /// goodbye, and whose new process has not yet said Hello, is still known to be the person's.
+    /// </summary>
+    public bool IsPersonsDirectorDurably(TenantId tenant, string? person, string? directorId)
+    {
+        if (string.IsNullOrWhiteSpace(person) || string.IsNullOrWhiteSpace(directorId))
+            return false;
+        if (string.Equals(OwnerOf(tenant, directorId), person, StringComparison.Ordinal))
+            return true;
+        var durable = _directors.RegisteringCredentialOf(tenant, directorId) is null
+            && _devices.PersonHoldsActiveKeyForDirectorInTenant(tenant, person, directorId)
+            && !_devices.AnotherPersonHoldsActiveKeyForDirectorInTenant(tenant, person, directorId);
+        FileLog.Write($"[TeamCallerOwnership] IsPersonsDirectorDurably: director={directorId} in tenant {tenant.ToLogString()} - by the device rows {(durable ? "the person's" : "not shown to be the person's")}");
+        return durable;
+    }
+
     public bool IsAnotherPersonsDirector(TenantId tenant, string person, string directorId) =>
         _devices.AnotherPersonHoldsActiveKeyForDirectorInTenant(tenant, person, directorId);
 
@@ -645,6 +706,13 @@ public sealed class TeamCaller
     public bool OwnsDirector(string? directorId) =>
         Person is not null && !string.IsNullOrWhiteSpace(directorId)
         && string.Equals(_ownership.OwnerOf(Tenant, directorId), Person, StringComparison.Ordinal);
+
+    /// <summary>Whether <paramref name="directorId"/> is one of the caller's own Directors by the durable record - the
+    /// live answer, or, while that Director is not registered, the team's device rows
+    /// (<see cref="TeamCallerOwnership.IsPersonsDirectorDurably"/>). For a Director's own restart records, which are read
+    /// on the way back up before the new process may have said Hello.</summary>
+    public bool OwnsDirectorDurably(string? directorId) =>
+        _ownership.IsPersonsDirectorDurably(Tenant, Person, directorId);
 
     /// <summary>Whether <paramref name="directorId"/> is the calling key's own Director.</summary>
     public bool IsKeyDirector(string? directorId) =>

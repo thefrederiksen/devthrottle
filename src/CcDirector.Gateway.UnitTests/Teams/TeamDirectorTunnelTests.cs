@@ -108,7 +108,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
 
     /// <summary>A Director says Hello under <paramref name="directorId"/> on <paramref name="key"/>, authenticated exactly
     /// as the auth middleware leaves it. Whether it was accepted is the caller's to assert.</summary>
-    private Connected SayHello(string key, string directorId)
+    private Connected SayHello(string key, string directorId, string machine = "M")
     {
         var resolution = _devices.ResolveCredential(key);
         Assert.Equal(DeviceCredentialResolutionKind.Active, resolution.Kind);
@@ -119,7 +119,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         var hub = new DirectorHub(_store, _directors, InputStatsHandle.Available(_inputStats), _streams,
             tenantBoundary: _boundary, connections: _connections, sessionTurns: _turns, sessionKeys: _sessionKeys,
             teamOwnership: new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys)) { Context = ctx };
-        hub.Hello(new DirectorStreamHello { DirectorId = directorId, MachineName = "M", User = "u", Version = "1", Pid = 1, StartedAt = DateTime.UtcNow });
+        hub.Hello(new DirectorStreamHello { DirectorId = directorId, MachineName = machine, User = "u", Version = "1", Pid = 1, StartedAt = DateTime.UtcNow });
         return new Connected(hub, ctx);
     }
 
@@ -225,6 +225,22 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         // Nothing was bound, so Alice's own Director takes its own id, and is its owner's.
         var alice = SayHello(EnrolledKey(Alice, "director-alice", _teamA), "director-alice");
         Assert.False(alice.Context.Aborted);
+        Assert.Equal(new[] { "director-alice" }, Directors(_teamA));
+    }
+
+    // Shows: a team Director says Hello only from the computer its own device row was set up on. Reporting itself onto
+    // another computer - a colleague's, while the colleague's Director is down - is refused and binds nothing, so the
+    // computer's owner is never answered from a name the client wrote (devthrottle_internal#2829, review finding 1).
+    [Fact]
+    public void ATeamKey_SayingHelloFromAnotherComputerThanItsOwnRow_IsRefusedAndBindsNothing()
+    {
+        var key = EnrolledKey(Alice, "director-alice", _teamA);
+
+        var moved = SayHello(key, "director-alice", "BOB-PC");
+
+        Assert.True(moved.Context.Aborted);
+        Assert.Empty(Directors(_teamA));
+        Assert.False(SayHello(key, "director-alice", " m ").Context.Aborted);
         Assert.Equal(new[] { "director-alice" }, Directors(_teamA));
     }
 

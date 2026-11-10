@@ -11,6 +11,10 @@ public enum TeamMethods
 
     /// <summary>Every method but GET and HEAD - changing something.</summary>
     Write,
+
+    /// <summary>PUT only - replacing a stored thing. Unlike <see cref="Write"/> it does not cover DELETE, so a rule that
+    /// opens saving a record does not also open deleting it (devthrottle_internal#2829, review finding 5).</summary>
+    Replace,
 }
 
 /// <summary>What an endpoint acts on inside the team.</summary>
@@ -70,6 +74,7 @@ public sealed record TeamEndpointRule(string Prefix, TeamMethods Methods, TeamAc
         var isRead = HttpMethodIsRead(method);
         if (Methods == TeamMethods.Read && !isRead) return false;
         if (Methods == TeamMethods.Write && isRead) return false;
+        if (Methods == TeamMethods.Replace && !string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase)) return false;
         if (string.Equals(pattern, Prefix, StringComparison.Ordinal)) return true;
         return !Exact && pattern.StartsWith(Prefix.EndsWith('/') ? Prefix : Prefix + "/", StringComparison.Ordinal);
     }
@@ -274,9 +279,11 @@ public static class TeamEndpointRules
         // A member's own Director's restart record, on the way down and back up (devthrottle_internal#2829): the capture,
         // the saves of its drain, reading the record, a crash record, the restore and what the restore did. Each names its
         // Director in the body or keeps it on the stored record, so the endpoint checks that every one is the caller's own
-        // (TeamCallerOwnership.IsRestartRecordRouteOfOwnDirector). Deleting a record and writing one by hand stay refused.
+        // (TeamCallerOwnership.IsRestartRecordRouteOfOwnDirector). Reading a record and saving it are declared on their own,
+        // so deleting a record (DELETE /gateway/workspaces/{id}) is covered by no rule and refused by declaration.
         new TeamEndpointRule("/gateway/workspaces", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
-        new TeamEndpointRule("/gateway/workspaces/{id}", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/{id}", TeamMethods.Read, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/gateway/workspaces/{id}", TeamMethods.Replace, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
         new TeamEndpointRule("/gateway/workspaces/crash-records", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
         new TeamEndpointRule("/gateway/workspaces/{id}/restore", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
         new TeamEndpointRule("/gateway/workspaces/{id}/restore/marks", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),

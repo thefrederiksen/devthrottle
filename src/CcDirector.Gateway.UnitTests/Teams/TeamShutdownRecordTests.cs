@@ -406,6 +406,58 @@ public sealed class TeamShutdownRecordTests : IAsyncLifetime
             _ => _ownership.Whose(_teamA, Carol, pattern, _ => null, method)).Outcome);
     }
 
+    // ---- review finding 2: the way back up before the new Director's Hello -------------------------------------------
+
+    // Shows: a team Director that has said goodbye, and whose new process has not yet said Hello, still reads the
+    // record its shutdown left - its device row is the durable record that the Director is Alice's. A colleague still
+    // cannot read it. Before, the read asked only the connected Directors and was refused in that window.
+    [Fact]
+    public async Task WayUp_BeforeTheNewDirectorsHello_TheOwnRecordIsStillRead()
+    {
+        var downKey = _devices.RegisterForTenant(_teamA, Alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA.Value, Alice, "director-alice-down"), "ALICE-PC").DeviceKey;
+        _store.Create(new WorkspaceDocument { Id = "alice-down", Name = "alice-down", DirectorId = "director-alice-down" }, HelloAt);
+        Assert.Null(_directors.Get(_teamA, "director-alice-down"));
+
+        var read = await SendAsync(HttpMethod.Get, "/gateway/workspaces/alice-down", downKey);
+
+        Assert.Equal(HttpStatusCode.OK, read.Status);
+        Assert.Equal("director-alice-down", read.Body.GetProperty("directorId").GetString());
+        AssertTeamRefusal(await SendAsync(HttpMethod.Get, "/gateway/workspaces/alice-down", _bobKey));
+    }
+
+    // ---- handler census: every restart record route the gate lets through is checked by its handler -------------------
+
+    public static IEnumerable<object[]> RecordRoutes() =>
+        TeamCallerOwnership.RestartRecordRoutes.Select(r => new object[] { r.Method, r.Pattern });
+
+    // Shows: for every restart record route the gate answers as the caller's for the endpoint to check, the endpoint
+    // does check - Alice sending it for Bob's record or Bob's Director is refused. A route added to the list without a
+    // handler check fails here, and so does a route listed here that the census does not know how to send.
+    [Theory]
+    [MemberData(nameof(RecordRoutes))]
+    public async Task Census_EveryRecordRouteTheGateLetsThrough_IsRefusedForAColleaguesDirector(string method, string pattern)
+    {
+        Assert.Equal(HttpStatusCode.Created, (await CaptureAsync(_bobKey, "bob-census", "director-bob")).Status);
+        var path = pattern.Replace("{id}", "bob-census", StringComparison.Ordinal);
+        object body = (method, pattern) switch
+        {
+            ("GET", "/gateway/workspaces/{id}") => new { },
+            ("PUT", "/gateway/workspaces/{id}") => _store.Get("bob-census")!,
+            ("POST", "/gateway/workspaces") => new WorkspaceCaptureRequest { Id = "bob-census-2", Name = "x", DirectorId = "director-bob", Reason = "smart shutdown" },
+            ("POST", "/gateway/workspaces/crash-records") => new WorkspaceCrashRecordRequest
+                { Id = WorkspaceCrashRecords.IdFor(Journal("director-bob")), DirectorId = "director-bob", Journal = Journal("director-bob") },
+            ("POST", "/gateway/workspaces/{id}/restore") => new WorkspaceRestoreRequest { DirectorId = "director-bob" },
+            ("POST", "/gateway/workspaces/{id}/restore/marks") => new WorkspaceRestoreMark { DirectorId = "director-bob", Kind = WorkspaceRestoreMarkKinds.Finished },
+            ("POST", "/gateway/workspaces/{id}/restore/dev-reports") => new WorkspaceDevReportPassRequest { DirectorId = "director-bob", SeatSessionId = "seat-1" },
+            ("POST", RepoStateEndpoints.Path) => new RepoStatePushRequest { DirectorId = "director-bob", MachineName = "BOB-PC" },
+            _ => throw new InvalidOperationException($"the census does not know how to send {method} {pattern}; add it here"),
+        };
+
+        AssertTeamRefusal(await SendAsync(new HttpMethod(method), path, _aliceKey, method == "GET" ? null : body));
+        Assert.Null(_store.Get("bob-census-2"));
+    }
+
     // ---- personal accounts unchanged ---------------------------------------------------------------------------------
 
     // Shows: on a person's own account the capture and the save are exactly as before.

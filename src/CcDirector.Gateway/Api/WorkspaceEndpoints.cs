@@ -112,7 +112,7 @@ internal static class WorkspaceEndpoints
         foreach (var directorId in directorIds)
         {
             var director = directorId();
-            if (team.OwnsDirector(director))
+            if (team.OwnsDirectorDurably(director))
                 continue;
             FileLog.Write($"[WorkspaceEndpoints] {what} REFUSED in a team: director={director ?? "(none)"} is not shown to be the caller's own");
             return Results.Json(new { error = TeamRecordRefusal, code = Teams.TeamEndpointGate.RefusalCode },
@@ -403,7 +403,7 @@ internal static class WorkspaceEndpoints
         app.MapGet("/gateway/workspaces", (HttpContext ctx) =>
         {
             var team = TeamCallerOf(ctx, teamCaller);
-            var workspaces = team is null ? store.List() : store.List(team.OwnsDirector);
+            var workspaces = team is null ? store.List() : store.List(team.OwnsDirectorDurably);
             FileLog.Write($"[WorkspaceEndpoints] list: count={workspaces.Count}{(team is null ? "" : ", in a team: captured from the caller's own Directors only")}");
             return Results.Json(new { workspaces });
         });
