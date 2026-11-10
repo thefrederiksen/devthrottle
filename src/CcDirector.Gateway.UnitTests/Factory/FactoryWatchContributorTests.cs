@@ -477,6 +477,56 @@ public sealed class FactoryWatchContributorTests
     }
 
     [Fact]
+    public void View_OwnerView_NoStepIsAPlainCrate()
+    {
+        var view = FactoryWatchFold.View(Factory(), EveryOutcomeAndAMachineProblem(), false, Day, Utc, FactoryWatchAudience.Owner);
+
+        Assert.NotEmpty(view.Steps);
+        Assert.All(view.Steps, s => Assert.False(s.Plain));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void View_ContributorView_PlainExactlyWhenTheStepIsNotTheirs(bool wholeFactory)
+    {
+        var view = View(Factory(), EveryOutcomeAndAMachineProblem(), new FactoryWatchContributorScope(wholeFactory, Machines));
+
+        Assert.NotEmpty(view.Steps);
+        Assert.All(view.Steps, s => Assert.Equal(!wholeFactory, s.Plain));
+        Assert.All(view.Steps, s => Assert.Equal(!s.Mine, s.Plain));
+    }
+
+    [Theory]
+    [InlineData(FactoryWatchAudience.Owner)]
+    [InlineData(FactoryWatchAudience.Contributor)]
+    public void View_WithSteps_OffersWatchWhatHappenedLast(FactoryWatchAudience audience)
+    {
+        var rows = EveryOutcomeAndAMachineProblem();
+        var view = audience == FactoryWatchAudience.Owner
+            ? FactoryWatchFold.View(Factory(), rows, false, Day, Utc, FactoryWatchAudience.Owner)
+            : View(Factory(), rows, new FactoryWatchContributorScope(true, Machines));
+
+        Assert.NotEmpty(view.Steps);
+        Assert.Equal("Watch what happened last", view.ReplayText);
+    }
+
+    [Theory]
+    [InlineData(FactoryWatchAudience.Owner)]
+    [InlineData(FactoryWatchAudience.Contributor)]
+    public void View_NoSteps_OffersNoReplay(FactoryWatchAudience audience)
+    {
+        var none = Array.Empty<FactoryActivityDto>();
+        var view = audience == FactoryWatchAudience.Owner
+            ? FactoryWatchFold.View(Factory(), none, false, Day, Utc, FactoryWatchAudience.Owner)
+            : View(Factory(), none, new FactoryWatchContributorScope(true, Machines));
+
+        Assert.Empty(view.Steps);
+        Assert.Null(view.ReplayText);
+        Assert.NotNull(view.EmptyText);
+    }
+
+    [Fact]
     public void StepKind_NoActivityOutcome_MapsToWaiting()
     {
         Assert.DoesNotContain(FactoryWatchStepKind.Waiting, FactoryActivityOutcome.All.Select(FactoryWatchFold.StepKind));

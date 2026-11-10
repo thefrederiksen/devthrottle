@@ -95,6 +95,11 @@ public sealed class FactoryWatchViewDto
 
     /// <summary>What the view rests on, in plain sentences.</summary>
     public List<string> Notes { get; set; } = new();
+
+    /// <summary>The words of the big button a quiet floor opens with: "Watch what happened last" when there are steps to
+    /// replay, null when there are none. The player opens on the live floor and offers the replay only when this is
+    /// set; it never writes the words itself.</summary>
+    public string? ReplayText { get; set; }
 }
 
 /// <summary>One seat's station on the floor.</summary>
@@ -187,6 +192,12 @@ public sealed class FactoryWatchStepDto
     /// <see cref="FactoryWatchStepKind.Hiccup"/> in the OWNER view. False for every other step, and for every step in
     /// the contributor view, hiccups included. The player draws the tone from this and never decides it by audience.</summary>
     public bool Alarm { get; set; }
+
+    /// <summary>The Gateway's verdict on whether the step is drawn as a plain crate with no words: true only for a
+    /// CONTRIBUTOR-view step that is not the contributor's own work. False for every owner step and for the
+    /// contributor's own. The player draws the plain crate from this and never decides it from <see cref="Mine"/>
+    /// or by audience.</summary>
+    public bool Plain { get; set; }
 
     /// <summary>How many empty checks the step stands for: at least 1 for <see cref="FactoryWatchStepKind.CheckedNothing"/>,
     /// 0 for every other kind.</summary>

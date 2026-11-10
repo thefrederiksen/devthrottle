@@ -111,6 +111,7 @@ public static class FactoryWatchFold
             view.Steps.Add(Step(run, seatIds[run[0].FactoryAgent], window, zone));
 
         view.EmptyText = view.Steps.Count == 0 ? $"Nothing happened in this factory {FactoryAgentsFold.WindowPhrase(window, zone)}." : null;
+        view.ReplayText = ReplayText(view.Steps);
         view.TruncatedText = windowTruncated
             ? $"This window holds more than {windowRows.Count} rows; only the first {windowRows.Count} are shown. Choose a shorter window."
             : null;
@@ -174,6 +175,12 @@ public static class FactoryWatchFold
         return (FactoryAgentsFold.EmptyCheckRuns(seatRows), ownerActs, unregistered);
     }
 
+    /// <summary>The words of the button a quiet floor opens with (approved design choice, version one).</summary>
+    internal const string WatchWhatHappenedLast = "Watch what happened last";
+
+    /// <summary>The replay button's words: offered only when there is something to replay.</summary>
+    private static string? ReplayText(IReadOnlyList<FactoryWatchStepDto> steps) => steps.Count > 0 ? WatchWhatHappenedLast : null;
+
     private static string RunKind(IReadOnlyList<FactoryActivityDto> run) =>
         run.Count > 1 ? FactoryWatchStepKind.CheckedNothing : StepKind(run[0].Outcome);
 
@@ -196,6 +203,7 @@ public static class FactoryWatchFold
             Words = FactoryWatchWords.ForOwner(run),
             EmptyChecks = kind == FactoryWatchStepKind.CheckedNothing ? run.Count : 0,
             Alarm = kind == FactoryWatchStepKind.Hiccup,
+            Plain = false, // the owner sees every step as it is: never a plain crate
         };
     }
 
@@ -275,9 +283,11 @@ public static class FactoryWatchFold
                 EmptyChecks = kind == FactoryWatchStepKind.CheckedNothing ? run.Count : 0,
                 Mine = mine,
                 Alarm = false, // a contributor's hiccup has no red tone (piece 3 rule); never an alarm in this view
+                Plain = !mine, // other people's work: a plain crate with no words
             });
         }
         view.EmptyText = view.Steps.Count == 0 ? $"Nothing happened in your factory {FactoryAgentsFold.WindowPhrase(window, zone)}." : null;
+        view.ReplayText = ReplayText(view.Steps);
 
         FileLog.Write($"[FactoryWatchFold] ContributorView: factory={factory.Factory}, wholeFactory={scope.WholeFactory}, steps={view.Steps.Count}, " +
                       $"mine={view.Steps.Count(s => s.Mine)}, waiting={view.Steps.Count(s => s.Kind == FactoryWatchStepKind.Waiting)}, " +

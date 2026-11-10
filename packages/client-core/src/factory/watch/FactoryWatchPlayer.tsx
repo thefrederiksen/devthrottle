@@ -30,6 +30,7 @@ import {
   SLOW_MOTION,
   type Speed,
   cameraBox,
+  atLiveEdge,
   initialPlayback,
   playbackReducer,
 } from "./watchPlayback";
@@ -59,7 +60,7 @@ const boxText = (b: Box) => `${b.x.toFixed(1)} ${b.y.toFixed(1)} ${b.w.toFixed(1
 export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
   const timeline = useMemo(() => buildTimeline(view), [view]);
   const world = useMemo(() => worldBox(view), [view]);
-  const [pb, dispatch] = useReducer(playbackReducer, undefined, initialPlayback);
+  const [pb, dispatch] = useReducer(playbackReducer, timeline, initialPlayback);
   const scene = sceneAt(view, timeline, pb.t);
   const followed = pb.follow ? (scene.poses.find((p) => p.seat === pb.follow) ?? null) : null;
   const target = cameraBox(world, pb, followed);
@@ -196,7 +197,7 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
           </span>
         )}
       </header>
-      {typeof view.truncatedText === "string" && <p className="fwp-truncated">{view.truncatedText}</p>}
+      {view.truncatedText !== null && <p className="fwp-truncated">{view.truncatedText}</p>}
 
       <div className="fwp-body">
         <div
@@ -244,6 +245,13 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
           {view.emptyText !== null && (
             <div className="fwp-empty" data-testid="fwp-empty">
               {view.emptyText}
+            </div>
+          )}
+          {view.replayText !== null && atLiveEdge(pb, timeline) && (
+            <div className="fwp-replay-last">
+              <button type="button" onClick={() => dispatch({ type: "restart" })}>
+                {view.replayText}
+              </button>
             </div>
           )}
           <div className="fwp-zoom">
@@ -352,7 +360,7 @@ export function FactoryWatchPlayer({ view }: FactoryWatchPlayerProps) {
               );
             })}
           </ol>
-          {view.notes !== undefined && view.notes.length > 0 && (
+          {view.notes.length > 0 && (
             <ul className="fwp-notes">
               {view.notes.map((n) => (
                 <li key={n}>{n}</li>

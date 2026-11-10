@@ -9,9 +9,10 @@ namespace CcDirector.Gateway.Tests.Factory;
 
 /// <summary>
 /// "Watch your factory", piece 5: the contract guard between the watch fold and the player. A fixed sample of
-/// factories is folded through <see cref="FactoryWatchFold"/> for the owner and serialized exactly as the Gateway
-/// answers (web JSON); the result must equal the committed fixture the player's own tests load
-/// (packages/client-core/src/factory/watch/factoryWatchView.fixture.json). A field added to, renamed in or removed from
+/// factories is folded through <see cref="FactoryWatchFold"/> for each audience and serialized exactly as the Gateway
+/// answers (web JSON); each result must equal the committed fixture the player's own tests load - the owner's
+/// factoryWatchView.fixture.json and the contributor's factoryWatchView.contributor.fixture.json, both in
+/// packages/client-core/src/factory/watch. Neither is written by hand. A field added to, renamed in or removed from
 /// the watch DTOs fails here until the fixture - and with it the TypeScript types, whose tests read the same file - is
 /// changed in the same pull request. So the C# and TypeScript shapes cannot drift apart silently.
 ///
@@ -38,11 +39,12 @@ public sealed class FactoryWatchContractFixtureTests
     /// <summary>The actor of a trigger's empty check, so consecutive ones fold into one run of checks.</summary>
     private const string MailCheck = "trigger:mail-check";
 
-    private static FactoryActivityDto Row(string factory, string agent, string outcome, string what, DateTime at, string actor = "session:fixture") => new()
+    private static FactoryActivityDto Row(string factory, string agent, string outcome, string what, DateTime at, string actor = "session:fixture",
+        string? forContributor = null) => new()
     {
         Id = new Guid($"00000000-0000-0000-0000-{++_nextId:D12}"),
         Factory = factory, FactoryAgent = agent, What = what, Outcome = outcome, Actor = actor,
-        OccurredUtc = at, RecordedUtc = at,
+        OccurredUtc = at, RecordedUtc = at, ForContributor = forContributor,
     };
 
     /// <summary>A Boss and five workers, so a hub, with one step of every kind and a run of empty checks.</summary>
@@ -117,6 +119,48 @@ public sealed class FactoryWatchContractFixtureTests
         return FactoryWatchFold.View(factory, Array.Empty<FactoryActivityDto>(), false, Day, TimeZoneInfo.Utc, FactoryWatchAudience.Owner);
     }
 
+    /// <summary>The machine names the contributor's words are checked against.</summary>
+    private static readonly string[] Machines = { "SOREN_NORTH" };
+
+    /// <summary>
+    /// A photo factory a contributor watches: one step of every kind a contributor sees, including a failure written by
+    /// a trigger (a machine problem, so "waiting its turn") and the seat's own failure (a hiccup, which carries no alarm
+    /// in this view). Two rows carry a contributor sentence; one row names the machine in its owner text, which must
+    /// never reach the contributor.
+    /// </summary>
+    private static FactoryWatchViewDto Contributor(bool wholeFactory)
+    {
+        var factory = new RegisteredFactoryDto
+        {
+            Factory = "photos", Title = "Photo factory", Folder = @"D:\factories\photos", Computer = "SOREN_NORTH",
+            BossSeat = "boss",
+            Seats =
+            {
+                Seat("boss", "Boss", "Plans and hands out"),
+                Seat("website-desk", "Website Desk", "Builds the site"),
+                Seat("mail-desk", "Mail Desk", "Reads the mail"),
+                Seat("photo-desk", "Photo Desk", "Prepares the photos"),
+                Seat("checker", "Checker", "Checks the site"),
+                Seat("writer", "Writer", "Writes the replies"),
+            },
+        };
+        var t = Now.AddHours(-10);
+        var rows = new List<FactoryActivityDto>
+        {
+            Row("photos", "boss", FactoryActivityOutcome.Started, "Boss started the Photo Desk on SOREN_NORTH.", t,
+                forContributor: "Your factory has started work on your photos."),
+            Row("photos", "mail-desk", FactoryActivityOutcome.NothingToDo, "Checked the mail - nothing to do", t.AddMinutes(3), MailCheck),
+            Row("photos", "mail-desk", FactoryActivityOutcome.NothingToDo, "Checked the mail - nothing to do", t.AddMinutes(6), MailCheck),
+            Row("photos", "photo-desk", FactoryActivityOutcome.Failed, "No free workbench for the Photo Desk.", t.AddMinutes(8), "trigger:photo-start"),
+            Row("photos", "writer", FactoryActivityOutcome.Talked, "The Writer asked the Boss about the captions.", t.AddMinutes(12)),
+            Row("photos", "checker", FactoryActivityOutcome.Failed, "The site check could not open the gallery page.", t.AddMinutes(20)),
+            Row("photos", "website-desk", FactoryActivityOutcome.Done, "The Website Desk published version 22.", t.AddMinutes(30),
+                forContributor: "A new version of your website is live."),
+        };
+        return FactoryWatchFold.View(factory, rows, false, Day, TimeZoneInfo.Utc, FactoryWatchAudience.Contributor,
+            new FactoryWatchContributorScope(wholeFactory, Machines));
+    }
+
     private static string Serialized()
     {
         _nextId = 0;
@@ -126,16 +170,50 @@ public sealed class FactoryWatchContractFixtureTests
             ["lines"] = Lines(),
             ["empty"] = Empty(),
         };
-        return JsonSerializer.Serialize(sample, Web).Replace("\r\n", "\n") + "\n";
+        return ToJson(sample);
     }
 
-    private static string FixturePath([CallerFilePath] string thisFile = "")
+    /// <summary>
+    /// The contributor's samples. Version one decides "own" for the whole factory, so one fold is either all the
+    /// contributor's own work ("own": a factory sent to them by name) or all other people's ("shared"); the player is
+    /// tested against both.
+    /// </summary>
+    private static string SerializedForContributor()
+    {
+        _nextId = 0;
+        var sample = new Dictionary<string, FactoryWatchViewDto>
+        {
+            ["own"] = Contributor(wholeFactory: true),
+            ["shared"] = Contributor(wholeFactory: false),
+        };
+        return ToJson(sample);
+    }
+
+    private static string ToJson(Dictionary<string, FactoryWatchViewDto> sample) =>
+        JsonSerializer.Serialize(sample, Web).Replace("\r\n", "\n") + "\n";
+
+    private static string FixturePath(string name = "factoryWatchView.fixture.json", [CallerFilePath] string thisFile = "")
     {
         // this file: <repo>/src/CcDirector.Gateway.UnitTests/Factory/<this>.cs
         var root = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", "..", ".."));
         var folder = Path.Combine(root, "packages", "client-core", "src", "factory", "watch");
         Assert.True(Directory.Exists(folder), $"Resolved the repository root to {root}, but it has no {folder}. Run the suite from a checkout.");
-        return Path.Combine(folder, "factoryWatchView.fixture.json");
+        return Path.Combine(folder, name);
+    }
+
+    /// <summary>Rewrites the fixture when asked to, then requires the committed file to equal what the Gateway writes.</summary>
+    private static void AssertFixtureEquals(string path, string actual)
+    {
+        if (Environment.GetEnvironmentVariable("CC_WRITE_WATCH_FIXTURE") == "1")
+            File.WriteAllText(path, actual);
+
+        Assert.True(File.Exists(path), $"The player's fixture {path} is missing. Run this test once with CC_WRITE_WATCH_FIXTURE=1 to write it.");
+        var committed = File.ReadAllText(path).Replace("\r\n", "\n");
+
+        Assert.True(committed == actual,
+            "The watch view the Gateway serializes no longer matches the player's fixture " + path + ". " +
+            "A watch DTO or the fold changed; run this test with CC_WRITE_WATCH_FIXTURE=1, then make factoryWatchTypes.ts " +
+            "match and run client-core's tests. The Gateway now writes:\n" + actual);
     }
 
     [Fact]
@@ -143,19 +221,48 @@ public sealed class FactoryWatchContractFixtureTests
     {
         // Arrange
         var path = FixturePath();
-        var actual = Serialized();
-        if (Environment.GetEnvironmentVariable("CC_WRITE_WATCH_FIXTURE") == "1")
-            File.WriteAllText(path, actual);
 
         // Act
-        Assert.True(File.Exists(path), $"The player's fixture {path} is missing. Run this test once with CC_WRITE_WATCH_FIXTURE=1 to write it.");
-        var committed = File.ReadAllText(path).Replace("\r\n", "\n");
+        var actual = Serialized();
 
         // Assert
-        Assert.True(committed == actual,
-            "The watch view the Gateway serializes no longer matches the player's fixture " + path + ". " +
-            "A watch DTO or the fold changed; run this test with CC_WRITE_WATCH_FIXTURE=1, then make factoryWatchTypes.ts " +
-            "match and run client-core's tests. The Gateway now writes:\n" + actual);
+        AssertFixtureEquals(path, actual);
+    }
+
+    [Fact]
+    public void ContributorWatchView_SerializedForThePlayer_EqualsTheCommittedContributorFixture()
+    {
+        // Arrange
+        var path = FixturePath("factoryWatchView.contributor.fixture.json");
+
+        // Act
+        var actual = SerializedForContributor();
+
+        // Assert
+        AssertFixtureEquals(path, actual);
+    }
+
+    [Fact]
+    public void ContributorFixture_CoversEveryContributorKind_OwnAndOthersWork_AndNoMachineName()
+    {
+        // Arrange
+        _nextId = 0;
+        var own = Contributor(wholeFactory: true);
+        var shared = Contributor(wholeFactory: false);
+
+        // Act
+        var kinds = own.Steps.Select(s => s.Kind).Distinct().OrderBy(k => k).ToArray();
+        var json = SerializedForContributor();
+
+        // Assert: the player's contributor tests draw every kind, their own work and other people's, from this file.
+        Assert.Equal(FactoryWatchStepKind.AllForContributor.OrderBy(k => k).ToArray(), kinds);
+        Assert.All(own.Steps, s => Assert.True(s.Mine));
+        Assert.All(shared.Steps, s => Assert.False(s.Mine));
+        Assert.All(own.Steps, s => Assert.False(s.Plain));
+        Assert.All(shared.Steps, s => Assert.True(s.Plain));
+        Assert.All(own.Steps.Concat(shared.Steps), s => Assert.False(s.Alarm));
+        Assert.Equal("Watch what happened last", own.ReplayText);
+        Assert.DoesNotContain("SOREN_NORTH", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

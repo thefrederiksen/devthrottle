@@ -7,12 +7,15 @@ import { ANIMATIONS, IDLE_LAMP, LAMP, LEAD_IN, STEP_GAP, STEP_SECONDS, buildTime
 const samples = fixture as unknown as Record<string, FactoryWatchView>;
 const hub = samples.hub;
 const lines = samples.lines;
-const contributor = contributorFixture as unknown as FactoryWatchView;
+const contributorSamples = contributorFixture as unknown as Record<string, FactoryWatchView>;
+// The contributor's own work, and other people's: version one decides "own" for the whole factory, so two samples.
+const contributor = contributorSamples.own;
+const shared = contributorSamples.shared;
 
-/** The scene part-way through the first step of this kind (and, when given, this mine flag). */
-function midStep(view: FactoryWatchView, kind: FactoryWatchStepKind, at = 0.5, mine?: boolean) {
+/** The scene part-way through the first step of this kind. */
+function midStep(view: FactoryWatchView, kind: FactoryWatchStepKind, at = 0.5) {
   const timeline = buildTimeline(view);
-  const ts = timeline.steps.find((s) => s.step.kind === kind && (mine === undefined || s.step.mine === mine))!;
+  const ts = timeline.steps.find((s) => s.step.kind === kind)!;
   const t = ts.start + (ts.end - ts.start) * at;
   return { scene: sceneAt(view, timeline, t), ts };
 }
@@ -131,7 +134,7 @@ describe("sceneAt: each step kind has its one animation", () => {
     for (const scene of scenes) {
       const pose = scene.poses.find((p) => p.seat === ts.step.seat)!;
       expect(pose).toMatchObject({ animation: "hiccup", wires: false });
-      expect(["surprised", "shrug"]).toContain(pose.expression);
+      expect(["peek", "shrug"]).toContain(pose.expression);
       expect(scene.smoke).toBeNull();
       expect(scene.lamps[station]).toBe(IDLE_LAMP);
       expect(Object.values(scene.lamps)).not.toContain(LAMP.hiccup);
@@ -149,11 +152,12 @@ describe("sceneAt: each step kind has its one animation", () => {
     expect(Object.values(scene.lamps)).not.toContain(LAMP.hiccup);
   });
 
-  it("a step that is not the contributor's: a plain crate at the bench, no words, no lamp, whatever its kind", () => {
-    for (const kind of ["delivered", "talked"] as const) {
-      const { scene, ts } = midStep(contributor, kind, 0.4, false);
+  it("a step the view marks plain (not the contributor's): a plain crate at the bench, no words, no lamp, whatever its kind", () => {
+    for (const kind of ["delivered", "talked", "hiccup"] as const) {
+      const { scene, ts } = midStep(shared, kind, 0.4);
+      expect(ts.step.plain).toBe(true);
       const pose = scene.poses.find((p) => p.seat === ts.step.seat)!;
-      const home = contributor.characters.find((c) => c.seat === ts.step.seat)!;
+      const home = shared.characters.find((c) => c.seat === ts.step.seat)!;
 
       expect(pose).toMatchObject({ animation: "plain-crate", carry: "plain" });
       expect(pose.x).toBeCloseTo(iso(home.homeGx, home.homeGy)[0]);
@@ -164,7 +168,8 @@ describe("sceneAt: each step kind has its one animation", () => {
   });
 
   it("the contributor's own delivery is drawn as any delivery: the starred crate", () => {
-    const { scene, ts } = midStep(contributor, "delivered", 0.25, true);
+    const { scene, ts } = midStep(contributor, "delivered", 0.25);
+    expect(ts.step.plain).toBe(false);
     expect(scene.poses.find((p) => p.seat === ts.step.seat)).toMatchObject({ animation: "delivered", carry: "crate" });
   });
 

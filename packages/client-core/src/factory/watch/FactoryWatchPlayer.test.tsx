@@ -8,8 +8,10 @@ import { iso } from "./watchScene";
 
 const samples = fixture as unknown as Record<string, FactoryWatchView>;
 const hub = samples.hub;
-const contributor = contributorFixture as unknown as FactoryWatchView;
-const allViews: Record<string, FactoryWatchView> = { ...samples, contributor };
+const contributorSamples = contributorFixture as unknown as Record<string, FactoryWatchView>;
+const own = contributorSamples.own;
+const shared = contributorSamples.shared;
+const allViews: Record<string, FactoryWatchView> = { ...samples, "contributor own": own, "contributor shared": shared };
 
 // The player's clock is requestAnimationFrame. Here a frame runs only when a test asks for one, so every assertion
 // sees an exact playback time and nothing depends on the machine's speed.
@@ -76,8 +78,8 @@ describe("FactoryWatchPlayer", () => {
   for (const kind of FACTORY_WATCH_STEP_KINDS) {
     it(`a ${kind} step plays its animation on the seat it names`, () => {
       // Arrange
-      const view = Object.values(allViews).find((v) => v.steps.some((s) => s.kind === kind && s.mine !== false))!;
-      const index = view.steps.findIndex((s) => s.kind === kind && s.mine !== false);
+      const view = Object.values(allViews).find((v) => v.steps.some((s) => s.kind === kind && !s.plain))!;
+      const index = view.steps.findIndex((s) => s.kind === kind && !s.plain);
       const step = view.steps[index];
       const { container } = render(<FactoryWatchPlayer view={view} />);
 
@@ -127,10 +129,9 @@ describe("FactoryWatchPlayer", () => {
     fireEvent.click(container.querySelector('.fwp-character[data-seat="checker"]')!);
     expect(state().follow).toBe("checker");
 
-    runFrame(16);
-    runFrame(2000);
+    // The player opens at the live edge, so an instant replay replays the last step.
     fireEvent.click(button("Instant replay"));
-    expect(state()).toMatchObject({ speed: "0.25", follow: hub.steps[0].seat });
+    expect(state()).toMatchObject({ speed: "0.25", follow: hub.steps[hub.steps.length - 1].seat });
     expect(Number(state().zoom)).toBeGreaterThan(1);
 
     fireEvent.click(button("From the start"));
@@ -152,9 +153,10 @@ describe("FactoryWatchPlayer", () => {
     expect(container.querySelectorAll(".fwp-step")).toHaveLength(hub.steps.length);
   });
 
-  it("contributor: a step that is not theirs is a plain crate with no words, in the list and on the floor", () => {
+  it("contributor: a step the view marks plain is a plain crate with no words, in the list and on the floor", () => {
+    const contributor = shared;
     const { container } = render(<FactoryWatchPlayer view={contributor} />);
-    const index = contributor.steps.findIndex((s) => s.mine === false && s.kind === "talked");
+    const index = contributor.steps.findIndex((s) => s.plain && s.kind === "talked");
 
     fireEvent.click(container.querySelectorAll(".fwp-step .fwp-step-main")[index]);
     // A frame advances playback by at most a tenth of a second; eight of them bring the crate up.
@@ -168,7 +170,20 @@ describe("FactoryWatchPlayer", () => {
     expect(container.querySelector('[data-effect="bubble"]')).toBeNull();
   });
 
+  it("an owner step is never a plain crate, though the owner view sends mine false on every step", () => {
+    const { container } = render(<FactoryWatchPlayer view={hub} />);
+    const index = hub.steps.findIndex((s) => s.kind === "delivered");
+    expect(hub.steps.every((s) => !s.mine && !s.plain)).toBe(true);
+
+    fireEvent.click(container.querySelectorAll(".fwp-step .fwp-step-main")[index]);
+    for (let i = 0; i < 8; i++) runFrame(100);
+
+    expect(container.querySelector('[data-glyph="plain-crate"]')).toBeNull();
+    expect(container.querySelector(`.fwp-character[data-seat="${hub.steps[index].seat}"]`)!.getAttribute("data-animation")).toBe("delivered");
+  });
+
   it("a hiccup with no alarm draws no smoke and no wires on the floor", () => {
+    const contributor = own;
     const { container } = render(<FactoryWatchPlayer view={contributor} />);
     const index = contributor.steps.findIndex((s) => s.kind === "hiccup");
     expect(contributor.steps[index].alarm).toBe(false);
@@ -183,16 +198,48 @@ describe("FactoryWatchPlayer", () => {
   });
 
   it("contributor: no notes and no truncated sentence are drawn when the view has none", () => {
-    const { container } = render(<FactoryWatchPlayer view={contributor} />);
+    const { container } = render(<FactoryWatchPlayer view={own} />);
     expect(container.querySelector(".fwp-notes")).toBeNull();
     expect(container.querySelector(".fwp-truncated")).toBeNull();
   });
 
-  it("an empty view shows the view's own empty sentence", () => {
+  it("an empty view shows the view's own empty sentence, and offers no replay", () => {
     const empty = samples.empty;
-    render(<FactoryWatchPlayer view={empty} />);
+    const { container } = render(<FactoryWatchPlayer view={empty} />);
     expect(screen.getByTestId("fwp-empty").textContent).toBe(empty.emptyText);
     expect(button("Instant replay")).toHaveProperty("disabled", true);
+    expect(empty.replayText).toBeNull();
+    expect(container.querySelector(".fwp-replay-last")).toBeNull();
+  });
+
+  for (const name of ["hub", "contributor own"]) {
+    it(`${name}: opens on the live floor at rest, with the view's replay button; the button plays from the start`, () => {
+      // Arrange
+      const view = allViews[name];
+      const { container } = render(<FactoryWatchPlayer view={view} />);
+      const state = () => ({ ...root(container).dataset });
+      runFrame(16);
+
+      // Assert: live, at the end of the timeline, nobody animating, the button in the view's own words.
+      expect(state()).toMatchObject({ live: "true", playing: "true" });
+      expect(Number(state().t)).toBeGreaterThan(0);
+      expect([...container.querySelectorAll(".fwp-character")].every((g) => g.getAttribute("data-animation") === "")).toBe(true);
+      const replay = button(view.replayText!);
+      expect(replay.closest(".fwp-replay-last")).not.toBeNull();
+
+      // Act
+      fireEvent.click(replay);
+
+      // Assert: back to the start, and the button steps aside while the replay plays.
+      expect(state().t).toBe("0.00");
+      expect(container.querySelector(".fwp-replay-last")).toBeNull();
+    });
+  }
+
+  it("the replay button's words are the view's, never the player's own", () => {
+    render(<FactoryWatchPlayer view={{ ...hub, replayText: "See the last run again" }} />);
+    expect(button("See the last run again")).not.toBeNull();
+    expect(screen.queryByText("Watch what happened last")).toBeNull();
   });
 
   it("the truncated sentence, when the view sends one", () => {
@@ -215,7 +262,8 @@ describe("FactoryWatchPlayer", () => {
         view.window.label,
         view.emptyText ?? "",
         view.truncatedText ?? "",
-        ...(view.notes ?? []),
+        view.replayText ?? "",
+        ...view.notes,
         ...view.stations.flatMap((s) => [s.label, s.sub]),
         ...view.lines.map((l) => l.name),
         ...view.characters.map((c) => c.name),

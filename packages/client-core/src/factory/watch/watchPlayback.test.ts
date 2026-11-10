@@ -1,61 +1,65 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./factoryWatchView.fixture.json";
 import type { FactoryWatchView } from "./factoryWatchTypes";
-import { FAST, FOLLOW_ZOOM, MAX_ZOOM, NORMAL, SLOW_MOTION, cameraBox, initialPlayback, playbackReducer } from "./watchPlayback";
+import { FAST, FOLLOW_ZOOM, MAX_ZOOM, NORMAL, SLOW_MOTION, atLiveEdge, cameraBox, initialPlayback, playbackReducer } from "./watchPlayback";
 import { buildTimeline, worldBox } from "./watchScene";
 
 const hub = (fixture as unknown as Record<string, FactoryWatchView>).hub;
 const timeline = buildTimeline(hub);
 const world = worldBox(hub);
+/** Playback rewound to the start, as after From the start. */
+const fromStart = () => ({ ...initialPlayback(timeline), t: 0 });
 
 describe("playbackReducer", () => {
-  it("starts playing from the start, live, at normal speed, showing the whole floor", () => {
-    expect(initialPlayback()).toMatchObject({ t: 0, playing: true, live: true, speed: NORMAL, zoom: 1, follow: null });
+  it("opens on the live floor: at the end of the timeline, live and playing, at normal speed, showing the whole floor", () => {
+    expect(initialPlayback(timeline)).toMatchObject({ t: timeline.total, playing: true, live: true, speed: NORMAL, zoom: 1, follow: null });
+    expect(atLiveEdge(initialPlayback(timeline), timeline)).toBe(true);
+    expect(atLiveEdge(fromStart(), timeline)).toBe(false);
   });
 
   it("tick advances time by the speed", () => {
-    const s = playbackReducer({ ...initialPlayback(), speed: SLOW_MOTION }, { type: "tick", dt: 1, timeline });
+    const s = playbackReducer({ ...fromStart(), speed: SLOW_MOTION }, { type: "tick", dt: 1, timeline });
     expect(s.t).toBeCloseTo(0.25);
   });
 
   it("pause stops time, play starts it again", () => {
-    const paused = playbackReducer(initialPlayback(), { type: "toggle-play", timeline });
+    const paused = playbackReducer(fromStart(), { type: "toggle-play", timeline });
     expect(paused.playing).toBe(false);
     expect(playbackReducer(paused, { type: "tick", dt: 1, timeline })).toBe(paused);
     expect(playbackReducer(paused, { type: "toggle-play", timeline }).playing).toBe(true);
   });
 
   it("live: at the end it keeps playing, so a step that arrives later plays at once", () => {
-    const end = playbackReducer({ ...initialPlayback(), t: timeline.total - 0.1 }, { type: "tick", dt: 1, timeline });
+    const end = playbackReducer({ ...fromStart(), t: timeline.total - 0.1 }, { type: "tick", dt: 1, timeline });
     expect(end).toMatchObject({ t: timeline.total, playing: true });
   });
 
   it("not live: at the end it stops, and play replays from the start", () => {
-    const end = playbackReducer({ ...initialPlayback(), live: false, t: timeline.total - 0.1 }, { type: "tick", dt: 1, timeline });
+    const end = playbackReducer({ ...fromStart(), live: false, t: timeline.total - 0.1 }, { type: "tick", dt: 1, timeline });
     expect(end).toMatchObject({ t: timeline.total, playing: false });
     expect(playbackReducer(end, { type: "toggle-play", timeline })).toMatchObject({ t: 0, playing: true });
   });
 
   it("go-live jumps to the newest step; stop-live turns live off", () => {
-    const live = playbackReducer({ ...initialPlayback(), live: false, playing: false }, { type: "go-live", timeline });
+    const live = playbackReducer({ ...fromStart(), live: false, playing: false }, { type: "go-live", timeline });
     expect(live).toMatchObject({ live: true, playing: true, t: timeline.steps[timeline.steps.length - 1].start });
     expect(playbackReducer(live, { type: "stop-live" }).live).toBe(false);
   });
 
   it("from the start: back to zero, playing, normal speed, whole floor", () => {
-    const busy = { ...initialPlayback(), t: 20, playing: false, speed: FAST, zoom: 3, follow: "boss" };
+    const busy = { ...fromStart(), t: 20, playing: false, speed: FAST, zoom: 3, follow: "boss" };
     expect(playbackReducer(busy, { type: "restart" })).toMatchObject({ t: 0, playing: true, speed: NORMAL, zoom: 1, follow: null });
   });
 
   it("slow motion and fast set the speed", () => {
-    expect(playbackReducer(initialPlayback(), { type: "speed", speed: SLOW_MOTION }).speed).toBe(SLOW_MOTION);
-    expect(playbackReducer(initialPlayback(), { type: "speed", speed: FAST }).speed).toBe(FAST);
+    expect(playbackReducer(fromStart(), { type: "speed", speed: SLOW_MOTION }).speed).toBe(SLOW_MOTION);
+    expect(playbackReducer(fromStart(), { type: "speed", speed: FAST }).speed).toBe(FAST);
   });
 
   it("instant replay: the last step that started, again, in slow motion, following its seat, zoomed in", () => {
     // Arrange: playback in the middle of the fifth step.
     const fifth = timeline.steps[4];
-    const s = { ...initialPlayback(), t: (fifth.start + fifth.end) / 2 };
+    const s = { ...fromStart(), t: (fifth.start + fifth.end) / 2 };
 
     // Act
     const replay = playbackReducer(s, { type: "instant-replay", timeline });
@@ -65,7 +69,7 @@ describe("playbackReducer", () => {
   });
 
   it("instant replay of a chosen step, and when it ends: normal speed, whole floor again", () => {
-    const replay = playbackReducer(initialPlayback(), { type: "instant-replay", timeline, index: 2 });
+    const replay = playbackReducer(fromStart(), { type: "instant-replay", timeline, index: 2 });
     expect(replay.t).toBe(timeline.steps[2].start);
 
     const after = playbackReducer({ ...replay, t: timeline.steps[2].end - 0.01 }, { type: "tick", dt: 1, timeline });
@@ -73,7 +77,7 @@ describe("playbackReducer", () => {
   });
 
   it("zoom in and out stay between the whole floor and the closest view; fit returns to the whole floor", () => {
-    let s = initialPlayback();
+    let s = fromStart();
     for (let i = 0; i < 20; i++) s = playbackReducer(s, { type: "zoom", factor: 1.4 });
     expect(s.zoom).toBe(MAX_ZOOM);
     s = playbackReducer({ ...s, follow: "boss" }, { type: "fit" });
@@ -82,7 +86,7 @@ describe("playbackReducer", () => {
   });
 
   it("follow picks a character and zooms in to it; a drag lets go of it and stays on the floor", () => {
-    const following = playbackReducer(initialPlayback(), { type: "follow", seat: "checker" });
+    const following = playbackReducer(fromStart(), { type: "follow", seat: "checker" });
     expect(following).toMatchObject({ follow: "checker", zoom: FOLLOW_ZOOM });
 
     const dragged = playbackReducer(following, { type: "pan", dx: 1e6, dy: -1e6, world });
@@ -92,8 +96,8 @@ describe("playbackReducer", () => {
   });
 
   it("seek moves time and stays on the timeline", () => {
-    expect(playbackReducer(initialPlayback(), { type: "seek", t: -5, timeline }).t).toBe(0);
-    expect(playbackReducer(initialPlayback(), { type: "seek", t: 1e6, timeline }).t).toBe(timeline.total);
+    expect(playbackReducer(fromStart(), { type: "seek", t: -5, timeline }).t).toBe(0);
+    expect(playbackReducer(fromStart(), { type: "seek", t: 1e6, timeline }).t).toBe(timeline.total);
   });
 });
 

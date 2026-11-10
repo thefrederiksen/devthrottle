@@ -22,8 +22,8 @@ export const FACTORY_WATCH_STEP_KINDS: readonly FactoryWatchStepKind[] = ["woke"
 
 /** FactoryWatchViewDto. */
 export interface FactoryWatchView {
-  /** Absent in the contributor audience. */
-  factoryId?: string;
+  /** The factory's id. Not for display. Empty in the contributor audience. */
+  factoryId: string;
   title: string;
   layout: FactoryWatchLayout;
   /** The floor's size in tiles. */
@@ -39,10 +39,13 @@ export interface FactoryWatchView {
   window: FactoryWindow;
   /** Set only when there are no steps. */
   emptyText: string | null;
-  /** Set when the window held more rows than one read returns. Absent in the contributor audience. */
-  truncatedText?: string | null;
-  /** What the view rests on, in plain sentences. Absent in the contributor audience. */
-  notes?: string[];
+  /** Set when the window held more rows than one read returns. Always null in the contributor audience. */
+  truncatedText: string | null;
+  /** What the view rests on, in plain sentences. Always empty in the contributor audience. */
+  notes: string[];
+  /** The words of the big button a quiet floor opens with ("Watch what happened last"), or null when there is nothing
+   * to replay. The player shows the button only when this is set, and never writes the words itself. */
+  replayText: string | null;
 }
 
 /** FactoryWatchStationDto: one seat's station; position and size in floor tiles. */
@@ -100,35 +103,34 @@ export interface FactoryWatchStep {
   /** True only for a hiccup in the owner's view: the player draws the red lamp and the sparking wires only then. A
    * hiccup with alarm false is drawn as a calm stumble with no red. Every audience sends it on every step. */
   alarm: boolean;
-  /** Contributor audience only: true when the step is the contributor's own crate. A step that is not theirs carries
-   * no words and is drawn as a plain crate. Absent in the owner audience. */
-  mine?: boolean;
+  /** True only for a contributor step that is not their own: drawn as a plain crate with no words. False for every
+   * owner step. */
+  plain: boolean;
+  /** Contributor audience: true when the step is the contributor's own work. Always false in the owner audience. Not
+   * read by the player, which draws from plain. */
+  mine: boolean;
 }
 
-// The exact key list of each type, for the contract test: the fields every audience sends, and the ones only some
-// do. A field missing from both lists is a compile error naming it (the `true` below stops type-checking), so these
-// lists ARE the types.
-type Keys<T> = { required: readonly (keyof T)[]; optional: readonly (keyof T)[] };
+// The exact key list of each type, for the contract test. Every audience sends every field. A field missing from a
+// list is a compile error naming it (the `true` below stops type-checking), so these lists ARE the types.
 function keys<T>() {
-  return <R extends readonly (keyof T)[], O extends readonly (keyof T)[]>(
-    required: R,
-    optional: O,
-    complete: Exclude<keyof T, R[number] | O[number]> extends never ? true : { missing: Exclude<keyof T, R[number] | O[number]> },
-  ): Keys<T> => {
+  return <K extends readonly (keyof T)[]>(
+    list: K,
+    complete: Exclude<keyof T, K[number]> extends never ? true : { missing: Exclude<keyof T, K[number]> },
+  ): readonly (keyof T)[] => {
     void complete;
-    return { required, optional };
+    return list;
   };
 }
 
 export const FACTORY_WATCH_KEYS = {
   view: keys<FactoryWatchView>()(
-    ["title", "layout", "floorWidth", "floorHeight", "stations", "lines", "characters", "steps", "window", "emptyText"] as const,
-    ["factoryId", "truncatedText", "notes"] as const,
+    ["factoryId", "title", "layout", "floorWidth", "floorHeight", "stations", "lines", "characters", "steps", "window", "emptyText", "truncatedText", "notes", "replayText"] as const,
     true,
   ),
-  station: keys<FactoryWatchStation>()(["id", "label", "sub", "isBoss", "gx", "gy", "width", "height", "line"] as const, [] as const, true),
-  line: keys<FactoryWatchLine>()(["name", "index", "gx", "gy", "width", "height"] as const, [] as const, true),
-  character: keys<FactoryWatchCharacter>()(["seat", "name", "colour", "station", "homeGx", "homeGy"] as const, [] as const, true),
-  step: keys<FactoryWatchStep>()(["key", "kind", "seat", "utc", "toUtc", "time", "words", "emptyChecks", "alarm"] as const, ["mine"] as const, true),
-  window: keys<FactoryWindow>()(["key", "label", "fromUtc", "toUtc", "fromLocal", "toLocal", "choices"] as const, [] as const, true),
+  station: keys<FactoryWatchStation>()(["id", "label", "sub", "isBoss", "gx", "gy", "width", "height", "line"] as const, true),
+  line: keys<FactoryWatchLine>()(["name", "index", "gx", "gy", "width", "height"] as const, true),
+  character: keys<FactoryWatchCharacter>()(["seat", "name", "colour", "station", "homeGx", "homeGy"] as const, true),
+  step: keys<FactoryWatchStep>()(["key", "kind", "seat", "utc", "toUtc", "time", "words", "mine", "alarm", "plain", "emptyChecks"] as const, true),
+  window: keys<FactoryWindow>()(["key", "label", "fromUtc", "toUtc", "fromLocal", "toLocal", "choices"] as const, true),
 };

@@ -178,6 +178,38 @@
   pointer-events: none;
 }
 
+/* A quiet floor opens live, with the view's big replay button low over the floor, clear of the stations. */
+.fwp-replay-last {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  max-width: 90%;
+}
+
+.fwp-replay-last button {
+  min-height: 48px;
+  padding: 12px 26px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.fwp-replay-last button:hover {
+  filter: brightness(1.08);
+}
+
+.fwp-replay-last button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
 .fwp-zoom {
   position: absolute;
   right: 8px;
@@ -359,6 +391,18 @@
 
 /* ---- narrow: the phone, or a narrow pane ---- */
 @container (max-width: 760px) {
+  /* On a phone the floor fills the stage, so the replay button sits in the empty sky above it, clear of the zoom row. */
+  .fwp-replay-last {
+    top: 10px;
+    bottom: auto;
+  }
+
+  .fwp-replay-last button {
+    min-height: 44px;
+    padding: 10px 20px;
+    font-size: 15px;
+  }
+
   .fwp-body {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:

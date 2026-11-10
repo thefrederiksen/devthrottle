@@ -12,7 +12,7 @@
 //                    character and it goes dizzy, then worried. Without the alarm: a calm stumble and a shrug, no red
 //   waiting          a calm lamp pulses, an hourglass turns and the character waits, looking about - never a failure
 //
-// And one drawing that is not a kind: a step the view marks as NOT the contributor's own (mine === false) carries no
+// And one drawing that is not a kind: a step the view marks plain (a contributor's step that is not their own) carries no
 // words and is drawn as a plain crate lifted at the seat's bench, whatever its kind - the Gateway decided it, and the
 // player draws nothing more of it.
 //
@@ -73,7 +73,7 @@ export const STEP_SECONDS: Record<FactoryWatchStepKind, (step: FactoryWatchStep)
 export const PLAIN_CRATE_SECONDS = 3;
 
 /** Whether the view marks this step as someone else's work (contributor audience only; absent for the owner). */
-export const isPlainCrate = (step: FactoryWatchStep) => step.mine === false;
+export const isPlainCrate = (step: FactoryWatchStep) => step.plain;
 
 function kindEntry<T>(map: Record<FactoryWatchStepKind, T>, step: FactoryWatchStep): T {
   if (!Object.prototype.hasOwnProperty.call(map, step.kind))
@@ -357,9 +357,9 @@ export const ANIMATIONS: Record<FactoryWatchStepKind, (c: AnimationContext) => v
 
   hiccup: ({ scene, pose, station, step, u, t }) => {
     if (!step.alarm) {
-      // The Gateway raised no alarm: a calm stumble - a small lurch that settles, then a shrug. No red, no wires.
+      // The Gateway raised no alarm: a calm stumble - a small lurch and a look round, then a shrug. No red, no wires, no mark over the head.
       scene.lamps[station.id] = IDLE_LAMP;
-      pose.expression = u < 1.2 ? "surprised" : "shrug";
+      pose.expression = u < 1.2 ? "peek" : "shrug";
       pose.x += Math.sin(u * 9) * 5 * Math.max(0, 1 - u / 1.2);
       return;
     }

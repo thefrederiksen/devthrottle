@@ -98,6 +98,18 @@ async function capture(browser, url, width, height, tag, evidence) {
   check(`${tag}: every station drawn`, fixture.stations.every((s) => drawn.stations.includes(s.id)), drawn.stations.join(","));
   check(`${tag}: every character drawn`, fixture.characters.every((c) => drawn.characters.includes(c.seat)), drawn.characters.join(","));
 
+  // ---- the quiet opening: the live floor at rest, with the view's own replay button.
+  await wait(600);
+  const replayButton = page.getByRole("button", { name: fixture.replayText, exact: true });
+  const opening = await state(page);
+  const resting = await page.locator(".fwp-character:not([data-animation=''])").count();
+  check(`${tag}: opens live at rest with '${fixture.replayText}'`, (await replayButton.count()) === 1 && opening.live === "true" && resting === 0,
+    `${JSON.stringify(opening)}, animating=${resting}`);
+  await shot("hub-quiet-opening-replay-button");
+  await replayButton.click();
+  const afterReplay = await state(page);
+  check(`${tag}: the replay button plays from the start`, Number(afterReplay.t) < 0.5 && (await replayButton.count()) === 0, JSON.stringify(afterReplay));
+
   // ---- during a step animation: jump to the talked step, let it play a moment, pause.
   await page.locator(".fwp-step[data-kind='talked'] .fwp-step-main").click();
   await wait(1200);
@@ -162,16 +174,29 @@ async function capture(browser, url, width, height, tag, evidence) {
   await wait(400);
   await shot("empty");
 
-  // ---- the contributor shape: waiting its turn, and someone else's step as a plain crate.
-  await page.goto(`${url}?contributor#contributor`);
+  // ---- the contributor's own factory: the quiet opening, waiting its turn, a hiccup with no alarm.
+  await page.goto(`${url}?contributor-own#contributor-own`);
   await page.locator(".fwp-svg").waitFor();
+  await wait(600);
+  check(`${tag}: contributor opens with the replay button`, (await page.locator(".fwp-replay-last button").count()) === 1, "replay button");
+  await shot("contributor-quiet-opening-replay-button");
+  await page.locator(".fwp-step[data-kind='hiccup'] .fwp-step-main").click();
+  await wait(700);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  check(`${tag}: a contributor hiccup has no smoke and no wires`,
+    (await page.locator("[data-effect='smoke']").count()) === 0 && (await page.locator("[data-glyph='wires']").count()) === 0, "calm hiccup");
+  await shot("contributor-step-hiccup-calm");
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await page.locator(".fwp-step[data-kind='waiting'] .fwp-step-main").click();
   await wait(1500);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   check(`${tag}: contributor waiting draws its hourglass`, (await page.locator("[data-glyph='hourglass']").count()) === 1, "hourglass");
   await shot("contributor-step-waiting");
-  await page.locator(".fwp-step").nth(3).locator(".fwp-step-main").click();
-  await page.getByRole("button", { name: "Play", exact: true }).click();
+
+  // ---- other people's work, for a contributor: plain crates with no words.
+  await page.goto(`${url}?contributor-shared#contributor-shared`);
+  await page.locator(".fwp-svg").waitFor();
+  await page.locator(".fwp-step[data-kind='talked'] .fwp-step-main").click();
   await wait(1200);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   check(`${tag}: someone else's step is a plain crate`, (await page.locator("[data-glyph='plain-crate']").count()) === 1, "plain crate");

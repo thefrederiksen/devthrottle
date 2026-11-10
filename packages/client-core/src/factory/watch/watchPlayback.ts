@@ -31,9 +31,16 @@ export interface PlaybackState {
   panY: number;
 }
 
-export function initialPlayback(): PlaybackState {
-  return { t: 0, playing: true, speed: NORMAL, live: true, replayUntil: null, zoom: MIN_ZOOM, follow: null, panX: 0, panY: 0 };
+/**
+ * How the player opens: on the live floor, at the end of the timeline with everyone at rest, waiting for new steps
+ * (approved design choice: a quiet factory opens on the live floor, with the view's replay button).
+ */
+export function initialPlayback(timeline: Pick<Timeline, "total">): PlaybackState {
+  return { t: timeline.total, playing: true, speed: NORMAL, live: true, replayUntil: null, zoom: MIN_ZOOM, follow: null, panX: 0, panY: 0 };
 }
+
+/** True when playback stands at the live edge: everything has played and the floor waits for the next step. */
+export const atLiveEdge = (s: Pick<PlaybackState, "t">, timeline: Pick<Timeline, "total">) => s.t >= timeline.total;
 
 export type PlaybackAction =
   | { type: "tick"; dt: number; timeline: Timeline }
