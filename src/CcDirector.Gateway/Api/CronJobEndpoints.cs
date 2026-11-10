@@ -75,14 +75,14 @@ internal static class CronJobEndpoints
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(refuseMachine);
-        var clock = timeProvider ?? TimeProvider.System;
-        DateTime UtcNow() => clock.GetUtcNow().UtcDateTime;
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findFactory);
         ArgumentNullException.ThrowIfNull(runRecords);
         ArgumentNullException.ThrowIfNull(accountZoneOf);
         ArgumentNullException.ThrowIfNull(isDefined);
         ArgumentNullException.ThrowIfNull(checkFolder);
+        var clock = timeProvider ?? TimeProvider.System;
+        DateTime UtcNow() => clock.GetUtcNow().UtcDateTime;
         // Issue #4351: the Boss seat of one of the calling account's factories, read from the same registration a
         // schedule's seat is checked against.
         Func<string, string?> BossOf(HttpContext ctx) => factory => findFactory(ctx, factory)?.BossSeat;

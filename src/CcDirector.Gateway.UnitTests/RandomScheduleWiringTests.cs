@@ -228,7 +228,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         {
             var expected = planned.Count(fire => fire >= bar.StartUtc && fire < bar.StartUtc.AddHours(1));
             Assert.True(expected == bar.Starts,
-                $"the hour from {bar.Label} shows {bar.Starts} starts and the plan has {expected} fires in it");
+                $"job {created.Id}: the hour from {bar.Label} shows {bar.Starts} starts and the plan has {expected} fires in it");
         }
         Assert.Equal(planned.Count(fire => fire >= machine.Hours[0].StartUtc && fire < machine.Hours[0].StartUtc.AddHours(24)),
             machine.Hours.Sum(h => h.Starts));
