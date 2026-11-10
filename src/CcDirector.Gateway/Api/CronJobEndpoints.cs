@@ -68,9 +68,15 @@ internal static class CronJobEndpoints
         // null when it may - inside a team only the caller's own computers (Teams.TeamMachineGuard); a personal account
         // is never refused. REQUIRED for the same reason as the six above. A harness with no teams passes
         // `(_, _, _) => null`.
-        Func<HttpContext, string?, string, string?> refuseMachine)
+        Func<HttpContext, string?, string, string?> refuseMachine,
+        // The clock every route reads "now" from. Null is the system clock; a test passes its own, so an answer that
+        // depends on the time of day (the load strip, a random schedule's plan) is pinned rather than left to the
+        // moment the test happens to run.
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(refuseMachine);
+        var clock = timeProvider ?? TimeProvider.System;
+        DateTime UtcNow() => clock.GetUtcNow().UtcDateTime;
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findFactory);
         ArgumentNullException.ThrowIfNull(runRecords);
@@ -139,10 +145,10 @@ internal static class CronJobEndpoints
                 return Results.BadRequest(new { error = placeError });
 
             var created = store.Create(job);
-            var stamped = Describe(CronSchedule.StampDisplay(created, DateTime.UtcNow));
+            var stamped = Describe(CronSchedule.StampDisplay(created, UtcNow()));
             stamped.LoadWarning = LoadWarningFor(stamped);
             stamped.FolderWarning = folderWarning;
-            StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
+            StampShifts(ctx, new[] { stamped }, UtcNow());
             StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped, statusCode: StatusCodes.Status201Created);
         });
@@ -153,7 +159,7 @@ internal static class CronJobEndpoints
         // kind - the current CLI and the Cockpit - sends ?include=random; anyone else sees the list as it was.
         app.MapGet("/cron/jobs", (HttpContext ctx) =>
         {
-            var now = DateTime.UtcNow;
+            var now = UtcNow();
             var include = ctx.Request.Query["include"].ToString();
             var includeRandom = IncludesRandom(include);
             var includeWindow = IncludesWindow(include);
@@ -204,7 +210,7 @@ internal static class CronJobEndpoints
                 .Distinct(StringComparer.Ordinal)
                 .Where(f => findFactory(ctx, f) is not null)
                 .ToHashSet(StringComparer.Ordinal);
-            return CronLoad.Build(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity, registered);
+            return CronLoad.Build(jobs, lengths, UtcNow(), CronLoad.DefaultCapacity, registered);
         }
 
         // The schedule is already saved when this runs, so a failure reading the forecast must not turn the saved
@@ -215,7 +221,7 @@ internal static class CronJobEndpoints
             try
             {
                 var (jobs, lengths) = ForecastInputs();
-                var warning = CronLoad.WarningFor(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity, job);
+                var warning = CronLoad.WarningFor(jobs, lengths, UtcNow(), CronLoad.DefaultCapacity, job);
                 if (warning is not null)
                     FileLog.Write($"[CronJobEndpoints] load warning for {job.Id}: {warning}");
                 return warning;
@@ -232,7 +238,7 @@ internal static class CronJobEndpoints
         string? PlaceWindow(CronJobDto job)
         {
             var (jobs, lengths) = ForecastInputs();
-            var (placed, error) = WindowSchedule.PlaceAgain(job, jobs, lengths, DateTime.UtcNow);
+            var (placed, error) = WindowSchedule.PlaceAgain(job, jobs, lengths, UtcNow());
             if (placed is null)
             {
                 FileLog.Write($"[CronJobEndpoints] place window {job.Id} '{job.Name}' REFUSED: {error}");
@@ -343,7 +349,7 @@ internal static class CronJobEndpoints
             var job = store.Get(id);
             if (job is null)
                 return Results.NotFound(new { error = "no such cron job", id });
-            var now = DateTime.UtcNow;
+            var now = UtcNow();
             var stamped = Describe(CronSchedule.StampDisplay(job, now));
             // The newest run's state in words when it went wrong (issue #4436): `schedule get` prints it.
             if (runRecords.RecordsOf(new[] { job.Id }, now).LastRuns.TryGetValue(job.Id, out var last))
@@ -382,7 +388,7 @@ internal static class CronJobEndpoints
                     || days < 1 || days > CronSchedule.MaxPlanDays))
                 return Results.BadRequest(new { error = $"days must be a whole number from 1 to {CronSchedule.MaxPlanDays}, not '{daysText}'", id });
 
-            var plan = CronSchedule.BuildPlan(job, DateTime.UtcNow, days);
+            var plan = CronSchedule.BuildPlan(job, UtcNow(), days);
             FileLog.Write($"[CronJobEndpoints] GET /cron/jobs/{id}/plan: days={days}, fires={plan.Fires.Count}");
             return Results.Json(plan);
         });
@@ -480,10 +486,10 @@ internal static class CronJobEndpoints
                 return Results.NotFound(new { error = "no such cron job", id });
             // The followers move first, so the load warning describes the night as it now is.
             var followers = RePlaceDependents(id);
-            var stamped = Describe(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
+            var stamped = Describe(CronSchedule.StampDisplay(updated, UtcNow()));
             stamped.LoadWarning = JoinWarnings(LoadWarningFor(stamped), followers);
             stamped.FolderWarning = folderWarning;
-            StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
+            StampShifts(ctx, new[] { stamped }, UtcNow());
             StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped);
         });
@@ -558,7 +564,7 @@ internal static class CronJobEndpoints
             var updated = store.Unlink(id);
             if (updated is null)
                 return Results.NotFound(new { error = "no such cron job", id });
-            var now = DateTime.UtcNow;
+            var now = UtcNow();
             var stamped = Describe(CronSchedule.StampDisplay(updated, now));
             StampShifts(ctx, new[] { stamped }, now);
             StampDefined(ctx, new[] { stamped });

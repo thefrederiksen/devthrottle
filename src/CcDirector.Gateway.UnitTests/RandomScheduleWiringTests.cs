@@ -29,6 +29,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     private CronRunHistoryStore _history = null!;
     private WebApplication _app = null!;
     private HttpClient _http = null!;
+    private readonly SettableClock _clock = new();
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -47,7 +48,8 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         CronJobEndpoints.Map(_app, _store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, _) => false,
-            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null);
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine), refuseMachine: (_, _, _) => null,
+            timeProvider: _clock);
         var engine = new CronEngine(_store, _history, new RecordingStarter(), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,
@@ -174,6 +176,15 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     public async Task Rest_Load_ForecastsTheMachineOfARandomJob_OverTwentyFourHours()
     {
         // A random schedule starts sessions like any other, so the load strip counts it.
+        //
+        // The clock is the test's own, at 06:30 in Toronto. A random job plans at least one fire in every day's window,
+        // and from 06:30 the next 24 hours (06:00 to 06:00) hold the whole of that day's 07:00 to 01:00 window, so at
+        // least one start is certain whatever id the store gives the job. This test used to read the real clock, and
+        // the claim is NOT true at every time of day: at 14:00 the forecast holds only the afternoon of today's window
+        // and the morning of tomorrow's, and a job whose fires all fall in the other halves has none in it. That is
+        // what failed it on the Windows build machine at about 14:00 Toronto time on 10 November 2026. The forecast
+        // was right; the test asked it something that is only sometimes true.
+        _clock.Fixed = TorontoTime(new DateTime(2026, 11, 10, 6, 30, 0));
         var created = _store.Create(RandomJob("load"));
 
         var resp = await _http.GetAsync("cron/load");
@@ -188,6 +199,39 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         Assert.True(machine.Hours.Sum(h => h.Starts) >= 1);
         // It has never run, so its length is a guess, and the forecast says so.
         Assert.Equal(new[] { created.Id }, machine.EstimatedJobIds);
+    }
+
+    [Theory]
+    [InlineData(0, 30)]
+    [InlineData(6, 30)]
+    [InlineData(9, 0)]
+    [InlineData(14, 0)]
+    [InlineData(14, 30)]
+    [InlineData(19, 45)]
+    [InlineData(23, 59)]
+    public async Task Rest_Load_CountsEachPlannedStartOfARandomJob_InTheHourItFalls(int hour, int minute)
+    {
+        // At any time of day the strip's starts are exactly the job's planned fires, each in the hour it falls in: no
+        // fire is lost and none is invented. The plan is read from the schedule itself (CronSchedule.RandomPlan), not
+        // from the forecast, so this is two answers agreeing, and it holds for whatever id the store gives the job.
+        var nowUtc = TorontoTime(new DateTime(2026, 11, 10, hour, minute, 0));
+        _clock.Fixed = nowUtc;
+        var created = _store.Create(RandomJob("load-" + hour + "-" + minute));
+
+        var load = JsonSerializer.Deserialize<CronLoadDto>(await _http.GetStringAsync("cron/load"), JsonOpts)!;
+
+        var machine = Assert.Single(load.Machines);
+        Assert.Equal(24, machine.Hours.Count);
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(nowUtc.UtcDateTime, Toronto));
+        var planned = CronSchedule.RandomPlan(created, today.AddDays(-1), today.AddDays(1)).Select(p => p.Utc).ToList();
+        foreach (var bar in machine.Hours)
+        {
+            var expected = planned.Count(fire => fire >= bar.StartUtc && fire < bar.StartUtc.AddHours(1));
+            Assert.True(expected == bar.Starts,
+                $"the hour from {bar.Label} shows {bar.Starts} starts and the plan has {expected} fires in it");
+        }
+        Assert.Equal(planned.Count(fire => fire >= machine.Hours[0].StartUtc && fire < machine.Hours[0].StartUtc.AddHours(24)),
+            machine.Hours.Sum(h => h.Starts));
     }
 
     [Fact]
@@ -322,6 +366,18 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     }
 
     // ---- fakes ---------------------------------------------------------------------------------------
+
+    private static readonly TimeZoneInfo Toronto = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
+
+    private static DateTimeOffset TorontoTime(DateTime local) =>
+        new(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), Toronto));
+
+    /// <summary>The clock the REST routes read. Unset, it is the real clock, which every other test here was written against.</summary>
+    private sealed class SettableClock : TimeProvider
+    {
+        public DateTimeOffset? Fixed { get; set; }
+        public override DateTimeOffset GetUtcNow() => Fixed ?? DateTimeOffset.UtcNow;
+    }
 
     private sealed class FakeClock : IClock
     {

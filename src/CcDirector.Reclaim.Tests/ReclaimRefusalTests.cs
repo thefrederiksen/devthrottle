@@ -336,7 +336,19 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         Assert.False(outcome.Gate.Eligible);
         Assert.Equal(RefusalCheck.NotCanonical, outcome.Gate.FiredCheck);
         Assert.Contains(shortPath, outcome.Gate.Reason);
-        Assert.Contains(longNamed, outcome.Gate.Reason);
+
+        // The reason names the path's resolved final form - the form the operating system acts on, which is the point
+        // of the refusal - and on Windows that is the casing stored on disk, not the casing the fixture's folder was
+        // spelled with. They differ when the profile path is spelled differently from the disk: the build machine's
+        // runner account (NETWORK SERVICE) has its profile under C:\WINDOWS\ServiceProfiles while the disk says
+        // C:\Windows, and this assertion failed there on 10 November 2026 with the product right. So the test asks
+        // the product's own resolver for the final form, proves that is the folder it made (Windows names are not
+        // case-sensitive; elsewhere the spellings must match exactly), and expects the reason to name it.
+        var finalForm = CanonicalPath.Resolve(longNamed);
+        Assert.True(
+            string.Equals(finalForm, longNamed, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal),
+            $"the final form {finalForm} should be the folder {longNamed}");
+        Assert.Contains(finalForm, outcome.Gate.Reason);
     }
 
     // -- The cannot-answer shapes, and the run's own configuration --
