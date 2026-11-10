@@ -18,6 +18,13 @@ public sealed class DirectorLogSweepTests
 {
     private static readonly DateTime Now = new(2026, 11, 9, 12, 0, 0, DateTimeKind.Utc);
     private const string Prefix = FileLog.DirectorFilePrefix;
+    /// <summary>
+    /// An ARBITRARY window, passed in explicitly, and deliberately not the product's own
+    /// <see cref="DirectorLogSweep.DefaultKeepWindow"/>. The boundary rule must hold for whatever
+    /// window it is handed, so these tests must not agree with the policy by accident. What the
+    /// shipped Director actually keeps is pinned separately, by
+    /// <see cref="Run_WithNoWindowGiven_KeepsSevenDays_ToWithinAnHour"/>.
+    /// </summary>
     private static readonly TimeSpan Window = TimeSpan.FromDays(14);
 
     private static LogFileFact Aged(string name, int daysOld, long bytes = 1024) =>
@@ -185,5 +192,61 @@ public sealed class DirectorLogSweepTests
         var missing = Path.Combine(Path.GetTempPath(), "cc-director-absent-" + Guid.NewGuid().ToString("N")[..12]);
         var plan = DirectorLogSweep.Run(missing, Prefix, null, Now, Window);
         Assert.Empty(plan.Delete);
+    }
+
+    /// <summary>
+    /// THE SHIPPED WINDOW IS SEVEN DAYS, TO WITHIN AN HOUR (the owner's ruling, 10 November 2026; it
+    /// was fourteen days when the sweep first merged).
+    ///
+    /// <para>This drives the path the Director really takes - start-up calls <c>Run</c> with no window
+    /// at all - rather than reading <see cref="DirectorLogSweep.DefaultKeepWindow"/>, because a test
+    /// that asserts a field equals itself would still pass if the application stopped using the field.
+    /// </para>
+    ///
+    /// <para>The two files straddle the horizon BY AN HOUR, which is what makes this the only test
+    /// needed. <c>Plan</c> deletes when <c>LastWriteUtc &lt; nowUtc - keepWindow</c>, so a file of age
+    /// <c>d</c> goes when <c>d</c> is STRICTLY greater than the window. The file an hour inside the
+    /// week must stay, which requires a window of at least six days twenty-three hours; the file an
+    /// hour outside it must go, which requires a window under seven days one hour. Nothing outside
+    /// that one-hour-either-side band passes, so this pins the policy on its own.</para>
+    ///
+    /// <para>An earlier version used ten days and six days, and an earlier version of this comment
+    /// then described that range with both fenceposts inverted. Ten and six also left the test
+    /// passing at six, seven, eight or nine days, so it took a second test reading the constant to
+    /// pin seven at all - and that second test could not distinguish a changed policy from an
+    /// abandoned one. One hour either side removes the need for it.</para>
+    /// </summary>
+    [Fact]
+    public void Run_WithNoWindowGiven_KeepsSevenDays_ToWithinAnHour()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-director-log-window-" + Guid.NewGuid().ToString("N")[..12]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // Timestamps are SET, never taken from the clock.
+            void Write(string name, TimeSpan age)
+            {
+                var path = Path.Combine(dir, name);
+                File.WriteAllText(path, new string('x', 1024));
+                File.SetLastWriteTimeUtc(path, Now - age);
+            }
+
+            const string anHourOutside = "director-2026-11-02-111.log";
+            const string anHourInside = "director-2026-11-02-222.log";
+            Write(anHourOutside, TimeSpan.FromDays(7) + TimeSpan.FromHours(1));
+            Write(anHourInside, TimeSpan.FromDays(7) - TimeSpan.FromHours(1));
+
+            // No keepWindow argument: this is exactly how App.axaml.cs calls it.
+            var plan = DirectorLogSweep.Run(dir, Prefix, liveFilePath: null, Now);
+
+            Assert.Equal(new[] { anHourOutside }, plan.Delete);
+            Assert.False(File.Exists(Path.Combine(dir, anHourOutside)));
+            Assert.True(File.Exists(Path.Combine(dir, anHourInside)));
+            Assert.Equal(1, plan.Kept);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
     }
 }
