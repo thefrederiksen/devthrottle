@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Watch player proof</title>
+    <link rel="stylesheet" href="/harness.css" />
+    <style>
+      /* The Cockpit's own dark theme tokens, so the player is seen as a shell would show it. */
+      :root { --bg:#0b1020; --surface:#141a2e; --surface-2:#1b2238; --border:#28304a; --text:#e6e9f2; --text-dim:#99a0b8; --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --attention:#f14c4c; }
+      html, body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      #root { padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/harness.iife.js"></script>
+  </body>
+</html>
