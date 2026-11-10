@@ -356,6 +356,12 @@ jobs:
       - name: Prove the deploy automatic rollback picks last-known-good, against fakes
         run: bash scripts/rollback-to-last-known-good.test.sh
 
+      # The deploy watch's site-state sample, proved against a fake az: a failed read is a failed read,
+      # never a state (deploy run 42752825924 failed on one), but reads that leave the state unmeasured
+      # past the bound fail as NOT MEASURED, and a real Stopped still fails.
+      - name: Prove the deploy watch tells a failed state read from a stopped site, against a fake az
+        run: bash scripts/watch-site-state.test.sh
+
       # The version comes from .nvmrc, which is also what scripts/check-node-version.mjs reads, so the
       # pinned version lives in exactly one file and a developer machine cannot quietly drift off it.
       - name: Setup Node
