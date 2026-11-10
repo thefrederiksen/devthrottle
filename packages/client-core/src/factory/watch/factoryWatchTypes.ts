@@ -46,6 +46,18 @@ export interface FactoryWatchView {
   /** The words of the big button a quiet floor opens with ("Watch what happened last"), or null when there is nothing
    * to replay. The player shows the button only when this is set, and never writes the words itself. */
   replayText: string | null;
+  /** The card a contributor reads before their FIRST watch (piece 6), or null: always null for the owner, and null once
+   * the person has pressed its button on any surface. Whether to show it is the Gateway's verdict, and every word on it
+   * is this object's - the shell shows the card exactly when this is set. */
+  explainer: FactoryWatchExplainer | null;
+}
+
+/** FactoryWatchExplainerDto: the explainer card before a contributor's first watch. The owner's approved words. */
+export interface FactoryWatchExplainer {
+  /** The card's paragraphs, in order. */
+  paragraphs: string[];
+  /** The words on its one button, which closes the card and starts the player. */
+  buttonText: string;
 }
 
 /** FactoryWatchStationDto: one seat's station; position and size in floor tiles. */
@@ -125,12 +137,13 @@ function keys<T>() {
 
 export const FACTORY_WATCH_KEYS = {
   view: keys<FactoryWatchView>()(
-    ["factoryId", "title", "layout", "floorWidth", "floorHeight", "stations", "lines", "characters", "steps", "window", "emptyText", "truncatedText", "notes", "replayText"] as const,
+    ["factoryId", "title", "layout", "floorWidth", "floorHeight", "stations", "lines", "characters", "steps", "window", "emptyText", "truncatedText", "notes", "replayText", "explainer"] as const,
     true,
   ),
   station: keys<FactoryWatchStation>()(["id", "label", "sub", "isBoss", "gx", "gy", "width", "height", "line"] as const, true),
   line: keys<FactoryWatchLine>()(["name", "index", "gx", "gy", "width", "height"] as const, true),
   character: keys<FactoryWatchCharacter>()(["seat", "name", "colour", "station", "homeGx", "homeGy"] as const, true),
   step: keys<FactoryWatchStep>()(["key", "kind", "seat", "utc", "toUtc", "time", "words", "mine", "alarm", "plain", "emptyChecks"] as const, true),
+  explainer: keys<FactoryWatchExplainer>()(["paragraphs", "buttonText"] as const, true),
   window: keys<FactoryWindow>()(["key", "label", "fromUtc", "toUtc", "fromLocal", "toLocal", "choices"] as const, true),
 };

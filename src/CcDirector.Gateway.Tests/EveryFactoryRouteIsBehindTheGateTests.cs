@@ -45,6 +45,10 @@ public sealed class EveryFactoryRouteIsBehindTheGateTests
         // answer for their account says nothing, and a 404 for one team would fail the page that shows all their teams.
         ["GET /teams/{teamId}/contributor/factories"] = "a contributor's own pages, behind ContributorFactoryAccess",
         ["GET /teams/{teamId}/contributor/factories/{factory}"] = "a contributor's own pages, behind ContributorFactoryAccess",
+        // "Watch your factory" for a contributor (version one, pieces 4 and 6): the watch view, and the person's own record
+        // that they have seen the explainer card - both through the same check, ContributorFactoryAccess.
+        ["GET /teams/{teamId}/contributor/factories/{factory}/watch"] = "a contributor's own pages, behind ContributorFactoryAccess",
+        ["POST /teams/{teamId}/contributor/factories/{factory}/watch/explainer-seen"] = "a contributor's own pages, behind ContributorFactoryAccess",
     };
 
     private static async Task<IReadOnlyList<(string Route, bool Gated)>> FactoryRoutesAsync()

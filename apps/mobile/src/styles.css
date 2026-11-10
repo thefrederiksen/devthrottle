@@ -5272,3 +5272,17 @@ a.banner-btn {
   max-width: 92%;
 }
 
+
+/* A contributor's Factories and their watch view ("Watch your factory", piece 6). The cards, the explainer card and the
+   player are client-core's own; this is only the phone's spacing around them. */
+.contributor-screen .contributor-intro,
+.contributor-screen .contributor-empty {
+  color: var(--text-dim);
+  margin: 12px 0 16px;
+}
+.contributor-screen .cfc-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+.contributor-screen .contributor-watch {
+  margin-top: 12px;
+}

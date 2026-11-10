@@ -38,6 +38,10 @@ public sealed class EveryFactoryRouteHasATeamRuleTests
         // the factory's title and the sentences its agents wrote for a contributor.
         ["GET /teams/{teamId}/contributor/factories"] = "a contributor's own customer pages, gated by ContributorFactoryAccess",
         ["GET /teams/{teamId}/contributor/factories/{factory}"] = "a contributor's own customer pages, gated by ContributorFactoryAccess",
+        // "Watch your factory" for a contributor (version one, pieces 4 and 6): the watch view, and the person's own record
+        // that they have seen the explainer card - both through the same check, ContributorFactoryAccess.
+        ["GET /teams/{teamId}/contributor/factories/{factory}/watch"] = "a contributor's own customer pages, gated by ContributorFactoryAccess",
+        ["POST /teams/{teamId}/contributor/factories/{factory}/watch/explainer-seen"] = "a contributor's own customer pages, gated by ContributorFactoryAccess",
     };
 
     private static bool IsFactoryRoute(string pattern) =>

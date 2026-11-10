@@ -38,6 +38,8 @@
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
     "./teams/CurrentTeam": "./src/teams/CurrentTeam.tsx",
     "./teams/TeamMessagesSection": "./src/teams/TeamMessagesSection.tsx",
+    "./teams/ContributorFactoryCards": "./src/teams/ContributorFactoryCards.tsx",
+    "./teams/ContributorWatchView": "./src/teams/ContributorWatchView.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
     "./devreports/DevReportList": "./src/devreports/DevReportList.tsx",
     "./devreports/DevReportViewer": "./src/devreports/DevReportViewer.tsx",

@@ -23,6 +23,13 @@ vi.mock("@devthrottle/client-core/maildesk/mailDeskClient", () => ({
     return mailDeskRead.answer;
   }),
 }));
+// A contributor's Factories entry ("Watch your factory", piece 6) follows the Gateway's page list for the person's teams.
+// Unstaged, the person has no team.
+const teamsRead = vi.hoisted(() => ({ teams: [] as unknown[] }));
+vi.mock("@devthrottle/client-core/teams/teamsClient", async (importActual) => ({
+  ...(await importActual<object>()),
+  getMyTeams: vi.fn(async () => ({ kind: "teams", teams: teamsRead.teams, start: { where: "own-account" } })),
+}));
 vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual) => ({
   ...(await importActual<typeof import("@devthrottle/client-core/errors/reportClientError")>()),
   reportClientError: vi.fn(),
@@ -31,6 +38,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import { reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { resetMailDeskEntryCache } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
+import { forgetMyTeamsRead } from "@devthrottle/client-core/teams/useMyTeamsWithPage";
 import { NavDrawer } from "./NavDrawer";
 
 const MAIL_DESK_LIST = { kind: "channels", envelope: { count: 0, channels: [], title: "t", summary: "s", emptyLabel: "e" } };
@@ -60,7 +68,26 @@ afterEach(() => {
   mailDeskRead.answer = null;
   mailDeskRead.calls = 0;
   resetMailDeskEntryCache();
+  teamsRead.teams = [];
+  forgetMyTeamsRead();
   vi.mocked(reportClientError).mockClear();
+});
+
+describe("NavDrawer - a contributor's Factories (piece 6)", () => {
+  it("NavDrawer_OneTeamNamesTheFactoriesPage_OffersItUnderTheGatewaysLabel", async () => {
+    teamsRead.teams = [
+      {
+        id: "acme", name: "Acme", role: "Contributor", memberCount: 2, people: "2 people",
+        app: { full: false, pages: [{ id: "factories", label: "Factories~odd", path: "/contributor/factories", countPath: null }], landing: "/contributor/factories", elsewhere: "x" },
+      },
+    ];
+
+    openMenu();
+
+    const entry = await screen.findByTestId("drawer-contributor-factories");
+    expect(entry.textContent).toBe("Factories~odd");
+    expect(entry.getAttribute("href")).toBe("/contributor/factories");
+  });
 });
 
 describe("NavDrawer", () => {

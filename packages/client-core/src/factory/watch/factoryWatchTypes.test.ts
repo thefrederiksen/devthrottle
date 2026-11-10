@@ -22,6 +22,7 @@ function expectViewShape(view: FactoryWatchView) {
   for (const l of view.lines) expect(keysOf(l)).toEqual(sorted(FACTORY_WATCH_KEYS.line));
   for (const c of view.characters) expect(keysOf(c)).toEqual(sorted(FACTORY_WATCH_KEYS.character));
   for (const s of view.steps) expect(keysOf(s)).toEqual(sorted(FACTORY_WATCH_KEYS.step));
+  if (view.explainer !== null) expect(keysOf(view.explainer)).toEqual(sorted(FACTORY_WATCH_KEYS.explainer));
 }
 
 function expectValueTypes(view: FactoryWatchView) {
@@ -82,5 +83,17 @@ describe("the watch view contract", () => {
   it("between them the samples cover every step kind the player animates", () => {
     const kinds = new Set([...Object.values(owner), ...Object.values(contributor)].flatMap((v) => v.steps.map((s) => s.kind)));
     expect([...kinds].sort()).toEqual([...FACTORY_WATCH_STEP_KINDS].sort());
+  });
+});
+
+describe("the explainer card (piece 6)", () => {
+  it("EveryFixture_CarriesNoExplainer_BecauseTheFoldNeverSetsOne", () => {
+    // Only the contributor route sets it, from the person's own record; the fold the fixtures come from never does.
+    for (const view of [...Object.values(owner), ...Object.values(contributor)]) expect(view.explainer).toBeNull();
+  });
+
+  it("TheExplainersKeys_AreTheOnesTheGatewaySends", () => {
+    // The Gateway's ContributorWatchTests read these two names off the route's JSON; here the type must declare exactly them.
+    expect(sorted(FACTORY_WATCH_KEYS.explainer)).toEqual(["buttonText", "paragraphs"]);
   });
 });

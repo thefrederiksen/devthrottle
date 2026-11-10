@@ -261,7 +261,8 @@
     "notes": [
       "Each character is one seat of this factory. What it does comes from the factory's activity record; only the walking and the timing are drawn."
     ],
-    "replayText": "Watch what happened last"
+    "replayText": "Watch what happened last",
+    "explainer": null
   },
   "lines": {
     "factoryId": "books",
@@ -458,7 +459,8 @@
     "notes": [
       "Each character is one seat of this factory. What it does comes from the factory's activity record; only the walking and the timing are drawn."
     ],
-    "replayText": "Watch what happened last"
+    "replayText": "Watch what happened last",
+    "explainer": null
   },
   "empty": {
     "factoryId": "quiet",
@@ -541,6 +543,7 @@
     "notes": [
       "Each character is one seat of this factory. What it does comes from the factory's activity record; only the walking and the timing are drawn."
     ],
-    "replayText": null
+    "replayText": null,
+    "explainer": null
   }
 }

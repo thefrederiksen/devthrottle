@@ -6,6 +6,8 @@ import { ColourLegendDialog } from "@devthrottle/client-core/sessions/ColourLege
 import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { useFactoryInboxOffered } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
 import { useYourInboxCount } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
+import { useMyTeamsWithPage } from "@devthrottle/client-core/teams/useMyTeamsWithPage";
+import { CONTRIBUTOR_FACTORIES_PATH, factoriesLabel } from "../pages/ContributorFactories";
 
 // The hamburger menu button + slide-in nav drawer for the mobile app-bar. Self-contained: it owns its
 // open/closed state and renders the drawer plus a dimming overlay as a fixed layer above the page.
@@ -26,6 +28,9 @@ export function NavDrawer() {
   const inboxOffered = useFactoryInboxOffered().offer === "on";
   // The Gateway's unread count of Your inbox, in its words ("3 unread"), beside the entry (Factory Inbox mission, step C).
   const inboxCount = useYourInboxCount(inboxOffered);
+  // A contributor's Factories ("Watch your factory", piece 6): offered only when one of the person's teams names the page
+  // (rule 7: the Gateway's page list), and called what that list calls it.
+  const contributorFactories = factoriesLabel(useMyTeamsWithPage("factories", "mobile-nav-drawer").teams);
 
   return (
     <>
@@ -71,6 +76,11 @@ export function NavDrawer() {
                     {inboxCount.label}
                   </span>
                 )}
+              </Link>
+            )}
+            {contributorFactories !== null && (
+              <Link className="drawer-item" to={CONTRIBUTOR_FACTORIES_PATH} onClick={close} data-testid="drawer-contributor-factories">
+                {contributorFactories}
               </Link>
             )}
             <Link className="drawer-item" to="/recorder" onClick={close}>

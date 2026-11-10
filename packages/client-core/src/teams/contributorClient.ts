@@ -12,6 +12,7 @@ import type { TeamSummary } from "./teamsClient";
 import type { TeamQuestion } from "./teamQuestionsClient";
 import { call } from "./invitationsClient";
 import { authHeaders, GatewayError, gatewayFetch, POLL_TIMEOUT_MS } from "../api/client";
+import type { FactoryWatchView } from "../factory/watch/factoryWatchTypes";
 
 /** One factory sent to the person, as a card on the Factories page. */
 export interface ContributorFactoryCard {
@@ -24,6 +25,8 @@ export interface ContributorFactoryCard {
   nowText: string | null;
   /** "1 thing needs you", or null when nothing waits on them here. */
   needsYouLabel: string | null;
+  /** The words of the card's "Watch your factory" button, which opens the watch view of this factory. */
+  watchLabel: string;
   /** The Gateway's sort key for the combined list. */
   order: string;
 }
@@ -136,6 +139,35 @@ export async function getCustomerPage(teamId: string, factory: string, signal?: 
   }
   if (!res.ok) throw await GatewayError.from(res, "load this factory");
   return (await res.json()) as CustomerPage;
+}
+
+/** GET /teams/{teamId}/contributor/factories/{factory}/watch - "Watch your factory" for one factory sent to the person,
+ *  carrying the explainer card until they have seen it; or the Gateway's refusal sentence, the same one the customer
+ *  page gives, whatever the reason. */
+export async function getContributorWatch(teamId: string, factory: string, signal?: AbortSignal): Promise<FactoryWatchView | CustomerPageRefused> {
+  const res = await gatewayFetch(
+    `${base(teamId)}/factories/${encodeURIComponent(factory)}/watch`,
+    { method: "GET", headers: { Accept: "application/json", ...authHeaders() }, signal },
+    { timeoutMs: POLL_TIMEOUT_MS },
+  );
+  if (res.status === 404) {
+    const failure = await GatewayError.from(res, "load the watch view of this factory");
+    if (failure.serverReason === null || failure.serverReason === undefined) throw failure;
+    return { refused: failure.serverReason };
+  }
+  if (!res.ok) throw await GatewayError.from(res, "load the watch view of this factory");
+  return (await res.json()) as FactoryWatchView;
+}
+
+/** POST /teams/{teamId}/contributor/factories/{factory}/watch/explainer-seen - the person pressed the explainer card's
+ *  button. The Gateway remembers it for the person, so the card is not shown again on any team, here or on the phone. */
+export async function markWatchExplainerSeen(teamId: string, factory: string): Promise<void> {
+  const res = await gatewayFetch(
+    `${base(teamId)}/factories/${encodeURIComponent(factory)}/watch/explainer-seen`,
+    { method: "POST", headers: { Accept: "application/json", ...authHeaders() } },
+    { timeoutMs: POLL_TIMEOUT_MS },
+  );
+  if (res.status !== 204) throw await GatewayError.from(res, "remember that you have read the card");
 }
 
 /** The teams whose page list names `pageId`: the teams that take part in the combined page, in the Gateway's order. */

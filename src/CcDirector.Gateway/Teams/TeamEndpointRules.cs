@@ -178,6 +178,11 @@ public static class TeamEndpointRules
         // which also refuses anyone who is not a contributor of the team; a factory it refuses is not found.
         new TeamEndpointRule(Api.ContributorEndpoints.GroupPath, TeamMethods.Read, TeamAction.AnswerQuestionsSendRequestsReadReports,
             TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The contributor's ONE write there (Watch your factory, piece 6): "I have seen the explainer card". The same row,
+        // exact, so it covers this route and nothing else under the group; the endpoint asks ContributorFactoryAccess
+        // first, and records only on the caller's own account.
+        new TeamEndpointRule(Api.ContributorEndpoints.ExplainerSeenPattern, TeamMethods.Write, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         // Sending a whole factory to a contributor, and taking it back: the team's Owner alone, the row that opens and runs
         // the team's factories. A contributor is refused.
         new TeamEndpointRule(Api.FactoryShareEndpoints.Pattern, TeamMethods.Any, Factories,

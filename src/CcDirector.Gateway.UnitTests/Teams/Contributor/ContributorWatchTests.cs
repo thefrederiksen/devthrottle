@@ -8,6 +8,7 @@ using CcDirector.Gateway.Data;
 using CcDirector.Gateway.DevReports;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Registry;
+using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
@@ -52,6 +53,8 @@ public sealed class ContributorWatchTests : IDisposable
     private readonly FactoryRegistryStore _factories;
     private readonly FactoryActivityRecord _activity;
     private readonly FactoryContributors _shares;
+    private readonly TenantSettingsStore _settings;
+    private DateTime _now = Now;
     private readonly ContributorPages _pages;
     private readonly string _acme;
     private readonly string _beta;
@@ -69,12 +72,13 @@ public sealed class ContributorWatchTests : IDisposable
         _factories = new FactoryRegistryStore(_db);
         _activity = new FactoryActivityRecord(_db);
         _shares = new FactoryContributors(_db);
+        _settings = new TenantSettingsStore(_db);
         var delivery = new DevReportDelivery(store,
             (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session in these tests"),
             (_, _) => null, CancellationToken.None, () => Now);
         var questions = new TeamQuestions(store, recipients, new DevReportPersonComments(_db), _teams, access, delivery, () => Now);
         _pages = new ContributorPages(new ContributorFactoryAccess(_teams, _factories, _shares), _shares, _activity, store, recipients,
-            questions, new TeamRequestStore(_db, _teams), _teams, _ => "UTC", () => Now);
+            questions, new TeamRequestStore(_db, _teams), _teams, new ContributorWatchExplainer(_settings, _tenants, () => _now), _ => "UTC", () => Now);
 
         _acme = _teams.CreateTeam(OwnerA, "Acme").Team!.TeamId;
         _beta = _teams.CreateTeam(OwnerB, "Beta").Team!.TeamId;
@@ -136,6 +140,18 @@ public sealed class ContributorWatchTests : IDisposable
         await result.ExecuteAsync(ctx);
         return (ctx.Response.StatusCode, Encoding.UTF8.GetString(((MemoryStream)ctx.Response.Body).ToArray()));
     }
+
+    /// <summary>What the explainer-seen route answers, as the bytes a browser receives.</summary>
+    private async Task<(int Status, string Body)> Seen(string team, string caller, string factory)
+    {
+        var result = ContributorEndpoints.ExplainerSeen(_pages, team, caller, factory);
+        var ctx = new DefaultHttpContext { RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider() };
+        ctx.Response.Body = new MemoryStream();
+        await result.ExecuteAsync(ctx);
+        return (ctx.Response.StatusCode, Encoding.UTF8.GetString(((MemoryStream)ctx.Response.Body).ToArray()));
+    }
+
+    private static JsonElement Explainer(string body) => JsonDocument.Parse(body).RootElement.GetProperty("explainer").Clone();
 
     private static List<JsonElement> Steps(string body) =>
         JsonDocument.Parse(body).RootElement.GetProperty("steps").EnumerateArray().Select(s => s.Clone()).ToList();
@@ -302,5 +318,142 @@ public sealed class ContributorWatchTests : IDisposable
         var verdict = SessionKeyGuard.Check("GET", path, raised);
 
         Assert.False(verdict.Allowed, path);
+    }
+
+    // ---------------------------------------------------------------- the explainer card (piece 6)
+
+    /// <summary>The card's words as the owner approved them on 10 November 2026, written out here on purpose: a reword in
+    /// the Gateway turns this red.</summary>
+    private static readonly string[] ApprovedParagraphs =
+    {
+        "Your factory does real work, and we take that work seriously. We also think it is fun to watch. So we drew it.",
+        "Each character is one of the workers in your factory. What it does comes from the factory's own record. Only the walking and the timing are drawn for the screen. An hour of work takes seconds.",
+        "We thought a drawing was the best way to show what goes on inside. We hope it helps.",
+    };
+
+    [Fact]
+    public async Task Watch_BeforeTheirFirstWatch_CarriesTheExplainer_InTheOwnersApprovedWords()
+    {
+        Share(_acme, "website", Mike);
+
+        var explainer = Explainer((await Get(_acme, Mike, "website")).Body);
+
+        Assert.Equal(JsonValueKind.Object, explainer.ValueKind);
+        Assert.Equal(ApprovedParagraphs, explainer.GetProperty("paragraphs").EnumerateArray().Select(p => p.GetString()!).ToArray());
+        Assert.Equal("Watch your factory", explainer.GetProperty("buttonText").GetString());
+    }
+
+    [Fact]
+    public async Task ExplainerSeen_ThenWatch_CarriesNoExplainer_OnThatTeamAndEveryOtherTeam()
+    {
+        // Arrange: Mike watches a factory in Acme and one in Beta.
+        Share(_acme, "website", Mike);
+        Share(_beta, "website", Mike);
+
+        // Act: he presses the card's button once, in Acme.
+        var (status, body) = await Seen(_acme, Mike, "website");
+
+        // Assert: recorded; the card is gone in Acme AND in Beta, because it is remembered for the person, not the team.
+        Assert.Equal(204, status);
+        Assert.Equal("", body);
+        Assert.Equal(JsonValueKind.Null, Explainer((await Get(_acme, Mike, "website")).Body).ValueKind);
+        Assert.Equal(JsonValueKind.Null, Explainer((await Get(_beta, Mike, "website")).Body).ValueKind);
+    }
+
+    [Fact]
+    public async Task ExplainerSeen_IsRememberedPerPerson_AnotherContributorStillSeesTheCard()
+    {
+        Share(_acme, "website", Mike);
+        Share(_acme, "website", Nina);
+
+        await Seen(_acme, Mike, "website");
+
+        Assert.Equal(JsonValueKind.Null, Explainer((await Get(_acme, Mike, "website")).Body).ValueKind);
+        Assert.Equal(JsonValueKind.Object, Explainer((await Get(_acme, Nina, "website")).Body).ValueKind);
+    }
+
+    [Fact]
+    public async Task ExplainerSeen_IsKeptOnThePersonsOwnAccount_AndTheFirstTimeIsNeverMoved()
+    {
+        Share(_acme, "website", Mike);
+        var mikesOwn = _tenants.LookupBySubject(Mike)!.Value;
+
+        await Seen(_acme, Mike, "website");
+        _now = Now.AddDays(3);
+        Assert.Equal(204, (await Seen(_acme, Mike, "website")).Status);
+
+        Assert.Equal(Now.ToString("O"), _settings.Get(mikesOwn, TenantSettingKeys.WatchExplainerSeenAt));
+        Assert.Null(_settings.Get(new TenantId(_acme), TenantSettingKeys.WatchExplainerSeenAt));
+    }
+
+    [Fact]
+    public async Task ExplainerSeen_EveryRefusal_AnswersTheCustomerPagesNotFound_ByteForByte_AndRecordsNothing()
+    {
+        // Arrange: the same refusals the watch view gives. Website is sent to Mike in BETA only; Acme's secret to Nina.
+        Share(_beta, "website", Mike);
+        Register(_acme, "old", "Old site");
+        Share(_acme, "old", Mike);
+        _factories.Archive(new TenantId(_acme), "old", "the owner (test)", Array.Empty<string>(), Now);
+        Share(_acme, "secret", Nina);
+        Share(_acme, "secret", Dev);
+
+        var cases = new (string Why, Func<Task<(int, string)>> Ask)[]
+        {
+            ("not sent to them", () => Seen(_acme, Mike, "secret")),
+            ("another team's factory of the same name", () => Seen(_acme, Mike, "website")),
+            ("archived", () => Seen(_acme, Mike, "old")),
+            ("the Owner", () => Seen(_acme, OwnerA, "secret")),
+            ("a team member who is not a contributor", () => Seen(_acme, Dev, "secret")),
+            ("a team that does not exist", () => Seen(NoSuchTeam, Mike, "website")),
+            ("no such factory", () => Seen(_acme, Mike, "no-such-factory")),
+        };
+        foreach (var (why, ask) in cases)
+        {
+            var (status, body) = await ask();
+            Assert.True(status == 404 && body == RefusalBody, $"{why}: {status} {body}");
+        }
+
+        // Nothing was recorded for anyone who was refused: Mike still gets the card where he may watch.
+        Assert.Equal(JsonValueKind.Object, Explainer((await Get(_beta, Mike, "website")).Body).ValueKind);
+        foreach (var who in new[] { Mike, OwnerA, Dev })
+            Assert.Null(_settings.Get(_tenants.LookupBySubject(who)!.Value, TenantSettingKeys.WatchExplainerSeenAt));
+    }
+
+    [Fact]
+    public void Factories_EveryCard_CarriesTheWatchButtonsWords()
+    {
+        Share(_acme, "website", Mike);
+
+        var json = JsonSerializer.Serialize(_pages.Factories(_acme, Mike), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        var card = JsonDocument.Parse(json).RootElement.GetProperty("factories").EnumerateArray().Single();
+        Assert.Equal("Watch your factory", card.GetProperty("watchLabel").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SessionKeyGuard_TheExplainerSeenRoute_IsRefusedToEverySessionKey(bool raised)
+    {
+        // A person-only route: a session key, raised or not, never reaches it. The guard is an allow list, so this stays
+        // true only while nobody adds the route to it.
+        var path = Regex.Replace(ContributorEndpoints.ExplainerSeenPattern, @"\{teamId\}", _acme).Replace("{factory}", "website");
+
+        var verdict = SessionKeyGuard.Check("POST", path, raised);
+
+        Assert.False(verdict.Allowed, path);
+    }
+
+    [Fact]
+    public void TeamGate_TheExplainerSeenRoute_IsTheOnlyWriteUnderTheContributorRoutes_AndOnlyExactly()
+    {
+        var seen = TeamEndpointRules.Find("POST", ContributorEndpoints.ExplainerSeenPattern);
+
+        Assert.NotNull(seen);
+        Assert.Equal(TeamAction.AnswerQuestionsSendRequestsReadReports, seen!.Action);
+        Assert.True(seen.Exact);
+        foreach (var other in new[] { ContributorEndpoints.WatchPattern, ContributorEndpoints.FactoriesPattern, ContributorEndpoints.InboxPattern,
+                     ContributorEndpoints.FactoriesPattern + "/{factory}", ContributorEndpoints.ExplainerSeenPattern + "/more" })
+            Assert.Null(TeamEndpointRules.Find("POST", other));
     }
 }

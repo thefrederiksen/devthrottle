@@ -82,7 +82,8 @@ public sealed class ContributorFactoriesAndInboxTests : IDisposable
             (_, _) => null, CancellationToken.None, () => Now);
         var questions = _questions = new TeamQuestions(_store, _recipients, comments, _teams, _access, delivery, () => Now);
         _requests = new TeamRequestStore(_db, _teams);
-        _pages = new ContributorPages(_check, _shares, _activity, _store, _recipients, questions, _requests, _teams, _ => "UTC", () => Now);
+        _pages = new ContributorPages(_check, _shares, _activity, _store, _recipients, questions, _requests, _teams,
+            new ContributorWatchExplainer(new CcDirector.Gateway.Settings.TenantSettingsStore(_db), _tenants, () => Now), _ => "UTC", () => Now);
         // The factory area is off unless switched on per account, as on a Gateway that does not grant it to every one.
         _factorySwitch = new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: false,
             new CcDirector.Gateway.Settings.TenantSettingsStore(_db), log: _ => { });

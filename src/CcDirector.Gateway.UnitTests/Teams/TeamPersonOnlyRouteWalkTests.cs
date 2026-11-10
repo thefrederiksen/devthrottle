@@ -117,7 +117,7 @@ public sealed class TeamPersonOnlyRouteWalkTests : IAsyncLifetime
             FactoryContributors: new FactoryContributors(_db),
             FactorySwitch: new CcDirector.Gateway.Factory.FactoryAgentsSwitch(machineWide: true, new CcDirector.Gateway.Settings.TenantSettingsStore(_db)),
             FactoryInbox: new CcDirector.Gateway.Factory.Inbox.FactoryInboxStore(_db, _ => CcDirector.Core.Dictation.Models.DictationDictionary.Empty),
-            FactoryInboxMessageSent: (_, _, _) => { }));
+            FactoryInboxMessageSent: (_, _, _) => { }, TenantSettings: new CcDirector.Gateway.Settings.TenantSettingsStore(_db)));
 
         _teamRoutes = ((IEndpointRouteBuilder)_app).DataSources
             .SelectMany(d => d.Endpoints)

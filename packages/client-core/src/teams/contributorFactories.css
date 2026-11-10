@@ -1,0 +1,96 @@
+/* A contributor's factory cards (Team piece 4.1, "Watch your factory" piece 6), shared by the Cockpit and the phone. Only
+ * the theme tokens both shells define; the phone has no --accent-text, so the accent stands in for it there. */
+
+.cfc-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.cfc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  border-radius: 8px;
+  padding: 16px 18px;
+  min-width: 0;
+}
+
+.cfc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+}
+.cfc-open:hover .cfc-name {
+  color: var(--accent-text, var(--accent));
+}
+
+.cfc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cfc-name {
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cfc-team {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-text, var(--accent));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.cfc-now {
+  margin-top: 4px;
+  color: var(--text-dim);
+}
+
+.cfc-pill {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* The way in to "Watch your factory": the mockup's orange, so it reads as the same button as the explainer card's. */
+.cfc-watch {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: #ff9a3c;
+  color: #1b1d26;
+  font-weight: 700;
+  text-decoration: none;
+}
+.cfc-watch:hover {
+  filter: brightness(1.06);
+}
+.cfc-watch:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}

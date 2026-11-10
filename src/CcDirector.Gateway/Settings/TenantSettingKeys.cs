@@ -382,6 +382,16 @@ public static class TenantSettingKeys
     /// </summary>
     public const string LicenseTestUsageMachine = "license_test_usage_machine";
 
+    /// <summary>
+    /// When this PERSON first pressed "Watch your factory" on the explainer card (Watch your factory, version one,
+    /// piece 6), as an ISO 8601 UTC time, on the person's OWN account - never a team's, so it holds for them across every
+    /// team, the Cockpit and the phone. Unset means they have not seen the card, and the contributor watch view carries it.
+    /// Like <see cref="DictationEmailCadence"/> it is not a setting the person edits: it is a small per-account value
+    /// that needs no table of its own. Written once and never replaced; read and written only by
+    /// <c>Teams.ContributorWatchExplainer</c>.
+    /// </summary>
+    public const string WatchExplainerSeenAt = "watch_explainer_seen_at";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -406,5 +416,6 @@ public static class TenantSettingKeys
         FactoryEmailEnabled,
         LicenseApprovers, LicenseApproverRemovals, LicenseApproverFailedChecks,
         LicenseTestUsageMachine,
+        WatchExplainerSeenAt,
     };
 }

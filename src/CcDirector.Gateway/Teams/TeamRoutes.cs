@@ -38,6 +38,7 @@ internal sealed record TeamRouteServices(
     Factory.FactoryAgentsSwitch FactorySwitch,
     Factory.Inbox.FactoryInboxStore FactoryInbox,
     Action<TenantId, string, DateTime> FactoryInboxMessageSent,
+    Settings.TenantSettingsStore TenantSettings,
     Func<DateTime>? UtcNow = null);
 
 /// <summary>
@@ -87,8 +88,10 @@ internal static class TeamRoutes
         // pages, through the one check (ContributorFactoryAccess), and only what was sent to them; and the Owner's share of
         // a whole factory with a contributor.
         var customerAccess = new ContributorFactoryAccess(s.Teams, s.Factories, s.FactoryContributors);
+        // The explainer card before a person's first watch (piece 6) is remembered on their own account.
+        var explainer = new ContributorWatchExplainer(s.TenantSettings, s.Tenants, s.UtcNow);
         ContributorEndpoints.Map(app, new ContributorPages(customerAccess, s.FactoryContributors, s.Activity, s.Reports, s.Recipients, questions,
-            s.Requests, s.Teams, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants);
+            s.Requests, s.Teams, explainer, s.TimeZoneOf, s.UtcNow), s.Boundary, s.Tenants);
         FactoryShareEndpoints.Map(app, new FactoryShares(s.Teams, s.Factories, s.FactoryContributors, s.FactorySwitch, s.UtcNow), s.Boundary, s.Tenants);
 
         FileLog.Write("[TeamRoutes] mapped every route under /teams and /team-invitations, and /account/mentor");
